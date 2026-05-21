@@ -28,10 +28,9 @@ npx expo start --web
 ## To run the development build 
 
 ## Make sure to have the following installed before you run the commands below
-```
+
 1. If using Andriod, make sure to have the <b>Android studio installed</b> as adb is requried for the native packages to run properly
 2. If using iOS, make sure to have the <b>XCode installed</b> as it is requried for the native packages to run properly
-```
 
 ### The build commands are given below
 ### iOS

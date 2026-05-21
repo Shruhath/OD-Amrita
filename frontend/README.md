@@ -2,27 +2,27 @@
 ### A platform for the coordinators, teachers and the admins to manage the ODs.
 
 # Steps to run
-`
+````
 git clone https://github.com/jimitnick/OD-Amrita.git
 
 cd frontend
 
 npm i
-`
+````
 
 ## To run and see the output in the Expo Go app
 ### iOS
-`
+```
 npx expo start --ios
-`
+```
 ### Android
-`
+```
 npx expo start --android
-`
+```
 ### Web
-`
+```
 npx expo start --web
-`
+```
 
 # To use the native packages once installed use the development build
 ## To run the development build 

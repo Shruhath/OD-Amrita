@@ -1,0 +1,47 @@
+# Local development
+.env
+.env.local
+.env.*.local
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Go
+*.o
+*.a
+*.so
+.DS_Store
+/dist
+/bin
+coverage.out
+*.test
+
+# Private/Local files
+.agent/
+.agents/
+.claude/
+_bmad/
+_bmad-logs/
+_bmad-output/
+bmad-logs/
+mydocs/
+response-output/
+
+# Build artifacts
+Makefile
+TESTING.md
+base-idea.txt
+testdata/
+
+# Environment-specific
+.env.example

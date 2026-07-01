@@ -4,11 +4,6 @@
   "private": true,
   "description": "OD-Amrita monorepo root (pnpm workspace). Surfaces: contracts, api, mobile, web.",
   "packageManager": "pnpm@11.9.0",
-  "workspaces": [
-    "contracts/generated/ts",
-    "mobile",
-    "web"
-  ],
   "scripts": {
     "contracts:generate": "make -C contracts generate"
   }

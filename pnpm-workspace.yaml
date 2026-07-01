@@ -6,6 +6,9 @@ packages:
   - contracts/generated/ts
   - mobile
   - web
+# Required, not inert: a global pnpm `minimumReleaseAge` cooldown is active, so
+# these recently-published Expo packages must be excluded or `--frozen-lockfile`
+# rejects them. pnpm auto-manages this list on install — do not remove.
 minimumReleaseAgeExclude:
   - '@expo/cli@57.0.3'
   - '@expo/fingerprint@0.20.1'

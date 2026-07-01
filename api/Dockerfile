@@ -9,6 +9,10 @@ WORKDIR /src
 COPY go.work go.work
 COPY api/ api/
 COPY contracts/ contracts/
+# go.work also `use`s ./test/skeleton (the ATDD harness); it must exist in the
+# build context or `go build` fails to load the workspace. Cheap to include —
+# it stays in the build layer only, never the final distroless image.
+COPY test/ test/
 WORKDIR /src/api
 RUN CGO_ENABLED=0 go build -o /out/api ./cmd/api \
  && CGO_ENABLED=0 go build -o /out/worker ./cmd/worker

@@ -316,8 +316,26 @@ func TestAC5_NoHttpRedirectListener(t *testing.T) {
 			return nil
 		}
 		src := string(mustReadFile(t, path))
-		if strings.Contains(src, "StatusMovedPermanently") || strings.Contains(src, `ListenAndServe(":80"`) {
-			t.Errorf("%s appears to implement an HTTP->HTTPS redirect listener; NFR15 rejects HTTP, does not redirect", path)
+		// NFR15: plain HTTP is rejected, not redirected. Catch the common
+		// HTTP->HTTPS redirect idioms — any redirect status constant, an
+		// http.Redirect call, or a plain-HTTP :80 listener (however the Addr
+		// is spelled). These constants/tokens do not appear in the skeleton's
+		// TLS-only prose comments, so they only match real redirect code.
+		forbidden := []string{
+			"StatusMovedPermanently",  // 301
+			"StatusFound",             // 302
+			"StatusSeeOther",          // 303
+			"StatusTemporaryRedirect", // 307
+			"StatusPermanentRedirect", // 308
+			"http.Redirect(",
+			`ListenAndServe(":80"`,
+			`Addr: ":80"`,
+			`Addr:":80"`,
+		}
+		for _, tok := range forbidden {
+			if strings.Contains(src, tok) {
+				t.Errorf("%s appears to implement an HTTP->HTTPS redirect listener (matched %q); NFR15 rejects HTTP, does not redirect", path, tok)
+			}
 		}
 		return nil
 	})

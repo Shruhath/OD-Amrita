@@ -1,6 +1,6 @@
 # 2. Single monorepo with a path/workspace contract
 
-- Status: accepted (placeholder — expand from architecture#Repository-Strategy)
+- Status: proposed (placeholder — expand from architecture#Repository-Strategy)
 - Date: 2026-07-01
 
 ## Context

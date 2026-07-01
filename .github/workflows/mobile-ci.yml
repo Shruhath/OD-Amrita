@@ -9,12 +9,16 @@ on:
       - "mobile/**"
       - "contracts/**"
       - "pnpm-workspace.yaml"
+      - "package.json"
+      - "pnpm-lock.yaml"
       - ".github/workflows/mobile-ci.yml"
   pull_request:
     paths:
       - "mobile/**"
       - "contracts/**"
       - "pnpm-workspace.yaml"
+      - "package.json"
+      - "pnpm-lock.yaml"
       - ".github/workflows/mobile-ci.yml"
 
 concurrency:

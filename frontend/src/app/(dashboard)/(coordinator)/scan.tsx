@@ -1,5 +1,5 @@
 import NfcManager, {NfcTech} from 'react-native-nfc-manager';
-import { Pressable, View } from "react-native";
+import { Pressable } from "react-native";
 import { ThemedText } from '@/components/themed-text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 

@@ -1,0 +1,41 @@
+# web/ CI + deploy — runs only when the web app or the contract changes.
+# Skeleton scope: install + typecheck + build. The actual deploy step (static
+# host) is wired once the surface has real content; the build proves the SPA
+# compiles green on the skeleton.
+name: web-deploy
+
+on:
+  push:
+    paths:
+      - "web/**"
+      - "contracts/**"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/web-deploy.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - "contracts/**"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/web-deploy.yml"
+
+concurrency:
+  group: web-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: pnpm install + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - name: Install workspace
+        run: pnpm install --frozen-lockfile
+      - name: Build web
+        run: pnpm --filter od-amrita-web build
+      # - name: Deploy   # wired once the SPA has real content
+      #   run: echo "deploy step lands with the first web release"

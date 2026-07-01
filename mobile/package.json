@@ -1,0 +1,25 @@
+{
+  "name": "od-amrita-mobile",
+  "version": "0.0.0",
+  "main": "index.ts",
+  "private": true,
+  "dependencies": {
+    "@od-amrita/contracts": "workspace:*",
+    "expo": "~57.0.1",
+    "expo-dev-client": "~57.0.4",
+    "expo-status-bar": "~57.0.0",
+    "react": "19.2.3",
+    "react-native": "0.86.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "start": "expo start --dev-client",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "prebuild": "expo prebuild",
+    "web": "expo start --web"
+  }
+}

@@ -1,0 +1,42 @@
+# Local dev stack for the OD-Amrita backend (skeleton). Postgres + the two api/
+# entrypoints (server + persistent River worker). Fleshed out in Stories 1.3+.
+# Build context is the repo root so the Dockerfile can see go.work + contracts/.
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: od_amrita
+      POSTGRES_USER: od_amrita
+      POSTGRES_PASSWORD: dev_only_change_me
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: ..
+      dockerfile: api/Dockerfile
+      args:
+        ENTRYPOINT_BIN: api
+    env_file:
+      - .env
+    # TLS-only (NFR15): 8443, no :80 redirect listener.
+    ports:
+      - "8443:8443"
+    depends_on:
+      - db
+
+  worker:
+    build:
+      context: ..
+      dockerfile: api/Dockerfile
+      args:
+        ENTRYPOINT_BIN: worker
+    env_file:
+      - .env
+    depends_on:
+      - db
+
+volumes:
+  db_data:

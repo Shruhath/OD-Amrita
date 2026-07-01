@@ -1,0 +1,19 @@
+# OD-Amrita API contract — SINGLE SOURCE OF TRUTH.
+#
+# This is a minimal placeholder. Spec-first authoring of the real contract is
+# Story 1.2 (spec-first OpenAPI + codegen drift-gate). Do not add endpoints here
+# until 1.2; `contracts/generated/**` is regenerated from this file and is
+# DO NOT EDIT.
+openapi: 3.1.0
+info:
+  title: OD-Amrita API
+  version: 0.0.0
+  description: >-
+    Placeholder contract for the OD-Amrita platform. The authoritative spec is
+    authored in Story 1.2; generated Go/TS clients live under generated/{go,ts}/.
+servers:
+  - url: https://api.od-amrita.example/v1
+    description: TLS-only (NFR15) — no plain-HTTP server.
+paths: {}
+components:
+  schemas: {}

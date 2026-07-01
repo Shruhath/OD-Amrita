@@ -1,0 +1,47 @@
+# api/ backend CI — runs only when the backend or the contract changes.
+# Skeleton scope: build + gofmt. golangci-lint and sqlc-compile checks are added
+# as the surface gains content (Stories 1.2+).
+name: api-ci
+
+on:
+  push:
+    paths:
+      - "api/**"
+      - "contracts/**"
+      - "go.work"
+      - ".github/workflows/api-ci.yml"
+  pull_request:
+    paths:
+      - "api/**"
+      - "contracts/**"
+      - "go.work"
+      - ".github/workflows/api-ci.yml"
+
+concurrency:
+  group: api-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: go build + gofmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: gofmt (no diffs)
+        working-directory: api
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "these files need gofmt"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: go build
+        working-directory: api
+        run: go build ./...
+      - name: go vet
+        working-directory: api
+        run: go vet ./...

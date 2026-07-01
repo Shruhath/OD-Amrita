@@ -10,12 +10,16 @@ on:
       - "web/**"
       - "contracts/**"
       - "pnpm-workspace.yaml"
+      - "package.json"
+      - "pnpm-lock.yaml"
       - ".github/workflows/web-deploy.yml"
   pull_request:
     paths:
       - "web/**"
       - "contracts/**"
       - "pnpm-workspace.yaml"
+      - "package.json"
+      - "pnpm-lock.yaml"
       - ".github/workflows/web-deploy.yml"
 
 concurrency:

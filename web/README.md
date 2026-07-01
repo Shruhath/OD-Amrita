@@ -1,32 +1,17 @@
-# React + TypeScript + Vite
+# OD-Amrita — Web (`od-amrita-web`)
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React + Vite SPA surface of the OD-Amrita monorepo. Two route trees per the
+architecture (AR15): `src/routes/portal` (authenticated admin/teacher/coordinator
+portal) and `src/routes/public` (public dashboard).
 
-Currently, two official plugins are available:
+Consumes the generated contract as a workspace package:
+`"@od-amrita/contracts": "workspace:*"` (path/workspace reference, not published).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Scripts
 
-## React Compiler
+- `pnpm --filter od-amrita-web dev` — Vite dev server
+- `pnpm --filter od-amrita-web build` — `tsc -b && vite build`
+- `pnpm --filter od-amrita-web typecheck` — `tsc --noEmit`
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+This is the skeleton scaffold; real routes, components, and the deploy step land
+in later stories.

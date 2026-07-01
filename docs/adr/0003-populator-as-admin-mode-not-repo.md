@@ -1,6 +1,6 @@
 # 3. NFC Populator is an admin-gated mode, not a separate repo
 
-- Status: accepted (placeholder — expand from architecture#Surface-4-SUPERSEDED)
+- Status: proposed (placeholder — expand from architecture#Surface-4-SUPERSEDED)
 - Date: 2026-07-01
 
 ## Context

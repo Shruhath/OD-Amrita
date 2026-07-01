@@ -12,6 +12,11 @@ services:
       - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U od_amrita -d od_amrita"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   api:
     build:
@@ -19,13 +24,17 @@ services:
       dockerfile: api/Dockerfile
       args:
         ENTRYPOINT_BIN: api
+    # .env is developer-local (gitignored); copy .env.example → .env to override.
+    # required: false so `docker compose up` works on a fresh clone without it.
     env_file:
-      - .env
+      - path: .env
+        required: false
     # TLS-only (NFR15): 8443, no :80 redirect listener.
     ports:
       - "8443:8443"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   worker:
     build:
@@ -34,9 +43,11 @@ services:
       args:
         ENTRYPOINT_BIN: worker
     env_file:
-      - .env
+      - path: .env
+        required: false
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
 volumes:
   db_data:

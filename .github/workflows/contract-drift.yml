@@ -1,0 +1,31 @@
+# Contract drift-gate — the SINGLE SOURCE OF TRUTH enforcer.
+# Regenerates the Go/TS clients from contracts/openapi.yaml and fails if the
+# checked-in generated output drifts from the spec. On the empty skeleton
+# `make generate` is a no-op stub, so this is a green no-op until Story 1.2 wires
+# real codegen.
+name: contract-drift
+
+on:
+  push:
+    paths:
+      - "contracts/**"
+      - ".github/workflows/contract-drift.yml"
+  pull_request:
+    paths:
+      - "contracts/**"
+      - ".github/workflows/contract-drift.yml"
+
+concurrency:
+  group: contract-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    name: generate && git diff --exit-code
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Regenerate contract clients (stub on skeleton)
+        run: make -C contracts generate
+      - name: Fail on generated drift
+        run: git diff --exit-code

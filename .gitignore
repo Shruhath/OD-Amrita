@@ -1,0 +1,56 @@
+# ── OD-Amrita monorepo .gitignore ─────────────────────────────────────────
+# Reconciliation note (Story 1.1): the previous root .gitignore blanket-ignored
+# `Makefile`, which would hide the legitimate surface Makefiles. Surface build
+# files (contracts/Makefile, api/Makefile) are TRACKED; only tooling/output and
+# secrets are ignored below.
+
+# ── Secrets & local env ──
+.env
+.env.local
+.env.*.local
+!.env.example
+!**/.env.example
+
+# ── IDE & editor ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ── Node / JS ──
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+dist/
+build/
+web/dist/
+
+# ── Go ──
+*.o
+*.a
+*.so
+*.test
+*.out
+/bin/
+api/bin/
+
+# ── Mobile (Expo / RN) ──
+mobile/.expo/
+mobile/android/
+mobile/ios/
+mobile/*.log
+
+# ── BMAD / agent tooling & private working dirs (not product code) ──
+.agent/
+.agents/
+.claude/
+_bmad/
+_bmad-logs/
+_bmad-output/
+bmad-logs/
+mydocs/
+response-output/
+base-idea.txt

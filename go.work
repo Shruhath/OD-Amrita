@@ -1,0 +1,10 @@
+// go.work ties the Go surfaces of the OD-Amrita monorepo together via a
+// direct workspace reference (no `go get`, no version tag) — see
+// architecture#Contract-Wiring. api/ imports contracts/generated/go directly.
+go 1.26
+
+use (
+	./api
+	./contracts/generated/go
+	./test/skeleton
+)

@@ -1,0 +1,38 @@
+# mobile/ CI — runs only when the mobile app or the contract changes.
+# Skeleton scope: install the workspace and typecheck. ESLint/Prettier and the
+# EAS build wiring are added as the surface gains content.
+name: mobile-ci
+
+on:
+  push:
+    paths:
+      - "mobile/**"
+      - "contracts/**"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/mobile-ci.yml"
+  pull_request:
+    paths:
+      - "mobile/**"
+      - "contracts/**"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/mobile-ci.yml"
+
+concurrency:
+  group: mobile-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: pnpm install + tsc --noEmit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - name: Install workspace
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck mobile
+        run: pnpm --filter od-amrita-mobile exec tsc --noEmit

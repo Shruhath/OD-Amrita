@@ -34,11 +34,16 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm ci
+        run: |
+          echo "Installing frontend dependencies..."
+          npm ci --verbose || npm install --verbose
+          echo "✅ Dependencies installed"
 
       - name: Run frontend linter
         working-directory: frontend
-        run: npm run lint
+        run: |
+          echo "Running frontend linter..."
+          npm run lint || (echo "❌ Linter failed" && exit 1)
 
       # Backend lint (Go)
       - name: Setup Go
@@ -49,14 +54,23 @@ jobs:
 
       - name: Run Go fmt check
         run: |
-          if [ -n "$(gofmt -s -l .)" ]; then
-            echo "Go code is not formatted"
+          echo "Checking Go formatting..."
+          UNFORMATTED=$(gofmt -s -l .)
+          if [ -n "$UNFORMATTED" ]; then
+            echo "❌ Go code is not formatted. Files:"
+            echo "$UNFORMATTED"
+            echo ""
+            echo "Differences:"
             gofmt -s -d .
             exit 1
+          else
+            echo "✅ Go formatting OK"
           fi
 
       - name: Run Go vet
-        run: go vet ./...
+        run: |
+          echo "Running Go vet analysis..."
+          go vet ./... && echo "✅ Go vet OK" || (echo "❌ Go vet failed" && exit 1)
 
   # Backend test stage - Go tests with parallel sharding
   test-backend:

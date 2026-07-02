@@ -33,6 +33,18 @@ architecture#Naming-Patterns and architecture#Documentation-&-Enforcement.
 - Mobile: Expo **dev client + prebuild** (native modules require it).
 - Web: React + **Vite**.
 
+## Database access (dual roles)
+
+- Two login roles, two DSNs: **`od_migrator`** (DDL — owns the schema, runs
+  goose via `DATABASE_URL_MIGRATOR`) and **`od_runtime`** (the app pool via
+  `DATABASE_URL_RUNTIME`, **DML only — no `CREATE`/`ALTER`/`DROP`, owns
+  nothing**). Enforced by grants (`db/init/00_roles.sql` + migrations), verified
+  by the integration role-denial tests (`api/test/db`).
+- The app **never** connects as `od_migrator`. New tables reach `od_runtime`
+  via `ALTER DEFAULT PRIVILEGES` — do not hand-grant per table.
+- Login roles are bootstrapped by a superuser (`db/init/00_roles.sql` — docker
+  initdb locally, documented operator step in prod); goose owns schema + grants.
+
 ## Contract wiring (no publishing)
 
 - Go: `go.work` direct reference — `api/` ↔ `contracts/generated/go`.

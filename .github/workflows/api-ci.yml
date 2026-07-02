@@ -1,6 +1,7 @@
 # api/ backend CI — runs only when the backend or the contract changes.
-# Skeleton scope: build + gofmt. golangci-lint and sqlc-compile checks are added
-# as the surface gains content (Stories 1.2+).
+# build: go build + gofmt + go vet (no DB).
+# integration: real Postgres 17 service — role bootstrap, goose migrations,
+# the runtime-role DDL-denial gates, and the /health db-up/db-down phases.
 name: api-ci
 
 on:
@@ -45,3 +46,94 @@ jobs:
       - name: go vet
         working-directory: api
         run: go vet ./...
+      - name: go test (no DB — integration suite must skip cleanly)
+        working-directory: api
+        run: go test ./...
+
+  integration:
+    name: postgres migrations + role gates + /health
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: od_amrita
+          POSTGRES_USER: od_amrita
+          POSTGRES_PASSWORD: ci_only_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U od_amrita -d od_amrita"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      SUPERUSER_DSN: postgres://od_amrita:ci_only_password@localhost:5432/od_amrita?sslmode=disable
+      # Role passwords match the dev-only defaults in api/db/init/00_roles.sql.
+      DATABASE_URL_MIGRATOR: postgres://od_migrator:migrator_dev_only_change_me@localhost:5432/od_amrita?sslmode=disable
+      DATABASE_URL_RUNTIME: postgres://od_runtime:runtime_dev_only_change_me@localhost:5432/od_amrita?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: Install goose (pinned — keep in sync with api/Makefile GOOSE_VERSION)
+        run: |
+          go install github.com/pressly/goose/v3/cmd/goose@v3.27.2
+      - name: Bootstrap DB roles (superuser step, outside goose)
+        run: |
+          psql "$SUPERUSER_DSN" -v ON_ERROR_STOP=1 -f api/db/init/00_roles.sql
+      - name: goose up
+        working-directory: api
+        run: |
+          goose -dir db/migrations postgres "$DATABASE_URL_MIGRATOR" up
+      - name: Integration tests — migration round-trip + runtime-role DDL denial
+        working-directory: api
+        run: |
+          go test -tags integration ./test/db/... -v
+      - name: goose down + re-up (clean revert)
+        working-directory: api
+        run: |
+          goose -dir db/migrations postgres "$DATABASE_URL_MIGRATOR" down
+          goose -dir db/migrations postgres "$DATABASE_URL_MIGRATOR" up
+      - name: Start api server (TLS, self-signed) for /health
+        working-directory: api
+        run: |
+          mkdir -p certs
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -subj "/CN=localhost" \
+            -keyout certs/server.key -out certs/server.crt
+          go build -o /tmp/od-api ./cmd/api
+          APP_ENV=ci API_PORT=8443 TLS_ENABLED=true \
+            TLS_CERT_FILE=certs/server.crt TLS_KEY_FILE=certs/server.key \
+            nohup /tmp/od-api > /tmp/od-api.log 2>&1 &
+          for i in $(seq 1 20); do
+            curl -skf https://localhost:8443/health > /dev/null && exit 0
+            sleep 1
+          done
+          echo "server did not become healthy"
+          cat /tmp/od-api.log
+          exit 1
+      - name: /health — db-up phase (200 ok/up)
+        working-directory: api
+        run: |
+          API_BASE_URL=https://localhost:8443 \
+            go test -tags integration ./test/health/... -v
+      - name: Stop Postgres (server keeps running)
+        # Reference the service container by its GitHub-assigned id — robust
+        # against image-filter mismatches / empty matches that would silently
+        # skip the teardown the db-down gate depends on.
+        run: |
+          docker stop "${{ job.services.postgres.id }}"
+      - name: /health — db-down phase (503 degraded/down)
+        working-directory: api
+        run: |
+          # Let the pool observe the dropped DB before asserting: poll until
+          # /health flips to 503 so the gate isn't racing the TCP teardown.
+          for i in $(seq 1 15); do
+            code="$(curl -sk -o /dev/null -w '%{http_code}' https://localhost:8443/health || true)"
+            [ "$code" = "503" ] && break
+            sleep 1
+          done
+          API_BASE_URL=https://localhost:8443 HEALTH_EXPECT_DB_DOWN=1 \
+            go test -tags integration ./test/health/... -v

@@ -4,15 +4,107 @@
 // Transport security (NFR15): the server is deployed behind TLS 1.2+ ONLY.
 // Plain HTTP is REJECTED, not redirected — there is deliberately NO HTTP→HTTPS
 // redirect listener: no plain-port listener and no 301 redirect handler. Do not
-// add one. The enforcing bootstrap (TLS config / handler wiring) lands with the
-// first HTTP handler in Story 1.2/1.3; this skeleton only reserves the
-// entrypoint and documents the constraint.
+// add one. TLS_ENABLED=false exists solely for ingress-terminated deployments
+// where the platform enforces TLS (and must also reject, not redirect).
 package main
 
-import "fmt"
+import (
+	"context"
+	"crypto/tls"
+	"errors"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/Shruhath/OD-Amrita/api/internal/config"
+	"github.com/Shruhath/OD-Amrita/api/internal/handler/health"
+	"github.com/Shruhath/OD-Amrita/api/internal/store"
+)
 
 func main() {
-	// Skeleton no-op: the gin engine, middleware chain, and TLS-only bootstrap
-	// are wired in Story 1.2/1.3. Kept minimal so `go build ./...` succeeds.
-	fmt.Println("od-amrita api: skeleton entrypoint (TLS-only, no HTTP fallback — NFR15)")
+	if err := run(); err != nil {
+		log.Fatalf("api: %v", err)
+	}
+}
+
+// run wires config → runtime pool → gin → /health → TLS serve, then blocks
+// until a shutdown signal or a serve error. It returns (rather than calling
+// log.Fatal inline) so its defers — notably the pool drain — always execute.
+func run() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	pool, err := store.NewPool(context.Background(), cfg.DatabaseURLRuntime)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	if cfg.AppEnv != "development" {
+		gin.SetMode(gin.ReleaseMode)
+	}
+	router := gin.New()
+	router.Use(gin.Recovery())
+	router.GET("/health", health.Handler(pool))
+
+	srv := &http.Server{
+		Addr:    ":" + cfg.APIPort,
+		Handler: router,
+		// Bound every phase of a request so a slow/idle client can't pin a
+		// connection (goroutine) indefinitely — Slowloris hardening.
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	// Serve in the background so the main goroutine can wait for a signal and
+	// shut down cleanly (log.Fatal would os.Exit and skip the pool drain).
+	serveErr := make(chan error, 1)
+	go func() {
+		if cfg.TLS.Enabled {
+			srv.TLSConfig = &tls.Config{MinVersion: tlsMinVersion(cfg.TLS.MinVersion)}
+			log.Printf("api: serving TLS-only on %s (min TLS %s)", srv.Addr, cfg.TLS.MinVersion)
+			serveErr <- srv.ListenAndServeTLS(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+			return
+		}
+		// Ingress-terminated mode: the single listener, no redirect (NFR15).
+		// This serves PLAINTEXT and is safe ONLY behind a TLS-terminating
+		// ingress — warn loudly so an accidental TLS_ENABLED=false is visible.
+		log.Printf("api: WARNING serving PLAINTEXT HTTP on %s — TLS_ENABLED=false; safe ONLY behind a TLS-terminating ingress (NFR15)", srv.Addr)
+		serveErr <- srv.ListenAndServe()
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	select {
+	case err := <-serveErr:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case sig := <-stop:
+		log.Printf("api: received %s, draining", sig)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return srv.Shutdown(ctx)
+	}
+}
+
+// tlsMinVersion maps the configured floor to the crypto/tls constant. config
+// has already validated the value to "1.2" or "1.3", so the floor is never
+// below TLS 1.2 (NFR15).
+func tlsMinVersion(v string) uint16 {
+	if v == "1.3" {
+		return tls.VersionTLS13
+	}
+	return tls.VersionTLS12
 }

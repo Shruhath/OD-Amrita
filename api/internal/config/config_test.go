@@ -1,0 +1,223 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// writeTempCertKey creates readable placeholder cert/key files and returns their
+// paths — the config layer only checks readability, not X.509 validity.
+func writeTempCertKey(t *testing.T) (cert, key string) {
+	t.Helper()
+	dir := t.TempDir()
+	cert = filepath.Join(dir, "server.crt")
+	key = filepath.Join(dir, "server.key")
+	for _, p := range []string{cert, key} {
+		if err := os.WriteFile(p, []byte("placeholder"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", p, err)
+		}
+	}
+	return cert, key
+}
+
+// setEnv applies a full, isolated environment for one Load call.
+func setEnv(t *testing.T, env map[string]string) {
+	t.Helper()
+	// Clear every key Load reads, then apply the case's values.
+	for _, k := range []string{
+		"APP_ENV", "API_PORT",
+		"DATABASE_URL_MIGRATOR", "DATABASE_URL_RUNTIME",
+		"TLS_ENABLED", "TLS_MIN_VERSION", "TLS_CERT_FILE", "TLS_KEY_FILE",
+		"HTTP_REDIRECT_LISTENER",
+	} {
+		t.Setenv(k, "")
+	}
+	for k, v := range env {
+		t.Setenv(k, v)
+	}
+}
+
+func TestLoad_RuntimeDSNRequired(t *testing.T) {
+	setEnv(t, map[string]string{})
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected Load to fail fast when DATABASE_URL_RUNTIME is missing")
+	}
+	if !strings.Contains(err.Error(), "DATABASE_URL_RUNTIME") {
+		t.Errorf("error must name the missing variable, got: %v", err)
+	}
+}
+
+func TestLoad_DefaultsApplied(t *testing.T) {
+	setEnv(t, map[string]string{
+		"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":          "false",
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.AppEnv != "development" {
+		t.Errorf("APP_ENV default: want development, got %q", cfg.AppEnv)
+	}
+	if cfg.APIPort != "8443" {
+		t.Errorf("API_PORT default: want 8443, got %q", cfg.APIPort)
+	}
+	if cfg.TLS.Enabled {
+		t.Error("TLS_ENABLED=false must disable TLS (ingress-terminated mode)")
+	}
+}
+
+func TestLoad_TLSEnabledRequiresCertAndKey(t *testing.T) {
+	setEnv(t, map[string]string{
+		"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":          "true",
+	})
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected Load to fail when TLS is enabled but cert/key are missing")
+	}
+}
+
+func TestLoad_TLSFullyConfigured(t *testing.T) {
+	cert, key := writeTempCertKey(t)
+	setEnv(t, map[string]string{
+		"APP_ENV":               "production",
+		"API_PORT":              "9443",
+		"DATABASE_URL_MIGRATOR": "postgres://od_migrator:x@localhost:5432/od_amrita",
+		"DATABASE_URL_RUNTIME":  "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":           "true",
+		"TLS_MIN_VERSION":       "1.3",
+		"TLS_CERT_FILE":         cert,
+		"TLS_KEY_FILE":          key,
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.AppEnv != "production" || cfg.APIPort != "9443" {
+		t.Errorf("explicit APP_ENV/API_PORT not honored: %+v", cfg)
+	}
+	if cfg.DatabaseURLMigrator == "" || cfg.DatabaseURLRuntime == "" {
+		t.Error("both DSNs must be loaded")
+	}
+	if !cfg.TLS.Enabled || cfg.TLS.CertFile != cert || cfg.TLS.KeyFile != key {
+		t.Errorf("TLS settings not honored: %+v", cfg.TLS)
+	}
+	if cfg.TLS.MinVersion != "1.3" {
+		t.Errorf("TLS_MIN_VERSION not honored: %q", cfg.TLS.MinVersion)
+	}
+}
+
+// TLS enabled with a cert/key path that does not exist must fail fast at Load,
+// not later at ListenAndServeTLS after the pool is already open.
+func TestLoad_TLSCertKeyMustBeReadable(t *testing.T) {
+	setEnv(t, map[string]string{
+		"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":          "true",
+		"TLS_CERT_FILE":        "/nope/server.crt",
+		"TLS_KEY_FILE":         "/nope/server.key",
+	})
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected Load to fail when the cert/key files are not readable")
+	}
+	if !strings.Contains(err.Error(), "TLS_CERT_FILE") {
+		t.Errorf("error must name the unreadable file variable, got: %v", err)
+	}
+}
+
+// An unknown TLS_MIN_VERSION must be rejected, not silently downgraded to 1.2.
+func TestLoad_InvalidTLSMinVersionRejected(t *testing.T) {
+	cert, key := writeTempCertKey(t)
+	setEnv(t, map[string]string{
+		"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":          "true",
+		"TLS_MIN_VERSION":      "1.4",
+		"TLS_CERT_FILE":        cert,
+		"TLS_KEY_FILE":         key,
+	})
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected Load to reject an unknown TLS_MIN_VERSION")
+	}
+	if !strings.Contains(err.Error(), "TLS_MIN_VERSION") {
+		t.Errorf("error must name TLS_MIN_VERSION, got: %v", err)
+	}
+}
+
+// A non-numeric / out-of-range API_PORT must fail at Load, naming the variable.
+func TestLoad_InvalidPortRejected(t *testing.T) {
+	for _, port := range []string{"abc", "0", "99999"} {
+		setEnv(t, map[string]string{
+			"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",
+			"TLS_ENABLED":          "false",
+			"API_PORT":             port,
+		})
+		_, err := Load()
+		if err == nil {
+			t.Fatalf("expected Load to reject API_PORT=%q", port)
+		}
+		if !strings.Contains(err.Error(), "API_PORT") {
+			t.Errorf("API_PORT=%q: error must name the variable, got: %v", port, err)
+		}
+	}
+}
+
+// A malformed boolean in a security-relevant flag must be loud, not silently
+// defaulted.
+func TestLoad_MalformedBoolRejected(t *testing.T) {
+	setEnv(t, map[string]string{
+		"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":          "flase",
+	})
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected Load to reject a malformed TLS_ENABLED value")
+	}
+	if !strings.Contains(err.Error(), "TLS_ENABLED") {
+		t.Errorf("error must name the offending variable, got: %v", err)
+	}
+}
+
+func TestLoad_TLSMinVersionDefault12(t *testing.T) {
+	setEnv(t, map[string]string{
+		"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":          "false",
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.TLS.MinVersion != "1.2" {
+		t.Errorf("TLS_MIN_VERSION default: want 1.2, got %q", cfg.TLS.MinVersion)
+	}
+}
+
+// NFR15: HTTP is rejected, not redirected. The config layer refuses to even
+// load a configuration that asks for a redirect listener.
+func TestLoad_RedirectListenerForbidden(t *testing.T) {
+	setEnv(t, map[string]string{
+		"DATABASE_URL_RUNTIME":   "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":            "false",
+		"HTTP_REDIRECT_LISTENER": "true",
+	})
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected Load to reject HTTP_REDIRECT_LISTENER=true (NFR15)")
+	}
+	if !strings.Contains(err.Error(), "HTTP_REDIRECT_LISTENER") {
+		t.Errorf("error must name the offending variable, got: %v", err)
+	}
+}

@@ -1,9 +1,26 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// writeTempCertKey creates readable placeholder cert/key files and returns their
+// paths — the config layer only checks readability, not X.509 validity.
+func writeTempCertKey(t *testing.T) (cert, key string) {
+	t.Helper()
+	dir := t.TempDir()
+	cert = filepath.Join(dir, "server.crt")
+	key = filepath.Join(dir, "server.key")
+	for _, p := range []string{cert, key} {
+		if err := os.WriteFile(p, []byte("placeholder"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", p, err)
+		}
+	}
+	return cert, key
+}
 
 // setEnv applies a full, isolated environment for one Load call.
 func setEnv(t *testing.T, env map[string]string) {
@@ -68,6 +85,7 @@ func TestLoad_TLSEnabledRequiresCertAndKey(t *testing.T) {
 }
 
 func TestLoad_TLSFullyConfigured(t *testing.T) {
+	cert, key := writeTempCertKey(t)
 	setEnv(t, map[string]string{
 		"APP_ENV":               "production",
 		"API_PORT":              "9443",
@@ -75,8 +93,8 @@ func TestLoad_TLSFullyConfigured(t *testing.T) {
 		"DATABASE_URL_RUNTIME":  "postgres://od_runtime:x@localhost:5432/od_amrita",
 		"TLS_ENABLED":           "true",
 		"TLS_MIN_VERSION":       "1.3",
-		"TLS_CERT_FILE":         "/certs/server.crt",
-		"TLS_KEY_FILE":          "/certs/server.key",
+		"TLS_CERT_FILE":         cert,
+		"TLS_KEY_FILE":          key,
 	})
 
 	cfg, err := Load()
@@ -89,11 +107,85 @@ func TestLoad_TLSFullyConfigured(t *testing.T) {
 	if cfg.DatabaseURLMigrator == "" || cfg.DatabaseURLRuntime == "" {
 		t.Error("both DSNs must be loaded")
 	}
-	if !cfg.TLS.Enabled || cfg.TLS.CertFile != "/certs/server.crt" || cfg.TLS.KeyFile != "/certs/server.key" {
+	if !cfg.TLS.Enabled || cfg.TLS.CertFile != cert || cfg.TLS.KeyFile != key {
 		t.Errorf("TLS settings not honored: %+v", cfg.TLS)
 	}
 	if cfg.TLS.MinVersion != "1.3" {
 		t.Errorf("TLS_MIN_VERSION not honored: %q", cfg.TLS.MinVersion)
+	}
+}
+
+// TLS enabled with a cert/key path that does not exist must fail fast at Load,
+// not later at ListenAndServeTLS after the pool is already open.
+func TestLoad_TLSCertKeyMustBeReadable(t *testing.T) {
+	setEnv(t, map[string]string{
+		"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":          "true",
+		"TLS_CERT_FILE":        "/nope/server.crt",
+		"TLS_KEY_FILE":         "/nope/server.key",
+	})
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected Load to fail when the cert/key files are not readable")
+	}
+	if !strings.Contains(err.Error(), "TLS_CERT_FILE") {
+		t.Errorf("error must name the unreadable file variable, got: %v", err)
+	}
+}
+
+// An unknown TLS_MIN_VERSION must be rejected, not silently downgraded to 1.2.
+func TestLoad_InvalidTLSMinVersionRejected(t *testing.T) {
+	cert, key := writeTempCertKey(t)
+	setEnv(t, map[string]string{
+		"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":          "true",
+		"TLS_MIN_VERSION":      "1.4",
+		"TLS_CERT_FILE":        cert,
+		"TLS_KEY_FILE":         key,
+	})
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected Load to reject an unknown TLS_MIN_VERSION")
+	}
+	if !strings.Contains(err.Error(), "TLS_MIN_VERSION") {
+		t.Errorf("error must name TLS_MIN_VERSION, got: %v", err)
+	}
+}
+
+// A non-numeric / out-of-range API_PORT must fail at Load, naming the variable.
+func TestLoad_InvalidPortRejected(t *testing.T) {
+	for _, port := range []string{"abc", "0", "99999"} {
+		setEnv(t, map[string]string{
+			"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",
+			"TLS_ENABLED":          "false",
+			"API_PORT":             port,
+		})
+		_, err := Load()
+		if err == nil {
+			t.Fatalf("expected Load to reject API_PORT=%q", port)
+		}
+		if !strings.Contains(err.Error(), "API_PORT") {
+			t.Errorf("API_PORT=%q: error must name the variable, got: %v", port, err)
+		}
+	}
+}
+
+// A malformed boolean in a security-relevant flag must be loud, not silently
+// defaulted.
+func TestLoad_MalformedBoolRejected(t *testing.T) {
+	setEnv(t, map[string]string{
+		"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":          "flase",
+	})
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected Load to reject a malformed TLS_ENABLED value")
+	}
+	if !strings.Contains(err.Error(), "TLS_ENABLED") {
+		t.Errorf("error must name the offending variable, got: %v", err)
 	}
 }
 

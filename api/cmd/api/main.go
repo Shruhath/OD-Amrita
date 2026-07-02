@@ -11,8 +11,13 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -22,14 +27,23 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatalf("api: %v", err)
+	}
+}
+
+// run wires config → runtime pool → gin → /health → TLS serve, then blocks
+// until a shutdown signal or a serve error. It returns (rather than calling
+// log.Fatal inline) so its defers — notably the pool drain — always execute.
+func run() error {
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("api: %v", err)
+		return err
 	}
 
 	pool, err := store.NewPool(context.Background(), cfg.DatabaseURLRuntime)
 	if err != nil {
-		log.Fatalf("api: %v", err)
+		return err
 	}
 	defer pool.Close()
 
@@ -43,21 +57,51 @@ func main() {
 	srv := &http.Server{
 		Addr:    ":" + cfg.APIPort,
 		Handler: router,
+		// Bound every phase of a request so a slow/idle client can't pin a
+		// connection (goroutine) indefinitely — Slowloris hardening.
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
-	if cfg.TLS.Enabled {
-		srv.TLSConfig = &tls.Config{MinVersion: tlsMinVersion(cfg.TLS.MinVersion)}
-		log.Printf("api: serving TLS-only on %s (min TLS %s)", srv.Addr, cfg.TLS.MinVersion)
-		log.Fatal(srv.ListenAndServeTLS(cfg.TLS.CertFile, cfg.TLS.KeyFile))
-	}
+	// Serve in the background so the main goroutine can wait for a signal and
+	// shut down cleanly (log.Fatal would os.Exit and skip the pool drain).
+	serveErr := make(chan error, 1)
+	go func() {
+		if cfg.TLS.Enabled {
+			srv.TLSConfig = &tls.Config{MinVersion: tlsMinVersion(cfg.TLS.MinVersion)}
+			log.Printf("api: serving TLS-only on %s (min TLS %s)", srv.Addr, cfg.TLS.MinVersion)
+			serveErr <- srv.ListenAndServeTLS(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+			return
+		}
+		// Ingress-terminated mode: the single listener, no redirect (NFR15).
+		// This serves PLAINTEXT and is safe ONLY behind a TLS-terminating
+		// ingress — warn loudly so an accidental TLS_ENABLED=false is visible.
+		log.Printf("api: WARNING serving PLAINTEXT HTTP on %s — TLS_ENABLED=false; safe ONLY behind a TLS-terminating ingress (NFR15)", srv.Addr)
+		serveErr <- srv.ListenAndServe()
+	}()
 
-	// Ingress-terminated mode: the single listener, no redirect (NFR15).
-	log.Printf("api: serving on %s (TLS terminated by ingress — NFR15 still applies there)", srv.Addr)
-	log.Fatal(srv.ListenAndServe())
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	select {
+	case err := <-serveErr:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case sig := <-stop:
+		log.Printf("api: received %s, draining", sig)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return srv.Shutdown(ctx)
+	}
 }
 
-// tlsMinVersion maps the configured floor to the crypto/tls constant; the
-// floor is never below TLS 1.2 (NFR15).
+// tlsMinVersion maps the configured floor to the crypto/tls constant. config
+// has already validated the value to "1.2" or "1.3", so the floor is never
+// below TLS 1.2 (NFR15).
 func tlsMinVersion(v string) uint16 {
 	if v == "1.3" {
 		return tls.VersionTLS13

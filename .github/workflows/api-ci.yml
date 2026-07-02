@@ -120,10 +120,20 @@ jobs:
           API_BASE_URL=https://localhost:8443 \
             go test -tags integration ./test/health/... -v
       - name: Stop Postgres (server keeps running)
+        # Reference the service container by its GitHub-assigned id — robust
+        # against image-filter mismatches / empty matches that would silently
+        # skip the teardown the db-down gate depends on.
         run: |
-          docker stop "$(docker ps -q --filter ancestor=postgres:17)"
+          docker stop "${{ job.services.postgres.id }}"
       - name: /health — db-down phase (503 degraded/down)
         working-directory: api
         run: |
+          # Let the pool observe the dropped DB before asserting: poll until
+          # /health flips to 503 so the gate isn't racing the TCP teardown.
+          for i in $(seq 1 15); do
+            code="$(curl -sk -o /dev/null -w '%{http_code}' https://localhost:8443/health || true)"
+            [ "$code" = "503" ] && break
+            sleep 1
+          done
           API_BASE_URL=https://localhost:8443 HEALTH_EXPECT_DB_DOWN=1 \
             go test -tags integration ./test/health/... -v

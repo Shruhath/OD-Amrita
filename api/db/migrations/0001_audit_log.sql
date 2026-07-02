@@ -35,7 +35,17 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON audit_log TO od_runtime;
 ALTER DEFAULT PRIVILEGES FOR ROLE od_migrator IN SCHEMA public
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO od_runtime;
 
+-- ...and their backing sequences: a future serial/identity column's INSERT
+-- needs USAGE/SELECT on the sequence, or od_runtime's DML would fail 42501
+-- despite the table grant. audit_log itself has none (uuid PK), so this only
+-- pre-positions later tables — consistent with the TABLES default above.
+ALTER DEFAULT PRIVILEGES FOR ROLE od_migrator IN SCHEMA public
+    GRANT USAGE, SELECT ON SEQUENCES TO od_runtime;
+
 -- +goose Down
+
+ALTER DEFAULT PRIVILEGES FOR ROLE od_migrator IN SCHEMA public
+    REVOKE USAGE, SELECT ON SEQUENCES FROM od_runtime;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE od_migrator IN SCHEMA public
     REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM od_runtime;

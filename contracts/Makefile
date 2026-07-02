@@ -27,4 +27,4 @@ generate-ts: ## Generate TS types via openapi-typescript (pinned in root package
 	@mv generated/ts/schema.ts.tmp generated/ts/schema.ts
 
 clean: ## Remove generated output
-	rm -f generated/go/types.gen.go generated/ts/schema.ts
+	rm -f generated/go/types.gen.go generated/ts/schema.ts generated/ts/schema.ts.tmp

@@ -51,4 +51,14 @@ jobs:
         run: make -C contracts generate
 
       - name: Fail on generated drift
-        run: git diff --exit-code
+        # Use `git status --porcelain` (not `git diff --exit-code`) so the gate
+        # also catches NEW untracked generated files — a plain `git diff` only
+        # compares tracked files and would pass green when generate emits a
+        # brand-new, uncommitted output file.
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::Generated output drifted from the spec (modified or new untracked file). Run 'make -C contracts generate' and commit the result."
+            git status --porcelain
+            git diff
+            exit 1
+          fi

@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -499,6 +500,12 @@ func TestStatic_RootPinsOpenapiTypescript(t *testing.T) {
 	if !strings.Contains(pkg, "openapi-typescript") {
 		t.Errorf("root package.json must pin openapi-typescript as a devDependency")
 	}
+	// Must be pinned to major 7 (the version this contract's codegen was authored
+	// against). A downgrade to ^6/* would silently change generated output and
+	// flake the drift-gate, so assert the version — not just the dependency name.
+	if !regexp.MustCompile(`"openapi-typescript"\s*:\s*"\^?7\.`).MatchString(pkg) {
+		t.Errorf("root package.json must pin openapi-typescript to major 7 (e.g. \"^7.x\")")
+	}
 }
 
 // [P1] S15: contract-drift.yml sets up BOTH toolchains and runs the real gate.
@@ -567,8 +574,13 @@ func TestIntegration_GenerateIsIdempotentAndClean(t *testing.T) {
 			t.Fatalf("generate #%d failed: %v\n%s", i+1, err, out)
 		}
 	}
-	if out, err := runCmd(t, root, "git", "diff", "--exit-code", "--", "contracts/generated"); err != nil {
-		t.Errorf("generated output is not idempotent — `git diff --exit-code` is dirty after regenerate:\n%s", out)
+	// Use `git status --porcelain` (not `git diff --exit-code`) so a brand-new
+	// untracked generated file also counts as drift — a plain `git diff` only
+	// compares tracked files and would falsely pass.
+	if out, err := runCmd(t, root, "git", "status", "--porcelain", "--", "contracts/generated"); err != nil {
+		t.Fatalf("git status failed: %v\n%s", err, out)
+	} else if strings.TrimSpace(out) != "" {
+		t.Errorf("generated output is not idempotent — tree is dirty (modified or untracked) after regenerate:\n%s", out)
 	}
 }
 

@@ -21,8 +21,10 @@ info:
     scan contract with UUIDv7 idempotency semantics. Handler, gin routing, DB
     and River logic are NOT part of this contract.
 servers:
-  - url: https://api.od-amrita.example/api/v1
-    description: TLS-only (NFR15) — no plain-HTTP server.
+  - url: https://api.od-amrita.example
+    description: >-
+      TLS-only (NFR15) — no plain-HTTP server. Host root only: each path carries
+      its own prefix (`/health` is unversioned; API routes live under `/api/v1`).
 
 paths:
   /health:

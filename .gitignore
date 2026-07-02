@@ -47,6 +47,7 @@ mobile/*.log
 .agent/
 .agents/
 .claude/
+CLAUDE.md
 _bmad/
 _bmad-logs/
 _bmad-output/

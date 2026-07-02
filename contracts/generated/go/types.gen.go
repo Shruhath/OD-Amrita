@@ -49,14 +49,35 @@ func (e ErrorCode) Valid() bool {
 	}
 }
 
+// Defines values for HealthStatusDb.
+const (
+	Down HealthStatusDb = "down"
+	Up   HealthStatusDb = "up"
+)
+
+// Valid indicates whether the value is a known member of the HealthStatusDb enum.
+func (e HealthStatusDb) Valid() bool {
+	switch e {
+	case Down:
+		return true
+	case Up:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HealthStatusStatus.
 const (
-	Ok HealthStatusStatus = "ok"
+	Degraded HealthStatusStatus = "degraded"
+	Ok       HealthStatusStatus = "ok"
 )
 
 // Valid indicates whether the value is a known member of the HealthStatusStatus enum.
 func (e HealthStatusStatus) Valid() bool {
 	switch e {
+	case Degraded:
+		return true
 	case Ok:
 		return true
 	default:
@@ -136,13 +157,19 @@ type Error struct {
 // ErrorCode Canonical SCREAMING_SNAKE error code. This enum is the WIRE source of truth; the Go `errors.go` const registry mirrors it. Do not invent free-text codes.
 type ErrorCode string
 
-// HealthStatus Static liveness shape. DB status is intentionally absent — it is added later.
+// HealthStatus Health probe shape — overall service status plus database connectivity.
 type HealthStatus struct {
-	// Status Static liveness token. Always "ok" while the process is serving.
+	// Db Database connectivity as observed by a live ping from the runtime pool. "down" is reported with HTTP 503.
+	Db HealthStatusDb `json:"db"`
+
+	// Status Overall service status. "ok" when every dependency is reachable; "degraded" (served with HTTP 503) when the database is not.
 	Status HealthStatusStatus `json:"status"`
 }
 
-// HealthStatusStatus Static liveness token. Always "ok" while the process is serving.
+// HealthStatusDb Database connectivity as observed by a live ping from the runtime pool. "down" is reported with HTTP 503.
+type HealthStatusDb string
+
+// HealthStatusStatus Overall service status. "ok" when every dependency is reachable; "degraded" (served with HTTP 503) when the database is not.
 type HealthStatusStatus string
 
 // ScanBatchRequest Batch scan-sync request. The batch is wrapped under a `scans` array (not a bare top-level array) to leave room for future top-level fields such as `device_id`.

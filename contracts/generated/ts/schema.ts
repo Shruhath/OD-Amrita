@@ -15,8 +15,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Liveness probe (static shape)
-         * @description Static liveness shape only. Returns 200 with `{ status: "ok" }` while the process is serving. DB-connectivity reporting is added later — do not depend on a `db` field here.
+         * Liveness + DB-readiness probe
+         * @description Reports process liveness and database connectivity. Returns 200 with `{ status: "ok", db: "up" }` while the process is serving and the database ping succeeds; returns 503 with `{ status: "degraded", db: "down" }` when the database is unreachable. Load-balancers and orchestrators may treat 503 as not-ready.
          */
         get: operations["getHealth"];
         put?: never;
@@ -51,13 +51,18 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** @description Static liveness shape. DB status is intentionally absent — it is added later. */
+        /** @description Health probe shape — overall service status plus database connectivity. */
         HealthStatus: {
             /**
-             * @description Static liveness token. Always "ok" while the process is serving.
+             * @description Overall service status. "ok" when every dependency is reachable; "degraded" (served with HTTP 503) when the database is not.
              * @enum {string}
              */
-            status: "ok";
+            status: "ok" | "degraded";
+            /**
+             * @description Database connectivity as observed by a live ping from the runtime pool. "down" is reported with HTTP 503.
+             * @enum {string}
+             */
+            db: "up" | "down";
         };
         /** @description Standard error envelope for all non-2xx responses. Clients branch on `code`, never on `message`. */
         Error: {
@@ -155,8 +160,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Service process is live. */
+            /** @description Service process is live and the database is reachable. */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthStatus"];
+                };
+            };
+            /** @description Service process is live but the database is unreachable. Body still conforms to HealthStatus, with `db: down`. */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

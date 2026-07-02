@@ -292,8 +292,10 @@ func TestAC1_SpecStructurallyValid(t *testing.T) {
 	}
 }
 
-// [P0] AC1: GET /health → 200 with a static HealthStatus { status } shape.
-// DB-connectivity reporting is a later change, so `db` MUST NOT be present yet.
+// [P0] AC1: GET /health reports DB connectivity — HealthStatus { status, db }
+// with db ∈ {up, down}, plus a 503 response for the db-down case (body still
+// HealthStatus). The pre-DB static shape (no `db`) was superseded when the DB
+// foundation landed.
 func TestAC1_HealthEndpointStaticShape(t *testing.T) {
 	root := repoRoot(t)
 	doc := loadSpec(t, root)
@@ -309,8 +311,20 @@ func TestAC1_HealthEndpointStaticShape(t *testing.T) {
 	if _, ok := props["status"]; !ok {
 		t.Errorf("health 200 schema must have a `status` property")
 	}
-	if _, ok := props["db"]; ok {
-		t.Errorf("health 200 schema must NOT expose `db` yet (DB connectivity is a later change)")
+	if _, ok := props["db"]; !ok {
+		t.Errorf("health schema must expose `db` (DB-connectivity reporting)")
+	}
+	if missing := containsAll(enumStrings(getMap(props, "db")), []string{"up", "down"}); len(missing) > 0 {
+		t.Errorf("health `db` must be the up|down enum; missing %v", missing)
+	}
+	// The db-down case is a 503 whose body still conforms to HealthStatus.
+	schema503 := jsonResponseSchema(doc, get, "503")
+	props503 := schemaProps(doc, schema503)
+	if props503 == nil {
+		t.Fatalf("GET /health must define a 503 application/json response for the db-down case")
+	}
+	if _, ok := props503["db"]; !ok {
+		t.Errorf("health 503 body must conform to HealthStatus (carry `db`)")
 	}
 }
 

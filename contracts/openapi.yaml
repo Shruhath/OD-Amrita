@@ -30,14 +30,24 @@ paths:
   /health:
     get:
       operationId: getHealth
-      summary: Liveness probe (static shape)
+      summary: Liveness + DB-readiness probe
       description: >-
-        Static liveness shape only. Returns 200 with `{ status: "ok" }` while the
-        process is serving. DB-connectivity reporting is added later — do not
-        depend on a `db` field here.
+        Reports process liveness and database connectivity. Returns 200 with
+        `{ status: "ok", db: "up" }` while the process is serving and the
+        database ping succeeds; returns 503 with `{ status: "degraded",
+        db: "down" }` when the database is unreachable. Load-balancers and
+        orchestrators may treat 503 as not-ready.
       responses:
         "200":
-          description: Service process is live.
+          description: Service process is live and the database is reachable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+        "503":
+          description: >-
+            Service process is live but the database is unreachable. Body still
+            conforms to HealthStatus, with `db: down`.
           content:
             application/json:
               schema:
@@ -103,16 +113,27 @@ components:
     HealthStatus:
       type: object
       description: >-
-        Static liveness shape. DB status is intentionally absent — it is added
-        later.
+        Health probe shape — overall service status plus database connectivity.
       required:
         - status
+        - db
       properties:
         status:
           type: string
           enum:
             - ok
-          description: Static liveness token. Always "ok" while the process is serving.
+            - degraded
+          description: >-
+            Overall service status. "ok" when every dependency is reachable;
+            "degraded" (served with HTTP 503) when the database is not.
+        db:
+          type: string
+          enum:
+            - up
+            - down
+          description: >-
+            Database connectivity as observed by a live ping from the runtime
+            pool. "down" is reported with HTTP 503.
 
     Error:
       type: object

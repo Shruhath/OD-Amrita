@@ -1,6 +1,10 @@
 # api/Makefile — backend build & codegen entrypoints.
-# Most targets are stubs on the skeleton; real bodies land as each surface gains
-# content (sqlc: Story 1.3; migrations: Story 1.3; lint wired in api-ci.yml).
+
+# Pinned goose version — NEVER @latest (CI reproducibility). Bump deliberately.
+GOOSE_VERSION := v3.27.2
+# `go run pkg@ver` is unreliable under an active go.work — force it off,
+# matching the contracts/Makefile codegen pattern.
+GOOSE := GOWORK=off go run github.com/pressly/goose/v3/cmd/goose@$(GOOSE_VERSION)
 
 .PHONY: build test lint sqlc migrate-up migrate-down run-api run-worker
 
@@ -13,14 +17,16 @@ test: ## Run Go tests
 lint: ## gofmt + golangci-lint (golangci-lint added in CI)
 	gofmt -l .
 
-sqlc: ## Generate typed Go from db/queries (no-op until Story 1.3 adds queries)
+sqlc: ## Generate typed Go from db/queries (no-op until queries exist)
 	@command -v sqlc >/dev/null 2>&1 && sqlc generate || echo "sqlc: skipped (not installed / no queries yet)"
 
-migrate-up: ## Apply goose migrations (no-op until Story 1.3)
-	@echo "goose migrate up — wired in Story 1.3"
+migrate-up: ## Apply goose migrations as od_migrator (needs DATABASE_URL_MIGRATOR)
+	@test -n "$(DATABASE_URL_MIGRATOR)" || { echo "DATABASE_URL_MIGRATOR is not set"; exit 1; }
+	$(GOOSE) -dir db/migrations postgres "$(DATABASE_URL_MIGRATOR)" up
 
-migrate-down: ## Roll back goose migrations (no-op until Story 1.3)
-	@echo "goose migrate down — wired in Story 1.3"
+migrate-down: ## Roll back goose migrations as od_migrator (needs DATABASE_URL_MIGRATOR)
+	@test -n "$(DATABASE_URL_MIGRATOR)" || { echo "DATABASE_URL_MIGRATOR is not set"; exit 1; }
+	$(GOOSE) -dir db/migrations postgres "$(DATABASE_URL_MIGRATOR)" down
 
 run-api: ## Run the HTTP server entrypoint
 	go run ./cmd/api

@@ -12,6 +12,9 @@ services:
       - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+      # Superuser role bootstrap (od_migrator / od_runtime) — runs once on a
+      # fresh volume. In prod the same SQL is a documented operator step.
+      - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U od_amrita -d od_amrita"]
       interval: 5s
@@ -29,6 +32,10 @@ services:
     env_file:
       - path: .env
         required: false
+    # In-network default for the runtime pool (host `db`); .env overrides via
+    # compose interpolation. Dev-only password matches db/init/00_roles.sql.
+    environment:
+      DATABASE_URL_RUNTIME: ${DATABASE_URL_RUNTIME:-postgres://od_runtime:runtime_dev_only_change_me@db:5432/od_amrita?sslmode=disable}
     # TLS-only (NFR15): 8443, no :80 redirect listener.
     ports:
       - "8443:8443"

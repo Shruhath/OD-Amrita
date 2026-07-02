@@ -1,18 +1,23 @@
 # Contract drift-gate — the SINGLE SOURCE OF TRUTH enforcer.
-# Regenerates the Go/TS clients from contracts/openapi.yaml and fails if the
-# checked-in generated output drifts from the spec. On the empty skeleton
-# `make generate` is a no-op stub, so this is a green no-op until Story 1.2 wires
-# real codegen.
+# Regenerates the Go + TS types from contracts/openapi.yaml with the REAL,
+# PINNED generators (oapi-codegen + openapi-typescript) and fails if the
+# checked-in generated output drifts from the spec (stale or hand-edited).
 name: contract-drift
 
 on:
   push:
     paths:
       - "contracts/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
       - ".github/workflows/contract-drift.yml"
   pull_request:
     paths:
       - "contracts/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
       - ".github/workflows/contract-drift.yml"
 
 concurrency:
@@ -25,7 +30,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Regenerate contract clients (stub on skeleton)
+
+      # Go toolchain — for `go run oapi-codegen@<pinned>` (Go model generation).
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      # Node + pnpm toolchain — for the root-installed, lock-pinned
+      # openapi-typescript binary (TS type generation).
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install workspace (pins openapi-typescript)
+        run: pnpm install --frozen-lockfile
+
+      - name: Regenerate contract types (real codegen)
         run: make -C contracts generate
+
       - name: Fail on generated drift
         run: git diff --exit-code

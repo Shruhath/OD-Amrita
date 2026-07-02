@@ -1,0 +1,31 @@
+# EOL normalization for the OD-Amrita monorepo.
+#
+# The contract drift-gate is `make -C contracts generate && git diff --exit-code`.
+# Without pinned line endings, CRLF↔LF churn across dev machines / CI would make
+# `git diff` false-positive on freshly generated files. Normalize everything to
+# LF in the repo, since the contract surface emits generated files that the gate
+# diffs byte-for-byte.
+
+# Default: treat all files as text and store with LF in the repository.
+* text=auto eol=lf
+
+# Generated contract output is DO NOT EDIT and diffed byte-for-byte by the
+# drift-gate — force LF explicitly so it can never drift on line endings.
+contracts/generated/** text eol=lf
+contracts/generated/go/*.go text eol=lf
+contracts/generated/ts/*.ts text eol=lf
+
+# The spec itself (SSOT) and codegen config — LF.
+contracts/openapi.yaml text eol=lf
+contracts/oapi-codegen.yaml text eol=lf
+
+# Binary assets that must never be normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary

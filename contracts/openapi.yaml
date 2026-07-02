@@ -1,19 +1,296 @@
 # OD-Amrita API contract — SINGLE SOURCE OF TRUTH.
 #
-# This is a minimal placeholder. Spec-first authoring of the real contract is
-# Story 1.2 (spec-first OpenAPI + codegen drift-gate). Do not add endpoints here
-# until 1.2; `contracts/generated/**` is regenerated from this file and is
-# DO NOT EDIT.
-openapi: 3.1.0
+# All cross-surface types are GENERATED from this file — never hand-written:
+#   Go  → contracts/generated/go/types.gen.go  (oapi-codegen, DO NOT EDIT)
+#   TS  → contracts/generated/ts/schema.ts      (openapi-typescript, DO NOT EDIT)
+# Regenerate with `make -C contracts generate`; the CI drift-gate
+# (.github/workflows/contract-drift.yml) fails if generated output is stale.
+#
+# VERSION IS 3.0.3 ON PURPOSE (do NOT "upgrade" to 3.1): oapi-codegen v2 uses
+# kin-openapi, which cannot parse OpenAPI 3.1. 3.0.3 is the only version both
+# oapi-codegen (Go) and openapi-typescript (TS) consume from one SSOT. Use
+# `nullable: true` (3.0 syntax), never the 3.1 `type: [T, "null"]` union.
+openapi: 3.0.3
 info:
   title: OD-Amrita API
-  version: 0.0.0
+  version: 0.1.0
   description: >-
-    Placeholder contract for the OD-Amrita platform. The authoritative spec is
-    authored in Story 1.2; generated Go/TS clients live under generated/{go,ts}/.
+    OD-Amrita attendance/OD platform API. This spec ratifies the cross-surface
+    contract shapes — /health (static liveness), the standard error envelope,
+    typed validation-error details, and the 202 accept-and-enqueue batch-sync
+    scan contract with UUIDv7 idempotency semantics. Handler, gin routing, DB
+    and River logic are NOT part of this contract.
 servers:
-  - url: https://api.od-amrita.example/v1
-    description: TLS-only (NFR15) — no plain-HTTP server.
-paths: {}
+  - url: https://api.od-amrita.example
+    description: >-
+      TLS-only (NFR15) — no plain-HTTP server. Host root only: each path carries
+      its own prefix (`/health` is unversioned; API routes live under `/api/v1`).
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Liveness probe (static shape)
+      description: >-
+        Static liveness shape only. Returns 200 with `{ status: "ok" }` while the
+        process is serving. DB-connectivity reporting is added later — do not
+        depend on a `db` field here.
+      responses:
+        "200":
+          description: Service process is live.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /api/v1/scans:
+    post:
+      operationId: submitScans
+      summary: Accept-and-enqueue a batch of scans (202)
+      description: >-
+        Accepts a batch of client-captured scans and enqueues them for durable,
+        idempotent processing. Responds 202 — ACCEPTED AND ENQUEUED, not
+        commit-confirmed. Each item is answered individually in `results`. The
+        durable enqueue, ON CONFLICT/present-wins resolution and same-transaction
+        audit are implemented later; this contract only freezes the shape so
+        mobile and backend do not renegotiate it piecemeal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScanBatchRequest"
+      responses:
+        "202":
+          description: Batch accepted and enqueued; per-item results follow.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanBatchResponse"
+        "400":
+          description: Request validation failed (typed field-level details).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Forbidden (RBAC).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
-  schemas: {}
+  schemas:
+    HealthStatus:
+      type: object
+      description: >-
+        Static liveness shape. DB status is intentionally absent — it is added
+        later.
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+          description: Static liveness token. Always "ok" while the process is serving.
+
+    Error:
+      type: object
+      description: >-
+        Standard error envelope for all non-2xx responses. Clients branch on
+        `code`, never on `message`.
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: >-
+            Canonical SCREAMING_SNAKE error code. This enum is the WIRE source of
+            truth; the Go `errors.go` const registry mirrors it. Do not invent
+            free-text codes.
+          enum:
+            - AUTH_DOMAIN_REJECTED
+            - RBAC_FORBIDDEN
+            - SCAN_DUPLICATE
+            - SLOT_CLOSED
+            - CARD_NOT_RECOGNIZED
+            - QR_LIMIT_REACHED
+            - RATE_LIMITED
+            - INVALID_SCAN_ID
+            - VALIDATION_FAILED
+            - INTERNAL
+        message:
+          type: string
+          description: Human-readable message. For diagnostics/display only — branch on `code`.
+        details:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: >-
+            Optional, freeform context for generic errors. Typed validation
+            failures use ValidationError.details (a typed array) instead.
+
+    ValidationErrorDetail:
+      type: object
+      description: One typed, field-level validation failure.
+      required:
+        - field
+        - code
+        - message
+      properties:
+        field:
+          type: string
+          description: Offending request field path (e.g. `scans[0].method`).
+        code:
+          type: string
+          description: Machine-readable field-level code (e.g. `required`, `invalid_format`).
+        message:
+          type: string
+          description: Human-readable description of the field violation.
+
+    ValidationError:
+      type: object
+      description: >-
+        400 validation error — the error envelope whose `details` is a TYPED
+        array of field-level failures (AC3), not a freeform object.
+      required:
+        - code
+        - message
+        - details
+      properties:
+        code:
+          type: string
+          description: Always VALIDATION_FAILED for validation (400) responses.
+          enum:
+            - VALIDATION_FAILED
+        message:
+          type: string
+          description: Human-readable summary of the validation failure.
+        details:
+          type: array
+          description: Typed, per-field validation failures (AC3).
+          items:
+            $ref: "#/components/schemas/ValidationErrorDetail"
+
+    ScanItem:
+      type: object
+      description: >-
+        A single client-captured scan. Wire field names are snake_case and
+        LOCKED end-to-end (no camelCase anywhere on the wire).
+      required:
+        - id
+        - event_id
+        - slot
+        - method
+        - client_scanned_at
+        - card_token
+      properties:
+        id:
+          type: string
+          description: >-
+            Client-generated UUIDv7 — the SOLE idempotency key and primary key
+            for this scan. The server rejects any non-UUID or non-v7 value with
+            INVALID_SCAN_ID. The embedded UUIDv7 timestamp MUST NEVER be used for
+            ordering or conflict resolution; server-authoritative time governs.
+        event_id:
+          type: string
+          description: UUID of the event this scan belongs to.
+        slot:
+          type: integer
+          description: The event slot (time window) in which the scan was captured.
+        method:
+          type: string
+          description: Capture method used for this scan.
+          enum:
+            - barcode
+            - qr
+            - nfc
+        client_scanned_at:
+          type: string
+          format: date-time
+          description: >-
+            RFC3339 UTC timestamp captured on the client at scan time. Advisory
+            only — server-authoritative time governs resolution.
+        card_token:
+          type: string
+          description: >-
+            Raw scanned card/roll payload (NFC card UID, or the barcode/QR code
+            value).
+
+    ScanBatchRequest:
+      type: object
+      description: >-
+        Batch scan-sync request. The batch is wrapped under a `scans` array
+        (not a bare top-level array) to leave room for future top-level fields
+        such as `device_id`.
+      required:
+        - scans
+      properties:
+        scans:
+          type: array
+          description: The batch of scans to accept-and-enqueue.
+          items:
+            $ref: "#/components/schemas/ScanItem"
+
+    ScanResult:
+      type: object
+      description: Per-item result for one submitted scan, correlated by `id`.
+      required:
+        - id
+        - status
+      properties:
+        id:
+          type: string
+          description: The UUIDv7 `id` echoed from the corresponding request ScanItem.
+        status:
+          type: string
+          description: >-
+            Per-item outcome. `applied` = newly accepted/enqueued;
+            `duplicate` = idempotency key already seen (safe no-op);
+            `rejected` = not accepted (see `reason`).
+          enum:
+            - applied
+            - duplicate
+            - rejected
+        reason:
+          type: string
+          nullable: true
+          description: >-
+            Present when `status` is `rejected`. Distinguishes PERMANENT
+            rejections (quarantine — client must NOT retry) from TRANSIENT
+            rejections (client may retry) so the client never sync-loops.
+
+    ScanBatchResponse:
+      type: object
+      description: >-
+        202 accept-and-enqueue response. 202 means ACCEPTED, not
+        commit-confirmed — safe-to-evict is a later lifecycle signal.
+      required:
+        - results
+      properties:
+        results:
+          type: array
+          description: One result per submitted scan, correlated by `id`.
+          items:
+            $ref: "#/components/schemas/ScanResult"

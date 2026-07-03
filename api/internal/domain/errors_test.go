@@ -46,6 +46,7 @@ var codeStatusCases = []struct {
 	allowed []int
 }{
 	{contracts.ErrorCodeAUTHDOMAINREJECTED, []int{401, 403}}, // auth-domain rejection: unauth vs forbidden — dev's call
+	{contracts.ErrorCodeAUTHTOKENINVALID, []int{401}},        // 1.5a: token not acceptable (sig/exp/aud/iss) — pinned 401
 	{contracts.ErrorCodeRBACFORBIDDEN, []int{403}},           // arch: 403 RBAC
 	{contracts.ErrorCodeSCANDUPLICATE, []int{409}},           // arch: 409 duplicate
 	{contracts.ErrorCodeSLOTCLOSED, []int{409, 422}},         // conflict vs unprocessable — dev's call

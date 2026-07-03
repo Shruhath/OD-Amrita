@@ -47,6 +47,7 @@ func (e DomainError) Error() string {
 //     card — semantically unprocessable rather than syntactically malformed (400).
 var codeToStatus = map[contracts.ErrorCode]int{
 	contracts.ErrorCodeAUTHDOMAINREJECTED: 403,
+	contracts.ErrorCodeAUTHTOKENINVALID:   401,
 	contracts.ErrorCodeRBACFORBIDDEN:      403,
 	contracts.ErrorCodeSCANDUPLICATE:      409,
 	contracts.ErrorCodeSLOTCLOSED:         409,

@@ -116,8 +116,14 @@ jobs:
             -subj "/CN=localhost" \
             -keyout certs/server.key -out certs/server.crt
           go build -o /tmp/od-api ./cmd/api
+          # Auth is not exercised by the /health smoke test, but APP_ENV=ci is a
+          # non-development env so config's fail-fast gate requires the auth URLs.
+          # Supply unreachable stubs; the verifier's JWKS fetch is boot-tolerant
+          # (a fetch failure is logged, not fatal), so /health still comes up.
           APP_ENV=ci API_PORT=8443 TLS_ENABLED=true \
             TLS_CERT_FILE=certs/server.crt TLS_KEY_FILE=certs/server.key \
+            AUTH_JWKS_URL=https://auth.invalid/auth/v1/.well-known/jwks.json \
+            AUTH_ISSUER=https://auth.invalid/auth/v1 \
             nohup /tmp/od-api > /tmp/od-api.log 2>&1 &
           for i in $(seq 1 20); do
             curl -skf https://localhost:8443/health > /dev/null && exit 0

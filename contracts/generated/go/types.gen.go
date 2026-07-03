@@ -7,9 +7,14 @@ import (
 	"time"
 )
 
+const (
+	BearerAuthScopes bearerAuthContextKey = "bearerAuth.Scopes"
+)
+
 // Defines values for ErrorCode.
 const (
 	ErrorCodeAUTHDOMAINREJECTED ErrorCode = "AUTH_DOMAIN_REJECTED"
+	ErrorCodeAUTHTOKENINVALID   ErrorCode = "AUTH_TOKEN_INVALID"
 	ErrorCodeCARDNOTRECOGNIZED  ErrorCode = "CARD_NOT_RECOGNIZED"
 	ErrorCodeINTERNAL           ErrorCode = "INTERNAL"
 	ErrorCodeINVALIDSCANID      ErrorCode = "INVALID_SCAN_ID"
@@ -25,6 +30,8 @@ const (
 func (e ErrorCode) Valid() bool {
 	switch e {
 	case ErrorCodeAUTHDOMAINREJECTED:
+		return true
+	case ErrorCodeAUTHTOKENINVALID:
 		return true
 	case ErrorCodeCARDNOTRECOGNIZED:
 		return true
@@ -142,6 +149,18 @@ func (e ValidationErrorCode) Valid() bool {
 	}
 }
 
+// AuthenticatedIdentity Identity claims verified from the Supabase JWT and accepted by the backend amrita.edu domain-family gate.
+type AuthenticatedIdentity struct {
+	// Email Verified email claim from the Supabase session JWT.
+	Email string `json:"email"`
+
+	// Name Display name from Supabase user_metadata.name. Optional: some providers omit it, so the backend returns it only when present.
+	Name *string `json:"name,omitempty"`
+
+	// Subject Stable Supabase auth subject (`sub`) for the identity.
+	Subject string `json:"subject"`
+}
+
 // Error Standard error envelope for all non-2xx responses. Clients branch on `code`, never on `message`.
 type Error struct {
 	// Code Canonical SCREAMING_SNAKE error code. This enum is the WIRE source of truth; the Go `errors.go` const registry mirrors it. Do not invent free-text codes.
@@ -249,6 +268,9 @@ type ValidationErrorDetail struct {
 	// Message Human-readable description of the field violation.
 	Message string `json:"message"`
 }
+
+// bearerAuthContextKey is the context key for bearerAuth security scheme
+type bearerAuthContextKey string
 
 // SubmitScansJSONRequestBody defines body for SubmitScans for application/json ContentType.
 type SubmitScansJSONRequestBody = ScanBatchRequest

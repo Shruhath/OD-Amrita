@@ -53,10 +53,18 @@ func TestMigrationsUp_CreatesAuditLog(t *testing.T) {
 	}
 }
 
-// AC 1: goose down → up leaves an identical schema (reversible + idempotent).
+// AC 1: goose (full) down → up leaves an identical schema (reversible +
+// idempotent).
 //
-// Drives goose directly (down then up) and compares the audit_log column
-// signature captured on either side of the cycle.
+// Drives goose directly and compares the audit_log column signature captured on
+// either side of the cycle.
+//
+// NOTE (Story 1.4): this uses `goose reset` (roll back ALL migrations), not a
+// single `goose down`. Once 0002 exists, a single `down` reverts only 0002 (the
+// trigger + revoke) and leaves the audit_log TABLE (0001) in place — the
+// "table dropped" assertion below would then fail. `reset` rolls back 0002 then
+// 0001, dropping the table, and the trailing `up` re-applies both. 0002 does not
+// change columns, so the signature comparison stays valid.
 func TestMigrationsRoundTrip_Idempotent(t *testing.T) {
 	requireGoose(t)
 	ctx := testCtx(t)
@@ -68,18 +76,18 @@ func TestMigrationsRoundTrip_Idempotent(t *testing.T) {
 		t.Fatal("[P0] audit_log has no columns before round-trip (was goose up run?)")
 	}
 
-	// down must remove the table cleanly.
-	runGoose(t, migratorDSN, "down")
+	// reset (full down) must remove the table cleanly.
+	runGoose(t, migratorDSN, "reset")
 	var stillThere bool
 	if err := pool.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM information_schema.tables
 			WHERE table_schema = 'public' AND table_name = 'audit_log'
 		)`).Scan(&stillThere); err != nil {
-		t.Fatalf("check audit_log after down: %v", err)
+		t.Fatalf("check audit_log after reset: %v", err)
 	}
 	if stillThere {
-		t.Error("[P0] expected audit_log to be dropped after goose down")
+		t.Error("[P0] expected audit_log to be dropped after goose reset")
 	}
 
 	// up must recreate an identical schema.

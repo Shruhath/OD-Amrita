@@ -6,7 +6,12 @@ GOOSE_VERSION := v3.27.2
 # matching the contracts/Makefile codegen pattern.
 GOOSE := GOWORK=off go run github.com/pressly/goose/v3/cmd/goose@$(GOOSE_VERSION)
 
-.PHONY: build test lint sqlc migrate-up migrate-down run-api run-worker
+# Pinned sqlc version — NEVER @latest (CI reproducibility). Bump deliberately;
+# keep in sync with the sqlc-check step in .github/workflows/api-ci.yml.
+SQLC_VERSION := v1.31.1
+SQLC := GOWORK=off go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
+
+.PHONY: build test lint sqlc sqlc-check migrate-up migrate-down run-api run-worker
 
 build: ## Compile all packages
 	go build ./...
@@ -17,8 +22,12 @@ test: ## Run Go tests
 lint: ## gofmt + golangci-lint (golangci-lint added in CI)
 	gofmt -l .
 
-sqlc: ## Generate typed Go from db/queries (no-op until queries exist)
-	@command -v sqlc >/dev/null 2>&1 && sqlc generate || echo "sqlc: skipped (not installed / no queries yet)"
+sqlc: ## Generate typed Go into internal/store/sqlc from db/queries (pinned)
+	$(SQLC) generate
+
+sqlc-check: ## CI compile-check: regenerate and fail if committed output is stale
+	$(SQLC) generate
+	git diff --exit-code -- internal/store/sqlc
 
 migrate-up: ## Apply goose migrations as od_migrator (needs DATABASE_URL_MIGRATOR)
 	@test -n "$(DATABASE_URL_MIGRATOR)" || { echo "DATABASE_URL_MIGRATOR is not set"; exit 1; }

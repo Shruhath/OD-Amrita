@@ -1,8 +1,69 @@
-// Package domain holds core domain types shared across services: canonical
-// error values and the audit-event registry. Story 1.1 reserves the homes; the
-// values are defined in later stories.
+// Package domain holds core domain types shared across services: the audit-event
+// registry (events.go) and the canonical domain-error registry (this file). Story
+// 1.1 reserved the homes; Story 1.4 populates them.
 package domain
 
-// errors.go ★ — reserved home for the canonical domain error registry (sentinel
-// errors mapped to HTTP status by the error middleware). Intentionally empty in
-// the skeleton.
+import (
+	"fmt"
+
+	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
+)
+
+// errors.go ★ — the canonical domain-error registry (Story 1.4, AC 5).
+//
+// DomainError is a sentinel domain error carrying a canonical, machine-branchable
+// error code plus a human message. The Code is the GENERATED contract enum
+// (contracts.ErrorCode) — the wire SSOT declared in openapi.yaml — so the codes
+// are referenced, never re-declared in Go: one definition, zero drift. Services
+// return a DomainError; the gin error-middleware (which lands with the first
+// error-returning endpoint, auth 1.5a — deliberately NOT wired here) maps Code to
+// an HTTP status via HTTPStatus and renders the {code, message, details} envelope.
+//
+// Error() has a VALUE receiver so a DomainError value satisfies error — callers
+// can `return DomainError{Code: …, Message: …}` directly.
+type DomainError struct {
+	Code    contracts.ErrorCode
+	Message string
+}
+
+func (e DomainError) Error() string {
+	return fmt.Sprintf("%s: %s", e.Code, e.Message)
+}
+
+// codeToStatus is the SINGLE centralized code -> HTTP-status map. Its keys are
+// the generated contract codes (the wire SSOT), so a code renamed/removed in
+// openapi.yaml (then regenerated) makes this file fail to COMPILE, forcing the
+// map to be updated in the same change. The parity test (errors_test.go) is the
+// CI backstop: it fails if any contract code lacks a mapping, if a mapped key is
+// no longer .Valid() per the contract, or if the counts diverge.
+//
+// The three status choices the story left to the dev are settled here:
+//   - AUTH_DOMAIN_REJECTED -> 403: the identity is known (Microsoft login
+//     succeeded) but the email domain is not permitted; re-authenticating cannot
+//     help, so Forbidden fits better than 401 Unauthorized.
+//   - SLOT_CLOSED          -> 409: the write conflicts with the slot's closed
+//     state (same family as SCAN_DUPLICATE's 409).
+//   - CARD_NOT_RECOGNIZED  -> 422: the token is well-formed but maps to no known
+//     card — semantically unprocessable rather than syntactically malformed (400).
+var codeToStatus = map[contracts.ErrorCode]int{
+	contracts.ErrorCodeAUTHDOMAINREJECTED: 403,
+	contracts.ErrorCodeRBACFORBIDDEN:      403,
+	contracts.ErrorCodeSCANDUPLICATE:      409,
+	contracts.ErrorCodeSLOTCLOSED:         409,
+	contracts.ErrorCodeCARDNOTRECOGNIZED:  422,
+	contracts.ErrorCodeQRLIMITREACHED:     429,
+	contracts.ErrorCodeRATELIMITED:        429,
+	contracts.ErrorCodeINVALIDSCANID:      400,
+	contracts.ErrorCodeVALIDATIONFAILED:   400,
+	contracts.ErrorCodeINTERNAL:           500,
+}
+
+// HTTPStatus returns the HTTP status for a domain error code. An unknown or
+// zero-value code maps to 500 — never a panic, never a misleading 4xx — so a
+// code that somehow reaches the mapper without an entry fails safe.
+func HTTPStatus(code contracts.ErrorCode) int {
+	if status, ok := codeToStatus[code]; ok {
+		return status
+	}
+	return 500
+}

@@ -49,6 +49,15 @@ jobs:
       - name: go test (no DB — integration suite must skip cleanly)
         working-directory: api
         run: go test ./...
+      - name: sqlc compile-check (committed internal/store/sqlc is up to date)
+        # Regenerate with the pinned sqlc and fail if the tree drifts — the same
+        # generate-and-diff idiom as the contract drift-gate. Keep the version in
+        # sync with api/Makefile SQLC_VERSION. No DB needed: codegen reads the SQL.
+        working-directory: api
+        run: |
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+          sqlc generate
+          git diff --exit-code -- internal/store/sqlc
 
   integration:
     name: postgres migrations + role gates + /health
@@ -87,10 +96,13 @@ jobs:
         working-directory: api
         run: |
           goose -dir db/migrations postgres "$DATABASE_URL_MIGRATOR" up
-      - name: Integration tests — migration round-trip + runtime-role DDL denial
+      - name: Integration tests — migrations, immutability, role gates, tx-helper co-commit
+        # test/db and test/store share ONE database; -p 1 serializes the package
+        # binaries so the migration round-trip test (which resets the schema)
+        # cannot run under the tx-helper/conservation tests.
         working-directory: api
         run: |
-          go test -tags integration ./test/db/... -v
+          go test -tags integration -p 1 ./test/db/... ./test/store/... -v
       - name: goose down + re-up (clean revert)
         working-directory: api
         run: |

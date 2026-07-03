@@ -45,6 +45,33 @@ architecture#Naming-Patterns and architecture#Documentation-&-Enforcement.
 - Login roles are bootstrapped by a superuser (`db/init/00_roles.sql` — docker
   initdb locally, documented operator step in prod); goose owns schema + grants.
 
+## Audit & write boundary
+
+- **`audit_log` is append-only.** Immutability is enforced by an `ENABLE ALWAYS`
+  DB trigger that RAISEs on `UPDATE`/`DELETE`/`TRUNCATE` — **not** by grants (a
+  superuser/service role bypasses grants; the trigger fires for every role,
+  including the owner). `od_runtime` holds only `SELECT, INSERT` on it — never
+  `UPDATE`/`DELETE`/`TRUNCATE`. Genuine break-glass (a superuser disabling the
+  trigger) is explicitly out-of-band.
+- **Every state-changing write goes through `store.WithAudit` (`store/tx.go`)** —
+  it co-commits the business write and its audit row in ONE transaction, so no
+  endpoint or worker job writes without an audit row. A dedup no-op
+  (`changed == false`) commits with no audit row.
+
+## Registry discipline (no free-text codes or events)
+
+- **Error codes:** the OpenAPI `Error.code` enum (`contracts/openapi.yaml`) is
+  the SSOT. A story adding a code edits `openapi.yaml` → regenerates → adds the
+  `codeToStatus` mapping in `api/internal/domain/errors.go` (never re-declares the
+  code in Go). The parity/coverage test fails CI on any contract code without a
+  mapping, any stale mapping, or a count mismatch. Never a free-text code.
+- **Audit actions:** `api/internal/domain/events.go` + its `AllActions` slice is
+  the SSOT (audit events are **not** in the contract). Every story that
+  introduces a new auditable action adds its `domain.Action` constant there AND
+  to `AllActions`. `store.WithAudit` rejects any unregistered action at runtime;
+  a unit test fails if a declared constant is missing from `AllActions`. Never a
+  free-text event.
+
 ## Contract wiring (no publishing)
 
 - Go: `go.work` direct reference — `api/` ↔ `contracts/generated/go`.

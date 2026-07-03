@@ -72,6 +72,18 @@ architecture#Naming-Patterns and architecture#Documentation-&-Enforcement.
   a unit test fails if a declared constant is missing from `AllActions`. Never a
   free-text event.
 
+## Auth boundary
+
+- Supabase Auth brokers Microsoft OAuth and owns session refresh/revocation. The
+  Go backend verifies Supabase's JWT locally through JWKS, checks issuer,
+  audience and expiry, then independently enforces the `amrita.edu` domain
+  family on every protected request. Do not trust provider/dashboard filtering
+  as the only admission gate.
+- `api/internal/middleware/error` is the single renderer for generated
+  `{code, message, details}` error envelopes. Handlers and middleware push
+  `domain.DomainError` with `c.Error(...)` and abort; they do not hand-write
+  error response bodies.
+
 ## Contract wiring (no publishing)
 
 - Go: `go.work` direct reference — `api/` ↔ `contracts/generated/go`.

@@ -31,6 +31,7 @@ func setEnv(t *testing.T, env map[string]string) {
 		"DATABASE_URL_MIGRATOR", "DATABASE_URL_RUNTIME",
 		"TLS_ENABLED", "TLS_MIN_VERSION", "TLS_CERT_FILE", "TLS_KEY_FILE",
 		"HTTP_REDIRECT_LISTENER",
+		"AUTH_JWKS_URL", "AUTH_ISSUER", "AUTH_AUDIENCE", "AUTH_ALLOWED_DOMAIN",
 	} {
 		t.Setenv(k, "")
 	}
@@ -95,6 +96,12 @@ func TestLoad_TLSFullyConfigured(t *testing.T) {
 		"TLS_MIN_VERSION":       "1.3",
 		"TLS_CERT_FILE":         cert,
 		"TLS_KEY_FILE":          key,
+		// Auth (Supabase JWT) is required outside development, so a fully
+		// configured production box must supply it (Story 1.5a, DoD 6).
+		"AUTH_JWKS_URL":       "https://project-ref.supabase.co/auth/v1/.well-known/jwks.json",
+		"AUTH_ISSUER":         "https://project-ref.supabase.co/auth/v1",
+		"AUTH_AUDIENCE":       "authenticated",
+		"AUTH_ALLOWED_DOMAIN": "amrita.edu",
 	})
 
 	cfg, err := Load()
@@ -112,6 +119,102 @@ func TestLoad_TLSFullyConfigured(t *testing.T) {
 	}
 	if cfg.TLS.MinVersion != "1.3" {
 		t.Errorf("TLS_MIN_VERSION not honored: %q", cfg.TLS.MinVersion)
+	}
+	if cfg.Auth.JWKSURL == "" || cfg.Auth.Issuer == "" {
+		t.Errorf("auth JWKS/issuer must be loaded in production: %+v", cfg.Auth)
+	}
+	if cfg.Auth.Audience != "authenticated" {
+		t.Errorf("auth audience: want authenticated, got %q", cfg.Auth.Audience)
+	}
+	if cfg.Auth.AllowedDomain != "amrita.edu" {
+		t.Errorf("auth allowed-domain: want amrita.edu, got %q", cfg.Auth.AllowedDomain)
+	}
+}
+
+// ── Auth (Supabase JWT) config — Story 1.5a, DoD 6 ──
+// The gate mirrors the story's open-Q5 recommendation: JWKS + issuer are
+// REQUIRED when APP_ENV != development, so the no-Supabase dev box still boots
+// but a real deploy fails fast on missing/malformed auth config. If the dev
+// instead prefers an explicit AUTH_ENABLED flag (TLS-style), swap the env setup
+// in these four tests — the observable behavior (prod requires it, dev doesn't)
+// is what is pinned.
+
+// TestLoad_AuthRequiredInProduction — outside development, missing auth config
+// must fail fast, naming an AUTH_ variable.
+func TestLoad_AuthRequiredInProduction(t *testing.T) {
+	setEnv(t, map[string]string{
+		"APP_ENV":              "production",
+		"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":          "false",
+		// AUTH_* deliberately unset.
+	})
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected Load to fail fast when auth config is missing outside development")
+	}
+	if !strings.Contains(err.Error(), "AUTH_") {
+		t.Errorf("error must name the missing AUTH_ variable, got: %v", err)
+	}
+}
+
+// TestLoad_AuthInvalidJWKSURL — a malformed JWKS URL fails fast, naming the
+// variable (parseable https URL, like the TLS/DSN checks).
+func TestLoad_AuthInvalidJWKSURL(t *testing.T) {
+	setEnv(t, map[string]string{
+		"APP_ENV":              "production",
+		"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":          "false",
+		"AUTH_JWKS_URL":        "://not a url",
+		"AUTH_ISSUER":          "https://project-ref.supabase.co/auth/v1",
+	})
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected Load to reject a malformed AUTH_JWKS_URL")
+	}
+	if !strings.Contains(err.Error(), "AUTH_JWKS_URL") {
+		t.Errorf("error must name AUTH_JWKS_URL, got: %v", err)
+	}
+}
+
+// TestLoad_AuthOptionalInDevelopment — the no-Supabase dev box still boots, and
+// the non-secret defaults (audience, allowed-domain) are applied.
+func TestLoad_AuthOptionalInDevelopment(t *testing.T) {
+	setEnv(t, map[string]string{
+		// APP_ENV defaults to development.
+		"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":          "false",
+		// AUTH_* unset.
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("development must boot without Supabase auth config: %v", err)
+	}
+	if cfg.Auth.Audience != "authenticated" {
+		t.Errorf("auth audience default: want authenticated, got %q", cfg.Auth.Audience)
+	}
+	if cfg.Auth.AllowedDomain != "amrita.edu" {
+		t.Errorf("auth allowed-domain default: want amrita.edu, got %q", cfg.Auth.AllowedDomain)
+	}
+}
+
+// TestLoad_AuthLowercasesAllowedDomain — the allowed domain is normalized to
+// lowercase so the per-request family check is case-insensitive by construction.
+func TestLoad_AuthLowercasesAllowedDomain(t *testing.T) {
+	setEnv(t, map[string]string{
+		"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":          "false",
+		"AUTH_ALLOWED_DOMAIN":  "AMRITA.EDU",
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Auth.AllowedDomain != "amrita.edu" {
+		t.Errorf("allowed-domain must be lowercased, got %q", cfg.Auth.AllowedDomain)
 	}
 }
 

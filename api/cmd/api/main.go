@@ -22,7 +22,11 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Shruhath/OD-Amrita/api/internal/config"
+	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
 	"github.com/Shruhath/OD-Amrita/api/internal/handler/health"
+	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
+	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
+	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	"github.com/Shruhath/OD-Amrita/api/internal/store"
 )
 
@@ -53,6 +57,19 @@ func run() error {
 	router := gin.New()
 	router.Use(gin.Recovery())
 	router.GET("/health", health.Handler(pool))
+
+	var verifier svcauth.TokenVerifier = svcauth.RejectingVerifier{}
+	if cfg.Auth.JWKSURL != "" && cfg.Auth.Issuer != "" {
+		v, err := svcauth.NewVerifier(cfg.Auth.JWKSURL, cfg.Auth.Issuer, cfg.Auth.Audience)
+		if err != nil {
+			return err
+		}
+		verifier = v
+	}
+	api := router.Group("/api/v1")
+	api.Use(errormw.Handler())
+	api.Use(mwauth.Middleware(verifier, cfg.Auth.AllowedDomain))
+	api.GET("/auth/me", handlerauth.MeHandler())
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.APIPort,

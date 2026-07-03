@@ -4,8 +4,10 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // TLS holds the transport-security settings (NFR15: the server is TLS-only —
@@ -20,6 +22,15 @@ type TLS struct {
 	KeyFile    string
 }
 
+// Auth holds Supabase-brokered Microsoft OAuth settings. The backend verifies
+// Supabase's JWT locally and re-enforces the Amrita domain family.
+type Auth struct {
+	JWKSURL       string
+	Issuer        string
+	Audience      string
+	AllowedDomain string
+}
+
 // Config is the fully-resolved api process configuration.
 type Config struct {
 	AppEnv  string
@@ -31,7 +42,8 @@ type Config struct {
 	// DatabaseURLRuntime is the od_runtime (DML-only) DSN the app pool uses.
 	DatabaseURLRuntime string
 
-	TLS TLS
+	TLS  TLS
+	Auth Auth
 }
 
 // Load reads the environment and fails fast on a configuration the server
@@ -58,6 +70,12 @@ func Load() (*Config, error) {
 			MinVersion: getenvDefault("TLS_MIN_VERSION", "1.2"),
 			CertFile:   os.Getenv("TLS_CERT_FILE"),
 			KeyFile:    os.Getenv("TLS_KEY_FILE"),
+		},
+		Auth: Auth{
+			JWKSURL:       os.Getenv("AUTH_JWKS_URL"),
+			Issuer:        os.Getenv("AUTH_ISSUER"),
+			Audience:      getenvDefault("AUTH_AUDIENCE", "authenticated"),
+			AllowedDomain: strings.ToLower(getenvDefault("AUTH_ALLOWED_DOMAIN", "amrita.edu")),
 		},
 	}
 
@@ -94,8 +112,45 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("config: TLS_KEY_FILE: %w", err)
 		}
 	}
+	if err := validateAuth(cfg.Auth, cfg.AppEnv); err != nil {
+		return nil, err
+	}
 
 	return cfg, nil
+}
+
+func validateAuth(auth Auth, appEnv string) error {
+	if auth.Audience == "" {
+		return fmt.Errorf("config: AUTH_AUDIENCE is required")
+	}
+	if auth.AllowedDomain == "" {
+		return fmt.Errorf("config: AUTH_ALLOWED_DOMAIN is required")
+	}
+	requireURLs := appEnv != "development" || auth.JWKSURL != "" || auth.Issuer != ""
+	if !requireURLs {
+		return nil
+	}
+	if auth.JWKSURL == "" {
+		return fmt.Errorf("config: AUTH_JWKS_URL is required outside development")
+	}
+	if auth.Issuer == "" {
+		return fmt.Errorf("config: AUTH_ISSUER is required outside development")
+	}
+	if err := validateHTTPSURL("AUTH_JWKS_URL", auth.JWKSURL); err != nil {
+		return err
+	}
+	if err := validateHTTPSURL("AUTH_ISSUER", auth.Issuer); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateHTTPSURL(name, raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return fmt.Errorf("config: %s must be a parseable https URL, got %q", name, raw)
+	}
+	return nil
 }
 
 func getenvDefault(key, def string) string {

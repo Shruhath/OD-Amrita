@@ -89,7 +89,7 @@ func TestAuthRoundTrip_ValidAmritaIdentity200(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("[P0] 200 body must be AuthenticatedIdentity: %v", err)
 	}
-	if got.Email != id.Email || got.Name != id.Name || got.Subject != id.Subject {
+	if got.Email != id.Email || got.Name == nil || *got.Name != id.Name || got.Subject != id.Subject {
 		t.Errorf("[P0] identity mismatch: want %+v, got %+v", id, got)
 	}
 }

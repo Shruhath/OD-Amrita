@@ -44,6 +44,8 @@ func TestEnforceDomain(t *testing.T) {
 		{"nobody@gmail.com", false},
 		{"noatsign", false},
 		{"", false},
+		{"a@evil.com@amrita.edu", false}, // multiple '@' is malformed — not the last-label host
+		{"a@b@amrita.edu", false},
 	}
 	for _, tc := range cases {
 		err := EnforceDomain(tc.email, allowed)

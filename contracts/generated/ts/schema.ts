@@ -102,8 +102,8 @@ export interface components {
         AuthenticatedIdentity: {
             /** @description Verified email claim from the Supabase session JWT. */
             email: string;
-            /** @description Display name from Supabase user_metadata.name when present. */
-            name: string;
+            /** @description Display name from Supabase user_metadata.name. Optional: some providers omit it, so the backend returns it only when present. */
+            name?: string;
             /** @description Stable Supabase auth subject (`sub`) for the identity. */
             subject: string;
         };

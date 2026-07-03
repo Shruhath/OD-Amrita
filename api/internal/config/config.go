@@ -61,7 +61,9 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
-		AppEnv:              getenvDefault("APP_ENV", "development"),
+		// Normalize so " Development"/"DEV"-style values compare cleanly against
+		// the "development" gate (mirrors the AllowedDomain lowercasing below).
+		AppEnv:              strings.ToLower(strings.TrimSpace(getenvDefault("APP_ENV", "development"))),
 		APIPort:             getenvDefault("API_PORT", "8443"),
 		DatabaseURLMigrator: os.Getenv("DATABASE_URL_MIGRATOR"),
 		DatabaseURLRuntime:  os.Getenv("DATABASE_URL_RUNTIME"),
@@ -72,8 +74,10 @@ func Load() (*Config, error) {
 			KeyFile:    os.Getenv("TLS_KEY_FILE"),
 		},
 		Auth: Auth{
-			JWKSURL:       os.Getenv("AUTH_JWKS_URL"),
-			Issuer:        os.Getenv("AUTH_ISSUER"),
+			JWKSURL: os.Getenv("AUTH_JWKS_URL"),
+			// Trim a trailing slash so a config typo doesn't silently mismatch the
+			// token's `iss` (which Supabase mints without one) and 401 everything.
+			Issuer:        strings.TrimRight(os.Getenv("AUTH_ISSUER"), "/"),
 			Audience:      getenvDefault("AUTH_AUDIENCE", "authenticated"),
 			AllowedDomain: strings.ToLower(getenvDefault("AUTH_ALLOWED_DOMAIN", "amrita.edu")),
 		},

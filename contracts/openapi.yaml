@@ -223,7 +223,6 @@ components:
         backend amrita.edu domain-family gate.
       required:
         - email
-        - name
         - subject
       properties:
         email:
@@ -231,7 +230,9 @@ components:
           description: Verified email claim from the Supabase session JWT.
         name:
           type: string
-          description: Display name from Supabase user_metadata.name when present.
+          description: >-
+            Display name from Supabase user_metadata.name. Optional: some
+            providers omit it, so the backend returns it only when present.
         subject:
           type: string
           description: Stable Supabase auth subject (`sub`) for the identity.

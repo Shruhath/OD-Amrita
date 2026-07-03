@@ -154,8 +154,8 @@ type AuthenticatedIdentity struct {
 	// Email Verified email claim from the Supabase session JWT.
 	Email string `json:"email"`
 
-	// Name Display name from Supabase user_metadata.name when present.
-	Name string `json:"name"`
+	// Name Display name from Supabase user_metadata.name. Optional: some providers omit it, so the backend returns it only when present.
+	Name *string `json:"name,omitempty"`
 
 	// Subject Stable Supabase auth subject (`sub`) for the identity.
 	Subject string `json:"subject"`

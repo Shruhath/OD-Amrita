@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -21,6 +22,7 @@ import (
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
 
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
+	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 )
 
@@ -57,8 +59,28 @@ func TestMe_Returns200Identity(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("[P0] body must be the generated AuthenticatedIdentity: %v (%s)", err, w.Body.String())
 	}
-	if got.Email != id.Email || got.Name != id.Name || got.Subject != id.Subject {
+	if got.Email != id.Email || got.Name == nil || *got.Name != id.Name || got.Subject != id.Subject {
 		t.Errorf("[P0] identity round-trip mismatch: want %+v, got %+v", id, got)
+	}
+}
+
+// TestMe_MissingIdentity_500 — if the handler is ever reached without the auth
+// middleware seeding an identity, it fails closed (generic 500 via the error
+// middleware), never a 200 with a blank identity.
+func TestMe_MissingIdentity_500(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(errormw.Handler())
+	r.GET("/api/v1/auth/me", MeHandler()) // no identity seeded
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil))
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("[P0] want 500 when identity is missing, got %d (%s)", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "\"email\"") {
+		t.Errorf("[P0] a fail-closed 500 must not carry an identity payload: %s", w.Body.String())
 	}
 }
 

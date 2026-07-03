@@ -12,7 +12,11 @@ package domain
 //
 // Priority tags in test names/messages: [P0] critical · [P1] important · [P2] guard.
 
-import "testing"
+import (
+	"os"
+	"regexp"
+	"testing"
+)
 
 // TestAllActions_MatchesDeclaredConstants pins TWO things that must never drift:
 //
@@ -66,5 +70,44 @@ func TestAllActions_MatchesDeclaredConstants(t *testing.T) {
 		if seen[a] == 0 {
 			t.Errorf("[P1] AllActions is MISSING declared action %q — a constant was added to events.go but left out of the SSOT slice", string(a))
 		}
+	}
+}
+
+// declaredActionConst matches each declared Action constant in events.go, e.g.
+// `ActionODCreated Action = "od.created"`. The `Action` name prefix keeps it to
+// the registry constants (not the `var AllActions = []Action{…}` entries, which
+// have no ` Action = "…"`).
+var declaredActionConst = regexp.MustCompile(`(?m)^\s*Action[A-Za-z0-9]+\s+Action\s*=\s*"([a-z0-9._]+)"`)
+
+// TestAllActions_CoversEveryDeclaredConstant gives the registry REAL teeth
+// independent of the hand-maintained `want` map above: it reads events.go SOURCE
+// and asserts every declared Action constant is registered in AllActions. Go
+// cannot reflect over declared constants, so without this a constant added to the
+// const block but omitted from BOTH AllActions AND `want` would slip past
+// TestAllActions_MatchesDeclaredConstants. This closes the "a story forgot to
+// register its action" gap at the unit-test layer (store.WithAudit's runtime
+// rejection is the second backstop).
+func TestAllActions_CoversEveryDeclaredConstant(t *testing.T) {
+	src, err := os.ReadFile("events.go")
+	if err != nil {
+		t.Fatalf("[P0] read events.go: %v", err)
+	}
+	matches := declaredActionConst.FindAllStringSubmatch(string(src), -1)
+	if len(matches) == 0 {
+		t.Fatal("[P0] parsed zero Action constants from events.go — the path or format changed; this guard is blind")
+	}
+
+	// Every declared constant must be registered in the SSOT slice.
+	for _, m := range matches {
+		act := Action(m[1])
+		if !act.Registered() {
+			t.Errorf("[P0] Action %q is declared in events.go but NOT in AllActions — register it in the SSOT slice", string(act))
+		}
+	}
+
+	// Symmetric: AllActions must not carry an entry that is not a declared
+	// constant (a stray wire string), so the two match exactly.
+	if len(AllActions) != len(matches) {
+		t.Errorf("[P0] AllActions has %d entries but events.go declares %d Action constants — they must match exactly", len(AllActions), len(matches))
 	}
 }

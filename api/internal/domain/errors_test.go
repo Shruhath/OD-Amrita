@@ -12,6 +12,15 @@ package domain
 // kept in lockstep with the GENERATED contract enum (the wire SSOT), so a code
 // renamed/removed/added in openapi.yaml (then regenerated) breaks CI here.
 //
+// REAL TEETH FOR *ADDED* CODES: the parity test enumerates the ErrorCode enum by
+// reading the generated contract SOURCE (types.gen.go), not a hand-maintained
+// in-file copy — because oapi-codegen emits no enumerable set (only per-constant +
+// a .Valid() switch). Renames/removals already break compilation here (the
+// identifiers vanish); reading the generated set is what also catches a code
+// ADDED to the contract but forgotten in codeToStatus. Stdlib-only on purpose (no
+// YAML dependency → no go.mod tidy/no-network trap); the contract-drift gate
+// already binds types.gen.go byte-for-byte to a regen from openapi.yaml.
+//
 // KEY DESIGN NOTE — allowed-status sets, not single pins:
 // The architecture's HTTP-status vocabulary (architecture#Format lines 483-484)
 // is 200/201/202/400/401/403/404/409/429/5xx. Three codes are left as a genuine
@@ -21,6 +30,8 @@ package domain
 // unambiguous and pinned exactly.
 
 import (
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -77,31 +88,61 @@ func TestHTTPStatus_UnknownDefaults500(t *testing.T) {
 	}
 }
 
-// TestCodeToStatus_ParityWithContractEnum is the drift machine-teeth. It proves
-// the hand-written status map and the GENERATED contract enum stay in lockstep:
+// contractErrorCodeConst matches each generated ErrorCode enum constant in the
+// contract source, e.g. `ErrorCodeAUTHDOMAINREJECTED ErrorCode = "AUTH_DOMAIN_REJECTED"`.
+// Anchoring the const NAME to the `ErrorCode` prefix keeps the sibling
+// `ValidationErrorCode…` enum (which also ends in "ErrorCode") out of the match.
+var contractErrorCodeConst = regexp.MustCompile(`(?m)^\s*ErrorCode[A-Z][A-Za-z0-9]*\s+ErrorCode\s*=\s*"([A-Z_]+)"`)
+
+// parseContractErrorCodes enumerates the ErrorCode enum by reading the GENERATED
+// contract source (types.gen.go) — the true generated set, not a hand-maintained
+// copy. A code ADDED to openapi.yaml (then regenerated) appears here automatically,
+// so the parity checks below fail if it lacks a codeToStatus mapping — closing the
+// gap a hand-written table would silently miss.
+func parseContractErrorCodes(t *testing.T) []contracts.ErrorCode {
+	t.Helper()
+	// api/internal/domain -> repo root -> contracts/generated/go/types.gen.go
+	const genPath = "../../../contracts/generated/go/types.gen.go"
+	src, err := os.ReadFile(genPath)
+	if err != nil {
+		t.Fatalf("[P0] read generated contract source %s: %v", genPath, err)
+	}
+	matches := contractErrorCodeConst.FindAllStringSubmatch(string(src), -1)
+	codes := make([]contracts.ErrorCode, 0, len(matches))
+	for _, m := range matches {
+		codes = append(codes, contracts.ErrorCode(m[1]))
+	}
+	return codes
+}
+
+// TestCodeToStatus_ParityWithContractEnum is the drift machine-teeth. It enumerates
+// the GENERATED contract enum (parseContractErrorCodes) and proves the status map
+// stays in lockstep with it:
 //
-//   - every generated code has a mapping (a NEW spec code without a mapping fails);
+//   - every generated code has a mapping — a code ADDED to the contract without a
+//     mapping fails here (the gap a hand-maintained list could not catch);
 //   - every mapped key is .Valid() per the contract (a removed/renamed code, once
 //     regenerated, leaves a stale key that stops being .Valid() and fails);
-//   - the counts match (an extra/duplicate key fails).
+//   - the counts match the generated set (an extra/duplicate key fails);
+//   - the in-file codeStatusCases table also matches the generated set, so
+//     TestHTTPStatus_MapsEveryCode stays exhaustive.
 //
-// Referencing the generated constants by identifier also means a code deleted or
-// renamed in openapi.yaml (then regenerated) makes THIS FILE fail to compile —
-// forcing the mapping to be updated in the same change. That is the point.
+// Renames/removals additionally make errors.go / this file fail to COMPILE (the
+// generated identifiers vanish), forcing the fix in the same change.
 func TestCodeToStatus_ParityWithContractEnum(t *testing.T) {
-	// The generated contract codes, referenced by their generated identifiers.
-	contractCodes := make([]contracts.ErrorCode, 0, len(codeStatusCases))
-	for _, tc := range codeStatusCases {
-		contractCodes = append(contractCodes, tc.code)
+	contractCodes := parseContractErrorCodes(t)
+	if len(contractCodes) == 0 {
+		t.Fatal("[P0] parsed zero ErrorCode constants from the generated contract — the path or generated format changed; the parity gate is blind")
 	}
 
-	// Every contract code must have a status mapping.
+	// Every generated contract code must be .Valid() and have a status mapping.
+	// This is what catches a code ADDED to the contract without a mapping.
 	for _, code := range contractCodes {
 		if !code.Valid() {
-			t.Errorf("[P0] %q is not .Valid() per the generated contract — the test's contractCodes list is stale", string(code))
+			t.Errorf("[P0] %q parsed from generated source is not .Valid() — generator/regex drift", string(code))
 		}
 		if _, ok := codeToStatus[code]; !ok {
-			t.Errorf("[P0] codeToStatus is missing a mapping for contract code %q", string(code))
+			t.Errorf("[P0] codeToStatus is missing a mapping for contract code %q — a code was added to openapi.yaml without a status mapping", string(code))
 		}
 	}
 
@@ -113,9 +154,16 @@ func TestCodeToStatus_ParityWithContractEnum(t *testing.T) {
 		}
 	}
 
-	// Counts must match: no extras, no gaps.
+	// Counts must match the GENERATED set: no extras, no gaps.
 	if len(codeToStatus) != len(contractCodes) {
-		t.Errorf("[P0] codeToStatus has %d entries but the contract defines %d codes — a code was added/removed without updating the map (or this test)", len(codeToStatus), len(contractCodes))
+		t.Errorf("[P0] codeToStatus has %d entries but the generated contract defines %d codes — a code was added/removed without updating the map", len(codeToStatus), len(contractCodes))
+	}
+
+	// Keep the in-file status table (codeStatusCases, which drives
+	// TestHTTPStatus_MapsEveryCode) exhaustive too, so that test can't silently
+	// fall behind a newly added contract code.
+	if len(codeStatusCases) != len(contractCodes) {
+		t.Errorf("[P0] codeStatusCases covers %d codes but the generated contract defines %d — add the new/removed code to the status table", len(codeStatusCases), len(contractCodes))
 	}
 }
 

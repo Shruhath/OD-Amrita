@@ -21,11 +21,18 @@ package db
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// sqlstateTriggerRaise is the SQLSTATE a bare `RAISE EXCEPTION` (no ERRCODE)
+// yields — exactly what audit_log_immutable() raises (0002). Asserting on it (not
+// merely "not 42501") proves the immutability TRIGGER is the cause, ruling out any
+// incidental non-privilege PgError.
+const sqlstateTriggerRaise = "P0001"
 
 // pgErrorCode extracts the Postgres SQLSTATE from err, reporting whether err was
 // a *pgconn.PgError at all. Assert on the typed error/SQLSTATE, never a message
@@ -78,6 +85,9 @@ func TestAuditLog_OwnerUpdateRaises(t *testing.T) {
 	if code == sqlstatePermissionDenied {
 		t.Errorf("[P0] UPDATE was blocked by PRIVILEGE (42501), not the trigger — immutability must hold even for the owner (NFR19). The trigger must RAISE for every role.")
 	}
+	if code != sqlstateTriggerRaise {
+		t.Errorf("[P0] expected the immutability trigger raise (SQLSTATE %s), got %s — the block must come from the trigger, not an incidental error", sqlstateTriggerRaise, code)
+	}
 }
 
 // TestAuditLog_OwnerDeleteRaises — same as above for DELETE. Owner DELETE must be
@@ -99,6 +109,35 @@ func TestAuditLog_OwnerDeleteRaises(t *testing.T) {
 	if code == sqlstatePermissionDenied {
 		t.Errorf("[P0] DELETE was blocked by PRIVILEGE (42501), not the trigger — immutability must hold even for the owner (NFR19).")
 	}
+	if code != sqlstateTriggerRaise {
+		t.Errorf("[P0] expected the immutability trigger raise (SQLSTATE %s), got %s — the block must come from the trigger, not an incidental error", sqlstateTriggerRaise, code)
+	}
+}
+
+// TestAuditLog_OwnerTruncateRaises — AC 1 defense-in-depth. The BEFORE TRUNCATE
+// statement trigger must block TRUNCATE even for the OWNER (od_migrator, who DOES
+// hold TRUNCATE), proving the guard fires BELOW role privilege — not merely that
+// the runtime role lacks the grant. Row UPDATE/DELETE triggers do NOT fire on
+// TRUNCATE, so this is the only proof the dedicated audit_log_no_truncate trigger
+// actually fires. The error must be the trigger's raise (P0001), not 42501.
+func TestAuditLog_OwnerTruncateRaises(t *testing.T) {
+	ctx := testCtx(t)
+	pool := connect(t, ctx, dsnOrSkip(t, envMigratorDSN))
+
+	_, err := pool.Exec(ctx, `TRUNCATE audit_log`)
+	if err == nil {
+		t.Fatal("[P0] expected TRUNCATE audit_log to be blocked by the BEFORE TRUNCATE trigger even for the owner, but it succeeded")
+	}
+	code, ok := pgErrorCode(err)
+	if !ok {
+		t.Fatalf("[P0] expected a typed *pgconn.PgError from the TRUNCATE trigger, got %T: %v", err, err)
+	}
+	if code == sqlstatePermissionDenied {
+		t.Errorf("[P0] owner TRUNCATE was blocked by PRIVILEGE (42501), not the trigger — the BEFORE TRUNCATE guard must RAISE below role level (the owner holds TRUNCATE)")
+	}
+	if code != sqlstateTriggerRaise {
+		t.Errorf("[P0] expected the TRUNCATE trigger raise (SQLSTATE %s), got %s", sqlstateTriggerRaise, code)
+	}
 }
 
 // TestAuditLog_RuntimeTruncateDenied — AC 2. Connected AS od_runtime, TRUNCATE
@@ -114,6 +153,33 @@ func TestAuditLog_RuntimeTruncateDenied(t *testing.T) {
 	}
 	if !isPermissionDenied(err) {
 		t.Errorf("[P0] expected permission denied (SQLSTATE %s) for runtime TRUNCATE, got: %v", sqlstatePermissionDenied, err)
+	}
+}
+
+// TestAuditLog_RuntimeAlterAddColumnDenied — AC 2. Connected AS od_runtime, a
+// plain ALTER TABLE … ADD COLUMN on audit_log must fail with 42501: ALTER requires
+// table ownership, which od_runtime does not have (owns nothing, no schema CREATE).
+// Completes the AC-2 triad — TRUNCATE / ALTER / DISABLE TRIGGER (Task 7(b)).
+func TestAuditLog_RuntimeAlterAddColumnDenied(t *testing.T) {
+	ctx := testCtx(t)
+	pool := connect(t, ctx, dsnOrSkip(t, envRuntimeDSN))
+
+	_, err := pool.Exec(ctx, `ALTER TABLE audit_log ADD COLUMN review_probe_col text`)
+	if err == nil {
+		// Defensive: should be unreachable, but if the ALTER somehow succeeded,
+		// drop the column (as the owner) so it can't corrupt later tests' schema
+		// signature. od_runtime cannot drop it, so use a migrator connection
+		// directly (not connect(), whose t.Fatalf would mask the real assertion).
+		if mig := os.Getenv(envMigratorDSN); mig != "" {
+			if mp, cerr := pgxpool.New(ctx, mig); cerr == nil {
+				_, _ = mp.Exec(ctx, `ALTER TABLE audit_log DROP COLUMN IF EXISTS review_probe_col`)
+				mp.Close()
+			}
+		}
+		t.Fatal("[P0] expected ALTER TABLE audit_log ADD COLUMN to be denied for od_runtime, but it succeeded")
+	}
+	if !isPermissionDenied(err) {
+		t.Errorf("[P0] expected permission denied (SQLSTATE %s) for runtime ALTER ADD COLUMN, got: %v", sqlstatePermissionDenied, err)
 	}
 }
 
@@ -174,9 +240,9 @@ func runtimeHasUpdateOnAuditLog(t *testing.T, ctx context.Context, pool *pgxpool
 // Flow (drives goose directly; MUST leave 0002 re-applied so later tests see the
 // installed trigger, mirroring the 1.3 round-trip test's restore contract):
 //
-//	after up   : >=1 ENABLE ALWAYS trigger present, od_runtime UPDATE revoked
+//	after up   : exactly 2 ENABLE ALWAYS triggers present, od_runtime UPDATE revoked
 //	after down : 0 immutability triggers, function gone, od_runtime UPDATE restored
-//	after up   : trigger reinstalled, revoke re-applied
+//	after up   : both triggers reinstalled, revoke re-applied
 //
 // `goose down` reverts only the latest migration (0002), leaving the audit_log
 // TABLE (0001) intact — exactly the scope this test checks.
@@ -186,9 +252,12 @@ func TestAuditImmutabilityMigration_Reversible(t *testing.T) {
 	migratorDSN := dsnOrSkip(t, envMigratorDSN)
 	pool := connect(t, ctx, migratorDSN)
 
-	// Precondition: CI has run `goose up`, so 0002 is applied.
-	if got := alwaysEnabledTriggerCount(t, ctx, pool); got < 1 {
-		t.Fatalf("[P1] expected >=1 ENABLE ALWAYS trigger on audit_log after goose up, got %d (was 0002 applied?)", got)
+	// Precondition: CI has run `goose up`, so 0002 is applied. 0002 installs
+	// EXACTLY two ENABLE ALWAYS triggers (audit_log_no_update_delete +
+	// audit_log_no_truncate); asserting == 2 (not >= 1) guards the defense-in-depth
+	// TRUNCATE trigger against a silent regression the row trigger would mask.
+	if got := alwaysEnabledTriggerCount(t, ctx, pool); got != 2 {
+		t.Fatalf("[P1] expected exactly 2 ENABLE ALWAYS triggers on audit_log after goose up, got %d (was 0002 applied? did the TRUNCATE trigger regress?)", got)
 	}
 	if runtimeHasUpdateOnAuditLog(t, ctx, pool) {
 		t.Error("[P1] expected od_runtime UPDATE on audit_log to be REVOKED after 0002")
@@ -216,8 +285,8 @@ func TestAuditImmutabilityMigration_Reversible(t *testing.T) {
 	// Re-apply 0002 to restore state for subsequent tests.
 	runGoose(t, migratorDSN, "up")
 
-	if got := alwaysEnabledTriggerCount(t, ctx, pool); got < 1 {
-		t.Errorf("[P1] expected immutability trigger reinstalled after goose up, got %d", got)
+	if got := alwaysEnabledTriggerCount(t, ctx, pool); got != 2 {
+		t.Errorf("[P1] expected both immutability triggers reinstalled after goose up (exactly 2 ENABLE ALWAYS), got %d", got)
 	}
 	if runtimeHasUpdateOnAuditLog(t, ctx, pool) {
 		t.Error("[P1] expected od_runtime UPDATE to be re-revoked after goose up")

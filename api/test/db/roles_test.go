@@ -44,14 +44,21 @@ func TestOwnership_MigratorOwns_RuntimeOwnsNothing(t *testing.T) {
 	}
 }
 
-// AC 2: od_runtime holds the four DML privileges on audit_log (so legitimate
-// audit writes and reads work) and NOT the CREATE privilege on the schema (so it
-// cannot introduce DDL).
+// AC 2 (Story 1.4 revoke): audit_log is APPEND-ONLY, so od_runtime holds only
+// SELECT + INSERT — the app only ever appends and reads audit rows. UPDATE and
+// DELETE are REVOKED by migration 0002 (least-privilege first line; the trigger
+// is the below-role backstop). od_runtime still has NO CREATE on the schema, so
+// it cannot introduce DDL.
+//
+// NOTE (Story 1.4): before 0002 this asserted all four DML privileges present.
+// The revoke flips UPDATE/DELETE to "must be absent" — this test goes RED until
+// 0002 lands, which is the intended red signal for the hardening.
 func TestRuntimeGrants_DMLYesCreateNo(t *testing.T) {
 	ctx := testCtx(t)
 	pool := connect(t, ctx, dsnOrSkip(t, envMigratorDSN))
 
-	for _, priv := range []string{"SELECT", "INSERT", "UPDATE", "DELETE"} {
+	// Present: the append + read privileges the app legitimately needs.
+	for _, priv := range []string{"SELECT", "INSERT"} {
 		var granted bool
 		if err := pool.QueryRow(ctx,
 			`SELECT has_table_privilege('od_runtime', 'public.audit_log', $1)`,
@@ -61,6 +68,20 @@ func TestRuntimeGrants_DMLYesCreateNo(t *testing.T) {
 		}
 		if !granted {
 			t.Errorf("[P1] expected od_runtime to have %s on audit_log", priv)
+		}
+	}
+
+	// Absent: mutating an append-only ledger is not the app's job (revoked by 0002).
+	for _, priv := range []string{"UPDATE", "DELETE"} {
+		var granted bool
+		if err := pool.QueryRow(ctx,
+			`SELECT has_table_privilege('od_runtime', 'public.audit_log', $1)`,
+			priv,
+		).Scan(&granted); err != nil {
+			t.Fatalf("check %s grant: %v", priv, err)
+		}
+		if granted {
+			t.Errorf("[P0] expected od_runtime to NOT have %s on audit_log (revoked by 0002 — audit_log is append-only)", priv)
 		}
 	}
 

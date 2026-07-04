@@ -29,6 +29,14 @@ BEGIN
 END
 $$;
 
+-- PG16+ reassigning ownership to a role requires the bootstrap role to be able to
+-- SET ROLE to it. A true SUPERUSER (local docker / self-hosted) always can, so this
+-- is a harmless no-op there. On MANAGED Postgres (e.g. Neon) the bootstrap runs as a
+-- non-superuser database owner (neondb_owner), which is NOT implicitly a member of
+-- od_migrator — without this grant the next ALTER SCHEMA fails with SQLSTATE 42501
+-- "must be able to SET ROLE od_migrator". current_user keeps it portable across both.
+GRANT od_migrator TO current_user WITH SET TRUE;
+
 -- od_migrator owns the app schema so its migrations can create tables and issue
 -- grants without superuser help.
 ALTER SCHEMA public OWNER TO od_migrator;

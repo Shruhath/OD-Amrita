@@ -29,6 +29,12 @@ type Auth struct {
 	Issuer        string
 	Audience      string
 	AllowedDomain string
+	// BootstrapAdmins is the lowercased set of emails provisioned as `admin` on
+	// first login (Story 1.5b). Empty by default — every real login then
+	// provisions as the least-privileged `student` until an admin elevates them
+	// (Epic 2). Never commit a concrete admin email here; it loads from the
+	// environment (AUTH_BOOTSTRAP_ADMINS).
+	BootstrapAdmins map[string]struct{}
 }
 
 // Config is the fully-resolved api process configuration.
@@ -77,9 +83,10 @@ func Load() (*Config, error) {
 			JWKSURL: os.Getenv("AUTH_JWKS_URL"),
 			// Trim a trailing slash so a config typo doesn't silently mismatch the
 			// token's `iss` (which Supabase mints without one) and 401 everything.
-			Issuer:        strings.TrimRight(os.Getenv("AUTH_ISSUER"), "/"),
-			Audience:      getenvDefault("AUTH_AUDIENCE", "authenticated"),
-			AllowedDomain: strings.ToLower(getenvDefault("AUTH_ALLOWED_DOMAIN", "amrita.edu")),
+			Issuer:          strings.TrimRight(os.Getenv("AUTH_ISSUER"), "/"),
+			Audience:        getenvDefault("AUTH_AUDIENCE", "authenticated"),
+			AllowedDomain:   strings.ToLower(getenvDefault("AUTH_ALLOWED_DOMAIN", "amrita.edu")),
+			BootstrapAdmins: parseEmailSet(os.Getenv("AUTH_BOOTSTRAP_ADMINS")),
 		},
 	}
 
@@ -155,6 +162,22 @@ func validateHTTPSURL(name, raw string) error {
 		return fmt.Errorf("config: %s must be a parseable https URL, got %q", name, raw)
 	}
 	return nil
+}
+
+// parseEmailSet parses a comma-separated env value into a set of lowercased,
+// trimmed emails, dropping blank entries. It is fail-soft by design: an empty
+// or all-blank value yields an empty (non-nil) set — a valid "no bootstrap
+// admins" configuration — mirroring the auth block's development posture (an
+// absent list is not an error, it just grants no one admin at provisioning).
+func parseEmailSet(raw string) map[string]struct{} {
+	set := make(map[string]struct{})
+	for _, part := range strings.Split(raw, ",") {
+		email := strings.ToLower(strings.TrimSpace(part))
+		if email != "" {
+			set[email] = struct{}{}
+		}
+	}
+	return set
 }
 
 func getenvDefault(key, def string) string {

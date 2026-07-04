@@ -11,6 +11,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -24,7 +25,22 @@ import (
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
+	svcuser "github.com/Shruhath/OD-Amrita/api/internal/service/user"
 )
+
+// echoProvisioner reflects the verified identity into a provisioned User
+// (default role student), isolating the handler from the provisioning DB write
+// while still exercising provision-then-return (Story 1.5b).
+type echoProvisioner struct{}
+
+func (echoProvisioner) Provision(_ context.Context, id svcauth.VerifiedIdentity) (svcuser.User, error) {
+	return svcuser.User{
+		SupabaseSubject: id.Subject,
+		Email:           id.Email,
+		Name:            id.Name,
+		Role:            svcuser.RoleStudent,
+	}, nil
+}
 
 // serveMe seeds the context with `seed` (as the auth middleware would) via the
 // exported SetIdentity, then invokes MeHandler — isolating the handler from the
@@ -39,7 +55,7 @@ func serveMe(t *testing.T, seed *svcauth.VerifiedIdentity) *httptest.ResponseRec
 			c.Next()
 		})
 	}
-	r.GET("/api/v1/auth/me", MeHandler())
+	r.GET("/api/v1/auth/me", MeHandler(echoProvisioner{}))
 
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil))
@@ -71,7 +87,7 @@ func TestMe_MissingIdentity_500(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(errormw.Handler())
-	r.GET("/api/v1/auth/me", MeHandler()) // no identity seeded
+	r.GET("/api/v1/auth/me", MeHandler(echoProvisioner{})) // no identity seeded
 
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil))
@@ -84,9 +100,9 @@ func TestMe_MissingIdentity_500(t *testing.T) {
 	}
 }
 
-// TestMe_WireShape — the response is exactly { email, name, subject } and
-// nothing else (the generated contract shape), mirroring the health handler's
-// wire-shape guard.
+// TestMe_WireShape — the response is exactly { email, name, subject, role } and
+// nothing else (the generated contract shape after Story 1.5b added the required
+// role), mirroring the health handler's wire-shape guard.
 func TestMe_WireShape(t *testing.T) {
 	id := svcauth.VerifiedIdentity{Email: "staff@amrita.edu", Name: "Staff Member", Subject: "user-uuid-123"}
 	w := serveMe(t, &id)
@@ -95,10 +111,10 @@ func TestMe_WireShape(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(raw) != 3 {
-		t.Errorf("[P2] AuthenticatedIdentity carries exactly {email, name, subject}, got keys: %v", raw)
+	if len(raw) != 4 {
+		t.Errorf("[P2] AuthenticatedIdentity carries exactly {email, name, subject, role}, got keys: %v", raw)
 	}
-	for _, k := range []string{"email", "name", "subject"} {
+	for _, k := range []string{"email", "name", "subject", "role"} {
 		if _, ok := raw[k]; !ok {
 			t.Errorf("[P2] missing required contract field %q", k)
 		}

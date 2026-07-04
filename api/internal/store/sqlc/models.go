@@ -18,3 +18,14 @@ type AuditLog struct {
 	Payload      []byte             `json:"payload"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 }
+
+type User struct {
+	ID              pgtype.UUID        `json:"id"`
+	SupabaseSubject string             `json:"supabase_subject"`
+	Email           string             `json:"email"`
+	Name            pgtype.Text        `json:"name"`
+	Role            string             `json:"role"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	LastLoginAt     pgtype.Timestamptz `json:"last_login_at"`
+}

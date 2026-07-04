@@ -244,8 +244,12 @@ func runtimeHasUpdateOnAuditLog(t *testing.T, ctx context.Context, pool *pgxpool
 //	after down : 0 immutability triggers, function gone, od_runtime UPDATE restored
 //	after up   : both triggers reinstalled, revoke re-applied
 //
-// `goose down` reverts only the latest migration (0002), leaving the audit_log
-// TABLE (0001) intact — exactly the scope this test checks.
+// We revert down TO version 1 (`down-to 1`) rather than a single `down`: 0002 is
+// no longer the migration tip (0003_users sits on top), so one `down` would only
+// revert 0003 and leave 0002's triggers installed. `down-to 1` unwinds everything
+// above 0001, exercising 0002's Down regardless of how many migrations follow it,
+// while leaving the audit_log TABLE (0001) intact — exactly the scope this checks.
+// The closing `up` re-applies every migration above 0001 to restore full state.
 func TestAuditImmutabilityMigration_Reversible(t *testing.T) {
 	requireGoose(t)
 	ctx := testCtx(t)
@@ -263,8 +267,9 @@ func TestAuditImmutabilityMigration_Reversible(t *testing.T) {
 		t.Error("[P1] expected od_runtime UPDATE on audit_log to be REVOKED after 0002")
 	}
 
-	// Revert only 0002.
-	runGoose(t, migratorDSN, "down")
+	// Revert everything above 0001 (0003 users + 0002 immutability), so 0002's
+	// Down is exercised even though it is no longer the migration tip.
+	runGoose(t, migratorDSN, "down-to", "1")
 
 	if got := alwaysEnabledTriggerCount(t, ctx, pool); got != 0 {
 		t.Errorf("[P1] expected 0 immutability triggers after goose down, got %d", got)
@@ -282,7 +287,7 @@ func TestAuditImmutabilityMigration_Reversible(t *testing.T) {
 		t.Error("[P1] expected od_runtime UPDATE grant RESTORED after goose down (symmetric Down)")
 	}
 
-	// Re-apply 0002 to restore state for subsequent tests.
+	// Re-apply every migration above 0001 to restore state for subsequent tests.
 	runGoose(t, migratorDSN, "up")
 
 	if got := alwaysEnabledTriggerCount(t, ctx, pool); got != 2 {

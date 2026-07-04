@@ -40,7 +40,10 @@ const provisionUser = `-- name: ProvisionUser :one
 INSERT INTO users (supabase_subject, email, name, role, last_login_at)
 VALUES ($1, lower($2), $3, $4, now())
 ON CONFLICT (supabase_subject) DO UPDATE
-    SET last_login_at = now()
+    SET email         = lower(excluded.email),
+        name          = excluded.name,
+        last_login_at = now(),
+        updated_at    = now()
 RETURNING id::text, supabase_subject, email, name, role, (xmax = 0) AS inserted
 `
 
@@ -65,12 +68,15 @@ type ProvisionUserRow struct {
 // internal/store/sqlc (DO NOT EDIT that output). Provisioning writes go through
 // store.WithAudit, so the user row and its audit row co-commit in one tx.
 // First-login upsert keyed on the stable Supabase subject. A brand-new identity
-// is inserted (inserted=true) and earns a user.provisioned audit row; a
-// returning identity only bumps last_login_at (inserted=false) — a no-op that
-// WithAudit commits with NO audit row. role is set ONLY on insert: a returning
-// admin/coordinator is never reset to their first-login role. (xmax = 0) is the
-// Postgres insert-vs-update discriminator: true on a fresh insert, false on the
-// conflict-update path — the clean `changed` signal for WithAudit.
+// is inserted (inserted=true) and earns a user.provisioned audit row; a returning
+// identity refreshes its mutable identity fields (email/name track Supabase) plus
+// last_login_at (inserted=false) — a no-op for audit that WithAudit commits with
+// NO audit row. role is set ONLY on insert: a returning admin/coordinator is never
+// reset to their first-login role. (xmax = 0) is the Postgres insert-vs-update
+// discriminator: true on a fresh insert, false on the conflict-update path — the
+// clean `changed` signal for WithAudit, independent of which columns the update
+// touches. Subject is the only conflict target; email is NOT UNIQUE, so a new
+// subject reusing an existing email inserts cleanly instead of erroring.
 func (q *Queries) ProvisionUser(ctx context.Context, arg ProvisionUserParams) (ProvisionUserRow, error) {
 	row := q.db.QueryRow(ctx, provisionUser,
 		arg.SupabaseSubject,

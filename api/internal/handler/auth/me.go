@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -52,11 +53,20 @@ func MeHandler(provisioner Provisioner) gin.HandlerFunc {
 
 		// Emit from the provisioned user: the stored email is lowercased and the
 		// role is the just-resolved (or existing) global base role — a required
-		// field, since provisioning always yields exactly one.
+		// field, since provisioning always yields exactly one. Gate the cast on
+		// .Valid() so a DB role outside the contract enum (e.g. the CHECK set drifts
+		// ahead of the OpenAPI enum) fails loudly as a 500 rather than serializing
+		// an out-of-contract value.
+		role := contracts.AuthenticatedIdentityRole(user.Role)
+		if !role.Valid() {
+			_ = c.Error(fmt.Errorf("auth: provisioned role %q is not a valid contract role", user.Role))
+			c.Abort()
+			return
+		}
 		resp := contracts.AuthenticatedIdentity{
 			Email:   user.Email,
 			Subject: user.SupabaseSubject,
-			Role:    contracts.AuthenticatedIdentityRole(user.Role),
+			Role:    role,
 		}
 		// name is optional in the contract — emit it only when the provider gave one.
 		if user.Name != "" {

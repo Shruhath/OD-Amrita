@@ -14,14 +14,17 @@
 -- +goose Up
 
 -- One row per Supabase identity. supabase_subject (the JWT `sub`) is the stable,
--- immutable join key; email can change, so it is kept UNIQUE for defence in
--- depth but is not the identity key. role defaults to the LEAST-privileged
--- 'student'; a CHECK (not a Postgres enum) keeps the closed set while staying
--- trivial to extend and mapping to a plain Go string via sqlc.
+-- immutable join key and the SOLE identity/upsert key. email is descriptive and
+-- can change (recycled/reassigned @amrita.edu addresses, account recreate), so it
+-- is deliberately NOT UNIQUE: a UNIQUE email would turn a new-`sub`/existing-email
+-- login into a 23505 the provisioning upsert (keyed on subject) cannot absorb —
+-- a hard login lockout. role defaults to the LEAST-privileged 'student'; a CHECK
+-- (not a Postgres enum) keeps the closed set while staying trivial to extend and
+-- mapping to a plain Go string via sqlc.
 CREATE TABLE users (
     id               uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
     supabase_subject text        NOT NULL UNIQUE,
-    email            text        NOT NULL UNIQUE,
+    email            text        NOT NULL,
     name             text,
     role             text        NOT NULL DEFAULT 'student'
                                  CHECK (role IN ('admin', 'teacher', 'coordinator', 'student')),

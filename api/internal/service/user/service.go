@@ -75,6 +75,9 @@ func (s *Service) Provision(ctx context.Context, id auth.VerifiedIdentity) (User
 	// the lowercased allowlist) and the stored/audited account, mirroring the
 	// 1.5a domain-check casing. sub, not email, is the durable identity key.
 	email := strings.ToLower(strings.TrimSpace(id.Email))
+	// Trim the display name at the source too: a whitespace-only name must map to
+	// SQL NULL (absent), not a blank string, so textOrNull's empty check sees "".
+	name := strings.TrimSpace(id.Name)
 	role := ResolveRole(email, s.bootstrapAdmins)
 	roleStr := string(role)
 	targetTable := "users"
@@ -99,7 +102,7 @@ func (s *Service) Provision(ctx context.Context, id auth.VerifiedIdentity) (User
 		u, err := s.queries.ProvisionUser(ctx, tx, ProvisionUserParams{
 			SupabaseSubject: id.Subject,
 			Email:           email,
-			Name:            id.Name,
+			Name:            name,
 			Role:            role,
 		})
 		if err != nil {

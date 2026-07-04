@@ -29,10 +29,16 @@ const tokenInvalidMessage = "Authentication token is invalid."
 const jwksMinRefreshInterval = time.Minute
 
 // VerifiedIdentity is the subset of Supabase JWT identity claims the app trusts.
+// SessionID (the Supabase `session_id` claim) and IssuedAt (`iat`) let the
+// middleware/services tell one session apart from another and enforce revocation
+// (Story 1.5c): SessionID keys a scope=session revoke; IssuedAt is the anchor a
+// scope=all revoke compares against.
 type VerifiedIdentity struct {
-	Email   string
-	Name    string
-	Subject string
+	Email     string
+	Name      string
+	Subject   string
+	SessionID string
+	IssuedAt  time.Time
 }
 
 // TokenVerifier verifies a bearer token and returns the trusted identity.
@@ -207,6 +213,12 @@ func (v *Verifier) verify(ctx context.Context, token string) (VerifiedIdentity, 
 	if claims.Email == "" || claims.Subject == "" {
 		return VerifiedIdentity{}, errors.New("missing identity claims")
 	}
+	// session_id is REQUIRED (Story 1.5c, DoD 2): without it the revocation guard
+	// cannot distinguish one session from another, so a token that omits it is
+	// treated as invalid rather than silently carrying a blank SessionID.
+	if claims.SessionID == "" {
+		return VerifiedIdentity{}, errors.New("missing session_id claim")
+	}
 	// Trust the email host only if the provider hasn't flagged it unverified.
 	// Reject on an explicit false; absence stays permissive (Supabase omits the
 	// claim for some providers) so real logins aren't broken.
@@ -214,7 +226,17 @@ func (v *Verifier) verify(ctx context.Context, token string) (VerifiedIdentity, 
 		return VerifiedIdentity{}, errors.New("email not verified")
 	}
 	name, _ := claims.UserMetadata["name"].(string)
-	return VerifiedIdentity{Email: claims.Email, Name: name, Subject: claims.Subject}, nil
+	var issuedAt time.Time
+	if claims.IssuedAt != nil {
+		issuedAt = claims.IssuedAt.Time
+	}
+	return VerifiedIdentity{
+		Email:     claims.Email,
+		Name:      name,
+		Subject:   claims.Subject,
+		SessionID: claims.SessionID,
+		IssuedAt:  issuedAt,
+	}, nil
 }
 
 type supabaseClaims struct {
@@ -222,6 +244,7 @@ type supabaseClaims struct {
 	Email         string         `json:"email"`
 	EmailVerified *bool          `json:"email_verified"`
 	UserMetadata  map[string]any `json:"user_metadata"`
+	SessionID     string         `json:"session_id"`
 }
 
 // emailVerified reports the provider's verification signal, treating only an

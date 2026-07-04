@@ -11,6 +11,27 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const getActorBySubject = `-- name: GetActorBySubject :one
+SELECT id::text, role
+FROM users
+WHERE supabase_subject = $1
+`
+
+type GetActorBySubjectRow struct {
+	ID   string `json:"id"`
+	Role string `json:"role"`
+}
+
+// Resolve the acting identity's provisioned user id + base role by Supabase
+// subject (Story 1.5c admin gate). id feeds the revocation's revoked_by_user_id
+// FK; role feeds the narrow admin-only check. No row = unprovisioned actor.
+func (q *Queries) GetActorBySubject(ctx context.Context, supabaseSubject string) (GetActorBySubjectRow, error) {
+	row := q.db.QueryRow(ctx, getActorBySubject, supabaseSubject)
+	var i GetActorBySubjectRow
+	err := row.Scan(&i.ID, &i.Role)
+	return i, err
+}
+
 const getUserBySubject = `-- name: GetUserBySubject :one
 SELECT id, supabase_subject, email, name, role, created_at, updated_at, last_login_at
 FROM users
@@ -33,6 +54,22 @@ func (q *Queries) GetUserBySubject(ctx context.Context, supabaseSubject string) 
 		&i.LastLoginAt,
 	)
 	return i, err
+}
+
+const getUserSubjectByID = `-- name: GetUserSubjectByID :one
+SELECT supabase_subject
+FROM users
+WHERE id = $1::uuid
+`
+
+// Resolve a target user's Supabase subject from their application user id (the
+// id carried in the admin revocation URL). Revocations are keyed by subject, so
+// the handler resolves id -> subject here before writing the deny-list row.
+func (q *Queries) GetUserSubjectByID(ctx context.Context, id pgtype.UUID) (string, error) {
+	row := q.db.QueryRow(ctx, getUserSubjectByID, id)
+	var supabase_subject string
+	err := row.Scan(&supabase_subject)
+	return supabase_subject, err
 }
 
 const provisionUser = `-- name: ProvisionUser :one

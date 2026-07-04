@@ -67,6 +67,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/users/{user_id}/sessions/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Force-logout a user by revoking their Supabase-backed sessions
+         * @description Admin-only forced logout. Records a server-side session revocation for the target user in the local deny-list the auth middleware enforces on the NEXT request (not only at token expiry), and makes a best-effort Supabase-side revocation where a supported server-side API exists. Supabase remains the session authority; this endpoint never mints or stores tokens. The revocation is audit-logged.
+         */
+        post: operations["revokeUserSessions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -113,6 +133,28 @@ export interface components {
          * @enum {string}
          */
         AuthenticatedIdentityRole: "admin" | "teacher" | "coordinator" | "student";
+        /** @description Forced-logout request. `scope` is required and explicit — the server never infers it. `session_id` is required (and a UUID) iff `scope` is `session`, and MUST be absent when `scope` is `all`. */
+        RevokeSessionsRequest: {
+            /**
+             * @description `all` revokes every session for the user (a later re-login is a fresh session); `session` revokes exactly one session.
+             * @enum {string}
+             */
+            scope: "all" | "session";
+            /**
+             * Format: uuid
+             * @description The Supabase session id to revoke. Required iff `scope` is `session`.
+             */
+            session_id?: string | null;
+            /** @description Human-readable reason for the forced logout (recorded in the audit log). */
+            reason: string;
+        };
+        /** @description Result of recording a forced-logout revocation. */
+        SessionRevocationResult: {
+            /** @description Id of the deny-list revocation record. */
+            revocation_id: string;
+            /** @description True when this exact session was already revoked (an idempotent no-op; no new audit row was written). */
+            already_revoked: boolean;
+        };
         /** @description One typed, field-level validation failure. */
         ValidationErrorDetail: {
             /** @description Offending request field path (e.g. `scans[0].method`). */
@@ -312,6 +354,69 @@ export interface operations {
                 };
             };
             /** @description Authenticated identity is outside the amrita.edu domain family. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    revokeUserSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Application user id (users.id) of the account to force-log-out. */
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeSessionsRequest"];
+            };
+        };
+        responses: {
+            /** @description Revocation recorded. Idempotent for a repeated session revoke (already_revoked=true, no new audit row). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionRevocationResult"];
+                };
+            };
+            /** @description Request validation failed (typed field-level details). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned admin. */
             403: {
                 headers: {
                     [name: string]: unknown;

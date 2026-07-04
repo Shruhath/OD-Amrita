@@ -48,6 +48,7 @@ func baseClaims() map[string]any {
 		"aud":           testAudience,
 		"sub":           "user-uuid-123",
 		"email":         "staff@amrita.edu",
+		"session_id":    "11111111-1111-1111-1111-111111111111",
 		"exp":           time.Now().Add(time.Hour).Unix(),
 		"user_metadata": map[string]any{"name": "Staff Member"},
 	}

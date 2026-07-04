@@ -32,6 +32,10 @@ const (
 	ActionScanBlocked        Action = "scan.blocked"
 	ActionDisputeSubmitted   Action = "dispute.submitted"
 	ActionUserProvisioned    Action = "user.provisioned"
+	// ActionAuthSessionRevoked is the SETTLED forced-logout / session-revocation
+	// event (Story 1.5c). Story 1.7 owns the broader auth-event audit family and
+	// MUST reuse this name — it must not add a duplicate forced-logout event.
+	ActionAuthSessionRevoked Action = "auth.session_revoked"
 )
 
 // AllActions is the canonical registry-of-record: every declared Action, in
@@ -47,6 +51,7 @@ var AllActions = []Action{
 	ActionScanBlocked,
 	ActionDisputeSubmitted,
 	ActionUserProvisioned,
+	ActionAuthSessionRevoked,
 }
 
 // registeredActions is the O(1) lookup set DERIVED from AllActions, so it can

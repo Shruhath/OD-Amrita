@@ -145,6 +145,67 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/admin/users/{user_id}/sessions/revoke:
+    post:
+      operationId: revokeUserSessions
+      summary: Force-logout a user by revoking their Supabase-backed sessions
+      description: >-
+        Admin-only forced logout. Records a server-side session revocation for
+        the target user in the local deny-list the auth middleware enforces on
+        the NEXT request (not only at token expiry), and makes a best-effort
+        Supabase-side revocation where a supported server-side API exists.
+        Supabase remains the session authority; this endpoint never mints or
+        stores tokens. The revocation is audit-logged.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          description: Application user id (users.id) of the account to force-log-out.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevokeSessionsRequest"
+      responses:
+        "200":
+          description: >-
+            Revocation recorded. Idempotent for a repeated session revoke
+            (already_revoked=true, no new audit row).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionRevocationResult"
+        "400":
+          description: Request validation failed (typed field-level details).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Missing, malformed, expired, or revoked token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a provisioned admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -252,6 +313,51 @@ components:
         - teacher
         - coordinator
         - student
+
+    RevokeSessionsRequest:
+      type: object
+      description: >-
+        Forced-logout request. `scope` is required and explicit — the server
+        never infers it. `session_id` is required (and a UUID) iff `scope` is
+        `session`, and MUST be absent when `scope` is `all`.
+      required:
+        - scope
+        - reason
+      properties:
+        scope:
+          type: string
+          description: >-
+            `all` revokes every session for the user (a later re-login is a fresh
+            session); `session` revokes exactly one session.
+          enum:
+            - all
+            - session
+        session_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: The Supabase session id to revoke. Required iff `scope` is `session`.
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+          description: Human-readable reason for the forced logout (recorded in the audit log).
+
+    SessionRevocationResult:
+      type: object
+      description: Result of recording a forced-logout revocation.
+      required:
+        - revocation_id
+        - already_revoked
+      properties:
+        revocation_id:
+          type: string
+          description: Id of the deny-list revocation record.
+        already_revoked:
+          type: boolean
+          description: >-
+            True when this exact session was already revoked (an idempotent
+            no-op; no new audit row was written).
 
     ValidationErrorDetail:
       type: object

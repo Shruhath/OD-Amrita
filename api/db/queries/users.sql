@@ -29,3 +29,19 @@ RETURNING id::text, supabase_subject, email, name, role, (xmax = 0) AS inserted;
 SELECT id, supabase_subject, email, name, role, created_at, updated_at, last_login_at
 FROM users
 WHERE supabase_subject = $1;
+
+-- name: GetActorBySubject :one
+-- Resolve the acting identity's provisioned user id + base role by Supabase
+-- subject (Story 1.5c admin gate). id feeds the revocation's revoked_by_user_id
+-- FK; role feeds the narrow admin-only check. No row = unprovisioned actor.
+SELECT id::text, role
+FROM users
+WHERE supabase_subject = $1;
+
+-- name: GetUserSubjectByID :one
+-- Resolve a target user's Supabase subject from their application user id (the
+-- id carried in the admin revocation URL). Revocations are keyed by subject, so
+-- the handler resolves id -> subject here before writing the deny-list row.
+SELECT supabase_subject
+FROM users
+WHERE id = @id::uuid;

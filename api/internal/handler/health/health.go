@@ -32,14 +32,14 @@ func Handler(db Pinger) gin.HandlerFunc {
 
 		if err := db.Ping(ctx); err != nil {
 			c.JSON(http.StatusServiceUnavailable, contracts.HealthStatus{
-				Status: contracts.Degraded,
-				Db:     contracts.Down,
+				Status: contracts.HealthStatusStatusDegraded,
+				Db:     contracts.HealthStatusDbDown,
 			})
 			return
 		}
 		c.JSON(http.StatusOK, contracts.HealthStatus{
-			Status: contracts.Ok,
-			Db:     contracts.Up,
+			Status: contracts.HealthStatusStatusOk,
+			Db:     contracts.HealthStatusDbUp,
 		})
 	}
 }

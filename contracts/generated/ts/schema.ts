@@ -106,7 +106,13 @@ export interface components {
             name?: string;
             /** @description Stable Supabase auth subject (`sub`) for the identity. */
             subject: string;
+            role: components["schemas"]["AuthenticatedIdentityRole"];
         };
+        /**
+         * @description The global base role the identity is provisioned with on first login. Always present (provisioning yields exactly one). This is the base role only — per-event coordinator assignment and RBAC enforcement are later epics; the client uses it to route by role.
+         * @enum {string}
+         */
+        AuthenticatedIdentityRole: "admin" | "teacher" | "coordinator" | "student";
         /** @description One typed, field-level validation failure. */
         ValidationErrorDetail: {
             /** @description Offending request field path (e.g. `scans[0].method`). */

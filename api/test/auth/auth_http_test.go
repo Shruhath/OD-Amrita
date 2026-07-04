@@ -31,7 +31,23 @@ import (
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
+	svcuser "github.com/Shruhath/OD-Amrita/api/internal/service/user"
 )
+
+// echoProvisioner is the 1.5b provisioning seam for these 1.5a round-trip tests:
+// it reflects the verified identity into a provisioned User (default role
+// student) so the composed endpoint still returns the identity claims. The real
+// provisioning DB write is covered by the service unit + DB integration suites.
+type echoProvisioner struct{}
+
+func (echoProvisioner) Provision(_ context.Context, id svcauth.VerifiedIdentity) (svcuser.User, error) {
+	return svcuser.User{
+		SupabaseSubject: id.Subject,
+		Email:           id.Email,
+		Name:            id.Name,
+		Role:            svcuser.RoleStudent,
+	}, nil
+}
 
 const rejectMessage = "Only @amrita.edu accounts can access this system."
 
@@ -53,7 +69,7 @@ func router(v svcauth.TokenVerifier) *gin.Engine {
 	grp := r.Group("/api/v1")
 	grp.Use(errormw.Handler())
 	grp.Use(mwauth.Middleware(v, "amrita.edu"))
-	grp.GET("/auth/me", handlerauth.MeHandler())
+	grp.GET("/auth/me", handlerauth.MeHandler(echoProvisioner{}))
 	return r
 }
 

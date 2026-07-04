@@ -56,7 +56,17 @@ architecture#Naming-Patterns and architecture#Documentation-&-Enforcement.
 - **Every state-changing write goes through `store.WithAudit` (`store/tx.go`)** —
   it co-commits the business write and its audit row in ONE transaction, so no
   endpoint or worker job writes without an audit row. A dedup no-op
-  (`changed == false`) commits with no audit row.
+  (`changed == false`) commits with no audit row. The business write MUST run on
+  the passed `tx` (`sqlc.New(tx)`), never on the pool. First real caller:
+  `internal/service/user` (first-login provisioning, Story 1.5b).
+- **Users are provisioned at login, not per request.** A verified Supabase
+  identity is upserted into `users` at the `GET /api/v1/auth/me` round-trip (keyed
+  on the stable `supabase_subject`, never email) via `store.WithAudit` — a first
+  insert writes a `user.provisioned` audit row; a returning login only bumps
+  `last_login_at` (no audit row). The auth middleware stays a pure verify+enforce
+  gate; per-request role *loading* is Epic 2. Default role is the least-privileged
+  `student`; only the `AUTH_BOOTSTRAP_ADMINS` allowlist grants `admin` at
+  provisioning. Role-scoped **session durations are Supabase config, not Go code**.
 
 ## Registry discipline (no free-text codes or events)
 

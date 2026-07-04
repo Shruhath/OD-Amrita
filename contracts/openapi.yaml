@@ -224,6 +224,7 @@ components:
       required:
         - email
         - subject
+        - role
       properties:
         email:
           type: string
@@ -236,6 +237,21 @@ components:
         subject:
           type: string
           description: Stable Supabase auth subject (`sub`) for the identity.
+        role:
+          $ref: "#/components/schemas/AuthenticatedIdentityRole"
+
+    AuthenticatedIdentityRole:
+      type: string
+      description: >-
+        The global base role the identity is provisioned with on first login.
+        Always present (provisioning yields exactly one). This is the base role
+        only — per-event coordinator assignment and RBAC enforcement are later
+        epics; the client uses it to route by role.
+      enum:
+        - admin
+        - teacher
+        - coordinator
+        - student
 
     ValidationErrorDetail:
       type: object

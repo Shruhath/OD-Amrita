@@ -111,9 +111,10 @@ func requireGoose(t *testing.T) {
 }
 
 // runGoose runs `goose -dir <migrations> postgres "<dsn>" <sub>` as the migrator.
-func runGoose(t *testing.T, dsn, sub string) {
+func runGoose(t *testing.T, dsn, sub string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("goose", "-dir", migrationsDir(t), "postgres", dsn, sub)
+	argv := append([]string{"-dir", migrationsDir(t), "postgres", dsn, sub}, args...)
+	cmd := exec.Command("goose", argv...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("goose %s failed: %v\n%s", sub, err, out)
 	}

@@ -31,6 +31,7 @@ const (
 	ActionAuthDomainRejected Action = "auth.domain_rejected"
 	ActionScanBlocked        Action = "scan.blocked"
 	ActionDisputeSubmitted   Action = "dispute.submitted"
+	ActionUserProvisioned    Action = "user.provisioned"
 )
 
 // AllActions is the canonical registry-of-record: every declared Action, in
@@ -45,6 +46,7 @@ var AllActions = []Action{
 	ActionAuthDomainRejected,
 	ActionScanBlocked,
 	ActionDisputeSubmitted,
+	ActionUserProvisioned,
 }
 
 // registeredActions is the O(1) lookup set DERIVED from AllActions, so it can

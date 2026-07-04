@@ -32,6 +32,7 @@ func setEnv(t *testing.T, env map[string]string) {
 		"TLS_ENABLED", "TLS_MIN_VERSION", "TLS_CERT_FILE", "TLS_KEY_FILE",
 		"HTTP_REDIRECT_LISTENER",
 		"AUTH_JWKS_URL", "AUTH_ISSUER", "AUTH_AUDIENCE", "AUTH_ALLOWED_DOMAIN",
+		"AUTH_BOOTSTRAP_ADMINS",
 	} {
 		t.Setenv(k, "")
 	}

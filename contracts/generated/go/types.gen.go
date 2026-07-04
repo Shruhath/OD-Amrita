@@ -11,6 +11,30 @@ const (
 	BearerAuthScopes bearerAuthContextKey = "bearerAuth.Scopes"
 )
 
+// Defines values for AuthenticatedIdentityRole.
+const (
+	AuthenticatedIdentityRoleAdmin       AuthenticatedIdentityRole = "admin"
+	AuthenticatedIdentityRoleCoordinator AuthenticatedIdentityRole = "coordinator"
+	AuthenticatedIdentityRoleStudent     AuthenticatedIdentityRole = "student"
+	AuthenticatedIdentityRoleTeacher     AuthenticatedIdentityRole = "teacher"
+)
+
+// Valid indicates whether the value is a known member of the AuthenticatedIdentityRole enum.
+func (e AuthenticatedIdentityRole) Valid() bool {
+	switch e {
+	case AuthenticatedIdentityRoleAdmin:
+		return true
+	case AuthenticatedIdentityRoleCoordinator:
+		return true
+	case AuthenticatedIdentityRoleStudent:
+		return true
+	case AuthenticatedIdentityRoleTeacher:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ErrorCode.
 const (
 	ErrorCodeAUTHDOMAINREJECTED ErrorCode = "AUTH_DOMAIN_REJECTED"
@@ -58,16 +82,16 @@ func (e ErrorCode) Valid() bool {
 
 // Defines values for HealthStatusDb.
 const (
-	Down HealthStatusDb = "down"
-	Up   HealthStatusDb = "up"
+	HealthStatusDbDown HealthStatusDb = "down"
+	HealthStatusDbUp   HealthStatusDb = "up"
 )
 
 // Valid indicates whether the value is a known member of the HealthStatusDb enum.
 func (e HealthStatusDb) Valid() bool {
 	switch e {
-	case Down:
+	case HealthStatusDbDown:
 		return true
-	case Up:
+	case HealthStatusDbUp:
 		return true
 	default:
 		return false
@@ -76,16 +100,16 @@ func (e HealthStatusDb) Valid() bool {
 
 // Defines values for HealthStatusStatus.
 const (
-	Degraded HealthStatusStatus = "degraded"
-	Ok       HealthStatusStatus = "ok"
+	HealthStatusStatusDegraded HealthStatusStatus = "degraded"
+	HealthStatusStatusOk       HealthStatusStatus = "ok"
 )
 
 // Valid indicates whether the value is a known member of the HealthStatusStatus enum.
 func (e HealthStatusStatus) Valid() bool {
 	switch e {
-	case Degraded:
+	case HealthStatusStatusDegraded:
 		return true
-	case Ok:
+	case HealthStatusStatusOk:
 		return true
 	default:
 		return false
@@ -94,19 +118,19 @@ func (e HealthStatusStatus) Valid() bool {
 
 // Defines values for ScanItemMethod.
 const (
-	Barcode ScanItemMethod = "barcode"
-	Nfc     ScanItemMethod = "nfc"
-	Qr      ScanItemMethod = "qr"
+	ScanItemMethodBarcode ScanItemMethod = "barcode"
+	ScanItemMethodNfc     ScanItemMethod = "nfc"
+	ScanItemMethodQr      ScanItemMethod = "qr"
 )
 
 // Valid indicates whether the value is a known member of the ScanItemMethod enum.
 func (e ScanItemMethod) Valid() bool {
 	switch e {
-	case Barcode:
+	case ScanItemMethodBarcode:
 		return true
-	case Nfc:
+	case ScanItemMethodNfc:
 		return true
-	case Qr:
+	case ScanItemMethodQr:
 		return true
 	default:
 		return false
@@ -115,19 +139,19 @@ func (e ScanItemMethod) Valid() bool {
 
 // Defines values for ScanResultStatus.
 const (
-	Applied   ScanResultStatus = "applied"
-	Duplicate ScanResultStatus = "duplicate"
-	Rejected  ScanResultStatus = "rejected"
+	ScanResultStatusApplied   ScanResultStatus = "applied"
+	ScanResultStatusDuplicate ScanResultStatus = "duplicate"
+	ScanResultStatusRejected  ScanResultStatus = "rejected"
 )
 
 // Valid indicates whether the value is a known member of the ScanResultStatus enum.
 func (e ScanResultStatus) Valid() bool {
 	switch e {
-	case Applied:
+	case ScanResultStatusApplied:
 		return true
-	case Duplicate:
+	case ScanResultStatusDuplicate:
 		return true
-	case Rejected:
+	case ScanResultStatusRejected:
 		return true
 	default:
 		return false
@@ -157,9 +181,15 @@ type AuthenticatedIdentity struct {
 	// Name Display name from Supabase user_metadata.name. Optional: some providers omit it, so the backend returns it only when present.
 	Name *string `json:"name,omitempty"`
 
+	// Role The global base role the identity is provisioned with on first login. Always present (provisioning yields exactly one). This is the base role only — per-event coordinator assignment and RBAC enforcement are later epics; the client uses it to route by role.
+	Role AuthenticatedIdentityRole `json:"role"`
+
 	// Subject Stable Supabase auth subject (`sub`) for the identity.
 	Subject string `json:"subject"`
 }
+
+// AuthenticatedIdentityRole The global base role the identity is provisioned with on first login. Always present (provisioning yields exactly one). This is the base role only — per-event coordinator assignment and RBAC enforcement are later epics; the client uses it to route by role.
+type AuthenticatedIdentityRole string
 
 // Error Standard error envelope for all non-2xx responses. Clients branch on `code`, never on `message`.
 type Error struct {

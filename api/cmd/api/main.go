@@ -27,6 +27,7 @@ import (
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
+	svcuser "github.com/Shruhath/OD-Amrita/api/internal/service/user"
 	"github.com/Shruhath/OD-Amrita/api/internal/store"
 )
 
@@ -66,10 +67,20 @@ func run() error {
 		}
 		verifier = v
 	}
+	// The write boundary + first-login provisioning service. The store binds the
+	// od_runtime pool; the service co-commits a user row and its user.provisioned
+	// audit row through store.WithAudit at the /auth/me login round-trip. In a
+	// no-DB dev boot the pool connects lazily (pgxpool), so the server still boots
+	// and /health reports db:down — provisioning simply fails with a centralized
+	// 5xx until a live DB is present (D6). Provisioning is never reached anyway
+	// until Supabase auth is configured (RejectingVerifier 401s every call).
+	st := store.New(pool)
+	userSvc := svcuser.NewService(st, cfg.Auth.BootstrapAdmins, svcuser.NewSQLCProvisioner())
+
 	api := router.Group("/api/v1")
 	api.Use(errormw.Handler())
 	api.Use(mwauth.Middleware(verifier, cfg.Auth.AllowedDomain))
-	api.GET("/auth/me", handlerauth.MeHandler())
+	api.GET("/auth/me", handlerauth.MeHandler(userSvc))
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.APIPort,

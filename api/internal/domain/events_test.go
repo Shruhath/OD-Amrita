@@ -41,6 +41,7 @@ func TestAllActions_MatchesDeclaredConstants(t *testing.T) {
 		ActionAuthDomainRejected: "auth.domain_rejected",
 		ActionScanBlocked:        "scan.blocked",
 		ActionDisputeSubmitted:   "dispute.submitted",
+		ActionUserProvisioned:    "user.provisioned",
 	}
 
 	// (1) Each constant carries its exact architecture-mandated wire value.

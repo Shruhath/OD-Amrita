@@ -5,6 +5,8 @@ package contracts
 
 import (
 	"time"
+
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 const (
@@ -116,6 +118,24 @@ func (e HealthStatusStatus) Valid() bool {
 	}
 }
 
+// Defines values for RevokeSessionsRequestScope.
+const (
+	RevokeSessionsRequestScopeAll     RevokeSessionsRequestScope = "all"
+	RevokeSessionsRequestScopeSession RevokeSessionsRequestScope = "session"
+)
+
+// Valid indicates whether the value is a known member of the RevokeSessionsRequestScope enum.
+func (e RevokeSessionsRequestScope) Valid() bool {
+	switch e {
+	case RevokeSessionsRequestScopeAll:
+		return true
+	case RevokeSessionsRequestScopeSession:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ScanItemMethod.
 const (
 	ScanItemMethodBarcode ScanItemMethod = "barcode"
@@ -221,6 +241,21 @@ type HealthStatusDb string
 // HealthStatusStatus Overall service status. "ok" when every dependency is reachable; "degraded" (served with HTTP 503) when the database is not.
 type HealthStatusStatus string
 
+// RevokeSessionsRequest Forced-logout request. `scope` is required and explicit — the server never infers it. `session_id` is required (and a UUID) iff `scope` is `session`, and MUST be absent when `scope` is `all`.
+type RevokeSessionsRequest struct {
+	// Reason Human-readable reason for the forced logout (recorded in the audit log).
+	Reason string `json:"reason"`
+
+	// Scope `all` revokes every session for the user (a later re-login is a fresh session); `session` revokes exactly one session.
+	Scope RevokeSessionsRequestScope `json:"scope"`
+
+	// SessionId The Supabase session id to revoke. Required iff `scope` is `session`.
+	SessionId *openapi_types.UUID `json:"session_id,omitempty"`
+}
+
+// RevokeSessionsRequestScope `all` revokes every session for the user (a later re-login is a fresh session); `session` revokes exactly one session.
+type RevokeSessionsRequestScope string
+
 // ScanBatchRequest Batch scan-sync request. The batch is wrapped under a `scans` array (not a bare top-level array) to leave room for future top-level fields such as `device_id`.
 type ScanBatchRequest struct {
 	// Scans The batch of scans to accept-and-enqueue.
@@ -272,6 +307,15 @@ type ScanResult struct {
 // ScanResultStatus Per-item outcome. `applied` = newly accepted/enqueued; `duplicate` = idempotency key already seen (safe no-op); `rejected` = not accepted (see `reason`).
 type ScanResultStatus string
 
+// SessionRevocationResult Result of recording a forced-logout revocation.
+type SessionRevocationResult struct {
+	// AlreadyRevoked True when this exact session was already revoked (an idempotent no-op; no new audit row was written).
+	AlreadyRevoked bool `json:"already_revoked"`
+
+	// RevocationId Id of the deny-list revocation record.
+	RevocationId string `json:"revocation_id"`
+}
+
 // ValidationError 400 validation error — the error envelope whose `details` is a TYPED array of field-level failures (AC3), not a freeform object.
 type ValidationError struct {
 	// Code Always VALIDATION_FAILED for validation (400) responses.
@@ -301,6 +345,9 @@ type ValidationErrorDetail struct {
 
 // bearerAuthContextKey is the context key for bearerAuth security scheme
 type bearerAuthContextKey string
+
+// RevokeUserSessionsJSONRequestBody defines body for RevokeUserSessions for application/json ContentType.
+type RevokeUserSessionsJSONRequestBody = RevokeSessionsRequest
 
 // SubmitScansJSONRequestBody defines body for SubmitScans for application/json ContentType.
 type SubmitScansJSONRequestBody = ScanBatchRequest

@@ -22,6 +22,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Shruhath/OD-Amrita/api/internal/config"
+	handleradmin "github.com/Shruhath/OD-Amrita/api/internal/handler/admin"
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
 	"github.com/Shruhath/OD-Amrita/api/internal/handler/health"
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
@@ -77,10 +78,26 @@ func run() error {
 	st := store.New(pool)
 	userSvc := svcuser.NewService(st, cfg.Auth.BootstrapAdmins, svcuser.NewSQLCProvisioner())
 
+	// Forced-logout (Story 1.5c): the revocation checker the auth middleware
+	// consults on every protected request, and the admin-only revocation service.
+	// Supabase exposes no supported server-side target-user revoke API, so the
+	// Supabase adapter is the disabled no-op — the local deny-list is authoritative.
+	revChecker := svcauth.NewSQLCRevocationChecker(pool)
+	revSvc := svcauth.NewRevocationService(
+		st,
+		svcauth.NewSQLCRevocationWriter(),
+		svcauth.DisabledRevoker{},
+		svcauth.NewSQLCUserDirectory(pool),
+	)
+
 	api := router.Group("/api/v1")
 	api.Use(errormw.Handler())
 	api.Use(mwauth.Middleware(verifier, cfg.Auth.AllowedDomain))
+	// Reject revoked-but-still-valid tokens on the NEXT request, immediately after
+	// verify+domain and before any protected handler runs (DoD 6).
+	api.Use(mwauth.RevocationGuard(revChecker))
 	api.GET("/auth/me", handlerauth.MeHandler(userSvc))
+	api.POST("/admin/users/:user_id/sessions/revoke", handleradmin.RevokeSessionsHandler(revSvc))
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.APIPort,

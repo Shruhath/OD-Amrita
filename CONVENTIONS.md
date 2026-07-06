@@ -89,6 +89,18 @@ architecture#Naming-Patterns and architecture#Documentation-&-Enforcement.
   audience and expiry, then independently enforces the `amrita.edu` domain
   family on every protected request. Do not trust provider/dashboard filtering
   as the only admission gate.
+- **Forced logout = local deny-list, not a backend token store (Story 1.5c).**
+  The backend NEVER mints access JWTs, stores Supabase refresh/access tokens, or
+  re-implements refresh — Supabase stays the session authority. A forced logout
+  records a row in `auth_session_revocations` (keyed by `supabase_subject`, with
+  `scope='all'|'session'`) through `store.WithAudit` (`auth.session_revoked`), and
+  the auth middleware's **revocation guard** (`mwauth.RevocationGuard`, mounted
+  right after verify+domain) rejects a revoked-but-still-valid token with `401
+  AUTH_TOKEN_INVALID` on its NEXT request — enforcement never waits for expiry. The
+  verifier requires the Supabase `session_id` claim so sessions are distinguishable.
+  Supabase exposes no supported server-side *target-user* revoke API, so the
+  Supabase-side adapter is a disabled no-op and the local deny-list is
+  authoritative; a Supabase adapter failure never rolls back the local revoke.
 - `api/internal/middleware/error` is the single renderer for generated
   `{code, message, details}` error envelopes. Handlers and middleware push
   `domain.DomainError` with `c.Error(...)` and abort; they do not hand-write

@@ -49,8 +49,40 @@ func baseClaims() map[string]any {
 		"sub":           "user-uuid-123",
 		"email":         "staff@amrita.edu",
 		"session_id":    "11111111-1111-1111-1111-111111111111",
+		"iat":           time.Now().Add(-time.Minute).Unix(),
 		"exp":           time.Now().Add(time.Hour).Unix(),
 		"user_metadata": map[string]any{"name": "Staff Member"},
+	}
+}
+
+// TestVerify_RejectsTokenWithoutIAT — iat is load-bearing for revocation (a
+// scope=all deny-list row rejects tokens issued at/before revoked_after). A
+// token that OMITS iat would compare as the zero time and appear revoked by any
+// historical scope=all row, so a validly-signed token without iat is rejected.
+func TestVerify_RejectsTokenWithoutIAT(t *testing.T) {
+	key := newES256Key(t, "kid-1")
+	v := newVerifierWithJWKS(t, jwksJSON(t, key), testIssuer, testAudience)
+
+	claims := baseClaims()
+	delete(claims, "iat")
+
+	if _, err := v.Verify(context.Background(), signRaw(t, key, key.kid, claims)); err == nil {
+		t.Error("[P0] a token missing iat must be rejected (AUTH_TOKEN_INVALID), got nil error")
+	}
+}
+
+// TestVerify_RejectsNonUUIDSessionID — session_id keys a scope=session deny-list
+// row on a uuid column, so a non-UUID session_id could never match and would
+// silently escape a session-scoped revoke. It is rejected at verification.
+func TestVerify_RejectsNonUUIDSessionID(t *testing.T) {
+	key := newES256Key(t, "kid-1")
+	v := newVerifierWithJWKS(t, jwksJSON(t, key), testIssuer, testAudience)
+
+	claims := baseClaims()
+	claims["session_id"] = "not-a-uuid"
+
+	if _, err := v.Verify(context.Background(), signRaw(t, key, key.kid, claims)); err == nil {
+		t.Error("[P0] a token with a non-UUID session_id must be rejected (AUTH_TOKEN_INVALID), got nil error")
 	}
 }
 

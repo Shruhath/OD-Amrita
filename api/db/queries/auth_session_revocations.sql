@@ -22,14 +22,20 @@ RETURNING id::text, (xmax = 0) AS inserted;
 -- name: IsTokenRevoked :one
 -- The next-request enforcement predicate (DoD 6). A verified token (sub,
 -- session_id, iat) is revoked when either its specific session was revoked
--- (scope='session') OR a scope='all' revocation for the subject was recorded at/
--- after the token was issued. revoked_after is DB-authoritative time, so a
--- legitimate re-login (iat AFTER revoked_after) is NOT revoked.
+-- (scope='session') OR a scope='all' revocation for the subject was recorded
+-- strictly after the token was issued. JWT `iat` is whole-second granular while
+-- revoked_after carries sub-second precision from now(), so we compare against
+-- date_trunc('second', revoked_after) with a strict '>': a token whose iat falls
+-- in the same wall-clock second as (or after) the revoke is NOT revoked, so a
+-- legitimate re-login is never locked out by a sub-second boundary. The tradeoff
+-- is that a session issued in the same second as a scope='all' revoke escapes it
+-- for up to that one second — acceptable since a genuine re-login is the common
+-- case and the ban re-applies to any token issued in a later second.
 SELECT EXISTS (
     SELECT 1 FROM auth_session_revocations
     WHERE supabase_subject = @supabase_subject
       AND (
           (scope = 'session' AND session_id = sqlc.narg('session_id')::uuid)
-          OR (scope = 'all' AND revoked_after >= @issued_at)
+          OR (scope = 'all' AND date_trunc('second', revoked_after) > @issued_at)
       )
 ) AS revoked;

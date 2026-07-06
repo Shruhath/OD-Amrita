@@ -113,6 +113,7 @@ type tokenClaims struct {
 	email     string
 	name      string
 	sessionID string
+	iat       time.Time
 	exp       time.Time
 }
 
@@ -124,6 +125,7 @@ func validClaims() tokenClaims {
 		email:     "staff@amrita.edu",
 		name:      "Staff Member",
 		sessionID: "11111111-1111-1111-1111-111111111111",
+		iat:       time.Now().Add(-time.Minute),
 		exp:       time.Now().Add(time.Hour),
 	}
 }
@@ -141,6 +143,7 @@ func signToken(t *testing.T, signKey es256Key, headerKid string, c tokenClaims) 
 		"sub":           c.sub,
 		"email":         c.email,
 		"session_id":    c.sessionID,
+		"iat":           c.iat.Unix(),
 		"exp":           c.exp.Unix(),
 		"user_metadata": map[string]any{"name": c.name},
 	}

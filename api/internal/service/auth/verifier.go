@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
 
@@ -219,6 +220,13 @@ func (v *Verifier) verify(ctx context.Context, token string) (VerifiedIdentity, 
 	if claims.SessionID == "" {
 		return VerifiedIdentity{}, errors.New("missing session_id claim")
 	}
+	// session_id must be a real UUID: the revocation checker keys a scope=session
+	// deny-list row on a uuid column, so a non-UUID value could never match and
+	// would silently escape a session-scoped revoke. Reject it here rather than
+	// let it through as an unrevokable session.
+	if _, err := uuid.Parse(claims.SessionID); err != nil {
+		return VerifiedIdentity{}, errors.New("session_id is not a valid uuid")
+	}
 	// Trust the email host only if the provider hasn't flagged it unverified.
 	// Reject on an explicit false; absence stays permissive (Supabase omits the
 	// claim for some providers) so real logins aren't broken.
@@ -226,10 +234,13 @@ func (v *Verifier) verify(ctx context.Context, token string) (VerifiedIdentity, 
 		return VerifiedIdentity{}, errors.New("email not verified")
 	}
 	name, _ := claims.UserMetadata["name"].(string)
-	var issuedAt time.Time
-	if claims.IssuedAt != nil {
-		issuedAt = claims.IssuedAt.Time
+	// iat is load-bearing for revocation: a scope=all deny-list row rejects tokens
+	// issued at/before revoked_after. A missing/zero iat would compare as the zero
+	// time and appear revoked by ANY historical scope=all row, so require it.
+	if claims.IssuedAt == nil || claims.IssuedAt.Time.IsZero() {
+		return VerifiedIdentity{}, errors.New("missing iat claim")
 	}
+	issuedAt := claims.IssuedAt.Time
 	return VerifiedIdentity{
 		Email:     claims.Email,
 		Name:      name,

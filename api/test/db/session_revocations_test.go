@@ -186,9 +186,10 @@ func TestRevocationCheck_ScopeSemantics(t *testing.T) {
 		t.Fatalf("insert session-revocation: %v", err)
 	}
 
-	// isRevoked mirrors the intended check: a token (sub, session_id, iat) is
-	// revoked if a matching session row exists OR an all row with revoked_after
-	// at/after the token's iat exists.
+	// isRevoked runs the SAME predicate as the production IsTokenRevoked query
+	// (db/queries/auth_session_revocations.sql): scope=all compares the token's iat
+	// against date_trunc('second', revoked_after) with a strict '>', because JWT
+	// iat is whole-second granular while revoked_after carries sub-second precision.
 	isRevoked := func(sessionID string, iat time.Time) bool {
 		var revoked bool
 		if err := pool.QueryRow(ctx, `
@@ -197,7 +198,7 @@ func TestRevocationCheck_ScopeSemantics(t *testing.T) {
 				WHERE supabase_subject = $1
 				  AND (
 				    (scope = 'session' AND session_id = $2)
-				    OR (scope = 'all' AND revoked_after >= $3)
+				    OR (scope = 'all' AND date_trunc('second', revoked_after) > $3)
 				  )
 			)`, subject, sessionID, iat).Scan(&revoked); err != nil {
 			t.Fatalf("run revocation check: %v", err)
@@ -212,6 +213,13 @@ func TestRevocationCheck_ScopeSemantics(t *testing.T) {
 	// Legitimate re-login: token issued after revoked_after, unrelated session: NOT revoked.
 	if isRevoked(otherSession, revokedAfter.Add(time.Minute)) {
 		t.Error("[P0] scope=all must allow a re-login issued after revoked_after")
+	}
+	// Sub-second boundary (the D2 fix): a re-login whose whole-second iat falls in
+	// the SAME wall-clock second as revoked_after must NOT be locked out — with a
+	// naive `revoked_after >= iat` compare the sub-second remainder would wrongly
+	// revoke it. date_trunc + strict '>' makes the same-second re-login allowed.
+	if isRevoked(otherSession, revokedAfter.Truncate(time.Second)) {
+		t.Error("[P0] scope=all must allow a re-login issued in the same second as revoked_after (iat is whole-second)")
 	}
 	// The specifically revoked session is rejected regardless of iat.
 	if !isRevoked(revokedSession, revokedAfter.Add(time.Minute)) {

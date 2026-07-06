@@ -10,6 +10,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -125,6 +126,11 @@ func TestRevokeRequest_Validate(t *testing.T) {
 		{"reason blank", RevokeRequest{Scope: RevokeScopeAll, Reason: "   "}, false},
 		{"reason too short", RevokeRequest{Scope: RevokeScopeAll, Reason: "ab"}, false},
 		{"reason too long", RevokeRequest{Scope: RevokeScopeAll, Reason: string(make([]byte, 501))}, false},
+		// reason length is counted in runes, not bytes (contract minLength/maxLength
+		// are character counts): a 500-rune multibyte reason (1500 bytes) is VALID
+		// and a 2-rune multibyte reason (6 bytes) is too short.
+		{"reason 500 multibyte runes ok", RevokeRequest{Scope: RevokeScopeAll, Reason: strings.Repeat("あ", 500)}, true},
+		{"reason 2 multibyte runes too short", RevokeRequest{Scope: RevokeScopeAll, Reason: "あい"}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

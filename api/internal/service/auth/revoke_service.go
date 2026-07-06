@@ -15,6 +15,7 @@ import (
 	"errors"
 	"log"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -72,7 +73,9 @@ func (r RevokeRequest) Validate() error {
 		return validationFailed("scope must be \"all\" or \"session\"")
 	}
 	reason := strings.TrimSpace(r.Reason)
-	if len(reason) < reasonMinLen || len(reason) > reasonMaxLen {
+	// Count Unicode code points, not bytes: the contract's minLength/maxLength are
+	// character counts, so a multibyte reason must not be over/under-rejected.
+	if n := utf8.RuneCountInString(reason); n < reasonMinLen || n > reasonMaxLen {
 		return validationFailed("reason must be 3..500 characters")
 	}
 	return nil

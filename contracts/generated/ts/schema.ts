@@ -398,13 +398,13 @@ export interface operations {
                     "application/json": components["schemas"]["SessionRevocationResult"];
                 };
             };
-            /** @description Request validation failed (typed field-level details). */
+            /** @description Request validation failed. The shared error middleware renders every error as the {code, message} envelope, so a 400 carries code=VALIDATION_FAILED and a human-readable message (no typed details array on this endpoint). */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ValidationError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Missing, malformed, expired, or revoked token. */

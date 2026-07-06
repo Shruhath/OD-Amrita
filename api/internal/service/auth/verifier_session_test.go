@@ -52,14 +52,14 @@ func signSessionToken(t *testing.T, signKey es256Key, headerKid string, c sessio
 	t.Helper()
 	header := map[string]string{"alg": "ES256", "typ": "JWT", "kid": headerKid}
 	claims := map[string]any{
-		"iss":           c.iss,
-		"aud":           c.aud,
-		"sub":           c.sub,
-		"email":         c.email,
-		"iat":           c.iat.Unix(),
-		"exp":           c.exp.Unix(),
+		"iss":            c.iss,
+		"aud":            c.aud,
+		"sub":            c.sub,
+		"email":          c.email,
+		"iat":            c.iat.Unix(),
+		"exp":            c.exp.Unix(),
 		"email_verified": true,
-		"user_metadata": map[string]any{"name": "Staff Member"},
+		"user_metadata":  map[string]any{"name": "Staff Member"},
 	}
 	if c.withSessionID {
 		claims["session_id"] = c.sessionID

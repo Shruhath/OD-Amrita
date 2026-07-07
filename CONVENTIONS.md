@@ -105,6 +105,16 @@ architecture#Naming-Patterns and architecture#Documentation-&-Enforcement.
   `{code, message, details}` error envelopes. Handlers and middleware push
   `domain.DomainError` with `c.Error(...)` and abort; they do not hand-write
   error response bodies.
+- **The mobile client never re-implements refresh — it asks the Supabase SDK.**
+  The typed HTTP client (`mobile/src/api`) attaches the bearer from the *live*
+  Supabase session per request; on a `401` it runs a single-flight
+  `refreshSession()` and retries the original request **exactly once**, and if the
+  session is dead (refresh fails / null) it fires the re-auth seam
+  (`mobile/src/features/auth/session.ts`) and stops — no infinite retry loop. The
+  interceptor's contract is *attach bearer → on 401 refresh-once → else re-auth
+  signal*. A transport rejection (offline/DNS/timeout) is **not** a `401` and never
+  triggers refresh; offline session-expiry handling is a separate concern
+  (Story 4.5), not this live-`401` path.
 
 ## Contract wiring (no publishing)
 

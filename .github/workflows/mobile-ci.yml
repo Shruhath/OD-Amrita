@@ -1,6 +1,6 @@
 # mobile/ CI — runs only when the mobile app or the contract changes.
-# Skeleton scope: install the workspace and typecheck. ESLint/Prettier and the
-# EAS build wiring are added as the surface gains content.
+# Scope: install the workspace, typecheck, and run the jest-expo unit suite.
+# ESLint/Prettier and the EAS build wiring are added as the surface gains content.
 name: mobile-ci
 
 on:
@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   build:
-    name: pnpm install + tsc --noEmit
+    name: pnpm install + tsc --noEmit + jest
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,3 +40,5 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Typecheck mobile
         run: pnpm --filter od-amrita-mobile exec tsc --noEmit
+      - name: Test mobile
+        run: pnpm --filter od-amrita-mobile test

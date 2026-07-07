@@ -1,22 +1,17 @@
 /**
- * ATDD red-phase scaffold — Story 1.6: Mobile auth interceptor (silent 401 refresh).
+ * Unit suite — Story 1.6: Mobile auth interceptor (silent 401 refresh).
  *
- * TDD RED PHASE. Every scenario is a `test(...)` with the real, expected-behavior
- * assertions already written. The suite is RED today for two reasons:
- *   1. `../authInterceptor` does not exist yet (import fails at collection).
- *   2. jest-expo / @types/jest are not installed yet (documented in mobile/jest.config.js).
- * The dev activates each scenario one-by-one during green (remove `.skip`, implement, watch it pass).
+ * Every scenario is a `test(...)` with real, expected-behavior assertions. Green: exercises the
+ * shipped `../authInterceptor` against fakes (jest-expo runner, `@types/jest` installed).
  *
  * PRINCIPLE: the interceptor is pure TS logic over TWO INJECTED PORTS — a Supabase-auth-like
  * port (`getSession` / `refreshSession`) and an HTTP transport — plus a re-auth callback.
  * No live Supabase, no network, no `.env` (AC-7). All collaborators here are fakes.
  *
- * SEAM CONTRACT this file pins (see the ATDD checklist "Planned seam under test"):
+ * SEAM CONTRACT this file pins:
  *   createAuthedRequest({ auth, transport, onReauthRequired }) -> (path, init?) => Promise<{status}>
- * `authInterceptor.ts` MAY be folded into `client.ts` as long as these symbols are
- * re-exported from `../authInterceptor`. Single-flight refresh state is held PER FACTORY
- * INSTANCE (not module-global) so tests stay isolated — a deliberate refinement of the
- * Dev Notes' "module-level promise" wording.
+ * Single-flight refresh state and the one-shot re-auth latch are held PER FACTORY INSTANCE (not
+ * module-global) so tests stay isolated.
  */
 
 import {
@@ -165,6 +160,21 @@ describe('AC-4: bearer attach from the live session', () => {
     expect(calls[0].authorization).toBe('Bearer token-A');
     expect(calls[1].authorization).toBe('Bearer token-B'); // NOT a cached 'token-A'
   });
+
+  test('a caller-supplied Authorization header is replaced, not duplicated (no double credential)', async () => {
+    const { auth } = fakeAuth({ sessions: [session('access-live')] });
+    const { transport, calls } = scriptedTransport([200]);
+
+    const request = createAuthedRequest({ auth, transport, onReauthRequired: jest.fn() });
+    // Caller passes a stale bearer under a lowercase key — the interceptor must strip it so the
+    // outgoing headers hold exactly ONE Authorization (else fetch folds them into a bad value).
+    await request('/api/v1/auth/me', { headers: { authorization: 'Bearer stale' } });
+
+    const sent = calls[0].init.headers as Record<string, string>;
+    const authKeys = Object.keys(sent).filter((k) => k.toLowerCase() === 'authorization');
+    expect(authKeys).toEqual(['Authorization']); // exactly one, canonical casing
+    expect(calls[0].authorization).toBe('Bearer access-live'); // the live token won, not 'stale'
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -223,8 +233,9 @@ describe('AC-2: dead session → re-auth fallback, no retry loop', () => {
     expect(onReauthRequired).toHaveBeenCalledTimes(1);
   });
 
-  test('loop guard: a retried request that 401s again is not retried a third time (no infinite loop)', async () => {
-    // refresh SUCCEEDS, but the retry still 401s (e.g. token revoked mid-flight).
+  test('loop guard: a retry that still 401s fires re-auth once and throws — never a third attempt', async () => {
+    // refresh SUCCEEDS, but the retry still 401s (e.g. a 1.5c forced-logout Supabase doesn't
+    // know about yet — the token is fresh but the backend deny-lists it).
     const { auth, refresh } = fakeAuth({
       sessions: [session('access-old')],
       refresh: { data: { session: session('access-new') }, error: null },
@@ -233,14 +244,40 @@ describe('AC-2: dead session → re-auth fallback, no retry loop', () => {
     const onReauthRequired = jest.fn();
 
     const request = createAuthedRequest({ auth, transport, onReauthRequired });
-    const res = await request('/api/v1/auth/me');
 
-    // Per the story pseudocode the post-refresh 401 is RETURNED (loop guard: `init.__retried`).
-    // If the dev instead chooses to THROW on a post-refresh 401, swap this line for a rejects assertion —
-    // the invariants below (single refresh, exactly two transport calls) are the non-negotiable part.
-    expect(res.status).toBe(401);
+    // Decision 2026-07-07: a 401 that PERSISTS after a successful refresh means the session is
+    // dead at the backend → fire re-auth. The loop guard is structural: we never re-enter the
+    // refresh path, so there is exactly one refresh and exactly two transport calls.
+    await expect(request('/api/v1/auth/me')).rejects.toBeInstanceOf(SessionExpiredError);
     expect(refresh.count).toBe(1); // refreshed once, NOT again
     expect(calls).toHaveLength(2); // original + one retry only — never a third attempt
+    expect(onReauthRequired).toHaveBeenCalledTimes(1); // re-auth seam fired exactly once
+  });
+
+  test('concurrent dead-session 401s fire re-auth EXACTLY once (not once per request)', async () => {
+    // Two requests both 401; the shared single-flight refresh yields a dead (null) session. Each
+    // request rejects, but the re-auth seam must fire once for the whole burst, per its contract.
+    const gate = deferred<{ data: { session: SessionLike | null }; error: unknown }>();
+    const { auth, refresh } = fakeAuth({
+      sessions: [session('access-old')],
+      refresh: () => gate.promise,
+    });
+    const { transport, calls } = scriptedTransport([401, 401]); // both initial requests 401
+    const onReauthRequired = jest.fn();
+
+    const request = createAuthedRequest({ auth, transport, onReauthRequired });
+    const p1 = request('/api/v1/scans');
+    const p2 = request('/api/v1/events');
+    // Attach rejection handlers up front so neither settles as an unhandled rejection.
+    const settled = Promise.allSettled([p1, p2]);
+    await Promise.resolve(); // let both hit their first 401 and enqueue on the single-flight refresh
+    gate.resolve({ data: { session: null }, error: null }); // dead session
+
+    const results = await settled;
+    expect(results.every((r) => r.status === 'rejected')).toBe(true);
+    expect(refresh.count).toBe(1); // single-flight
+    expect(calls).toHaveLength(2); // neither request retried
+    expect(onReauthRequired).toHaveBeenCalledTimes(1); // ONE emit for the burst, not two
   });
 });
 

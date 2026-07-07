@@ -46,3 +46,10 @@ AppState.addEventListener('change', (state) => {
     supabase.auth.stopAutoRefresh();
   }
 });
+
+// Arm auto-refresh immediately if the app is ALREADY foregrounded at import time. The 'change'
+// event only fires on a transition, so a cold launch straight into `active` would otherwise wait
+// for the first background→foreground cycle before background refresh starts.
+if (AppState.currentState === 'active') {
+  supabase.auth.startAutoRefresh();
+}

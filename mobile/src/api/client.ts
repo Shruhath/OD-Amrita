@@ -20,9 +20,10 @@ if (!apiBaseUrl) {
   );
 }
 
-// Real transport: a thin wrapper over global fetch. The live fetch Response is a superset of the
-// interceptor's status-only ResponseLike, so it satisfies Transport structurally.
-const transport: Transport = (path, init) => fetch(`${apiBaseUrl}${path}`, init);
+// Real transport: a thin wrapper over global fetch. Typing it `Transport<Response>` threads the
+// concrete fetch Response through the interceptor, so `apiRequest` returns `Promise<Response>`
+// with no cast — the type system enforces the transport's response shape instead of asserting it.
+const transport: Transport<Response> = (path, init) => fetch(`${apiBaseUrl}${path}`, init);
 
 // supabase.auth structurally satisfies SupabaseAuthPort (getSession / refreshSession). The
 // interceptor fires the app-wide re-auth seam when the session is dead — a future login story
@@ -37,9 +38,9 @@ const authedRequest = createAuthedRequest({
 export type ApiPath = keyof paths;
 
 /**
- * Send an authenticated request to the Go backend. The transport yields the real fetch Response;
- * the interceptor's contract is status-only, so we surface it back to callers as a Response.
+ * Send an authenticated request to the Go backend. The typed transport yields the real fetch
+ * Response, so callers receive it directly (no cast).
  */
 export function apiRequest(path: ApiPath, init?: RequestInit): Promise<Response> {
-  return authedRequest(path, init) as Promise<Response>;
+  return authedRequest(path, init);
 }

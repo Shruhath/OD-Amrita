@@ -1,9 +1,9 @@
 /**
- * ATDD red-phase scaffold — Story 1.6, Task 5: the re-auth-required SEAM (no UI).
+ * Unit suite — Story 1.6, Task 5: the re-auth-required SEAM (no UI).
  *
- * TDD RED PHASE: `test(...)` with real assertions. RED today because `../session`
- * does not exist yet. A future login story consumes this seam; the 401 interceptor's
- * `onReauthRequired` callback is wired to `signal.emit` in app code.
+ * `test(...)` with real assertions against the shipped `../session`. A future login story
+ * consumes this seam; the 401 interceptor's `onReauthRequired` callback is wired to
+ * `signal.emit` in app code.
  *
  * SEAM CONTRACT this file pins:
  *   createReauthSignal(): { subscribe(listener): () => void; emit(): void }
@@ -38,5 +38,19 @@ describe('re-auth-required seam', () => {
 
     expect(l1).not.toHaveBeenCalled(); // unsubscribed before the emit
     expect(l2).toHaveBeenCalledTimes(1); // still subscribed
+  });
+
+  test('a throwing subscriber does not suppress delivery to the others, and emit() does not throw', () => {
+    const signal = createReauthSignal();
+    const l1 = jest.fn(() => {
+      throw new Error('subscriber blew up');
+    });
+    const l2 = jest.fn();
+    signal.subscribe(l1);
+    signal.subscribe(l2);
+
+    expect(() => signal.emit()).not.toThrow(); // isolation: the throw is swallowed
+    expect(l1).toHaveBeenCalledTimes(1);
+    expect(l2).toHaveBeenCalledTimes(1); // still delivered despite l1 throwing
   });
 });

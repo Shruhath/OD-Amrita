@@ -25,8 +25,16 @@ export function createReauthSignal(): ReauthSignal {
     },
     emit() {
       // Iterate over a snapshot so a listener that (un)subscribes during emit cannot
-      // change the set mid-iteration.
-      for (const listener of [...listeners]) listener();
+      // change the set mid-iteration. Each call is isolated: one throwing subscriber must not
+      // suppress delivery to the others, nor propagate back into the interceptor's
+      // onReauthRequired() call site mid-401-handling.
+      for (const listener of [...listeners]) {
+        try {
+          listener();
+        } catch {
+          // Swallow — a misbehaving subscriber cannot break the re-auth signal for the rest.
+        }
+      }
     },
   };
 }

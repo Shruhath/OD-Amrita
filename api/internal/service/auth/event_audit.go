@@ -50,7 +50,6 @@ func NewEventAuditor(store TxRunner) *EventAuditor {
 // Supabase session id (a dedup anchor) and subject. timestamp is the
 // server-authoritative audit_log.created_at, so no field is passed.
 func (a *EventAuditor) LoginSucceeded(ctx context.Context, actorEmail, actorRole, subject, sessionID, device string) error {
-	account := strings.ToLower(strings.TrimSpace(actorEmail))
 	role := actorRole
 	payload := authEventPayload(map[string]any{
 		"subject":    subject,
@@ -58,7 +57,7 @@ func (a *EventAuditor) LoginSucceeded(ctx context.Context, actorEmail, actorRole
 	}, device)
 	return a.auditOnly(ctx, store.AuditEvent{
 		Action:       domain.ActionAuthLoginSucceeded,
-		ActorAccount: &account,
+		ActorAccount: accountPtr(actorEmail),
 		ActorRole:    &role,
 		Payload:      payload,
 	})
@@ -71,13 +70,12 @@ func (a *EventAuditor) LoginSucceeded(ctx context.Context, actorEmail, actorRole
 // carries the device + rejection reason; it has NO session_id (no session was
 // established).
 func (a *EventAuditor) DomainRejected(ctx context.Context, actorEmail, device, reason string) error {
-	account := strings.ToLower(strings.TrimSpace(actorEmail))
 	payload := authEventPayload(map[string]any{
 		"reason": reason,
 	}, device)
 	return a.auditOnly(ctx, store.AuditEvent{
 		Action:       domain.ActionAuthDomainRejected,
-		ActorAccount: &account,
+		ActorAccount: accountPtr(actorEmail),
 		ActorRole:    nil,
 		Payload:      payload,
 	})
@@ -97,13 +95,37 @@ func (a *EventAuditor) auditOnly(ctx context.Context, evt store.AuditEvent) erro
 	})
 }
 
+// accountPtr lowercases/trims an actor email and returns it as a *string, or nil
+// (SQL NULL) when the email is empty — preserving the audit ledger's deliberate
+// distinction between "no account" and an empty-string account. A verified token
+// with an empty email claim still trips EnforceDomain, so DomainRejected can be
+// reached with a blank email; recording NULL (not "") keeps that row honest.
+func accountPtr(email string) *string {
+	a := strings.ToLower(strings.TrimSpace(email))
+	if a == "" {
+		return nil
+	}
+	return &a
+}
+
+// maxDevicePayloadBytes caps the stored User-Agent. device is attacker-influenced
+// (a raw request header) and audit_log is append-only / unprunable, so an
+// arbitrarily long User-Agent must not be allowed to bloat the ledger. 512 bytes
+// comfortably holds any real User-Agent. A byte-boundary cut is harmless: a split
+// trailing rune is scrubbed to U+FFFD by json.Marshal, never an error.
+const maxDevicePayloadBytes = 512
+
 // authEventPayload builds the jsonb audit payload from base fields, adding the
 // device only when it is non-blank (a client that sent no User-Agent is omitted
-// rather than recorded as an empty string). The map is closed and JSON-safe, so a
-// marshal error is impossible; on the theoretical error it returns nil (SQL NULL
-// payload) rather than propagate — mirroring revocationPayload.
+// rather than recorded as an empty string) and capped to maxDevicePayloadBytes.
+// The map is closed and JSON-safe, so a marshal error is impossible; on the
+// theoretical error it returns nil (SQL NULL payload) rather than propagate —
+// mirroring revocationPayload.
 func authEventPayload(base map[string]any, device string) []byte {
 	if d := strings.TrimSpace(device); d != "" {
+		if len(d) > maxDevicePayloadBytes {
+			d = d[:maxDevicePayloadBytes]
+		}
 		base["device"] = d
 	}
 	b, err := json.Marshal(base)

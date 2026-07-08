@@ -158,6 +158,37 @@ func TestAuthMe_FailingAuditorFailsClosed(t *testing.T) {
 	}
 }
 
+// TestAuthMe_ReturningUserStillAuditsLoginSucceeded — [P1] the 1.5b subtlety:
+// auth.login_succeeded fires on EVERY successful /auth/me, returning users
+// included. Provisioning a returning identity writes no user.provisioned row, but
+// the login audit is a SEPARATE per-call event and must not piggyback provisioning.
+// The handler receives only (User, error) from Provision — no "changed" signal — so
+// this guards against a future refactor that skips the audit for returning users.
+func TestAuthMe_ReturningUserStillAuditsLoginSucceeded(t *testing.T) {
+	id := svcauth.VerifiedIdentity{Email: "returning@amrita.edu", Subject: "sub-r", SessionID: "sess-r"}
+	// A returning (already-provisioned, bootstrap-admin-style) identity: the
+	// provisioning WithAudit would be a no-op — yet login-success must still fire.
+	p := &recordingProvisioner{user: svcuser.User{
+		ID:              "user-r",
+		SupabaseSubject: id.Subject,
+		Email:           "returning@amrita.edu",
+		Role:            svcuser.RoleAdmin,
+	}}
+	aud := &recordingLoginAuditor{}
+
+	w := doMeWithUA(t, loginAuditRouter(id, p, aud), "OD-Amrita/1.0")
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("[P1] a returning user's /auth/me must still return 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	if aud.calls != 1 {
+		t.Fatalf("[P1] a returning user must STILL audit auth.login_succeeded exactly once (per-call, not per-provisioning), got %d", aud.calls)
+	}
+	if got := aud.seen[0]; got.email != "returning@amrita.edu" || got.role != string(svcuser.RoleAdmin) {
+		t.Errorf("[P1] returning-user audit must carry the provisioned email+role, got %q/%q", got.email, got.role)
+	}
+}
+
 // errContext is a tiny error constructor kept local so this file has no extra
 // imports; it exists only to drive the failing-auditor branch.
 func errContext(msg string) error { return &simpleErr{msg} }

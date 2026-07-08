@@ -33,9 +33,11 @@ type Auditor interface {
 // MeHandler returns the identity verified by the auth middleware, provisioning
 // the application user + role on the way (Story 1.5b). Provisioning runs HERE —
 // the /auth/me login round-trip — not in the per-request auth middleware, so an
-// authenticated call never carries a DB write-path. It is idempotent: a
-// returning identity is a no-op (no audit row). The provisioned role is echoed
-// so the mobile client can route by role.
+// authenticated call never carries a DB write-path. Provisioning itself is
+// idempotent: a returning identity writes no user.provisioned row. The
+// auth.login_succeeded audit, however, fires on EVERY successful call (Story 1.7,
+// per-call cadence), returning users included. The provisioned role is echoed so
+// the mobile client can route by role.
 func MeHandler(provisioner Provisioner, auditor Auditor) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// The auth middleware always sets the identity ahead of this handler; a

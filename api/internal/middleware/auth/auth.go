@@ -56,7 +56,10 @@ func Middleware(verifier svcauth.TokenVerifier, allowedDomain string, auditor Au
 				// NOT turn a domain rejection into a 500 — the caller is still
 				// rejected 403. Log loudly so the missed audit row is alertable
 				// (anomaly surfacing, Epic 13); the rejection itself is unaffected.
-				log.Printf("auth: domain-rejection audit write failed for %s (rejection still enforced; audit row missing): %v", id.Email, auditErr)
+				// %q escapes the email (a token claim we do not control), so a
+				// CR/LF/control-char address cannot forge log lines and poison the
+				// Epic-13 anomaly signal this line exists to raise.
+				log.Printf("auth: domain-rejection audit write failed for %q (rejection still enforced; audit row missing): %v", id.Email, auditErr)
 			}
 			_ = c.Error(derr)
 			c.Abort()

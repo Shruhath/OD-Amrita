@@ -42,6 +42,14 @@ func (echoProvisioner) Provision(_ context.Context, id svcauth.VerifiedIdentity)
 	}, nil
 }
 
+// noopAuditor is a login-success Auditor that records nothing (Story 1.7 wired the
+// dependency into MeHandler; these 1.5a/1.5b handler tests only care that the
+// login-success audit does not disturb the identity round-trip). The dedicated
+// audit assertions live in test/auth/login_audit_test.go.
+type noopAuditor struct{}
+
+func (noopAuditor) LoginSucceeded(_ context.Context, _, _, _, _, _ string) error { return nil }
+
 // serveMe seeds the context with `seed` (as the auth middleware would) via the
 // exported SetIdentity, then invokes MeHandler — isolating the handler from the
 // verify/domain path.
@@ -55,7 +63,7 @@ func serveMe(t *testing.T, seed *svcauth.VerifiedIdentity) *httptest.ResponseRec
 			c.Next()
 		})
 	}
-	r.GET("/api/v1/auth/me", MeHandler(echoProvisioner{}))
+	r.GET("/api/v1/auth/me", MeHandler(echoProvisioner{}, noopAuditor{}))
 
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil))
@@ -87,7 +95,7 @@ func TestMe_MissingIdentity_500(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(errormw.Handler())
-	r.GET("/api/v1/auth/me", MeHandler(echoProvisioner{})) // no identity seeded
+	r.GET("/api/v1/auth/me", MeHandler(echoProvisioner{}, noopAuditor{})) // no identity seeded
 
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil))

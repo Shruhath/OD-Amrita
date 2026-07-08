@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -22,13 +23,20 @@ type Provisioner interface {
 	Provision(ctx context.Context, id svcauth.VerifiedIdentity) (svcuser.User, error)
 }
 
+// Auditor writes the auth.login_succeeded audit event (Story 1.7). The handler
+// keeps only this narrow login-success view of *service/auth.EventAuditor so the
+// login round-trip depends on the behavior, not the concrete service.
+type Auditor interface {
+	LoginSucceeded(ctx context.Context, email, role, subject, sessionID, device string) error
+}
+
 // MeHandler returns the identity verified by the auth middleware, provisioning
 // the application user + role on the way (Story 1.5b). Provisioning runs HERE —
 // the /auth/me login round-trip — not in the per-request auth middleware, so an
 // authenticated call never carries a DB write-path. It is idempotent: a
 // returning identity is a no-op (no audit row). The provisioned role is echoed
 // so the mobile client can route by role.
-func MeHandler(provisioner Provisioner) gin.HandlerFunc {
+func MeHandler(provisioner Provisioner, auditor Auditor) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// The auth middleware always sets the identity ahead of this handler; a
 		// missing one means the handler was mounted without it — fail closed
@@ -63,6 +71,19 @@ func MeHandler(provisioner Provisioner) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		// Audit the login BEFORE responding 200 (Story 1.7). Fail-closed: a login
+		// whose audit write fails must not "complete" as a success — push the error
+		// to the centralized middleware (rendered INTERNAL 500), never 200. Fires on
+		// every successful /auth/me (per-call, not per-session; session_id is in the
+		// payload for later dedup). device = the request User-Agent (IP is deferred
+		// to Epic 14, which needs SetTrustedProxies first).
+		device := strings.TrimSpace(c.Request.UserAgent())
+		if err := auditor.LoginSucceeded(c.Request.Context(), user.Email, string(user.Role), id.Subject, id.SessionID, device); err != nil {
+			_ = c.Error(err)
+			c.Abort()
+			return
+		}
+
 		resp := contracts.AuthenticatedIdentity{
 			Email:   user.Email,
 			Subject: user.SupabaseSubject,

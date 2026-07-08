@@ -45,7 +45,7 @@ func guardRouter(v svcauth.TokenVerifier, checker *fakeChecker, reached *bool) *
 	r := gin.New()
 	grp := r.Group("/api/v1")
 	grp.Use(errormw.Handler())
-	grp.Use(mwauth.Middleware(v, "amrita.edu"))
+	grp.Use(mwauth.Middleware(v, "amrita.edu", okAuditor{}))
 	grp.Use(mwauth.RevocationGuard(checker))
 	grp.GET("/protected", func(c *gin.Context) {
 		*reached = true

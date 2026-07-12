@@ -10,6 +10,12 @@ one that matters most — **no restore drill has been run**. Until that drill ha
 document describes a backup nobody has ever restored from.
 **Owner:** Shruhath
 
+> **A code review of the first draft of this runbook (2026-07-11) found that its restore
+> procedure would have restored an old dump on top of the live production database**, and
+> that its verification step pointed at a port the API does not listen on. Both are fixed
+> below (§5.2, §5.4). That is precisely the class of defect a drill catches and a proofread
+> does not — which is why the drill in §7 is not a formality.
+
 > This document records *exactly* what an operator must configure, check and run to
 > keep the OD-Amrita database recoverable and the service observable — page by page,
 > in the same style as `docs/auth-microsoft-supabase-setup.md`. It is written for
@@ -41,13 +47,22 @@ tamper-evident by DB trigger (migration `0002`). It is the system's record of wh
 which student present. It is the most backup-critical table in the project, and the reason
 retention runs to 90 days rather than the host's PITR window.
 
-**The two DSNs** (values live in the environment / `.env`, never in this repo — see
+**The DSNs** (values live in the environment / `.env`, never in this repo — see
 `api/.env.example`):
 
-| Variable | Role | Used for |
-|---|---|---|
-| `DATABASE_URL_MIGRATOR` | `od_migrator` — DDL owner, owns the schema | goose migrations, **and `pg_dump`** (the dump must read every object) |
-| `DATABASE_URL_RUNTIME` | `od_runtime` — DML only, owns nothing | the API's connection pool |
+| Variable | Role | Used for | Where the value comes from |
+|---|---|---|---|
+| `DATABASE_URL_MIGRATOR` | `od_migrator` — DDL owner, owns the schema | goose migrations, **and `pg_dump`** (the dump must read every object) | `.env` / the deployment's secret store |
+| `DATABASE_URL_RUNTIME` | `od_runtime` — DML only, owns nothing | the API's connection pool | `.env` / the deployment's secret store |
+| `SUPERUSER_DSN` | the cluster's bootstrap/owner role — **not** an app role | **restore only**: creating the two app roles on a fresh database (§5.3) | The host's admin connection string. On **Neon** there is no true superuser: use the project's **owner role** (`neondb_owner`) URI from the Neon console → *Connection Details*. On self-hosted/docker, the `postgres` superuser. |
+| `RESTORE_DSN` | `od_migrator` **on the database being restored INTO** | **restore only**: `pg_restore`, and the post-restore checks (§5.2, §5.4) | You set it by hand during a restore, after creating the target DB. **It is not the same as `DATABASE_URL_MIGRATOR`** — see the warning in §5.2. |
+
+> **⚠️ `RESTORE_DSN` exists to stop the worst mistake available in this document.**
+> `DATABASE_URL_MIGRATOR` points at the database you are restoring *from* — the live
+> one. If you run `pg_restore` against it, you replay an old dump **on top of
+> production**. Every restore command below therefore uses `$RESTORE_DSN`, which you
+> set to the **new, empty** target. Set it once, at the top of the restore, and never
+> substitute the live DSN.
 
 ---
 
@@ -120,13 +135,20 @@ Neon console → **Backup & Restore** (per branch) → *Restore from history* �
 
 ### 2.4 Supabase (auth broker) — light posture, deliberately
 
-The Supabase project is treated as **reconstructable**, so it gets no special backup effort
-beyond Supabase's own built-in daily backups:
+The Supabase project is treated as **reconstructable**, so it gets no special backup
+effort. The posture rests on reconstructability, **not** on Supabase having backups:
 
 - Identity is keyed by `supabase_subject`, which we **persist in Neon's `users` table**.
 - If the Supabase project were lost, the recovery is: re-create the project, re-apply the
   auth setup (`docs/auth-microsoft-supabase-setup.md` §9 is a from-scratch checklist), and
   users log in again with Microsoft. No OD data is lost, because none of it lives there.
+
+> **Do not assume Supabase is backing this up for you.** Per §2.1, Supabase's daily
+> backups are a **Pro-tier** feature. Our Supabase plan is `______` (operator: record it
+> — §7). If it is Free, the auth project has **no backups at all**, and the paragraph
+> above is the *entire* recovery plan. That is an acceptable trade only because it is
+> true that nothing irreplaceable lives there — verify that claim still holds before
+> relying on it.
 
 *(If Amrita IT policy requires the auth broker to be fully backed up too, add it here —
 that is a policy call, not a technical constraint.)*
@@ -140,35 +162,63 @@ the DSN from the environment.
 
 ```bash
 api/scripts/pg_backup.sh --help        # full usage
-api/scripts/pg_backup.sh --dry-run     # print the plan; runs nothing, writes nothing
+api/scripts/pg_backup.sh --dry-run     # validate config + print the plan; writes nothing
 api/scripts/pg_backup.sh               # real run
 ```
 
 | Environment variable | Required? | Meaning |
 |---|---|---|
-| `BACKUP_DATABASE_URL` | **Yes** | Connection URI of the DB to dump. Falls back to `DATABASE_URL_MIGRATOR`. **Use the migrator/owner role** — `pg_dump` must be able to read every object. |
-| `BACKUP_DIR` | No (default `./backups`) | Local staging directory for the artifact. |
-| `RETENTION_DAYS` | No (default `90`) | Local prune horizon. |
-| `BACKUP_UPLOAD_CMD` | *Effectively yes* | Shell command that ships the dump off-box; receives the dump path as `"$1"`. **Without it the dump never leaves the machine, which is not a backup.** |
+| `BACKUP_DATABASE_URL` | **Yes** | Connection URI of the DB to dump. Falls back to `DATABASE_URL_MIGRATOR` **only if unset**; set-but-empty is a hard error (see below). **Use the migrator/owner role** — `pg_dump` must be able to read every object. |
+| `BACKUP_UPLOAD_CMD` | **Yes**, unless `--local-only` | Shell command that ships the dump off-box; receives the dump path as `"$1"`. A dump that never leaves the machine is not a backup, so its absence **fails the run** rather than printing a warning nobody reads. |
+| `BACKUP_DIR` | No (default `./backups`) | Local staging directory. Created mode `700`; artifacts are written `0600`. |
+| `RETENTION_DAYS` | No (default `90`, minimum `1`) | Local prune horizon. `0` is refused — to `find(1)` it means "delete everything older than a day", not "never prune". |
+| `BACKUP_MIN_BYTES` | No (default `4096`) | A dump smaller than this is rejected as suspect. |
+| `BACKUP_TIMEOUT_SECONDS` | No (default `3600`) | A hung `pg_dump` is killed after this long, so the run always exits and always alerts. |
 
 **Behavior worth knowing before you schedule it:**
 
 - Artifacts are named `od-amrita-<UTC>.dump` (e.g. `od-amrita-20260711T020000Z.dump`) —
-  UTC and sortable, so runs never overwrite each other.
+  UTC and sortable, so runs never overwrite each other. The dump is written as
+  `…​.dump.part` and renamed only on success, so an interrupted run never leaves a
+  truncated file that looks like a good one.
 - Custom format (`pg_dump -Fc`), so `pg_restore` can restore selectively.
 - **Ownership and `GRANT`s are kept in the dump on purpose.** See §5.3 — stripping them
   produces a restore the application cannot connect to.
-- It **fails closed**: no DSN, a failed dump, or an unknown flag → non-zero exit, nothing
-  uploaded, nothing pruned. A cron that reports green while the bucket stays empty is the
-  failure mode this guards against, so **alert on the cron's exit code**.
-- Pruning happens only *after* a successful dump — a bad day never deletes good snapshots.
+- **The dump is verified before it is trusted.** `pg_dump` exits **zero** when it dumps an
+  *empty* or *wrong* database — that is how you get a confident, regular, useless backup.
+  So the script checks the artifact is a plausible size **and** that `pg_restore -l` shows
+  `audit_log` table data in it. A dump with no audit ledger in it is refused: it means the
+  DSN is pointing somewhere else (most likely the Supabase broker — §1).
+- **The DSN travels in the environment, never in `pg_dump`'s argv** — argv is readable by
+  every local user via `ps auxww` for the whole duration of the dump.
+- It **fails closed** on: a missing DSN; a **set-but-empty** DSN (that means a secret
+  lookup failed — falling back would dump the wrong database); no uploader (without
+  `--local-only`); an unknown flag; an invalid `RETENTION_DAYS`; a failed, hung, empty or
+  wrong-database dump; a failed upload. In every case: non-zero exit, **nothing uploaded,
+  nothing pruned**. A cron that reports green while the bucket stays empty is the failure
+  mode this whole script is written against, so **alert on the cron's exit code**.
+- Pruning happens last, and only after a verified, uploaded dump — a bad day never deletes
+  good snapshots.
+- One run at a time (`flock`), so a hung dump plus tomorrow's cron cannot double up.
 
-**Scheduling** (secrets come from the environment; never commit them):
+**Scheduling.** Secrets come from the environment; never commit them. Note two traps that
+the obvious one-liner walks straight into: **a crontab command is a single line** (cron has
+no backslash continuation), and **a failed secret lookup must abort**, not arrive as an
+empty DSN. So go through a small wrapper:
+
+```bash
+#!/usr/bin/env bash
+# /usr/local/bin/od-backup-cron.sh
+set -euo pipefail                       # a failed `pass` aborts the run here...
+BACKUP_DATABASE_URL="$(pass od/backup-dsn)"
+export BACKUP_DATABASE_URL              # ...rather than reaching the backup empty
+export BACKUP_UPLOAD_CMD='aws s3 cp "$1" s3://<bucket>/od-amrita/'
+exec /path/to/api/scripts/pg_backup.sh
+```
 
 ```cron
-0 2 * * *  BACKUP_DATABASE_URL="$(pass od/backup-dsn)" \
-           BACKUP_UPLOAD_CMD='aws s3 cp "$1" s3://<bucket>/od-amrita/' \
-           /path/to/api/scripts/pg_backup.sh >> /var/log/od-backup.log 2>&1
+# /etc/cron.d/od-backup — one line, and alert on a non-zero exit
+0 2 * * * od  /usr/local/bin/od-backup-cron.sh >> /var/log/od-backup.log 2>&1
 ```
 
 > **The live schedule is not wired in this repo yet, on purpose.** The production host is
@@ -183,7 +233,10 @@ api/scripts/pg_backup.sh               # real run
 ### 4.1 The `/health` contract (already live — do not change it)
 
 `GET /health` is served by the API (shipped with the database foundation; unchanged by this
-runbook). It pings the runtime connection pool with a 2-second timeout and answers:
+runbook). Implementation: `api/internal/handler/health/health.go`, routed in
+`api/cmd/api/main.go`; covered by `api/test/health/health_test.go` and
+`api/internal/handler/health/health_test.go`. It pings the runtime connection pool with a
+2-second timeout and answers:
 
 | Condition | Status | Body |
 |---|---|---|
@@ -235,10 +288,18 @@ want the database as it was at a specific second.
    (Neon models PITR as a branch created from history). Pick the timestamp.
 3. Neon gives the new branch its **own connection URI**. Do **not** delete the damaged
    branch yet — keep it until you have verified the restored one.
-4. Apply the role bootstrap and grants to the restored branch — **§5.3**.
+4. **The roles already exist here — do NOT run the §5.3 bootstrap.** A PITR branch is a copy
+   of the cluster, so `od_migrator` and `od_runtime` come with it, grants and all. Just
+   confirm they are there:
+   ```bash
+   psql "<restored-branch-owner-uri>" -c '\du'   # expect od_migrator and od_runtime
+   ```
+   (§5.3's bootstrap is for Path B, where the target is a genuinely fresh database with no
+   roles at all. Running it here is at best a no-op and at worst changes passwords out from
+   under the DSNs you are about to use.)
 5. Re-point the application: set `DATABASE_URL_RUNTIME` (and `DATABASE_URL_MIGRATOR`) to the
    restored branch's URI, in the environment only.
-6. **Verify — §5.4.**
+6. **Verify — §5.4** (with `RESTORE_DSN` = the restored branch's migrator URI).
 
 ### 5.2 Path B — logical restore from a 90-day `pg_dump` snapshot
 
@@ -246,20 +307,44 @@ Use when: the damage is **older than the PITR window**, or Neon itself is unavai
 are restoring onto a different host. This path needs nothing from the original provider but
 the dump file.
 
+> ### 🛑 Before you type anything: `pg_restore` restores into whatever DSN you hand it.
+>
+> `DATABASE_URL_MIGRATOR` points at the database you are restoring **from** — the live one.
+> Pointing `pg_restore` at it replays an old dump **on top of production**, corrupting the
+> very data you were called in to save. Every command below uses **`$RESTORE_DSN`**, which
+> you set to the **new, empty target** in step 3. Set it once; never substitute the live DSN.
+
 1. **Fetch the snapshot** from the storage bucket (§2.3). Artifacts are named
    `od-amrita-<UTC>.dump`; pick the one just *before* the damage.
    ```bash
    aws s3 cp s3://<bucket>/od-amrita/od-amrita-20260711T020000Z.dump .
    ```
-2. **Create an empty target database** (a new Neon project/branch, or any Postgres 17 host).
-3. **Bootstrap the roles — do this BEFORE restoring. See §5.3.**
-4. **Restore**, as the owner/migrator role. `-j 4` parallelizes; drop it if the host is small.
+2. **Create an empty target database.** A **new Neon project**, or any Postgres 17 host with
+   a fresh, empty database. *Not* a Neon **branch** of the damaged project — a branch is a
+   full copy of the data, not an empty database, and restoring into one puts you right back
+   in the "already exists / duplicate rows" swamp. Never the branch you are restoring *from*.
+3. **Point `RESTORE_DSN` at that new, empty database** — and check that it really is empty
+   and really is not production:
    ```bash
-   pg_restore --dbname "$DATABASE_URL_MIGRATOR" --no-comments -j 4 od-amrita-20260711T020000Z.dump
+   export RESTORE_DSN='<the NEW empty database's od_migrator URI>'
+   psql "$RESTORE_DSN" -c '\dt'        # expect: "Did not find any relations."
    ```
-   *A few "already exists" notices for the schema are normal. Errors mentioning
-   **`role ... does not exist`** mean you skipped step 3 — go back to §5.3.*
-5. **Verify — §5.4.**
+   If that lists tables, **stop**: the target is not empty and is very possibly the live DB.
+4. **Bootstrap the roles on the target — BEFORE restoring. See §5.3.**
+5. **Restore.** `-j 4` parallelizes; drop it on a small host.
+   ```bash
+   pg_restore --dbname "$RESTORE_DSN" --no-comments --exit-on-error -j 4 \
+       od-amrita-20260711T020000Z.dump
+   ```
+   **`--exit-on-error` is not optional.** Without it `pg_restore` logs failures, carries on,
+   and exits 0 with a quiet `WARNING: errors ignored on restore: N` — so a restore that
+   silently dropped a table's data looks exactly like a clean one, and §5.4's checks can
+   still pass. **`pg_restore` must exit 0 and print no `errors ignored` line.**
+
+   *If it aborts complaining that a **`role ... does not exist`**, you skipped step 4 — go to
+   §5.3. If it complains that objects **already exist**, your target was not empty — go back
+   to step 2/3; do not "push through" the errors.*
+6. **Verify — §5.4.**
 
 ### 5.3 ⚠️ The role bootstrap — the step that makes or breaks the restore
 
@@ -274,52 +359,100 @@ OD-Amrita uses **two database roles** (`api/db/init/00_roles.sql`):
   `DROP`. This is what stops a compromised app credential from rewriting the audit ledger.
 
 These roles are **cluster infrastructure, not schema** — they are *not* inside the dump and
-*not* created by migrations. A fresh database has neither. So, on the restored database, **as
-the superuser / database owner, before `pg_restore`:**
+*not* created by migrations. A **fresh** database has neither. (A Neon **PITR branch** does
+have them — it is a copy of the cluster. This section is for **Path B only**; see §5.1 step 4.)
+
+Do these four steps **in this order**, on the restore target, before `pg_restore`:
+
+**1. Create the roles.** As the cluster's bootstrap/owner role (`$SUPERUSER_DSN` — see §1;
+on Neon this is the project's `neondb_owner`, since Neon has no true superuser):
 
 ```bash
 psql "$SUPERUSER_DSN" -f api/db/init/00_roles.sql
 ```
 
-Then **change both role passwords** on the restored DB (the file's defaults are dev-only) and
-put the new values in the environment:
+The file is idempotent (`IF NOT EXISTS`), so re-running it is safe.
 
-```sql
-ALTER ROLE od_migrator PASSWORD '<new-secret>';
-ALTER ROLE od_runtime  PASSWORD '<new-secret>';
+**2. Change both passwords immediately — before anything else.**
+
+> ⚠️ `00_roles.sql` creates the roles with **dev-only placeholder passwords that are
+> committed to a public repository** (`migrator_dev_only_change_me`,
+> `runtime_dev_only_change_me`). Until you replace them, two login roles with world-known
+> passwords exist on a database that, on Neon, is reachable from the internet. Do not run
+> the restore first and change them "after" — that leaves the window open for the entire
+> duration of a multi-gigabyte `pg_restore`.
+
+```bash
+psql "$SUPERUSER_DSN" <<'SQL'
+ALTER ROLE od_migrator PASSWORD '<new-migrator-secret>';
+ALTER ROLE od_runtime  PASSWORD '<new-runtime-secret>';
+SQL
 ```
 
+**3. Rebuild the DSNs with the new passwords.** The `RESTORE_DSN` from §5.2 step 3 still
+carries the placeholder password and will now fail to authenticate. Keep the secret **out of
+the URI** — a password in a connection string ends up in your shell history and in `ps`
+output; let libpq take it from the environment instead:
+
+```bash
+export PGPASSWORD='<new-migrator-secret>'                       # not in the URI
+export RESTORE_DSN="postgresql://od_migrator@<restored-host>:5432/<db>"
+psql "$RESTORE_DSN" -c 'SELECT current_user;'                   # must succeed before you go on
+```
+
+*(`unset PGPASSWORD` when the restore is finished. For anything long-lived, use a `~/.pgpass`
+file with mode `0600` rather than an environment variable.)*
+
+**4. Now run the restore** (§5.2 step 5). Afterwards, put the new runtime password into the
+application's `DATABASE_URL_RUNTIME` — in the environment only, never in a file in the repo.
+
 > **Why the ordering matters, and why the dump keeps its `GRANT`s.** `od_runtime`'s
-> table-level DML grants are issued by the goose migrations. On a restored database, goose
-> will **not** re-issue them — it sees the schema already at the latest version and does
-> nothing. The grants therefore have to come from the **dump itself**, which is why
-> `pg_backup.sh` deliberately does *not* pass `--no-owner`/`--no-privileges`. For those
+> table-level DML grants are issued by the goose migrations (`0001`–`0004`). On a restored
+> database, goose will **not** re-issue them — it sees the schema already at the latest
+> version and does nothing. The grants therefore have to come from the **dump itself**, which
+> is why `pg_backup.sh` deliberately does *not* pass `--no-owner`/`--no-privileges`. For those
 > owner/grant statements to apply, the roles must **already exist** when `pg_restore` runs.
 > Roles first, then restore. Reverse the order and you get a database the app cannot read.
 
 ### 5.4 Verify the restore (do not skip — this is the whole point)
 
-1. **Schema parity** — goose should report the restored DB already at the latest version and
-   apply nothing:
+0. **`pg_restore` exited 0** and printed no `errors ignored on restore` line (§5.2 step 5).
+   If it did, the restore is partial — do not proceed.
+
+1. **Schema parity.** The quickest check needs nothing but `psql` — read the migration
+   version straight out of the table goose keeps:
    ```bash
-   DATABASE_URL_MIGRATOR="<restored-migrator-uri>" make -C api migrate-up
-   # Expect: no migrations applied ("no migrations to run"). If goose tries to CREATE
-   # tables, you restored an empty/partial database — stop and investigate.
+   psql "$RESTORE_DSN" -c 'SELECT max(version_id) FROM goose_db_version;'
+   # Expect the latest migration number (4 as of this writing). A missing table or a
+   # lower number means you restored an empty/partial database — stop and investigate.
    ```
+   *If the restore host happens to have the repo and a Go toolchain, `DATABASE_URL_MIGRATOR="$RESTORE_DSN" make -C api migrate-up`
+   is the fuller check — it should apply nothing and print "no migrations to run". Do not go
+   hunting for a Go toolchain mid-incident just to run it; the `psql` query above is enough.*
+
 2. **The audit ledger came back** — it is the reason for all of this:
    ```sql
    SELECT count(*), max(created_at) FROM audit_log;
    SELECT count(*) FROM users;
    ```
    Compare against what you expect for the recovery point.
-3. **The app can actually connect as `od_runtime`** (this is what §5.3 protects):
-   boot the API against the restored DSN and hit the health endpoint —
+
+3. **The app can actually connect as `od_runtime`** (this is what §5.3 protects). Boot the
+   API against the restored DSN and hit the health endpoint. **The API serves HTTPS on port
+   8443 by default** (`API_PORT`, `TLS_ENABLED` — see `api/.env.example`); the dev
+   certificate is self-signed, hence `-k`:
    ```bash
-   curl -s http://localhost:8099/health
+   curl -sk https://localhost:8443/health
    # → {"db":"up","status":"ok"}      ← 200/db:up means od_runtime connected and queried.
    ```
+   *(If you run the API with `TLS_ENABLED=false` behind a TLS-terminating ingress, it is
+   plain HTTP on the same port: `curl -s http://localhost:8443/health`.)*
+
    A `503 {"status":"degraded","db":"down"}` here means the app cannot reach or cannot use
    the restored database — almost always the missing role bootstrap (§5.3).
+   **`curl: (7) Connection refused` is not a restore failure** — it means you are pointed at
+   the wrong port or scheme. Check `API_PORT` before concluding anything about the backup.
+
 4. **Record the outcome** in §7's drill log. A restore nobody wrote down is a restore nobody
    can repeat.
 
@@ -344,6 +477,9 @@ are tracked here precisely so they are not silently forgotten at deploy time.
 - [x] Confirm the **PITR / history-retention window** on the **dev** Neon project and record the plan tier + window in §2.2. *(Done 2026-07-11: project `Amrita-OD`, **Free** tier, **6-hour** window, no scheduled snapshots.)*
 - [ ] **Upgrade the app-DB Neon plan before the event** so the PITR window covers the event **and the days after it** when disputes surface (Free = 6h is not enough; Launch = 7d, Scale = 30d). Record the new window in §2.2.
 - [ ] **[blocked: hosting]** Confirm PITR is enabled at the plan maximum on the **production** app DB once the host is chosen, and record it in §2.2.
+
+- [ ] Record the **Supabase plan tier** in §2.4. If it is Free, the auth project has no
+      built-in backups at all — confirm the reconstructability argument still holds.
 
 **Backup — layer 2 (90-day logical snapshots)**
 - [ ] Create the object-storage bucket for dumps; enable **encryption at rest**; record it in §2.3.

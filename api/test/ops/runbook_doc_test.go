@@ -32,12 +32,17 @@ import (
 
 const runbookWhy = "it is the story's primary deliverable — the operator runbook that makes the DB recoverable by standard Amrita IT without tribal knowledge"
 
-// headings extracts the text of every markdown ATX heading in the document.
+// headings extracts the text of every markdown SECTION heading (## and deeper).
+//
+// The document title (a single `#` H1) is deliberately excluded. It reads "Backup &
+// monitoring runbook", which contains both "backup" and "monitoring" — so counting it
+// as a heading made the required-section checks below satisfiable by the title alone:
+// deleting §2 (Backup posture) and §4 (Monitoring) outright still passed.
 func headings(doc string) []string {
 	var out []string
 	for _, line := range strings.Split(doc, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "#") {
+		if strings.HasPrefix(trimmed, "##") {
 			out = append(out, strings.ToLower(strings.TrimLeft(trimmed, "# ")))
 		}
 	}
@@ -219,19 +224,53 @@ func TestRunbook_TracksBlockedOperatorStepsAsUncheckedBoxes(t *testing.T) {
 		t.Fatalf("[P1] %s must carry an operator checklist of unchecked `- [ ]` items for the human-only steps; found %d\n  (D4: work blocked on deferred hosting is tracked, never silently dropped)", runbookRel, len(boxes))
 	}
 
-	joined := strings.ToLower(strings.Join(boxes, "\n"))
+	// Each requirement must be met by its OWN box. Matching a concatenation of every
+	// box with a list of OR'd needles was far too weak: "confirm PITR on the production
+	// DB" was satisfied by the word "retention" appearing in the unrelated bucket-
+	// lifecycle item, so deleting the PITR box entirely still passed.
 	required := []struct {
-		what    string
-		needles []string
+		what string
+		// all of `must` (each an OR-group) have to appear in a single box.
+		must [][]string
 	}{
-		{"registering the Uptime Robot monitor (blocked on a deployed public URL)", []string{"uptime robot", "uptimerobot", "monitor"}},
-		{"confirming PITR on the production DB (blocked on the hosting decision)", []string{"pitr", "point-in-time", "retention"}},
-		{"running one real restore drill — the story's actual acceptance test", []string{"drill", "restore"}},
+		{
+			"registering the Uptime Robot monitor (blocked on a deployed public URL)",
+			[][]string{{"uptime robot", "uptimerobot"}, {"monitor"}},
+		},
+		{
+			"confirming PITR on the PRODUCTION DB (blocked on the hosting decision)",
+			[][]string{{"pitr", "point-in-time"}, {"production", "prod"}},
+		},
+		{
+			"running one real restore drill — the story's actual acceptance test",
+			[][]string{{"drill"}, {"restore"}},
+		},
 	}
+
+	claimed := make(map[int]string) // box index -> requirement it satisfies
 	for _, r := range required {
-		if !containsAny(joined, r.needles...) {
-			t.Errorf("[P1] the operator checklist has no unchecked item for %s\n  unchecked items found: %v", r.what, boxes)
+		matched := -1
+		for i, box := range boxes {
+			if _, taken := claimed[i]; taken {
+				continue
+			}
+			all := true
+			for _, group := range r.must {
+				if !containsAny(box, group...) {
+					all = false
+					break
+				}
+			}
+			if all {
+				matched = i
+				break
+			}
 		}
+		if matched < 0 {
+			t.Errorf("[P1] the operator checklist has no unchecked item of its own for %s\n  (each tracked step needs a distinct `- [ ]` box — D4)\n  unchecked items found: %v", r.what, boxes)
+			continue
+		}
+		claimed[matched] = r.what
 	}
 }
 

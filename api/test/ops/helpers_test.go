@@ -87,3 +87,13 @@ func containsAny(haystack string, needles ...string) bool {
 	}
 	return false
 }
+
+// containsName reports whether names contains an exact match for want.
+func containsName(names []string, want string) bool {
+	for _, n := range names {
+		if n == want {
+			return true
+		}
+	}
+	return false
+}

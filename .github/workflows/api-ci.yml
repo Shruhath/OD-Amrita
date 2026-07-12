@@ -46,6 +46,12 @@ jobs:
       - name: go vet
         working-directory: api
         run: go vet ./...
+      - name: shellcheck (operator scripts)
+        # pg_backup.sh is an operator-facing backup script: a quoting bug in it is a
+        # silently corrupt backup, discovered during an incident. shellcheck ships on
+        # ubuntu-latest. --severity=style is the strictest setting and the script is
+        # clean at it, so any new finding is a regression.
+        run: shellcheck --severity=style api/scripts/*.sh
       - name: go test (no DB — integration suite must skip cleanly)
         working-directory: api
         run: go test ./...

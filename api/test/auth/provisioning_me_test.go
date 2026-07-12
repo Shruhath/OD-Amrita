@@ -48,7 +48,7 @@ func provisionRouter(seed svcauth.VerifiedIdentity, p *recordingProvisioner) *gi
 		mwauth.SetIdentity(c, seed)
 		c.Next()
 	})
-	r.GET("/api/v1/auth/me", handlerauth.MeHandler(p))
+	r.GET("/api/v1/auth/me", handlerauth.MeHandler(p, okAuditor{}))
 	return r
 }
 

@@ -78,6 +78,12 @@ func run() error {
 	st := store.New(pool)
 	userSvc := svcuser.NewService(st, cfg.Auth.BootstrapAdmins, svcuser.NewSQLCProvisioner())
 
+	// Auth-event auditor (Story 1.7): co-commits auth.login_succeeded (from
+	// /auth/me, after provisioning) and auth.domain_rejected (from the auth
+	// middleware's EnforceDomain failure branch) through the same store.WithAudit
+	// boundary. One value serves both the middleware and the handler.
+	eventAuditor := svcauth.NewEventAuditor(st)
+
 	// Forced-logout (Story 1.5c): the revocation checker the auth middleware
 	// consults on every protected request, and the admin-only revocation service.
 	// Supabase exposes no supported server-side target-user revoke API, so the
@@ -92,11 +98,11 @@ func run() error {
 
 	api := router.Group("/api/v1")
 	api.Use(errormw.Handler())
-	api.Use(mwauth.Middleware(verifier, cfg.Auth.AllowedDomain))
+	api.Use(mwauth.Middleware(verifier, cfg.Auth.AllowedDomain, eventAuditor))
 	// Reject revoked-but-still-valid tokens on the NEXT request, immediately after
 	// verify+domain and before any protected handler runs (DoD 6).
 	api.Use(mwauth.RevocationGuard(revChecker))
-	api.GET("/auth/me", handlerauth.MeHandler(userSvc))
+	api.GET("/auth/me", handlerauth.MeHandler(userSvc, eventAuditor))
 	api.POST("/admin/users/:user_id/sessions/revoke", handleradmin.RevokeSessionsHandler(revSvc))
 
 	srv := &http.Server{

@@ -62,7 +62,7 @@ func run(t *testing.T, v svcauth.TokenVerifier, authHeader string) outcome {
 		}
 		out.identity, out.identityOK = IdentityFromContext(c)
 	})
-	r.Use(Middleware(v, "amrita.edu"))
+	r.Use(Middleware(v, "amrita.edu", &recordingDomainAuditor{}))
 	r.GET("/me", func(c *gin.Context) {
 		out.terminalRan = true
 		c.Status(http.StatusOK)

@@ -60,6 +60,16 @@ func (f fakeVerifier) Verify(context.Context, string) (svcauth.VerifiedIdentity,
 	return f.id, f.err
 }
 
+// okAuditor is a succeed-always auth-event auditor for the composed round-trip +
+// revocation-guard tests: it satisfies BOTH the handler's login-success Auditor
+// and the middleware's domain-rejection Auditor so those suites can wire the real
+// middleware/handler without asserting audit behavior (the audit assertions live
+// in login_audit_test.go and domain_reject_audit_test.go).
+type okAuditor struct{}
+
+func (okAuditor) LoginSucceeded(_ context.Context, _, _, _, _, _ string) error { return nil }
+func (okAuditor) DomainRejected(_ context.Context, _, _, _ string) error       { return nil }
+
 // router mirrors the intended cmd/api/main.go wiring: /api/v1 group carrying the
 // error-middleware (outermost, single envelope renderer) then the auth
 // middleware, with GET /auth/me behind them. /health stays out of this group.
@@ -68,8 +78,8 @@ func router(v svcauth.TokenVerifier) *gin.Engine {
 	r := gin.New()
 	grp := r.Group("/api/v1")
 	grp.Use(errormw.Handler())
-	grp.Use(mwauth.Middleware(v, "amrita.edu"))
-	grp.GET("/auth/me", handlerauth.MeHandler(echoProvisioner{}))
+	grp.Use(mwauth.Middleware(v, "amrita.edu", okAuditor{}))
+	grp.GET("/auth/me", handlerauth.MeHandler(echoProvisioner{}, okAuditor{}))
 	return r
 }
 

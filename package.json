@@ -3,6 +3,8 @@
   "version": "0.0.0",
   "private": true,
   "description": "OD-Amrita monorepo root (pnpm workspace). Surfaces: contracts, api, mobile, web.",
+  "license": "AGPL-3.0-only",
+  "author": "The Amrita-UN Team",
   "packageManager": "pnpm@11.9.0",
   "scripts": {
     "contracts:generate": "make -C contracts generate"

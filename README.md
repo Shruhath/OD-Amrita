@@ -146,6 +146,48 @@ OD-Amrita is not an app. It is a **contract-first, multi-surface distributed pla
 
 ---
 
+## Repository Structure
+
+```
+├── api/                  # Go backend (HTTP server + persistent River worker)
+│   ├── cmd/              # Entrypoints for the API server and River worker
+│   ├── db/               # DB initialization and goose migration scripts
+│   ├── internal/         # Shared business logic and handlers
+│   └── scripts/          # Administration utilities
+├── contracts/            # OpenAPI specification and code generation configs
+│   └── generated/        # Generated Go and TS models (do not edit manually)
+├── docs/                 # Engineering overviews, architectural diagrams, and ADRs
+├── mobile/               # React Native (Expo) app (scanner and populator modes)
+├── test/                 # Test suites
+│   ├── contract/         # OpenAPI compliance and drift-gate validations
+│   └── skeleton/         # Workspace wiring and structural verification tests
+└── web/                  # React + Vite web portal for admins and teachers
+```
+
+## Core Architectural Rules and Conventions
+
+The development team adheres to strict architectural boundaries:
+*   **Dual-Role Database Access**: The backend separates database access using two distinct roles. The `od_migrator` has full schema control to run migrations, while `od_runtime` is the application's connection pool, restricted to DML operations with absolutely no DDL permissions.
+*   **Append-Only Audit Log**: Immutability of audit trails is guaranteed via database triggers that explicitly reject updates, deletes, or truncations.
+*   **Centralized Registry Discipline**: All error codes must be defined inside `contracts/openapi.yaml` first, and all audit event types must be registered in the backend codebase before use.
+*   **Transport Security**: Standard HTTP ports are blocked; the application runs strictly on TLS 1.2+.
+
+---
+
+## Getting Started
+
+To get the codebase up and running locally, run the initial setup commands:
+
+```bash
+pnpm install
+go work sync
+make -C contracts generate
+```
+
+For full environment configuration, TLS setup, database migrations, and execution steps, refer to the [Developer Operations Guide (HOWTO.md)](./HOWTO.md).
+
+---
+
 ## License
 
 **Copyright © 2026 The Amrita-UN Team. All rights reserved under the [GNU AGPL-3.0](./LICENSE).**
@@ -154,4 +196,4 @@ OD-Amrita is source-available under the **GNU Affero General Public License v3.0
 
 ---
 
-<sub>**For engineers:** the precise, no-hype technical breakdown — workspace wiring, CI topology, transport-security assertions, and conventions — lives in [`docs/engineering-overview.md`](./docs/engineering-overview.md) and [`CONVENTIONS.md`](./CONVENTIONS.md).</sub>
+<sub>**For engineers:** setup and running instructions live in [`HOWTO.md`](./HOWTO.md). The precise, no-hype technical breakdown — workspace wiring, CI topology, transport-security assertions, and conventions — lives in [`docs/engineering-overview.md`](./docs/engineering-overview.md) and [`CONVENTIONS.md`](./CONVENTIONS.md).</sub>

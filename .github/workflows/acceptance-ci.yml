@@ -1,0 +1,67 @@
+# Cross-surface acceptance gates for the authenticated walking skeleton.
+name: acceptance-ci
+
+on:
+  push:
+    paths:
+      - "api/test/seam/**"
+      - "contracts/**"
+      - "mobile/**"
+      - "test/**"
+      - ".github/workflows/acceptance-ci.yml"
+  pull_request:
+    paths:
+      - "api/test/seam/**"
+      - "contracts/**"
+      - "mobile/**"
+      - "test/**"
+      - ".github/workflows/acceptance-ci.yml"
+
+concurrency:
+  group: acceptance-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  skeleton:
+    name: skeleton acceptance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: Run skeleton acceptance tests
+        working-directory: test/skeleton
+        run: go test -v ./...
+
+  contract:
+    name: contract acceptance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: Install workspace
+        run: pnpm install --frozen-lockfile
+      - name: Run contract acceptance tests
+        working-directory: test/contract
+        run: GOWORK=off go test -v ./...
+
+  api-seams:
+    name: authenticated round-trip seam acceptance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: Run API seam acceptance tests
+        working-directory: api
+        run: go test ./test/seam/...

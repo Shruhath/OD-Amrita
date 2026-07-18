@@ -84,6 +84,18 @@ func runCmd(t *testing.T, dir, name string, args ...string) (string, error) {
 	return string(out), err
 }
 
+// runCmdWithEnv is used when this standalone module deliberately runs with
+// GOWORK=off but needs to invoke a repository command that depends on the
+// root workspace. An empty GOWORK asks Go to discover the nearest go.work.
+func runCmdWithEnv(t *testing.T, dir, name string, env []string, args ...string) (string, error) {
+	t.Helper()
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), env...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
 // requireTool skips the test (environmental, not red-phase) when a required
 // external binary is unavailable in this environment.
 func requireTool(t *testing.T, name string) {
@@ -649,7 +661,7 @@ func TestIntegration_ApiBuildsWithGeneratedGo(t *testing.T) {
 	root := repoRoot(t)
 	requireTool(t, "go")
 	assertRealCodegen(t, root)
-	if out, err := runCmd(t, filepath.Join(root, "api"), "go", "build", "./..."); err != nil {
+	if out, err := runCmdWithEnv(t, filepath.Join(root, "api"), "go", []string{"GOWORK="}, "build", "./..."); err != nil {
 		t.Errorf("`go build ./...` in api/ must pass with the populated generated Go module: %v\n%s", err, out)
 	}
 }

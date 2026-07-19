@@ -1,7 +1,15 @@
-# api/ backend CI — runs only when the backend or the contract changes.
-# build: go build + gofmt + go vet (no DB).
-# integration: real Postgres 17 service — role bootstrap, goose migrations,
-# the runtime-role DDL-denial gates, and the /health db-up/db-down phases.
+# api/ backend CI — runs only when the backend, the contract, or an acceptance
+# harness changes.
+# build:       go build + gofmt + go vet (no DB).
+# acceptance:  the root-level acceptance harnesses (test/skeleton, test/contract).
+# integration: real Postgres 17 service — role bootstrap, goose migrations, the
+#              runtime-role DDL-denial gates, the walking-skeleton round-trip
+#              conservation gate, and the /health db-up/db-down phases.
+#
+# `test/**` is in the path filters ON PURPOSE: the acceptance harnesses are their
+# own Go modules at the repo root, so a change to one of them touches no path
+# under api/ and would otherwise never trigger this workflow — the harness could
+# be broken and no job would notice.
 name: api-ci
 
 on:
@@ -9,12 +17,14 @@ on:
     paths:
       - "api/**"
       - "contracts/**"
+      - "test/**"
       - "go.work"
       - ".github/workflows/api-ci.yml"
   pull_request:
     paths:
       - "api/**"
       - "contracts/**"
+      - "test/**"
       - "go.work"
       - ".github/workflows/api-ci.yml"
 
@@ -65,8 +75,34 @@ jobs:
           sqlc generate
           git diff --exit-code -- internal/store/sqlc
 
+  acceptance:
+    name: acceptance harnesses (skeleton + contract)
+    runs-on: ubuntu-latest
+    # These two harnesses existed since Stories 1.1 and 1.2 and — until this job —
+    # were executed by NO workflow, on any path filter. An acceptance test that
+    # nothing runs cannot block a merge, so the "ATDD seam tests can block merges"
+    # claim was false in practice. This job is what makes it true.
+    #
+    # They are separate Go modules at the repo root, so they need their own steps:
+    # the api/ jobs all run with `working-directory: api` and never see them.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: Acceptance — monorepo skeleton (test/skeleton)
+        working-directory: test/skeleton
+        run: go test ./... -v
+      - name: Acceptance — contract, codegen & drift gate (test/contract)
+        # NOT `GOWORK=off`: this harness shells out to `go build ./...` inside api/,
+        # and api/ resolves contracts/generated/go through the workspace. GOWORK=off
+        # would be inherited by that subprocess and break the very build the harness
+        # is checking. It is in go.work for exactly this reason.
+        working-directory: test/contract
+        run: go test ./... -v
+
   integration:
-    name: postgres migrations + role gates + /health
+    name: postgres migrations + role gates + round-trip gate + /health
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -102,13 +138,19 @@ jobs:
         working-directory: api
         run: |
           goose -dir db/migrations postgres "$DATABASE_URL_MIGRATOR" up
-      - name: Integration tests — migrations, immutability, role gates, tx-helper co-commit
-        # test/db and test/store share ONE database; -p 1 serializes the package
-        # binaries so the migration round-trip test (which resets the schema)
-        # cannot run under the tx-helper/conservation tests.
+      - name: Integration tests — migrations, immutability, role gates, tx-helper co-commit, round-trip gate
+        # test/db, test/store and test/roundtrip share ONE database; -p 1 serializes
+        # the package binaries so the migration round-trip test (which resets the
+        # schema) cannot run under the tx-helper/conservation tests.
+        #
+        # ./test/roundtrip/... is the walking-skeleton exit gate: it drives the REAL
+        # chain (auth middleware → MeHandler → user.Service → store.WithAudit →
+        # Postgres) with only the token verifier faked, and asserts the audit-row
+        # conservation property — including that a FAILED audit insert rolls the
+        # users write back and returns 500, never 200.
         working-directory: api
         run: |
-          go test -tags integration -p 1 ./test/db/... ./test/store/... -v
+          go test -tags integration -p 1 ./test/db/... ./test/store/... ./test/roundtrip/... -v
       - name: goose down + re-up (clean revert)
         working-directory: api
         run: |

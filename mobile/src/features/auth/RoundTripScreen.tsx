@@ -67,6 +67,7 @@ export function RoundTripScreen({ apiRequest, onSignOut }: RoundTripScreenProps)
         // ("student") too — splitting these into sibling Text nodes makes every text query
         // ambiguous (matches both). One node keeps each query unique.
         <Text style={styles.identity}>
+          {state.identity.name ? `${state.identity.name}\n` : null}
           {state.identity.email}
           {'\n'}
           {state.identity.subject}

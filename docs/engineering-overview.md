@@ -44,3 +44,32 @@ Four workflows under `.github/workflows/`:
 ## Conventions
 
 See [`CONVENTIONS.md`](./CONVENTIONS.md) for the locked naming and layout rules.
+
+## Walking skeleton — implemented and CI-gated, device closure pending
+
+The Epic 1 exit thread — **device → contract → API → `store/tx.go` → Postgres →
+immutable audit row** — is implemented and CI-enforced, but not yet *closed*: a
+walking skeleton isn't proven until it has actually walked on a real device.
+
+**Proven so far:**
+- The backend half was proven live on 2026-07-04 (`GET /api/v1/auth/me` via `curl`
+  holding a browser-obtained token — see the gitignored auth setup doc §10).
+- The mobile half now exists: PKCE Microsoft sign-in, a session gate, and a
+  round-trip screen rendering the server-resolved role, all pure TS over injected
+  ports and unit-tested headless.
+- `api/test/roundtrip` (`-tags integration`, real Postgres in CI) machine-asserts
+  the epic's literal exit criterion — an audit-row **conservation** property: a
+  returning login writes exactly one `audit_log` row and zero `users` rows; a
+  first-contact login writes exactly one `users` row and two `audit_log` rows; a
+  forced audit-insert failure rolls the `users` write back and fails closed as 500,
+  never 200.
+- `api-ci.yml`'s `acceptance` job now actually runs the `test/skeleton` and
+  `test/contract` harnesses (previously wired into no workflow, on any path filter —
+  an acceptance test nothing runs cannot block a merge).
+
+**Not yet proven:** no device has completed the round trip. This is blocked on a
+one-time Supabase console action (adding the mobile deep-link scheme to the
+Redirect URLs allowlist) that only a human can perform, followed by an actual
+sign-in + round trip on a real phone with the resulting audit row read back from
+the database. **Epics 3–6 remain gated on this closing, not on the code existing.**
+This section will be updated with the device smoke-run date once that happens.

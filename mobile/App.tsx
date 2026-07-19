@@ -8,6 +8,7 @@
  * Supabase client and WebBrowser into those ports — it holds no auth logic of its own.
  */
 
+import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -18,6 +19,10 @@ import { createOAuth, DEFAULT_REDIRECT_URI } from './src/features/auth/oauth';
 import { createSessionGate, type SessionGateAuthPort, type SessionLike } from './src/features/auth/sessionGate';
 import { RoundTripScreen } from './src/features/auth/RoundTripScreen';
 import { supabase } from './src/lib/supabase/client';
+
+// Required once at module scope by expo-web-browser so a web-flow auth session
+// (opened via openAuthSessionAsync) can signal completion back to the opener.
+WebBrowser.maybeCompleteAuthSession();
 
 const oauth = createOAuth({
   auth: supabase.auth,
@@ -65,6 +70,29 @@ export default function App() {
       setBusy(false);
     });
     return stop;
+  }, []);
+
+  // Closes the cold-start gap: if the OS kills the app during the Microsoft browser
+  // interstitial, `performOAuth`'s in-memory await never resumes — the app relaunches
+  // fresh via the odamrita:// redirect instead. getInitialURL() catches that case;
+  // the 'url' listener covers the same redirect arriving while merely backgrounded.
+  useEffect(() => {
+    async function completeFromUrl(url: string | null) {
+      if (!url || !url.startsWith(DEFAULT_REDIRECT_URI)) return;
+      setError(null);
+      setBusy(true);
+      try {
+        await oauth.createSessionFromUrl(url);
+      } catch (cause) {
+        setError(displayError(cause));
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    void Linking.getInitialURL().then(completeFromUrl);
+    const subscription = Linking.addEventListener('url', ({ url }) => void completeFromUrl(url));
+    return () => subscription.remove();
   }, []);
 
   const handleSignIn = async () => {

@@ -129,7 +129,8 @@ func TestRoundTrip_ReturningIdentity_WritesExactlyOneAuditRow(t *testing.T) {
 	if dUsers != 0 {
 		t.Errorf("[P0] a returning identity must write NO new users row, got Δusers=%d", dUsers)
 	}
-	if dAudit != 1 {
+	// DELIBERATE INVERSION — AC 3 red→green CI demonstration (Story 1.9, Task 5). Do not merge.
+	if dAudit != 2 {
 		t.Errorf("[P0] a returning identity must write EXACTLY ONE auditable row (the epic exit criterion), got Δaudit=%d", dAudit)
 	}
 	// And that one row must be the login, not a second provisioning.

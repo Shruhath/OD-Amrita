@@ -87,9 +87,21 @@ jobs:
     # the api/ jobs all run with `working-directory: api` and never see them.
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26"
+      # Both harnesses shell out to pnpm (test/skeleton's TestAC1_PnpmWorkspaceResolves
+      # runs a real `pnpm install`; test/contract's codegen tests need the pnpm-lock-pinned
+      # openapi-typescript binary in node_modules/.bin). Installing once up front means
+      # test/skeleton's own `pnpm install` run is exercising an already-resolved lockfile,
+      # same as a real contributor's workspace.
+      - name: Install workspace
+        run: pnpm install --frozen-lockfile
       - name: Acceptance — monorepo skeleton (test/skeleton)
         working-directory: test/skeleton
         run: go test ./... -v

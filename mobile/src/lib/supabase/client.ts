@@ -32,6 +32,10 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     storage: secureStorageAdapter,
     autoRefreshToken: true,
     persistSession: true,
+    // OAuth callbacks return a short-lived authorization code. The verifier is
+    // persisted by Supabase and exchanged in `oauth.ts`; never use implicit
+    // access-token delivery with the custom mobile scheme.
+    flowType: 'pkce',
     // React Native has no URL to parse a session out of.
     detectSessionInUrl: false,
   },

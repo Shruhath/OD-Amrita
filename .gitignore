@@ -60,3 +60,5 @@ SETUP-GUIDE.md
 
 # ── Private infra/auth setup notes (not product code; keep out of the repo) ──
 docs/auth-microsoft-supabase-setup.md
+
+sprint-status.yaml

@@ -58,6 +58,8 @@ base-idea.txt
 # Local Claude Code / GSD agent-orchestration setup notes — tooling, not product.
 SETUP-GUIDE.md
 
+AGENTS.md
+
 # ── Private infra/auth setup notes (not product code; keep out of the repo) ──
 docs/auth-microsoft-supabase-setup.md
 

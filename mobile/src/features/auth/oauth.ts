@@ -22,7 +22,10 @@ export interface SessionLike {
   refresh_token: string;
 }
 
-export type AuthResult = { type: string; url?: string };
+// expo-web-browser's real result union: 'cancel'/'dismiss' are user-initiated (silently a no-op
+// below); 'locked' means another auth session was already in progress and this one was refused
+// outright — a real failure, not a cancellation, so it must not be swallowed the same way.
+export type AuthResult = { type: 'cancel' | 'dismiss' | 'locked' | 'success' | (string & {}); url?: string };
 
 export interface OAuthAuthPort {
   signInWithOAuth(options: {
@@ -73,7 +76,9 @@ export function createOAuth({
     }
 
     const code = callback.searchParams.get('code');
-    if (!code) return null;
+    if (!code) {
+      throw new Error('Microsoft sign-in callback carried no authorization code.');
+    }
 
     const { data, error } = await auth.exchangeCodeForSession(code);
     if (error) {
@@ -96,7 +101,12 @@ export function createOAuth({
 
     const result = await webBrowser.openAuthSessionAsync(data.url, redirectTo);
     // cancel/dismiss is a user action, not an error — return cleanly, nothing exchanged.
-    if (result.type !== 'success') return;
+    if (result.type === 'cancel' || result.type === 'dismiss') return;
+    if (result.type !== 'success') {
+      // 'locked' (another auth session already in progress) or any unexpected future result —
+      // a real failure, so it must be surfaced rather than silently treated as a cancellation.
+      throw new Error(`Microsoft sign-in did not complete (${result.type}).`);
+    }
     if (!result.url) {
       throw new Error('Microsoft sign-in returned no callback URL.');
     }

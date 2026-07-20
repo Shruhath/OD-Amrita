@@ -185,6 +185,22 @@ func roundTripRouter(st *store.Store, id svcauth.VerifiedIdentity, bootstrapAdmi
 	return r
 }
 
+// rejectedRouter is roundTripRouter's counterpart when the token verifier itself
+// rejects the request — fakeVerifier.err's one reason for existing. MeHandler is
+// wired identically; the middleware must abort before it is ever reached.
+func rejectedRouter(st *store.Store, err error) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+
+	userSvc := svcuser.NewService(st, nil, svcuser.NewSQLCProvisioner())
+	eventAuditor := svcauth.NewEventAuditor(st)
+
+	r := gin.New()
+	r.Use(errormw.Handler())
+	r.Use(mwauth.Middleware(fakeVerifier{err: err}, allowedDomain, eventAuditor))
+	r.GET("/api/v1/auth/me", handlerauth.MeHandler(userSvc, eventAuditor))
+	return r
+}
+
 // callMe performs one round trip against the assembled chain. The bearer token is
 // opaque — the faked verifier ignores its value — but it must be PRESENT, because
 // the middleware rejects a missing bearer as 401 before any verification runs.

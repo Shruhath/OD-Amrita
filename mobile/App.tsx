@@ -10,7 +10,7 @@
 
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { apiRequest, type ApiPath } from './src/api/client';
@@ -61,13 +61,23 @@ function displayError(error: unknown): string {
 
 export default function App() {
   const [session, setSession] = useState<SessionLike | null>(null);
-  const [busy, setBusy] = useState(true);
+  // `gateReady`/`linkBusy`/`actionBusy` are three independent loading sources (initial
+  // session-gate resolution, deep-link code exchange, and manual sign-in/out) rather than one
+  // shared `busy` flag — sharing a single flag across the two effects below let either one
+  // stomp on a state transition the other was mid-way through.
+  const [gateReady, setGateReady] = useState(false);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // getInitialURL() and the 'url' listener can both deliver the SAME cold-start redirect on some
+  // platforms — without this guard the single-use PKCE code gets redeemed twice, and the second
+  // exchange fails with a spurious visible error even though sign-in already succeeded.
+  const handledUrls = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const stop = sessionGate.start((next) => {
       setSession(next);
-      setBusy(false);
+      setGateReady(true);
     });
     return stop;
   }, []);
@@ -79,38 +89,49 @@ export default function App() {
   useEffect(() => {
     async function completeFromUrl(url: string | null) {
       if (!url || !url.startsWith(DEFAULT_REDIRECT_URI)) return;
+      if (handledUrls.current.has(url)) return;
+      handledUrls.current.add(url);
       setError(null);
-      setBusy(true);
+      setLinkBusy(true);
       try {
         await oauth.createSessionFromUrl(url);
       } catch (cause) {
         setError(displayError(cause));
       } finally {
-        setBusy(false);
+        setLinkBusy(false);
       }
     }
 
-    void Linking.getInitialURL().then(completeFromUrl);
+    Linking.getInitialURL()
+      .then(completeFromUrl)
+      .catch((cause) => setError(displayError(cause)));
     const subscription = Linking.addEventListener('url', ({ url }) => void completeFromUrl(url));
     return () => subscription.remove();
   }, []);
 
+  const busy = !gateReady || linkBusy || actionBusy;
+
   const handleSignIn = async () => {
     setError(null);
-    setBusy(true);
+    setActionBusy(true);
     try {
       await oauth.performOAuth();
     } catch (cause) {
       setError(displayError(cause));
     } finally {
-      setBusy(false);
+      setActionBusy(false);
     }
   };
 
   const handleSignOut = async () => {
-    setBusy(true);
-    await oauth.signOut();
-    setBusy(false);
+    setActionBusy(true);
+    try {
+      await oauth.signOut();
+    } catch (cause) {
+      setError(displayError(cause));
+    } finally {
+      setActionBusy(false);
+    }
   };
 
   if (session) {

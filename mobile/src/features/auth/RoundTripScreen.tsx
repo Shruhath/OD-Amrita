@@ -36,16 +36,35 @@ type RoundTripState =
   | { status: 'success'; identity: AuthenticatedIdentity }
   | { status: 'error'; code: string; message: string };
 
+function isErrorEnvelope(body: unknown): body is ErrorEnvelope {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    typeof (body as { code?: unknown }).code === 'string' &&
+    typeof (body as { message?: unknown }).message === 'string'
+  );
+}
+
 export function RoundTripScreen({ apiRequest, onSignOut }: RoundTripScreenProps) {
   const [state, setState] = useState<RoundTripState>({ status: 'idle' });
+  // Guards against rapid double-taps firing a second request while the first is still in
+  // flight — two concurrent requests can resolve out of order and leave stale state on screen.
+  const [pending, setPending] = useState(false);
 
   const handleRoundTrip = async () => {
+    if (pending) return;
+    setPending(true);
     try {
       const response = await apiRequest('/api/v1/auth/me');
-      const body = (await response.json()) as AuthenticatedIdentity | ErrorEnvelope;
+      const body: unknown = await response.json();
       if (!response.ok) {
-        const envelope = body as ErrorEnvelope;
-        setState({ status: 'error', code: envelope.code, message: envelope.message });
+        // The server's error middleware always emits {code, message}, but a malformed or
+        // non-JSON body (e.g. from an intermediary proxy) must not render a blank error.
+        setState(
+          isErrorEnvelope(body)
+            ? { status: 'error', code: body.code, message: body.message }
+            : { status: 'error', code: 'INTERNAL', message: 'Unable to complete the round trip.' },
+        );
         return;
       }
       setState({ status: 'success', identity: body as AuthenticatedIdentity });
@@ -56,6 +75,8 @@ export function RoundTripScreen({ apiRequest, onSignOut }: RoundTripScreenProps)
         code: 'INTERNAL',
         message: cause instanceof Error ? cause.message : 'Unable to complete the round trip.',
       });
+    } finally {
+      setPending(false);
     }
   };
 
@@ -81,6 +102,7 @@ export function RoundTripScreen({ apiRequest, onSignOut }: RoundTripScreenProps)
         accessibilityLabel="Round trip"
         style={styles.button}
         onPress={() => void handleRoundTrip()}
+        disabled={pending}
       >
         <Text style={styles.buttonText}>Round trip</Text>
       </Pressable>

@@ -132,8 +132,11 @@ cd test/skeleton
 go test -v ./...
 ```
 
-To run contract integration tests (requires turning off the Go workspace to prevent module errors):
+To run contract integration tests:
 ```bash
 cd test/contract
-GOWORK=off go test -v ./...
+go test -v ./...
 ```
+Do **not** set `GOWORK=off` here — `test/contract` is deliberately wired into `go.work` so its
+`TestIntegration_ApiBuildsWithGeneratedGo` check exercises the same workspace resolution a real
+`api/` build uses.

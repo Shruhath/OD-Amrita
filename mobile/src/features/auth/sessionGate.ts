@@ -50,11 +50,18 @@ export function createSessionGate({
     start(onSession: (session: SessionLike | null) => void): () => void {
       let stopped = false;
 
-      // The initial session, so a returning user skips sign-in.
-      void auth.getSession().then(({ data }) => {
-        if (stopped) return;
-        onSession(data.session);
-      });
+      // The initial session, so a returning user skips sign-in. If this rejects, report no
+      // session rather than leaving the caller's loading state stuck forever.
+      auth
+        .getSession()
+        .then(({ data }) => {
+          if (stopped) return;
+          onSession(data.session);
+        })
+        .catch(() => {
+          if (stopped) return;
+          onSession(null);
+        });
 
       const {
         data: { subscription },
@@ -64,13 +71,21 @@ export function createSessionGate({
       });
 
       // The interceptor gave up on refresh + retry: the session is dead. Sign out locally
-      // (best-effort revocation) and report null — the app shell falls back to sign-in.
+      // (best-effort revocation) and report null — the app shell falls back to sign-in. The
+      // session is already known-dead at this point, so a rejected signOut() (e.g. offline)
+      // must not stop `onSession(null)` from firing — otherwise the user is stranded on the
+      // very "401s forever" screen this module exists to close.
       const unsubscribeReauth = reauthSignal.subscribe(() => {
         if (stopped) return;
-        void auth.signOut().then(() => {
-          if (stopped) return;
-          onSession(null);
-        });
+        void (async () => {
+          try {
+            await auth.signOut();
+          } catch {
+            /* best-effort local revocation; the session is reported dead either way */
+          } finally {
+            if (!stopped) onSession(null);
+          }
+        })();
       });
 
       return () => {

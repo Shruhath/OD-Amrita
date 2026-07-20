@@ -88,6 +88,9 @@ func TestRoundTrip_FirstContact_WritesUserAndTwoAuditRows(t *testing.T) {
 	if got.Email != a.email {
 		t.Errorf("[P0] response email = %q, want %q (lowercased, as stored)", got.Email, a.email)
 	}
+	if got.Name == nil || *got.Name != a.name {
+		t.Errorf("[P0] response name = %v, want %q (AC 2 requires the server-supplied name to render)", got.Name, a.name)
+	}
 	// No bootstrap allowlist was passed, so ResolveRole must land on `student`.
 	// (Coordinator assignment is Story 2.4 — see the story's spec-vs-reality note.)
 	if got.Role != contracts.AuthenticatedIdentityRoleStudent {
@@ -194,6 +197,44 @@ func TestRoundTrip_AuditInsertFailure_RollsBackTheBusinessWrite(t *testing.T) {
 	}
 	if dAudit != 0 {
 		t.Errorf("[P0] a failed audit insert must leave no audit row, got Δaudit=%d", dAudit)
+	}
+}
+
+// TestRoundTrip_InvalidToken_RejectsBeforeAnyWrite — [P0] 1.9-INT-006.
+//
+// fakeVerifier.err exists specifically to simulate a token the JWKS/ES256
+// verification step itself rejects (expired, bad signature, wrong issuer/audience).
+// That path must abort 401 before MeHandler — and therefore store.WithAudit — is
+// ever reached: an invalid token must leave the ledger and the users table
+// untouched, not merely return the right status code.
+func TestRoundTrip_InvalidToken_RejectsBeforeAnyWrite(t *testing.T) {
+	ctx := testCtx(t)
+	pool := connect(t, ctx, dsnOrSkip(t, envRuntimeDSN))
+	a := newActor(t)
+
+	usersBefore := countUsers(t, ctx, pool, a.subject)
+	auditBefore := countAudit(t, ctx, pool, a.email)
+
+	st := store.New(pool)
+	verifyErr := domain.DomainError{Code: contracts.ErrorCodeAUTHTOKENINVALID, Message: "Authentication token is invalid."}
+	w := callMe(t, rejectedRouter(st, verifyErr), testDevice)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("[P0] a token the verifier rejects must be a 401, got %d (%s)", w.Code, w.Body.String())
+	}
+
+	var envelope contracts.Error
+	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("[P0] error response must decode as the {code, message} envelope: %v (%s)", err, w.Body.String())
+	}
+	if envelope.Code != contracts.ErrorCodeAUTHTOKENINVALID {
+		t.Errorf("[P0] error code = %q, want %q", envelope.Code, contracts.ErrorCodeAUTHTOKENINVALID)
+	}
+
+	dUsers := countUsers(t, ctx, pool, a.subject) - usersBefore
+	dAudit := countAudit(t, ctx, pool, a.email) - auditBefore
+	if dUsers != 0 || dAudit != 0 {
+		t.Errorf("[P0] a rejected token must never reach the write path, got Δusers=%d Δaudit=%d", dUsers, dAudit)
 	}
 }
 

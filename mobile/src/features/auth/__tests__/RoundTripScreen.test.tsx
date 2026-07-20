@@ -137,6 +137,17 @@ test('[P1] the screen renders the subject and email echoed from the verified JWT
   expect(screen.getByText(new RegExp(identity.subject))).toBeOnTheScreen();
 });
 
+test('[P1] the screen renders the server-supplied name, per AC 2', async () => {
+  const user = userEvent.setup();
+  const identity = authenticatedIdentity({ name: 'Test Student' });
+  const { apiRequest } = fakeApiRequest(200, identity);
+
+  render(<RoundTripScreen apiRequest={apiRequest} onSignOut={jest.fn()} />);
+  await user.press(screen.getByRole('button', { name: /round trip/i }));
+
+  expect(await screen.findByText(/Test Student/)).toBeOnTheScreen();
+});
+
 // ---------------------------------------------------------------------------
 // 1.9-COMP-004 [P2] — sign out
 // ---------------------------------------------------------------------------

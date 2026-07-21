@@ -3,9 +3,9 @@ import { describe, expect, test } from 'vitest'
 import App from './App'
 
 describe('web test harness', () => {
-  test('renders the current application shell', () => {
+  test('renders the authentication boundary', async () => {
     render(<App />)
 
-    expect(screen.getByRole('heading', { name: 'OD-Amrita' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Sign in to OD-Amrita' })).toBeInTheDocument()
   })
 })

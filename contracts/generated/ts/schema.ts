@@ -87,10 +87,105 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/branches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List normalized branches available for event administration */
+        get: operations["listAdminBranches"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List active and archived events across every branch
+         * @description Includes active and archived events by default. Results are ordered by event_date DESC, created_at DESC, id DESC.
+         */
+        get: operations["listAdminEvents"];
+        put?: never;
+        /** Create a multi-branch event */
+        post: operations["createAdminEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/events/{event_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Irreversibly archive an event
+         * @description Transitions an active event to archived. Repeating the command is an idempotent read: it returns the same resource and creates no audit row.
+         */
+        post: operations["archiveAdminEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        BranchSummary: {
+            /** Format: uuid */
+            id: string;
+            code: string;
+            name: string;
+        };
+        BranchCollection: {
+            data: components["schemas"]["BranchSummary"][];
+        };
+        /** @enum {string} */
+        EventStatus: "active" | "archived";
+        Event: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: date */
+            event_date: string;
+            status: components["schemas"]["EventStatus"];
+            branches: components["schemas"]["BranchSummary"][];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            archived_at: string | null;
+        };
+        CreateEventRequest: {
+            /** @description Trimmed, nonblank event name. */
+            name: string;
+            /** Format: date */
+            event_date: string;
+            branch_ids: string[];
+        };
+        EventCollection: {
+            data: components["schemas"]["Event"][];
+            page: number;
+            page_size: number;
+            total: number;
+        };
         /** @description Health probe shape — overall service status plus database connectivity. */
         HealthStatus: {
             /**
@@ -110,7 +205,7 @@ export interface components {
              * @description Canonical SCREAMING_SNAKE error code. This enum is the WIRE source of truth; the Go `errors.go` const registry mirrors it. Do not invent free-text codes.
              * @enum {string}
              */
-            code: "AUTH_DOMAIN_REJECTED" | "AUTH_TOKEN_INVALID" | "RBAC_FORBIDDEN" | "SCAN_DUPLICATE" | "SLOT_CLOSED" | "CARD_NOT_RECOGNIZED" | "QR_LIMIT_REACHED" | "RATE_LIMITED" | "INVALID_SCAN_ID" | "VALIDATION_FAILED" | "INTERNAL";
+            code: "AUTH_DOMAIN_REJECTED" | "AUTH_TOKEN_INVALID" | "RBAC_FORBIDDEN" | "SCAN_DUPLICATE" | "SLOT_CLOSED" | "CARD_NOT_RECOGNIZED" | "QR_LIMIT_REACHED" | "RATE_LIMITED" | "INVALID_SCAN_ID" | "VALIDATION_FAILED" | "EVENT_NOT_FOUND" | "INTERNAL";
             /** @description Human-readable message. For diagnostics/display only — branch on `code`. */
             message: string;
             /** @description Optional, freeform context for generic errors. Typed validation failures use ValidationError.details (a typed array) instead. */
@@ -418,6 +513,241 @@ export interface operations {
             };
             /** @description Caller is not a provisioned admin. */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listAdminBranches: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Server-owned branch reference data, ordered by code then id. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BranchCollection"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listAdminEvents: {
+        parameters: {
+            query?: {
+                /** @description Lifecycle filter. `all` preserves discoverable history. */
+                status?: "active" | "archived" | "all";
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deterministically ordered page of events. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventCollection"];
+                };
+            };
+            /** @description Invalid lifecycle filter or pagination value. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createAdminEvent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateEventRequest"];
+            };
+        };
+        responses: {
+            /** @description Event and branch associations persisted atomically. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Event"];
+                };
+            };
+            /** @description Request validation failed with typed field details. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    archiveAdminEvent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current archived representation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Event"];
+                };
+            };
+            /** @description The event id is malformed. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No event exists with the supplied id. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

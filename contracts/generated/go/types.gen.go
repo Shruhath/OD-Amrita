@@ -42,6 +42,7 @@ const (
 	ErrorCodeAUTHDOMAINREJECTED ErrorCode = "AUTH_DOMAIN_REJECTED"
 	ErrorCodeAUTHTOKENINVALID   ErrorCode = "AUTH_TOKEN_INVALID"
 	ErrorCodeCARDNOTRECOGNIZED  ErrorCode = "CARD_NOT_RECOGNIZED"
+	ErrorCodeEVENTNOTFOUND      ErrorCode = "EVENT_NOT_FOUND"
 	ErrorCodeINTERNAL           ErrorCode = "INTERNAL"
 	ErrorCodeINVALIDSCANID      ErrorCode = "INVALID_SCAN_ID"
 	ErrorCodeQRLIMITREACHED     ErrorCode = "QR_LIMIT_REACHED"
@@ -61,6 +62,8 @@ func (e ErrorCode) Valid() bool {
 		return true
 	case ErrorCodeCARDNOTRECOGNIZED:
 		return true
+	case ErrorCodeEVENTNOTFOUND:
+		return true
 	case ErrorCodeINTERNAL:
 		return true
 	case ErrorCodeINVALIDSCANID:
@@ -76,6 +79,24 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeSLOTCLOSED:
 		return true
 	case ErrorCodeVALIDATIONFAILED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EventStatus.
+const (
+	EventStatusActive   EventStatus = "active"
+	EventStatusArchived EventStatus = "archived"
+)
+
+// Valid indicates whether the value is a known member of the EventStatus enum.
+func (e EventStatus) Valid() bool {
+	switch e {
+	case EventStatusActive:
+		return true
+	case EventStatusArchived:
 		return true
 	default:
 		return false
@@ -193,6 +214,27 @@ func (e ValidationErrorCode) Valid() bool {
 	}
 }
 
+// Defines values for ListAdminEventsParamsStatus.
+const (
+	ListAdminEventsParamsStatusActive   ListAdminEventsParamsStatus = "active"
+	ListAdminEventsParamsStatusAll      ListAdminEventsParamsStatus = "all"
+	ListAdminEventsParamsStatusArchived ListAdminEventsParamsStatus = "archived"
+)
+
+// Valid indicates whether the value is a known member of the ListAdminEventsParamsStatus enum.
+func (e ListAdminEventsParamsStatus) Valid() bool {
+	switch e {
+	case ListAdminEventsParamsStatusActive:
+		return true
+	case ListAdminEventsParamsStatusAll:
+		return true
+	case ListAdminEventsParamsStatusArchived:
+		return true
+	default:
+		return false
+	}
+}
+
 // AuthenticatedIdentity Identity claims verified from the Supabase JWT and accepted by the backend amrita.edu domain-family gate.
 type AuthenticatedIdentity struct {
 	// Email Verified email claim from the Supabase session JWT.
@@ -211,6 +253,27 @@ type AuthenticatedIdentity struct {
 // AuthenticatedIdentityRole The global base role the identity is provisioned with on first login. Always present (provisioning yields exactly one). This is the base role only — per-event coordinator assignment and RBAC enforcement are later epics; the client uses it to route by role.
 type AuthenticatedIdentityRole string
 
+// BranchCollection defines model for BranchCollection.
+type BranchCollection struct {
+	Data []BranchSummary `json:"data"`
+}
+
+// BranchSummary defines model for BranchSummary.
+type BranchSummary struct {
+	Code string             `json:"code"`
+	Id   openapi_types.UUID `json:"id"`
+	Name string             `json:"name"`
+}
+
+// CreateEventRequest defines model for CreateEventRequest.
+type CreateEventRequest struct {
+	BranchIds []openapi_types.UUID `json:"branch_ids"`
+	EventDate openapi_types.Date   `json:"event_date"`
+
+	// Name Trimmed, nonblank event name.
+	Name string `json:"name"`
+}
+
 // Error Standard error envelope for all non-2xx responses. Clients branch on `code`, never on `message`.
 type Error struct {
 	// Code Canonical SCREAMING_SNAKE error code. This enum is the WIRE source of truth; the Go `errors.go` const registry mirrors it. Do not invent free-text codes.
@@ -225,6 +288,28 @@ type Error struct {
 
 // ErrorCode Canonical SCREAMING_SNAKE error code. This enum is the WIRE source of truth; the Go `errors.go` const registry mirrors it. Do not invent free-text codes.
 type ErrorCode string
+
+// Event defines model for Event.
+type Event struct {
+	ArchivedAt *time.Time         `json:"archived_at"`
+	Branches   []BranchSummary    `json:"branches"`
+	CreatedAt  time.Time          `json:"created_at"`
+	EventDate  openapi_types.Date `json:"event_date"`
+	Id         openapi_types.UUID `json:"id"`
+	Name       string             `json:"name"`
+	Status     EventStatus        `json:"status"`
+}
+
+// EventCollection defines model for EventCollection.
+type EventCollection struct {
+	Data     []Event `json:"data"`
+	Page     int     `json:"page"`
+	PageSize int     `json:"page_size"`
+	Total    int     `json:"total"`
+}
+
+// EventStatus defines model for EventStatus.
+type EventStatus string
 
 // HealthStatus Health probe shape — overall service status plus database connectivity.
 type HealthStatus struct {
@@ -345,6 +430,20 @@ type ValidationErrorDetail struct {
 
 // bearerAuthContextKey is the context key for bearerAuth security scheme
 type bearerAuthContextKey string
+
+// ListAdminEventsParams defines parameters for ListAdminEvents.
+type ListAdminEventsParams struct {
+	// Status Lifecycle filter. `all` preserves discoverable history.
+	Status   *ListAdminEventsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+	Page     *int                         `form:"page,omitempty" json:"page,omitempty"`
+	PageSize *int                         `form:"page_size,omitempty" json:"page_size,omitempty"`
+}
+
+// ListAdminEventsParamsStatus defines parameters for ListAdminEvents.
+type ListAdminEventsParamsStatus string
+
+// CreateAdminEventJSONRequestBody defines body for CreateAdminEvent for application/json ContentType.
+type CreateAdminEventJSONRequestBody = CreateEventRequest
 
 // RevokeUserSessionsJSONRequestBody defines body for RevokeUserSessions for application/json ContentType.
 type RevokeUserSessionsJSONRequestBody = RevokeSessionsRequest

@@ -210,6 +210,196 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/admin/branches:
+    get:
+      operationId: listAdminBranches
+      summary: List normalized branches available for event administration
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Server-owned branch reference data, ordered by code then id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BranchCollection"
+        "401":
+          description: Missing, malformed, expired, or revoked token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a provisioned Admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/events:
+    get:
+      operationId: listAdminEvents
+      summary: List active and archived events across every branch
+      description: >-
+        Includes active and archived events by default. Results are ordered by
+        event_date DESC, created_at DESC, id DESC.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          description: Lifecycle filter. `all` preserves discoverable history.
+          schema:
+            type: string
+            enum: [active, archived, all]
+            default: all
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Deterministically ordered page of events.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventCollection"
+        "400":
+          description: Invalid lifecycle filter or pagination value.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Missing, malformed, expired, or revoked token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a provisioned Admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      operationId: createAdminEvent
+      summary: Create a multi-branch event
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEventRequest"
+      responses:
+        "201":
+          description: Event and branch associations persisted atomically.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "400":
+          description: Request validation failed with typed field details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Missing, malformed, expired, or revoked token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a provisioned Admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/events/{event_id}/archive:
+    post:
+      operationId: archiveAdminEvent
+      summary: Irreversibly archive an event
+      description: >-
+        Transitions an active event to archived. Repeating the command is an
+        idempotent read: it returns the same resource and creates no audit row.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Current archived representation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "400":
+          description: The event id is malformed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Missing, malformed, expired, or revoked token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a provisioned Admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No event exists with the supplied id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -218,6 +408,100 @@ components:
       bearerFormat: JWT
 
   schemas:
+    BranchSummary:
+      type: object
+      required: [id, code, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          minLength: 1
+          maxLength: 32
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+
+    BranchCollection:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/BranchSummary"
+
+    EventStatus:
+      type: string
+      enum: [active, archived]
+
+    Event:
+      type: object
+      required: [id, name, event_date, status, branches, created_at, archived_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        event_date:
+          type: string
+          format: date
+        status:
+          $ref: "#/components/schemas/EventStatus"
+        branches:
+          type: array
+          items:
+            $ref: "#/components/schemas/BranchSummary"
+        created_at:
+          type: string
+          format: date-time
+        archived_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    CreateEventRequest:
+      type: object
+      required: [name, event_date, branch_ids]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Trimmed, nonblank event name.
+        event_date:
+          type: string
+          format: date
+        branch_ids:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+
+    EventCollection:
+      type: object
+      required: [data, page, page_size, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Event"
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
+
     HealthStatus:
       type: object
       description: >-
@@ -269,6 +553,7 @@ components:
             - RATE_LIMITED
             - INVALID_SCAN_ID
             - VALIDATION_FAILED
+            - EVENT_NOT_FOUND
             - INTERNAL
         message:
           type: string

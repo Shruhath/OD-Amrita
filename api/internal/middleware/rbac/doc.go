@@ -1,3 +1,3 @@
-// Package rbac is a Story 1.1 skeleton placeholder — it reserves the directory
-// home for role-based access control middleware. No logic is implemented here; that lands in a later story.
+// Package rbac loads provisioned principals and enforces server-side role
+// requirements for protected route groups.
 package rbac

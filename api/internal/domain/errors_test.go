@@ -55,6 +55,7 @@ var codeStatusCases = []struct {
 	{contracts.ErrorCodeRATELIMITED, []int{429}},             // arch: 429 rate-limited
 	{contracts.ErrorCodeINVALIDSCANID, []int{400}},           // arch: 400 validation
 	{contracts.ErrorCodeVALIDATIONFAILED, []int{400}},        // arch: 400 validation
+	{contracts.ErrorCodeEVENTNOTFOUND, []int{404}},           // event archive target does not exist
 	{contracts.ErrorCodeINTERNAL, []int{500}},                // arch: 5xx internal
 }
 

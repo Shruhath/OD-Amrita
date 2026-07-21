@@ -79,6 +79,11 @@ func (s *Store) WithAudit(
 	if !evt.Action.Registered() {
 		return fmt.Errorf("%w: %q", ErrUnregisteredAction, string(evt.Action))
 	}
+	payload, err := normalizeAuditPayload(evt.Payload)
+	if err != nil {
+		return err
+	}
+	evt.Payload = payload
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

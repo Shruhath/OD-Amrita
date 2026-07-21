@@ -1,0 +1,208 @@
+package event
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+
+	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
+
+	"github.com/Shruhath/OD-Amrita/api/internal/domain"
+	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
+	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
+	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
+	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
+	eventsvc "github.com/Shruhath/OD-Amrita/api/internal/service/event"
+)
+
+type fakeService struct {
+	branches    []eventsvc.Branch
+	page        eventsvc.Page
+	event       eventsvc.Event
+	err         error
+	createCalls int
+}
+
+func (f *fakeService) Branches(context.Context) ([]eventsvc.Branch, error) { return f.branches, f.err }
+func (f *fakeService) List(context.Context, eventsvc.ListInput) (eventsvc.Page, error) {
+	return f.page, f.err
+}
+func (f *fakeService) Create(context.Context, eventsvc.Actor, eventsvc.CreateInput) (eventsvc.Event, error) {
+	f.createCalls++
+	return f.event, f.err
+}
+func (f *fakeService) Archive(context.Context, eventsvc.Actor, string) (eventsvc.Event, error) {
+	return f.event, f.err
+}
+
+func TestHandlersReturnGeneratedSuccessShapes(t *testing.T) {
+	eventID := uuid.NewString()
+	branchID := uuid.NewString()
+	createdAt := time.Date(2026, 7, 20, 3, 0, 0, 0, time.UTC)
+	svc := &fakeService{
+		branches: []eventsvc.Branch{{ID: branchID, Code: "CSE", Name: "Computer Science"}},
+		event: eventsvc.Event{
+			ID: eventID, Name: "Innovation Day", EventDate: "2026-08-15", Status: eventsvc.StatusActive,
+			Branches: []eventsvc.Branch{{ID: branchID, Code: "CSE", Name: "Computer Science"}}, CreatedAt: createdAt,
+		},
+	}
+	svc.page = eventsvc.Page{Data: []eventsvc.Event{svc.event}, Page: 1, PageSize: 20, Total: 1}
+	router := eventRouter(svc)
+
+	for _, tc := range []struct {
+		method string
+		path   string
+		body   string
+		status int
+	}{
+		{http.MethodGet, "/branches", "", http.StatusOK},
+		{http.MethodGet, "/events", "", http.StatusOK},
+		{http.MethodPost, "/events", `{"name":"Innovation Day","event_date":"2026-08-15","branch_ids":["` + branchID + `"]}`, http.StatusCreated},
+		{http.MethodPost, "/events/" + eventID + "/archive", "", http.StatusOK},
+	} {
+		recorder := request(router, tc.method, tc.path, tc.body)
+		if recorder.Code != tc.status {
+			t.Errorf("%s %s status=%d body=%s", tc.method, tc.path, recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
+func TestCreateRejectsMalformedJSONBeforeService(t *testing.T) {
+	svc := &fakeService{}
+	recorder := request(eventRouter(svc), http.MethodPost, "/events", `{"name":`)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var body contracts.ValidationError
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if len(body.Details) != 1 || body.Details[0].Field != "$" || body.Details[0].Code != "invalid_json" {
+		t.Fatalf("details=%#v", body.Details)
+	}
+	if svc.createCalls != 0 {
+		t.Fatal("service called for malformed JSON")
+	}
+}
+
+func TestCreateReturnsFieldSpecificGeneratedTypeValidationBeforeService(t *testing.T) {
+	branchID := uuid.NewString()
+	for _, tc := range []struct {
+		name  string
+		body  string
+		field string
+	}{
+		{name: "invalid date", body: `{"name":"Event","event_date":"2026-02-31","branch_ids":["` + branchID + `"]}`, field: "event_date"},
+		{name: "invalid branch uuid", body: `{"name":"Event","event_date":"2026-08-15","branch_ids":["not-a-uuid"]}`, field: "branch_ids[0]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &fakeService{}
+			recorder := request(eventRouter(svc), http.MethodPost, "/events", tc.body)
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+			var body contracts.ValidationError
+			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decode error: %v", err)
+			}
+			if len(body.Details) != 1 || body.Details[0].Field != tc.field || body.Details[0].Code != "invalid_format" {
+				t.Fatalf("details=%#v", body.Details)
+			}
+			if svc.createCalls != 0 {
+				t.Fatal("service called for invalid generated field")
+			}
+		})
+	}
+}
+
+func TestListReturnsTypedValidationForInvalidQuery(t *testing.T) {
+	for _, tc := range []struct {
+		query string
+		field string
+		code  string
+	}{
+		{query: "?status=deleted", field: "status", code: "invalid_enum"},
+		{query: "?page=0", field: "page", code: "minimum"},
+		{query: "?page_size=101", field: "page_size", code: "maximum"},
+	} {
+		svc := &fakeService{err: domain.DomainError{
+			Code:    contracts.ErrorCodeVALIDATIONFAILED,
+			Message: "Event validation failed.",
+			Details: []contracts.ValidationErrorDetail{{Field: tc.field, Code: tc.code, Message: "Invalid query value."}},
+		}}
+		recorder := request(eventRouter(svc), http.MethodGet, "/events"+tc.query, "")
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("query=%s status=%d body=%s", tc.query, recorder.Code, recorder.Body.String())
+		}
+		var body contracts.ValidationError
+		if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+			t.Fatalf("query=%s decode error: %v", tc.query, err)
+		}
+		if len(body.Details) != 1 || body.Details[0].Field != tc.field || body.Details[0].Code != tc.code {
+			t.Fatalf("query=%s details=%#v", tc.query, body.Details)
+		}
+	}
+}
+
+func TestHandlersRender404And500Centrally(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		err    error
+		status int
+		code   contracts.ErrorCode
+	}{
+		{name: "not found", err: domain.DomainError{Code: contracts.ErrorCodeEVENTNOTFOUND, Message: "Event not found."}, status: 404, code: contracts.ErrorCodeEVENTNOTFOUND},
+		{name: "internal", err: errors.New("database unavailable"), status: 500, code: contracts.ErrorCodeINTERNAL},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := request(eventRouter(&fakeService{err: tc.err}), http.MethodPost, "/events/"+uuid.NewString()+"/archive", "")
+			if recorder.Code != tc.status {
+				t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+			var body contracts.Error
+			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil || body.Code != tc.code {
+				t.Fatalf("body=%s err=%v", recorder.Body.String(), err)
+			}
+		})
+	}
+}
+
+func eventRouter(svc Service) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(errormw.Handler())
+	router.Use(func(c *gin.Context) {
+		mwauth.SetIdentity(c, svcauth.VerifiedIdentity{Subject: "admin-subject", Email: "admin@amrita.edu"})
+		c.Next()
+	})
+	router.Use(rbac.RequireAdmin(staticPrincipalLoader{principal: rbac.Principal{UserID: uuid.NewString(), Email: "admin@amrita.edu", Role: "admin"}}))
+	router.GET("/branches", ListBranchesHandler(svc))
+	router.GET("/events", ListEventsHandler(svc))
+	router.POST("/events", CreateEventHandler(svc))
+	router.POST("/events/:event_id/archive", ArchiveEventHandler(svc))
+	return router
+}
+
+type staticPrincipalLoader struct{ principal rbac.Principal }
+
+func (s staticPrincipalLoader) Load(context.Context, string) (rbac.Principal, error) {
+	return s.principal, nil
+}
+
+func request(router http.Handler, method, path, body string) *httptest.ResponseRecorder {
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	router.ServeHTTP(recorder, req)
+	return recorder
+}

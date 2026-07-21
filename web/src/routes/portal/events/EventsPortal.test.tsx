@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { http, HttpResponse } from 'msw'
+import { delay, http, HttpResponse } from 'msw'
 import { describe, expect, test, vi } from 'vitest'
 import App from '../../../App'
 import { server } from '../../../test/server'
@@ -24,6 +24,7 @@ function renderPortal({
   eventsStatus = 200,
 }: PortalScenario = {}) {
   const adminRequest = vi.fn()
+  let serverEvents = [...events]
   window.history.pushState({}, '', '/portal/events')
   window.localStorage.setItem('od-amrita-atdd-session', 'authenticated')
 
@@ -48,7 +49,7 @@ function renderPortal({
           { status: eventsStatus },
         )
       }
-      return HttpResponse.json({ data: events, page: 1, page_size: 20, total: events.length })
+      return HttpResponse.json({ data: serverEvents, page: 1, page_size: 20, total: serverEvents.length })
     }),
     http.post('*/api/v1/admin/events', async ({ request }) => {
       adminRequest('create')
@@ -57,14 +58,22 @@ function renderPortal({
         event_date: string
         branch_ids: string[]
       }
-      return HttpResponse.json(
-        createEventFixture({
+      const created = createEventFixture({
           name: input.name.trim(),
           event_date: input.event_date,
           branches: testBranches.filter((branch) => input.branch_ids.includes(branch.id)),
-        }),
-        { status: 201 },
-      )
+        })
+      serverEvents = [created, ...serverEvents]
+      return HttpResponse.json(created, { status: 201 })
+    }),
+    http.post('*/api/v1/admin/events/:eventId/archive', async ({ params }) => {
+      adminRequest('archive')
+      await delay(50)
+      const current = serverEvents.find((event) => event.id === params.eventId)
+      if (!current) return HttpResponse.json({ code: 'EVENT_NOT_FOUND', message: 'Event not found' }, { status: 404 })
+      const archived = { ...current, status: 'archived' as const, archived_at: '2026-07-20T04:10:00Z' }
+      serverEvents = serverEvents.map((event) => event.id === archived.id ? archived : event)
+      return HttpResponse.json(archived)
     }),
   )
 
@@ -73,23 +82,23 @@ function renderPortal({
 }
 
 describe('Admin events portal composition (ATDD red phase)', () => {
-  test.skip('[P0] allows an Admin to load active and archived events', async () => {
+  test('[P0] allows an Admin to load active and archived events', async () => {
     const archived = createEventFixture({ name: 'Research Symposium', status: 'archived' })
     renderPortal({ events: [createEventFixture({ name: 'Innovation Day' }), archived] })
 
     expect(await screen.findByRole('heading', { name: 'Events' })).toBeInTheDocument()
-    expect(screen.getByRole('row', { name: /Innovation Day/ })).toHaveTextContent('Active')
-    expect(screen.getByRole('row', { name: /Research Symposium/ })).toHaveTextContent('Archived')
+    expect(await screen.findByRole('row', { name: /Innovation Day/ })).toHaveTextContent('Active')
+    expect(await screen.findByRole('row', { name: /Research Symposium/ })).toHaveTextContent('Archived')
   })
 
-  test.skip('[P0] denies a non-Admin without issuing an Admin event request', async () => {
+  test('[P0] denies a non-Admin without issuing an Admin event request', async () => {
     const { adminRequest } = renderPortal({ role: 'teacher' })
 
     expect(await screen.findByRole('heading', { name: 'Access denied' })).toBeInTheDocument()
     expect(adminRequest).not.toHaveBeenCalled()
   })
 
-  test.skip('[P1] validates required fields and supports keyboard multi-branch selection', async () => {
+  test('[P1] validates required fields and supports keyboard multi-branch selection', async () => {
     const user = userEvent.setup()
     renderPortal()
     await user.click(await screen.findByRole('button', { name: 'New event' }))
@@ -105,7 +114,7 @@ describe('Admin events portal composition (ATDD red phase)', () => {
     expect(firstBranch).toBeChecked()
   })
 
-  test.skip('[P1] creates a multi-branch event and refreshes from the server result', async () => {
+  test('[P1] creates a multi-branch event and refreshes from the server result', async () => {
     const user = userEvent.setup()
     const { adminRequest } = renderPortal({ events: [] })
     await user.click(await screen.findByRole('button', { name: 'New event' }))
@@ -120,7 +129,7 @@ describe('Admin events portal composition (ATDD red phase)', () => {
     expect(adminRequest).toHaveBeenCalledWith('create')
   })
 
-  test.skip('[P1] confirms archive, prevents duplicate submission, and makes the row read-only', async () => {
+  test('[P1] confirms archive, prevents duplicate submission, and makes the row read-only', async () => {
     const user = userEvent.setup()
     renderPortal({ events: [createEventFixture({ name: 'Innovation Day' })] })
     const row = await screen.findByRole('row', { name: /Innovation Day/ })
@@ -133,7 +142,9 @@ describe('Admin events portal composition (ATDD red phase)', () => {
     expect(await screen.findByRole('row', { name: /Innovation Day.*Archived/ })).not.toHaveTextContent(/Edit|Delete|Archive event/)
   })
 
-  test.skip('[P1] maps typed server validation details to their fields and announces the error', async () => {
+  test('[P1] maps typed server validation details to their fields and announces the error', async () => {
+    const user = userEvent.setup()
+    renderPortal()
     server.use(
       http.post('*/api/v1/admin/events', () =>
         HttpResponse.json(
@@ -146,8 +157,6 @@ describe('Admin events portal composition (ATDD red phase)', () => {
         ),
       ),
     )
-    const user = userEvent.setup()
-    renderPortal()
     await user.click(await screen.findByRole('button', { name: 'New event' }))
     const dialog = screen.getByRole('dialog', { name: 'New event' })
     await user.type(within(dialog).getByLabelText('Event name'), 'Innovation Day')
@@ -159,7 +168,7 @@ describe('Admin events portal composition (ATDD red phase)', () => {
     expect(within(dialog).getByRole('alert')).toHaveTextContent('Event validation failed')
   })
 
-  test.skip('[P2] exposes honest empty-branch and empty-event states', async () => {
+  test('[P2] exposes honest empty-branch and empty-event states', async () => {
     const { unmount } = renderPortal({ branches: [], events: [] })
     expect(await screen.findByRole('heading', { name: 'No branches available' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'New event' })).toBeDisabled()
@@ -170,7 +179,7 @@ describe('Admin events portal composition (ATDD red phase)', () => {
     expect(screen.getByRole('button', { name: 'New event' })).toBeEnabled()
   })
 
-  test.skip('[P2] renders a retryable list error without an indefinite spinner', async () => {
+  test('[P2] renders a retryable list error without an indefinite spinner', async () => {
     renderPortal({ eventsStatus: 500 })
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Events could not be loaded')

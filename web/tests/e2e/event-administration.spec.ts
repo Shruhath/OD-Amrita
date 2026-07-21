@@ -278,7 +278,7 @@ function eventRow(page: Page, eventName: string) {
 }
 
 test.describe('Admin event administration E2E journeys (ATDD red phase)', () => {
-  test.skip('[P0] gates the portal behind Microsoft authentication and sends no Admin event request without a session', async ({ page }) => {
+  test('[P0] gates the portal behind Microsoft authentication and sends no Admin event request without a session', async ({ page }) => {
     await installSession(page, null)
     const api = await installApi(page)
 
@@ -290,11 +290,11 @@ test.describe('Admin event administration E2E journeys (ATDD red phase)', () => 
     expect(api.calls.listEvents).toBe(0)
   })
 
-  test.skip('[P1] resolves the Admin identity and loads server-owned branches plus active and archived events', async ({ page }) => {
+  test('[P1] resolves the Admin identity and loads server-owned branches plus active and archived events', async ({ page }) => {
     const api = await openAsAdmin(page)
 
     await expect(page.getByRole('heading', { name: 'Events' })).toBeVisible()
-    await expect(page.getByText('Computer Science and Engineering')).toBeVisible()
+    await expect(page.getByText('Computer Science and Engineering').first()).toBeVisible()
     await expect(page.getByText('Electronics and Communication Engineering')).toBeVisible()
 
     const activeRow = eventRow(page, 'Innovation Day')
@@ -309,7 +309,7 @@ test.describe('Admin event administration E2E journeys (ATDD red phase)', () => 
     expect(api.calls.listEvents).toBe(1)
   })
 
-  test.skip('[P2] exposes determinate loading states while branch and event requests are pending', async ({ page }) => {
+  test('[P2] exposes determinate loading states while branch and event requests are pending', async ({ page }) => {
     const branchesGate = deferred()
     const eventsGate = deferred()
     await installSession(page, 'admin')
@@ -326,7 +326,7 @@ test.describe('Admin event administration E2E journeys (ATDD red phase)', () => 
     await expect(page.getByRole('status', { name: 'Loading events' })).toHaveCount(0)
   })
 
-  test.skip('[P1] creates a multi-branch event, reloads persisted state, archives it, and retains its read-only history after reload', async ({ page }) => {
+  test('[P1] creates a multi-branch event, reloads persisted state, archives it, and retains its read-only history after reload', async ({ page }) => {
     const api = await openAsAdmin(page, { events: [] })
 
     await page.getByRole('button', { name: 'New event' }).click()
@@ -371,7 +371,7 @@ test.describe('Admin event administration E2E journeys (ATDD red phase)', () => 
     expect(api.calls.archive).toBe(1)
   })
 
-  test.skip('[P1] cancels archive confirmation without mutating the event and returns focus to the invoking command', async ({ page }) => {
+  test('[P1] cancels archive confirmation without mutating the event and returns focus to the invoking command', async ({ page }) => {
     const api = await openAsAdmin(page, { events: [activeEvent] })
     const archiveButton = eventRow(page, 'Innovation Day').getByRole('button', { name: 'Archive' })
 
@@ -386,7 +386,7 @@ test.describe('Admin event administration E2E journeys (ATDD red phase)', () => 
     expect(api.calls.archive).toBe(0)
   })
 
-  test.skip('[P0] disables an in-flight archive confirmation and sends only one transition request', async ({ page }) => {
+  test('[P0] disables an in-flight archive confirmation and sends only one transition request', async ({ page }) => {
     const archiveGate = deferred()
     const api = await openAsAdmin(page, { events: [activeEvent], archiveGate: archiveGate.promise })
 
@@ -407,7 +407,7 @@ test.describe('Admin event administration E2E journeys (ATDD red phase)', () => 
     expect(api.calls.archive).toBe(1)
   })
 
-  test.skip('[P1] keeps archived events visible and removes every mutation affordance', async ({ page }) => {
+  test('[P1] keeps archived events visible and removes every mutation affordance', async ({ page }) => {
     await openAsAdmin(page, { events: [archivedEvent] })
 
     const row = eventRow(page, 'Research Symposium')
@@ -418,7 +418,7 @@ test.describe('Admin event administration E2E journeys (ATDD red phase)', () => 
     await expect(row.getByRole('button', { name: /delete/i })).toHaveCount(0)
   })
 
-  test.skip('[P0] shows explicit access denied for a non-Admin and never requests branches or events', async ({ page }) => {
+  test('[P0] shows explicit access denied for a non-Admin and never requests branches or events', async ({ page }) => {
     await installSession(page, 'teacher')
     const api = await installApi(page, { role: 'teacher' })
 
@@ -432,7 +432,7 @@ test.describe('Admin event administration E2E journeys (ATDD red phase)', () => 
     expect(api.calls.archive).toBe(0)
   })
 
-  test.skip('[P2] explains an empty branch source and prevents event creation', async ({ page }) => {
+  test('[P2] explains an empty branch source and prevents event creation', async ({ page }) => {
     await openAsAdmin(page, { branches: [], events: [] })
 
     await expect(page.getByRole('heading', { name: 'No branches available' })).toBeVisible()
@@ -440,7 +440,7 @@ test.describe('Admin event administration E2E journeys (ATDD red phase)', () => 
     await expect(page.getByRole('button', { name: 'New event' })).toBeDisabled()
   })
 
-  test.skip('[P2] renders an honest empty-events state without hiding the creation command', async ({ page }) => {
+  test('[P2] renders an honest empty-events state without hiding the creation command', async ({ page }) => {
     await openAsAdmin(page, { events: [] })
 
     await expect(page.getByRole('heading', { name: 'No events yet' })).toBeVisible()
@@ -448,7 +448,7 @@ test.describe('Admin event administration E2E journeys (ATDD red phase)', () => 
     await expect(page.getByRole('button', { name: 'New event' })).toBeEnabled()
   })
 
-  test.skip('[P1] presents a retryable list error and recovers through a deterministic refetch', async ({ page }) => {
+  test('[P1] presents a retryable list error and recovers through a deterministic refetch', async ({ page }) => {
     const api = await openAsAdmin(page, { eventsStatuses: [500, 200] })
 
     const alert = page.getByRole('alert')
@@ -462,7 +462,7 @@ test.describe('Admin event administration E2E journeys (ATDD red phase)', () => 
     expect(api.calls.listEvents).toBe(2)
   })
 
-  test.skip('[P1] maps typed server validation details to the field and announces the mutation error', async ({ page }) => {
+  test('[P1] maps typed server validation details to the field and announces the mutation error', async ({ page }) => {
     await openAsAdmin(page, { events: [], createStatus: 400 })
 
     await page.getByRole('button', { name: 'New event' }).click()
@@ -479,7 +479,7 @@ test.describe('Admin event administration E2E journeys (ATDD red phase)', () => 
     await expect(dialog.getByRole('alert')).toContainText('Event validation failed')
   })
 
-  test.skip('[P1] preserves the active row and announces a retryable archive failure', async ({ page }) => {
+  test('[P1] preserves the active row and announces a retryable archive failure', async ({ page }) => {
     await openAsAdmin(page, { events: [activeEvent], archiveStatus: 500 })
 
     await eventRow(page, 'Innovation Day').getByRole('button', { name: 'Archive' }).click()
@@ -491,7 +491,7 @@ test.describe('Admin event administration E2E journeys (ATDD red phase)', () => 
     await expect(eventRow(page, 'Innovation Day').getByRole('button', { name: 'Archive' })).toBeEnabled()
   })
 
-  test.skip('[P2] supports keyboard-only form and archive-dialog operation with trapped and restored focus', async ({ page }) => {
+  test('[P2] supports keyboard-only form and archive-dialog operation with trapped and restored focus', async ({ page }) => {
     await openAsAdmin(page, { events: [activeEvent] })
 
     const newEvent = page.getByRole('button', { name: 'New event' })
@@ -518,7 +518,7 @@ test.describe('Admin event administration E2E journeys (ATDD red phase)', () => 
     await expect(archive).toBeFocused()
   })
 
-  test.skip('[P2] remains usable at a tablet viewport without clipped controls or horizontal overflow', async ({ page }) => {
+  test('[P2] remains usable at a tablet viewport without clipped controls or horizontal overflow', async ({ page }) => {
     await page.setViewportSize({ width: 834, height: 1112 })
     await openAsAdmin(page)
 

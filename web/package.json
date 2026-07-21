@@ -20,8 +20,12 @@
   },
   "dependencies": {
     "@od-amrita/contracts": "workspace:*",
+    "@supabase/supabase-js": "^2.110.0",
+    "@tanstack/react-query": "^5.101.2",
+    "openapi-fetch": "^0.15.2",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.18.1"
   },
   "devDependencies": {
     "@faker-js/faker": "^10.5.0",

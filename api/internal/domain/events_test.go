@@ -43,6 +43,8 @@ func TestAllActions_MatchesDeclaredConstants(t *testing.T) {
 		ActionDisputeSubmitted:   "dispute.submitted",
 		ActionUserProvisioned:    "user.provisioned",
 		ActionAuthSessionRevoked: "auth.session_revoked",
+		ActionEventCreated:       "event.created",
+		ActionEventArchived:      "event.archived",
 	}
 
 	// (1) Each constant carries its exact architecture-mandated wire value.

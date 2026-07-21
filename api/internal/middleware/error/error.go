@@ -22,6 +22,14 @@ func Handler() gin.HandlerFunc {
 		err := c.Errors.Last().Err
 		var de domain.DomainError
 		if errors.As(err, &de) {
+			if de.Code == contracts.ErrorCodeVALIDATIONFAILED && de.Details != nil {
+				c.AbortWithStatusJSON(domain.HTTPStatus(de.Code), contracts.ValidationError{
+					Code:    contracts.ValidationErrorCodeVALIDATIONFAILED,
+					Message: de.Message,
+					Details: de.Details,
+				})
+				return
+			}
 			c.AbortWithStatusJSON(domain.HTTPStatus(de.Code), contracts.Error{Code: de.Code, Message: de.Message})
 			return
 		}

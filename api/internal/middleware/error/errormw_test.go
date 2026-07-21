@@ -83,3 +83,25 @@ func TestErrorMW_UnknownError500(t *testing.T) {
 		t.Error("[P0] raw internal error leaked into the client response body")
 	}
 }
+
+func TestErrorMW_RendersTypedValidationDetails(t *testing.T) {
+	w := serve(t, domain.DomainError{
+		Code:    contracts.ErrorCodeVALIDATIONFAILED,
+		Message: "Event validation failed.",
+		Details: []contracts.ValidationErrorDetail{{
+			Field:   "name",
+			Code:    "required",
+			Message: "Name is required.",
+		}},
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+	var body contracts.ValidationError
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode ValidationError: %v", err)
+	}
+	if len(body.Details) != 1 || body.Details[0].Field != "name" || body.Details[0].Code != "required" {
+		t.Fatalf("details = %#v, want typed name/required detail", body.Details)
+	}
+}

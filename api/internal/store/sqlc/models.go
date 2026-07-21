@@ -30,6 +30,31 @@ type AuthSessionRevocation struct {
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
+type Branch struct {
+	ID        pgtype.UUID        `json:"id"`
+	Code      string             `json:"code"`
+	Name      string             `json:"name"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+type Event struct {
+	ID               pgtype.UUID        `json:"id"`
+	Name             string             `json:"name"`
+	EventDate        pgtype.Date        `json:"event_date"`
+	Status           string             `json:"status"`
+	ArchivedAt       pgtype.Timestamptz `json:"archived_at"`
+	ArchivedByUserID pgtype.UUID        `json:"archived_by_user_id"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
+type EventBranch struct {
+	EventID   pgtype.UUID        `json:"event_id"`
+	BranchID  pgtype.UUID        `json:"branch_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type User struct {
 	ID              pgtype.UUID        `json:"id"`
 	SupabaseSubject string             `json:"supabase_subject"`

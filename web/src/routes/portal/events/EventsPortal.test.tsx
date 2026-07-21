@@ -2,7 +2,9 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { delay, http, HttpResponse } from 'msw'
 import { describe, expect, test, vi } from 'vitest'
-import App from '../../../App'
+import { Application } from '../../../Application'
+import type { SessionPort } from '../../../features/auth/session'
+import { createPortalMemoryRouter } from '../../../router'
 import { server } from '../../../test/server'
 import {
   createEventFixture,
@@ -25,8 +27,13 @@ function renderPortal({
 }: PortalScenario = {}) {
   const adminRequest = vi.fn()
   let serverEvents = [...events]
-  window.history.pushState({}, '', '/portal/events')
-  window.localStorage.setItem('od-amrita-atdd-session', 'authenticated')
+  const session: SessionPort = {
+    accessToken: vi.fn(async () => 'atdd-access-token'),
+    refresh: vi.fn(async () => 'atdd-access-token'),
+    signIn: vi.fn(async () => undefined),
+    signOut: vi.fn(async () => undefined),
+    subscribe: vi.fn(() => () => undefined),
+  }
 
   server.use(
     http.get('*/api/v1/auth/me', () =>
@@ -41,7 +48,7 @@ function renderPortal({
       adminRequest('branches')
       return HttpResponse.json({ data: branches })
     }),
-    http.get('*/api/v1/admin/events', () => {
+    http.get('*/api/v1/admin/events', ({ request }) => {
       adminRequest('events')
       if (eventsStatus !== 200) {
         return HttpResponse.json(
@@ -49,7 +56,12 @@ function renderPortal({
           { status: eventsStatus },
         )
       }
-      return HttpResponse.json({ data: serverEvents, page: 1, page_size: 20, total: serverEvents.length })
+      const url = new URL(request.url)
+      const page = Number(url.searchParams.get('page') ?? '1')
+      const pageSize = Number(url.searchParams.get('page_size') ?? '20')
+      const ordered = orderEvents(serverEvents)
+      const start = (page - 1) * pageSize
+      return HttpResponse.json({ data: ordered.slice(start, start + pageSize), page, page_size: pageSize, total: ordered.length })
     }),
     http.post('*/api/v1/admin/events', async ({ request }) => {
       adminRequest('create')
@@ -63,7 +75,7 @@ function renderPortal({
           event_date: input.event_date,
           branches: testBranches.filter((branch) => input.branch_ids.includes(branch.id)),
         })
-      serverEvents = [created, ...serverEvents]
+      serverEvents = orderEvents([created, ...serverEvents])
       return HttpResponse.json(created, { status: 201 })
     }),
     http.post('*/api/v1/admin/events/:eventId/archive', async ({ params }) => {
@@ -77,7 +89,7 @@ function renderPortal({
     }),
   )
 
-  const view = render(<App />)
+  const view = render(<Application session={session} router={createPortalMemoryRouter()} />)
   return { adminRequest, unmount: view.unmount }
 }
 
@@ -104,14 +116,17 @@ describe('Admin events portal composition (ATDD red phase)', () => {
     await user.click(await screen.findByRole('button', { name: 'New event' }))
     const dialog = screen.getByRole('dialog', { name: 'New event' })
 
-    await user.click(within(dialog).getByRole('button', { name: 'Create event' }))
-    expect(within(dialog).getByLabelText('Event name')).toHaveAttribute('aria-invalid', 'true')
-    expect(within(dialog).getByText('Select at least one branch')).toBeInTheDocument()
+    const submit = within(dialog).getByRole('button', { name: 'Create event' })
+    expect(submit).toBeDisabled()
+    await user.type(within(dialog).getByLabelText('Event name'), 'Keyboard Event')
+    await user.type(within(dialog).getByLabelText('Event date'), '2026-10-12')
 
     const firstBranch = within(dialog).getByRole('checkbox', { name: /Computer Science/ })
     firstBranch.focus()
     fireEvent.keyDown(firstBranch, { key: ' ' })
     expect(firstBranch).toBeChecked()
+    expect(firstBranch).toHaveFocus()
+    expect(submit).toBeEnabled()
   })
 
   test('[P1] creates a multi-branch event and refreshes from the server result', async () => {
@@ -127,6 +142,45 @@ describe('Admin events portal composition (ATDD red phase)', () => {
 
     expect(await screen.findByRole('row', { name: /Community Outreach Day/ })).toHaveTextContent('Active')
     expect(adminRequest).toHaveBeenCalledWith('create')
+  })
+
+  test('[P1] keeps page one server-ordered and bounded after creation', async () => {
+    const user = userEvent.setup()
+    const existing = Array.from({ length: 20 }, (_, index) => createEventFixture({
+      id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+      name: `Existing Event ${index + 1}`,
+      event_date: '2026-08-15',
+      created_at: `2026-07-${String(index + 1).padStart(2, '0')}T03:00:00Z`,
+    }))
+    renderPortal({ events: existing })
+    await user.click(await screen.findByRole('button', { name: 'New event' }))
+    const dialog = screen.getByRole('dialog', { name: 'New event' })
+    await user.type(within(dialog).getByLabelText('Event name'), 'Newest Event')
+    await user.type(within(dialog).getByLabelText('Event date'), '2026-09-05')
+    await user.click(within(dialog).getByRole('checkbox', { name: /Computer Science/ }))
+    await user.click(within(dialog).getByRole('button', { name: 'Create event' }))
+
+    const table = await screen.findByRole('table')
+    const rows = within(table).getAllByRole('row')
+    expect(rows).toHaveLength(21)
+    expect(rows[1]).toHaveTextContent('Newest Event')
+  })
+
+  test('[P1] pages through the complete active and archived event collection', async () => {
+    const user = userEvent.setup()
+    const paged = Array.from({ length: 21 }, (_, index) => createEventFixture({
+      id: `10000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+      name: `Paged Event ${index + 1}`,
+      event_date: index === 20 ? '2026-01-01' : '2026-08-15',
+    }))
+    renderPortal({ events: paged })
+
+    expect(await screen.findByText('Page 1 of 2')).toBeInTheDocument()
+    expect(screen.queryByRole('row', { name: /Paged Event 21/ })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    expect(await screen.findByText('Page 2 of 2')).toBeInTheDocument()
+    expect(await screen.findByRole('row', { name: /Paged Event 21/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
   })
 
   test('[P1] confirms archive, prevents duplicate submission, and makes the row read-only', async () => {
@@ -187,3 +241,10 @@ describe('Admin events portal composition (ATDD red phase)', () => {
     expect(screen.queryByRole('status', { name: 'Loading events' })).not.toBeInTheDocument()
   })
 })
+
+function orderEvents(events: EventFixture[]) {
+  return [...events].sort((left, right) =>
+    right.event_date.localeCompare(left.event_date)
+    || right.created_at.localeCompare(left.created_at)
+    || right.id.localeCompare(left.id))
+}

@@ -7,6 +7,7 @@ on:
   push:
     paths:
       - "web/**"
+      - "api/**"
       - "contracts/**"
       - "pnpm-workspace.yaml"
       - "package.json"
@@ -15,6 +16,7 @@ on:
   pull_request:
     paths:
       - "web/**"
+      - "api/**"
       - "contracts/**"
       - "pnpm-workspace.yaml"
       - "package.json"
@@ -52,3 +54,70 @@ jobs:
         run: pnpm --filter od-amrita-web build
       # - name: Deploy   # wired once the SPA has real content
       #   run: echo "deploy step lands with the first web release"
+
+  portal-integration:
+    name: browser + real API + postgres
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: od_amrita
+          POSTGRES_USER: od_amrita
+          POSTGRES_PASSWORD: ci_only_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U od_amrita -d od_amrita"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      SUPERUSER_DSN: postgres://od_amrita:ci_only_password@localhost:5432/od_amrita?sslmode=disable
+      DATABASE_URL_MIGRATOR: postgres://od_migrator:migrator_dev_only_change_me@localhost:5432/od_amrita?sslmode=disable
+      DATABASE_URL_RUNTIME: postgres://od_runtime:runtime_dev_only_change_me@localhost:5432/od_amrita?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26"
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: Install workspace
+        run: pnpm install --frozen-lockfile
+      - name: Install database migration tool
+        run: go install github.com/pressly/goose/v3/cmd/goose@v3.27.2
+      - name: Bootstrap and migrate database
+        run: |
+          psql "$SUPERUSER_DSN" -v ON_ERROR_STOP=1 -f api/db/init/00_roles.sql
+          goose -dir api/db/migrations postgres "$DATABASE_URL_MIGRATOR" up
+      - name: Start deterministic portal API
+        working-directory: api
+        run: |
+          go build -o /tmp/od-portal-api ./test/portal
+          nohup /tmp/od-portal-api > /tmp/od-portal-api.log 2>&1 &
+          for i in $(seq 1 20); do
+            curl -sf http://127.0.0.1:8081/health > /dev/null && exit 0
+            sleep 1
+          done
+          cat /tmp/od-portal-api.log
+          exit 1
+      - name: Install Playwright Chromium
+        run: pnpm --filter od-amrita-web exec playwright install --with-deps chromium
+      - name: Browser persistence and authorization journey
+        run: pnpm --filter od-amrita-web test:e2e:integration
+      - name: Verify event audit conservation
+        run: |
+          count="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT count(*)
+            FROM audit_log AS audit
+            JOIN events AS event ON audit.target_id = event.id::text
+            WHERE event.name = 'Browser Persisted Event'
+              AND audit.action IN ('event.created', 'event.archived')")"
+          [ "$count" = "2" ] || {
+            echo "expected exactly two event audit rows, got $count"
+            exit 1
+          }

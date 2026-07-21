@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Identity } from '../../api/client'
 import { ApiFailure, createEventApi } from '../../api/client'
-import { browserSession, type SessionPort } from './session'
+import type { SessionPort } from './session'
 import { AuthContext, useAuth, type AuthState } from './context'
 
-export function AuthProvider({ children, session = browserSession }: { children: ReactNode; session?: SessionPort }) {
+export function AuthProvider({ children, session }: { children: ReactNode; session: SessionPort }) {
   const api = useMemo(() => createEventApi(session), [session])
   const [identity, setIdentity] = useState<Identity | null>(null)
   const [loading, setLoading] = useState(true)

@@ -42,6 +42,7 @@ CREATE INDEX events_status_list_order_idx
 CREATE INDEX event_branches_branch_id_idx
     ON event_branches (branch_id, event_id);
 
+-- +goose StatementBegin
 CREATE FUNCTION reject_archived_event_mutation()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -56,11 +57,13 @@ BEGIN
     RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
 END;
 $$;
+-- +goose StatementEnd
 
 CREATE TRIGGER events_immutable_when_archived
 BEFORE UPDATE OR DELETE ON events
 FOR EACH ROW EXECUTE FUNCTION reject_archived_event_mutation();
 
+-- +goose StatementBegin
 CREATE FUNCTION require_active_event_for_branch_mutation()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -91,6 +94,7 @@ BEGIN
     RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
 END;
 $$;
+-- +goose StatementEnd
 
 CREATE TRIGGER event_branches_active_guard
 BEFORE INSERT OR UPDATE OR DELETE ON event_branches

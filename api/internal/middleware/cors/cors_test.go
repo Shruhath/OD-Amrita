@@ -1,16 +1,22 @@
 package cors
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+
+	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
+
+	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
 )
 
 func TestExactOriginCORSAllowDenyAndPreflight(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	router.Use(errormw.Handler())
 	router.Use(Middleware([]string{"https://portal.od-amrita.example"}))
 	router.GET("/api/v1/admin/events", func(c *gin.Context) { c.Status(http.StatusOK) })
 
@@ -44,5 +50,21 @@ func TestExactOriginCORSAllowDenyAndPreflight(t *testing.T) {
 	}
 	if preflight.Header().Get("Access-Control-Allow-Headers") == "" || preflight.Header().Get("Access-Control-Allow-Methods") == "" {
 		t.Error("preflight missing allowed headers or methods")
+	}
+
+	deniedPreflight := httptest.NewRecorder()
+	deniedPreflightReq := httptest.NewRequest(http.MethodOptions, "/api/v1/admin/events", nil)
+	deniedPreflightReq.Header.Set("Origin", "https://attacker.example")
+	deniedPreflightReq.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	router.ServeHTTP(deniedPreflight, deniedPreflightReq)
+	if deniedPreflight.Code != http.StatusForbidden {
+		t.Fatalf("denied preflight status = %d, want 403", deniedPreflight.Code)
+	}
+	var envelope contracts.Error
+	if err := json.Unmarshal(deniedPreflight.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("denied preflight must return generated error envelope: %v", err)
+	}
+	if envelope.Code != contracts.ErrorCodeRBACFORBIDDEN || envelope.Message != "Origin is not allowed." {
+		t.Fatalf("denied preflight envelope = %#v", envelope)
 	}
 }

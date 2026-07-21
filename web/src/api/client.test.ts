@@ -16,6 +16,21 @@ function sessionPort(overrides: Partial<SessionPort> = {}): SessionPort {
 }
 
 describe('authorized API client', () => {
+  test('requests the selected bounded event page', async () => {
+    const session = sessionPort({ accessToken: vi.fn(async () => 'fresh-token') })
+    let query = ''
+    server.use(
+      http.get('*/api/v1/admin/events', ({ request }) => {
+        query = new URL(request.url).search
+        return HttpResponse.json({ data: [], page: 3, page_size: 20, total: 41 })
+      }),
+    )
+
+    await expect(createEventApi(session).events(3, 20)).resolves.toMatchObject({ page: 3, total: 41 })
+    expect(query).toContain('page=3')
+    expect(query).toContain('page_size=20')
+  })
+
   test('refreshes once after 401 and retries with the new access token', async () => {
     const session = sessionPort()
     const authorizations: string[] = []

@@ -53,7 +53,10 @@ func (r *SQLCReader) ListEvents(ctx context.Context, input ListInput) ([]Event, 
 	if err != nil {
 		return nil, 0, err
 	}
-	offset := int64(input.Page-1) * int64(input.PageSize)
+	offset, withinRange := pageOffset(total, input.Page, input.PageSize)
+	if !withinRange {
+		return []Event{}, total, nil
+	}
 	rows, err := r.queries.ListEvents(ctx, sqlc.ListEventsParams{
 		Status:     string(input.Status),
 		PageOffset: offset,
@@ -71,6 +74,18 @@ func (r *SQLCReader) ListEvents(ctx context.Context, input ListInput) ([]Event, 
 		events = append(events, event)
 	}
 	return events, total, nil
+}
+
+func pageOffset(total int64, page, pageSize int) (int64, bool) {
+	if total <= 0 || page < 1 || pageSize < 1 {
+		return 0, false
+	}
+	pageIndex := int64(page - 1)
+	size := int64(pageSize)
+	if pageIndex > (total-1)/size {
+		return 0, false
+	}
+	return pageIndex * size, true
 }
 
 func mapEvent(

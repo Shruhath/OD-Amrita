@@ -120,24 +120,32 @@ type createRequestShape struct {
 	BranchIDs []json.RawMessage `json:"branch_ids"`
 }
 
+const maxCreateRequestBytes int64 = 1 << 20
+
 // bindCreateRequest keeps transport validation field-addressable while the
 // successful request still binds into the generated OpenAPI type. The first
 // pass retains raw date/UUID values, because their generated unmarshallers
 // otherwise collapse a field error into an undifferentiated JSON error.
 func bindCreateRequest(c *gin.Context, body *contracts.CreateEventRequest) error {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxCreateRequestBytes)
 	var shape createRequestShape
 	if err := c.ShouldBindBodyWith(&shape, binding.JSON); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return requestValidation("$", "maximum", "Request body must not exceed 1 MiB.")
+		}
 		return requestValidation("$", "invalid_json", "Request body must be valid JSON.")
 	}
-	if len(shape.EventDate) > 0 {
-		var date string
-		if err := json.Unmarshal(shape.EventDate, &date); err != nil {
-			return requestValidation("event_date", "invalid_format", "Event date must be a valid YYYY-MM-DD date.")
-		}
-		parsed, err := time.Parse("2006-01-02", date)
-		if err != nil || parsed.Format("2006-01-02") != date {
-			return requestValidation("event_date", "invalid_format", "Event date must be a valid YYYY-MM-DD date.")
-		}
+	if len(shape.EventDate) == 0 {
+		return requestValidation("event_date", "required", "Event date is required.")
+	}
+	var date string
+	if err := json.Unmarshal(shape.EventDate, &date); err != nil {
+		return requestValidation("event_date", "invalid_format", "Event date must be a valid YYYY-MM-DD date.")
+	}
+	parsed, err := time.Parse("2006-01-02", date)
+	if err != nil || parsed.Format("2006-01-02") != date {
+		return requestValidation("event_date", "invalid_format", "Event date must be a valid YYYY-MM-DD date.")
 	}
 	for index, raw := range shape.BranchIDs {
 		var value string

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -99,9 +100,11 @@ func TestCreateReturnsFieldSpecificGeneratedTypeValidationBeforeService(t *testi
 		name  string
 		body  string
 		field string
+		code  string
 	}{
-		{name: "invalid date", body: `{"name":"Event","event_date":"2026-02-31","branch_ids":["` + branchID + `"]}`, field: "event_date"},
-		{name: "invalid branch uuid", body: `{"name":"Event","event_date":"2026-08-15","branch_ids":["not-a-uuid"]}`, field: "branch_ids[0]"},
+		{name: "missing date", body: `{"name":"Event","branch_ids":["` + branchID + `"]}`, field: "event_date", code: "required"},
+		{name: "invalid date", body: `{"name":"Event","event_date":"2026-02-31","branch_ids":["` + branchID + `"]}`, field: "event_date", code: "invalid_format"},
+		{name: "invalid branch uuid", body: `{"name":"Event","event_date":"2026-08-15","branch_ids":["not-a-uuid"]}`, field: "branch_ids[0]", code: "invalid_format"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			svc := &fakeService{}
@@ -113,13 +116,32 @@ func TestCreateReturnsFieldSpecificGeneratedTypeValidationBeforeService(t *testi
 			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 				t.Fatalf("decode error: %v", err)
 			}
-			if len(body.Details) != 1 || body.Details[0].Field != tc.field || body.Details[0].Code != "invalid_format" {
+			if len(body.Details) != 1 || body.Details[0].Field != tc.field || body.Details[0].Code != tc.code {
 				t.Fatalf("details=%#v", body.Details)
 			}
 			if svc.createCalls != 0 {
 				t.Fatal("service called for invalid generated field")
 			}
 		})
+	}
+}
+
+func TestCreateRejectsBodyLargerThanOneMiBBeforeService(t *testing.T) {
+	svc := &fakeService{}
+	body := `{"name":"` + strings.Repeat("x", int(maxCreateRequestBytes)) + `","event_date":"2026-08-15","branch_ids":[]}`
+	recorder := request(eventRouter(svc), http.MethodPost, "/events", body)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var response contracts.ValidationError
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if len(response.Details) != 1 || response.Details[0].Field != "$" || response.Details[0].Code != "maximum" {
+		t.Fatalf("details=%#v", response.Details)
+	}
+	if svc.createCalls != 0 {
+		t.Fatal("service called for oversized request")
 	}
 }
 

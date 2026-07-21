@@ -6,6 +6,10 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
+	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
+
+	"github.com/Shruhath/OD-Amrita/api/internal/domain"
 )
 
 func Middleware(origins []string) gin.HandlerFunc {
@@ -21,7 +25,11 @@ func Middleware(origins []string) gin.HandlerFunc {
 		}
 		if _, ok := allowed[origin]; !ok {
 			if c.Request.Method == http.MethodOptions {
-				c.AbortWithStatus(http.StatusForbidden)
+				_ = c.Error(domain.DomainError{
+					Code:    contracts.ErrorCodeRBACFORBIDDEN,
+					Message: "Origin is not allowed.",
+				})
+				c.Abort()
 				return
 			}
 			c.Next()

@@ -65,8 +65,8 @@ export function createEventApi(session: SessionPort) {
     async branches() {
       return unwrap(await client.GET('/api/v1/admin/branches'))
     },
-    async events() {
-      return unwrap(await client.GET('/api/v1/admin/events', { params: { query: { status: 'all', page: 1, page_size: 20 } } }))
+    async events(page = 1, pageSize = 20) {
+      return unwrap(await client.GET('/api/v1/admin/events', { params: { query: { status: 'all', page, page_size: pageSize } } }))
     },
     async create(input: CreateEventInput) {
       return unwrap(await client.POST('/api/v1/admin/events', { body: input }))

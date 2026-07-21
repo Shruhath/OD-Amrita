@@ -121,6 +121,24 @@ func TestCreateRejectsUnknownBranchAtOriginalIndex(t *testing.T) {
 	}
 }
 
+func TestCreateRejectsMoreThanHundredBranchesBeforeReadOrWrite(t *testing.T) {
+	reader := &fakeReader{}
+	audit := &fakeAuditStore{}
+	branchIDs := make([]string, 101)
+	_, err := NewService(reader, audit, &fakeWriter{}).Create(
+		context.Background(),
+		Actor{UserID: uuid.NewString(), Email: "admin@amrita.edu", Role: "admin"},
+		CreateInput{Name: "Event", EventDate: "2026-08-15", BranchIDs: branchIDs},
+	)
+	var de domain.DomainError
+	if !errors.As(err, &de) || len(de.Details) != 1 || de.Details[0].Field != "branch_ids" || de.Details[0].Code != "maximum" {
+		t.Fatalf("error=%#v, want branch_ids/maximum", err)
+	}
+	if audit.calls != 0 {
+		t.Fatal("write boundary called for oversized branch list")
+	}
+}
+
 func TestCreateTrimsInputAndAuditsStableContext(t *testing.T) {
 	branchA, branchB, eventID := uuid.New(), uuid.New(), uuid.New()
 	created := Event{ID: eventID.String(), Name: "Innovation Day", EventDate: "2026-08-15", Status: StatusActive}

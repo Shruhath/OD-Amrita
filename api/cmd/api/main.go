@@ -62,6 +62,7 @@ func run() error {
 	}
 	router := gin.New()
 	router.Use(gin.Recovery())
+	router.Use(errormw.Handler())
 	router.Use(corsmw.Middleware(cfg.PortalAllowedOrigins))
 	router.GET("/health", health.Handler(pool))
 
@@ -102,7 +103,6 @@ func run() error {
 	)
 
 	api := router.Group("/api/v1")
-	api.Use(errormw.Handler())
 	api.Use(mwauth.Middleware(verifier, cfg.Auth.AllowedDomain, eventAuditor))
 	// Reject revoked-but-still-valid tokens on the NEXT request, immediately after
 	// verify+domain and before any protected handler runs (DoD 6).

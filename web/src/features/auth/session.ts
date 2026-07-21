@@ -9,19 +9,14 @@ export type SessionPort = {
   subscribe(listener: (token: string | null) => void): () => void
 }
 
-const hasTestSession = () =>
-  import.meta.env.MODE === 'test' && window.localStorage.getItem('od-amrita-atdd-session') === 'authenticated'
-
 export const browserSession: SessionPort = {
   async accessToken() {
-    if (hasTestSession()) return 'atdd-access-token'
     const { data, error } = await supabase.auth.getSession()
     if (error) throw error
     return data.session?.access_token ?? null
   },
 
   async refresh() {
-    if (hasTestSession()) return 'atdd-access-token'
     const { data, error } = await supabase.auth.refreshSession()
     if (error) return null
     return data.session?.access_token ?? null
@@ -39,7 +34,6 @@ export const browserSession: SessionPort = {
   },
 
   async signOut() {
-    window.localStorage.removeItem('od-amrita-atdd-session')
     const { error } = await supabase.auth.signOut()
     if (error) throw error
   },

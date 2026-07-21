@@ -245,6 +245,9 @@ func validateCreate(input CreateInput) (string, time.Time, []uuid.UUID, error) {
 	if len(input.BranchIDs) == 0 {
 		return "", time.Time{}, nil, validation("branch_ids", "required", "Select at least one branch.")
 	}
+	if len(input.BranchIDs) > 100 {
+		return "", time.Time{}, nil, validation("branch_ids", "maximum", "Select no more than 100 branches.")
+	}
 
 	ids := make([]uuid.UUID, 0, len(input.BranchIDs))
 	seen := make(map[uuid.UUID]struct{}, len(input.BranchIDs))

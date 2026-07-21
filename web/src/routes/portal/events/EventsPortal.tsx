@@ -5,21 +5,25 @@ import { ApiFailure } from '../../../api/client'
 import { useAuth } from '../../../features/auth/context'
 
 const branchKey = ['admin', 'branches'] as const
-const eventKey = ['admin', 'events', 'all', 1, 20] as const
+const eventKeyRoot = ['admin', 'events', 'all'] as const
+const pageSize = 20
+const eventKey = (page: number) => [...eventKeyRoot, page, pageSize] as const
 
 export default function EventsPortal() {
   const { api, identity, signOut } = useAuth()
   const queryClient = useQueryClient()
   const [creating, setCreating] = useState(false)
+  const [page, setPage] = useState(1)
   const [archiveTarget, setArchiveTarget] = useState<EventRecord | null>(null)
   const [archiveError, setArchiveError] = useState<string | null>(null)
 
   const branches = useQuery({ queryKey: branchKey, queryFn: api.branches })
-  const events = useQuery({ queryKey: eventKey, queryFn: api.events })
+  const currentEventKey = eventKey(page)
+  const events = useQuery({ queryKey: currentEventKey, queryFn: () => api.events(page, pageSize) })
   const archive = useMutation({
     mutationFn: (eventID: string) => api.archive(eventID),
     onSuccess: (archived) => {
-      queryClient.setQueryData(eventKey, (current: Awaited<ReturnType<typeof api.events>> | undefined) =>
+      queryClient.setQueryData(currentEventKey, (current: Awaited<ReturnType<typeof api.events>> | undefined) =>
         current ? { ...current, data: current.data.map((item) => item.id === archived.id ? archived : item) } : current)
       setArchiveTarget(null)
       setArchiveError(null)
@@ -30,6 +34,7 @@ export default function EventsPortal() {
   const branchData = branches.data?.data ?? []
   const eventData = events.data?.data ?? []
   const canCreate = branches.isSuccess && branchData.length > 0
+  const totalPages = Math.max(1, Math.ceil((events.data?.total ?? 0) / (events.data?.page_size ?? pageSize)))
 
   return (
     <div className="portal-shell">
@@ -81,27 +86,34 @@ export default function EventsPortal() {
         )}
 
         {events.isSuccess && eventData.length > 0 && (
-          <div className="table-wrap">
-            <table>
-              <caption className="sr-only">All active and archived events</caption>
-              <thead><tr><th>Event</th><th>Date</th><th>Branches</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr></thead>
-              <tbody>
-                {eventData.map((event) => (
-                  <tr key={event.id} className={event.status === 'archived' ? 'archived-row' : undefined}>
-                    <th scope="row">{event.name}</th>
-                    <td>{formatDate(event.event_date)}</td>
-                    <td><div className="branch-list">{event.branches.map((branch) => <span className="branch-chip" key={branch.id}>{branch.name} <small>{branch.code}</small></span>)}</div></td>
-                    <td><span className={`status-badge ${event.status}`}><span aria-hidden="true">{event.status === 'active' ? '●' : '✓'}</span><span>{titleCase(event.status)}</span></span></td>
-                    <td className="row-action">
-                      {event.status === 'active' && (
-                        <button type="button" className="secondary" onClick={() => { setArchiveError(null); setArchiveTarget(event) }}>Archive</button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="table-wrap">
+              <table>
+                <caption className="sr-only">All active and archived events</caption>
+                <thead><tr><th>Event</th><th>Date</th><th>Branches</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr></thead>
+                <tbody>
+                  {eventData.map((event) => (
+                    <tr key={event.id} className={event.status === 'archived' ? 'archived-row' : undefined}>
+                      <th scope="row">{event.name}</th>
+                      <td>{formatDate(event.event_date)}</td>
+                      <td><div className="branch-list">{event.branches.map((branch) => <span className="branch-chip" key={branch.id}>{branch.name} <small>{branch.code}</small></span>)}</div></td>
+                      <td><span className={`status-badge ${event.status}`}><span aria-hidden="true">{event.status === 'active' ? '●' : '✓'}</span><span>{titleCase(event.status)}</span></span></td>
+                      <td className="row-action">
+                        {event.status === 'active' && (
+                          <button type="button" className="secondary" onClick={() => { setArchiveError(null); setArchiveTarget(event) }}>Archive</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <nav className="pagination" aria-label="Events pages">
+              <button type="button" disabled={page === 1 || events.isFetching} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
+              <span aria-live="polite">Page {page} of {totalPages}</span>
+              <button type="button" disabled={page >= totalPages || events.isFetching} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>Next</button>
+            </nav>
+          </>
         )}
 
         {archiveError && <p className="notice error" role="alert">{archiveError}</p>}
@@ -112,9 +124,12 @@ export default function EventsPortal() {
           branches={branchData}
           onClose={() => setCreating(false)}
           onCreated={(created) => {
-            queryClient.setQueryData(eventKey, (current: Awaited<ReturnType<typeof api.events>> | undefined) => current
-              ? { ...current, data: [created, ...current.data], total: current.total + 1 }
+            const firstPageKey = eventKey(1)
+            queryClient.setQueryData(firstPageKey, (current: Awaited<ReturnType<typeof api.events>> | undefined) => current
+              ? { ...current, data: orderedEvents([created, ...current.data]).slice(0, current.page_size), total: current.total + 1 }
               : { data: [created], page: 1, page_size: 20, total: 1 })
+            void queryClient.invalidateQueries({ queryKey: eventKeyRoot })
+            setPage(1)
             setCreating(false)
           }}
         />
@@ -141,6 +156,7 @@ function CreateDialog({ branches, onClose, onCreated }: { branches: Branch[]; on
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState<string | null>(null)
   const create = useMutation({ mutationFn: (input: CreateEventInput) => api.create(input), onSuccess: onCreated })
+  const canSubmit = Boolean(name.trim() && date && selected.length > 0) && !create.isPending
 
   const toggle = (id: string) => setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
   const submit = (event: FormEvent) => {
@@ -199,7 +215,7 @@ function CreateDialog({ branches, onClose, onCreated }: { branches: Branch[]; on
 
         <div className="dialog-actions">
           <button type="button" data-dialog-cancel disabled={create.isPending} onClick={onClose}>Cancel</button>
-          <button className="primary" type="submit" disabled={create.isPending}>{create.isPending ? 'Creating…' : 'Create event'}</button>
+          <button className="primary" type="submit" disabled={!canSubmit}>{create.isPending ? 'Creating…' : 'Create event'}</button>
         </div>
       </form>
     </Dialog>
@@ -208,6 +224,8 @@ function CreateDialog({ branches, onClose, onCreated }: { branches: Branch[]; on
 
 function Dialog({ title, onClose, initialFocus, children }: { title: string; onClose(): void; initialFocus: 'first' | 'cancel'; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
+  useEffect(() => { onCloseRef.current = onClose }, [onClose])
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
     const node = ref.current
@@ -216,7 +234,7 @@ function Dialog({ title, onClose, initialFocus, children }: { title: string; onC
     const target = initialFocus === 'cancel' ? node.querySelector<HTMLElement>('[data-dialog-cancel]') : focusable()[0]
     target?.focus()
     const keydown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); onClose(); return }
+      if (event.key === 'Escape') { event.preventDefault(); onCloseRef.current(); return }
       if (event.key !== 'Tab') return
       const items = focusable()
       if (items.length === 0) return
@@ -227,7 +245,7 @@ function Dialog({ title, onClose, initialFocus, children }: { title: string; onC
     }
     document.addEventListener('keydown', keydown)
     return () => { document.removeEventListener('keydown', keydown); previous?.focus() }
-  }, [initialFocus, onClose])
+  }, [initialFocus])
 
   return <div className="dialog-backdrop"><div className="dialog" ref={ref} role="dialog" aria-modal="true" aria-labelledby="dialog-title"><h2 id="dialog-title">{title}</h2>{children}</div></div>
 }
@@ -247,3 +265,10 @@ function formatDate(value: string) {
 }
 
 function titleCase(value: string) { return value.charAt(0).toUpperCase() + value.slice(1) }
+
+function orderedEvents(events: EventRecord[]) {
+  return [...events].sort((left, right) =>
+    right.event_date.localeCompare(left.event_date)
+    || right.created_at.localeCompare(left.created_at)
+    || right.id.localeCompare(left.id))
+}

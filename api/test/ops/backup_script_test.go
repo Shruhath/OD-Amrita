@@ -96,10 +96,15 @@ exit "${STUB_PGDUMP_EXIT:-0}"
 // pgRestoreStub fakes `pg_restore -l`. STUB_HAS_AUDIT=0 simulates the dump of a wrong
 // or empty database — one that lists cleanly but contains no audit_log data.
 const pgRestoreStub = `#!/usr/bin/env bash
+set -euo pipefail
 printf 'pg_restore %s\n' "$*" >> "$ARGV_LOG"
 if [[ "${STUB_HAS_AUDIT:-1}" == "1" ]]; then
     echo ";     123; 0 0 TABLE DATA public audit_log od_migrator"
     echo ";     124; 0 0 TABLE DATA public users od_migrator"
+    # Keep writing beyond a typical pipe buffer. With pipefail enabled, a
+    # verifier using grep's quiet mode closes the pipe early and makes this valid listing
+    # fail with SIGPIPE; a correct verifier consumes the complete listing.
+    head -c 262144 /dev/zero | tr '\0' 'x'
 fi
 exit 0
 `

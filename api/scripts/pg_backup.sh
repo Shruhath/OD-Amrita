@@ -309,7 +309,7 @@ if [[ "$bytes" -lt "$min_bytes" ]]; then
   An almost-empty dump usually means the DSN points at the wrong (or an empty) database."
 fi
 
-if ! pg_restore -l "$dump_tmp" 2>/dev/null | grep -q 'TABLE DATA public audit_log'; then
+if ! pg_restore -l "$dump_tmp" 2>/dev/null | grep -F 'TABLE DATA public audit_log' >/dev/null; then
     fail "the dump contains no audit_log table data — refusing to upload it or prune anything.
   The immutable audit ledger is the whole reason this backup exists. Its absence means the DSN
   is pointing at the wrong database — most likely the Supabase auth broker instead of the Neon

@@ -24,10 +24,14 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/config"
 	handleradmin "github.com/Shruhath/OD-Amrita/api/internal/handler/admin"
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
+	handlerevent "github.com/Shruhath/OD-Amrita/api/internal/handler/event"
 	"github.com/Shruhath/OD-Amrita/api/internal/handler/health"
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
+	corsmw "github.com/Shruhath/OD-Amrita/api/internal/middleware/cors"
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
+	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
+	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
 	svcuser "github.com/Shruhath/OD-Amrita/api/internal/service/user"
 	"github.com/Shruhath/OD-Amrita/api/internal/store"
 )
@@ -58,6 +62,8 @@ func run() error {
 	}
 	router := gin.New()
 	router.Use(gin.Recovery())
+	router.Use(errormw.Handler())
+	router.Use(corsmw.Middleware(cfg.PortalAllowedOrigins))
 	router.GET("/health", health.Handler(pool))
 
 	var verifier svcauth.TokenVerifier = svcauth.RejectingVerifier{}
@@ -97,13 +103,20 @@ func run() error {
 	)
 
 	api := router.Group("/api/v1")
-	api.Use(errormw.Handler())
 	api.Use(mwauth.Middleware(verifier, cfg.Auth.AllowedDomain, eventAuditor))
 	// Reject revoked-but-still-valid tokens on the NEXT request, immediately after
 	// verify+domain and before any protected handler runs (DoD 6).
 	api.Use(mwauth.RevocationGuard(revChecker))
 	api.GET("/auth/me", handlerauth.MeHandler(userSvc, eventAuditor))
-	api.POST("/admin/users/:user_id/sessions/revoke", handleradmin.RevokeSessionsHandler(revSvc))
+
+	admin := api.Group("/admin")
+	admin.Use(rbac.RequireAdmin(rbac.NewSQLCPrincipalLoader(pool)))
+	admin.POST("/users/:user_id/sessions/revoke", handleradmin.RevokeSessionsHandler(revSvc))
+	eventSvc := svcevent.NewService(svcevent.NewSQLCReader(pool), st, svcevent.NewSQLCWriter())
+	admin.GET("/branches", handlerevent.ListBranchesHandler(eventSvc))
+	admin.GET("/events", handlerevent.ListEventsHandler(eventSvc))
+	admin.POST("/events", handlerevent.CreateEventHandler(eventSvc))
+	admin.POST("/events/:event_id/archive", handlerevent.ArchiveEventHandler(eventSvc))
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.APIPort,

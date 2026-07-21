@@ -36,6 +36,8 @@ const (
 	// event (Story 1.5c). Story 1.7 owns the broader auth-event audit family and
 	// MUST reuse this name — it must not add a duplicate forced-logout event.
 	ActionAuthSessionRevoked Action = "auth.session_revoked"
+	ActionEventCreated       Action = "event.created"
+	ActionEventArchived      Action = "event.archived"
 )
 
 // AllActions is the canonical registry-of-record: every declared Action, in
@@ -52,6 +54,8 @@ var AllActions = []Action{
 	ActionDisputeSubmitted,
 	ActionUserProvisioned,
 	ActionAuthSessionRevoked,
+	ActionEventCreated,
+	ActionEventArchived,
 }
 
 // registeredActions is the O(1) lookup set DERIVED from AllActions, so it can

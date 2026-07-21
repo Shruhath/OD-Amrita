@@ -5,7 +5,11 @@ package store
 // insert can never drift from the audit_log schema.
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -13,6 +17,11 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/domain"
 	"github.com/Shruhath/OD-Amrita/api/internal/store/sqlc"
 )
+
+// ErrInvalidAuditPayload is returned before a transaction starts when a
+// non-empty payload is not valid JSON. This keeps malformed jsonb input from
+// failing after a successful business callback.
+var ErrInvalidAuditPayload = errors.New("store: invalid audit payload")
 
 // AuditEvent is the typed payload of one audit-ledger row. Action is the ONLY
 // required field (it comes from the domain.Action registry and is validated by
@@ -36,6 +45,17 @@ type AuditEvent struct {
 // rollback direction without adding a schema constraint the real insert could
 // trip. Production uses defaultAuditInserter.
 type AuditInserter func(ctx context.Context, tx pgx.Tx, evt AuditEvent) error
+
+func normalizeAuditPayload(payload []byte) ([]byte, error) {
+	trimmed := bytes.TrimSpace(payload)
+	if len(trimmed) == 0 {
+		return nil, nil
+	}
+	if !json.Valid(trimmed) {
+		return nil, fmt.Errorf("%w: malformed JSON", ErrInvalidAuditPayload)
+	}
+	return payload, nil
+}
 
 // defaultAuditInserter is the production audit insert: it runs the sqlc
 // InsertAuditLog query bound to the caller's tx, so the audit row co-commits with

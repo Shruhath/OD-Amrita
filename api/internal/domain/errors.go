@@ -24,6 +24,7 @@ import (
 type DomainError struct {
 	Code    contracts.ErrorCode
 	Message string
+	Details []contracts.ValidationErrorDetail
 }
 
 func (e DomainError) Error() string {
@@ -56,6 +57,7 @@ var codeToStatus = map[contracts.ErrorCode]int{
 	contracts.ErrorCodeRATELIMITED:        429,
 	contracts.ErrorCodeINVALIDSCANID:      400,
 	contracts.ErrorCodeVALIDATIONFAILED:   400,
+	contracts.ErrorCodeEVENTNOTFOUND:      404,
 	contracts.ErrorCodeINTERNAL:           500,
 }
 

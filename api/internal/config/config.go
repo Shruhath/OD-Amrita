@@ -39,8 +39,9 @@ type Auth struct {
 
 // Config is the fully-resolved api process configuration.
 type Config struct {
-	AppEnv  string
-	APIPort string
+	AppEnv               string
+	APIPort              string
+	PortalAllowedOrigins []string
 
 	// DatabaseURLMigrator is the od_migrator (DDL) DSN — used by goose, never
 	// by the app runtime. Optional here; the Makefile requires it for migrate-*.
@@ -69,10 +70,11 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		// Normalize so " Development"/"DEV"-style values compare cleanly against
 		// the "development" gate (mirrors the AllowedDomain lowercasing below).
-		AppEnv:              strings.ToLower(strings.TrimSpace(getenvDefault("APP_ENV", "development"))),
-		APIPort:             getenvDefault("API_PORT", "8443"),
-		DatabaseURLMigrator: os.Getenv("DATABASE_URL_MIGRATOR"),
-		DatabaseURLRuntime:  os.Getenv("DATABASE_URL_RUNTIME"),
+		AppEnv:               strings.ToLower(strings.TrimSpace(getenvDefault("APP_ENV", "development"))),
+		APIPort:              getenvDefault("API_PORT", "8443"),
+		DatabaseURLMigrator:  os.Getenv("DATABASE_URL_MIGRATOR"),
+		DatabaseURLRuntime:   os.Getenv("DATABASE_URL_RUNTIME"),
+		PortalAllowedOrigins: parseList(os.Getenv("PORTAL_ALLOWED_ORIGINS")),
 		TLS: TLS{
 			Enabled:    tlsEnabled,
 			MinVersion: getenvDefault("TLS_MIN_VERSION", "1.2"),
@@ -126,8 +128,42 @@ func Load() (*Config, error) {
 	if err := validateAuth(cfg.Auth, cfg.AppEnv); err != nil {
 		return nil, err
 	}
+	for _, origin := range cfg.PortalAllowedOrigins {
+		if err := validateOrigin(origin); err != nil {
+			return nil, err
+		}
+	}
 
 	return cfg, nil
+}
+
+func validateOrigin(raw string) error {
+	if strings.Contains(raw, "*") {
+		return fmt.Errorf("config: PORTAL_ALLOWED_ORIGINS must contain exact origins, got %q", raw)
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
+		u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("config: PORTAL_ALLOWED_ORIGINS contains invalid origin %q", raw)
+	}
+	return nil
+}
+
+func parseList(raw string) []string {
+	var values []string
+	seen := map[string]struct{}{}
+	for _, part := range strings.Split(raw, ",") {
+		value := strings.TrimSpace(part)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		values = append(values, value)
+	}
+	return values
 }
 
 func validateAuth(auth Auth, appEnv string) error {

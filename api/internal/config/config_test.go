@@ -33,11 +33,38 @@ func setEnv(t *testing.T, env map[string]string) {
 		"HTTP_REDIRECT_LISTENER",
 		"AUTH_JWKS_URL", "AUTH_ISSUER", "AUTH_AUDIENCE", "AUTH_ALLOWED_DOMAIN",
 		"AUTH_BOOTSTRAP_ADMINS",
+		"PORTAL_ALLOWED_ORIGINS",
 	} {
 		t.Setenv(k, "")
 	}
 	for k, v := range env {
 		t.Setenv(k, v)
+	}
+}
+
+func TestLoadPortalOriginsRequiresExactHTTPOrigins(t *testing.T) {
+	setEnv(t, map[string]string{
+		"DATABASE_URL_RUNTIME":   "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":            "false",
+		"PORTAL_ALLOWED_ORIGINS": "https://portal.example, http://localhost:5173",
+	})
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.PortalAllowedOrigins) != 2 || cfg.PortalAllowedOrigins[0] != "https://portal.example" {
+		t.Fatalf("origins = %#v", cfg.PortalAllowedOrigins)
+	}
+
+	for _, invalid := range []string{"*", "https://*.example", "https://portal.example/path", "javascript:alert(1)"} {
+		setEnv(t, map[string]string{
+			"DATABASE_URL_RUNTIME":   "postgres://od_runtime:x@localhost:5432/od_amrita",
+			"TLS_ENABLED":            "false",
+			"PORTAL_ALLOWED_ORIGINS": invalid,
+		})
+		if _, err := Load(); err == nil {
+			t.Errorf("Load accepted invalid origin %q", invalid)
+		}
 	}
 }
 

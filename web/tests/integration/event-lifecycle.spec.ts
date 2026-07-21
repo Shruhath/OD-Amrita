@@ -4,7 +4,7 @@ const eventName = 'Browser Persisted Event'
 
 test('persists create and archive through the real API and Postgres across browser reloads', async ({ page }) => {
   await page.goto('/integration.html')
-  await expect(page.getByRole('heading', { name: 'Events' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Events', exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'New event' }).click()
   const createDialog = page.getByRole('dialog', { name: 'New event' })

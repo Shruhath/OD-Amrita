@@ -61,7 +61,12 @@ func main() {
 	runtimePool := connect(ctx, runtimeDSN, "runtime")
 	defer runtimePool.Close()
 	migratorPool := connect(ctx, migratorDSN, "migrator")
-	seed(ctx, migratorPool)
+	if err := seed(ctx, migratorPool); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			log.Fatal("seed acceptance database: timed out")
+		}
+		log.Fatal(fmt.Errorf("seed acceptance database: %w", err))
+	}
 	migratorPool.Close()
 
 	st := store.New(runtimePool)
@@ -117,26 +122,46 @@ func connect(ctx context.Context, dsn, label string) *pgxpool.Pool {
 	return pool
 }
 
-func seed(ctx context.Context, pool *pgxpool.Pool) {
-	if _, err := pool.Exec(ctx, `
+func seed(ctx context.Context, pool *pgxpool.Pool) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, `
 		DELETE FROM event_branches
-		WHERE event_id IN (SELECT id FROM events WHERE name = 'Browser Persisted Event');
-		DELETE FROM events WHERE name = 'Browser Persisted Event';
+		WHERE event_id IN (SELECT id FROM events WHERE name = 'Browser Persisted Event')
+	`); err != nil {
+		return fmt.Errorf("delete event branches: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM events WHERE name = 'Browser Persisted Event'
+	`); err != nil {
+		return fmt.Errorf("delete events: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO users (id, supabase_subject, email, name, role)
 		VALUES
 			('90000000-0000-4000-8000-000000000001', $1, 'portal-admin@amrita.edu', 'Portal Admin', 'admin'),
 			('90000000-0000-4000-8000-000000000002', $2, 'portal-student@amrita.edu', 'Portal Student', 'student')
 		ON CONFLICT (supabase_subject) DO UPDATE
-		SET email = EXCLUDED.email, name = EXCLUDED.name, role = EXCLUDED.role;
+		SET email = EXCLUDED.email, name = EXCLUDED.name, role = EXCLUDED.role
+	`, adminSubject, studentSub); err != nil {
+		return fmt.Errorf("upsert users: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO branches (id, code, name)
 		VALUES
 			('91000000-0000-4000-8000-000000000001', 'CSE', 'Computer Science and Engineering'),
 			('91000000-0000-4000-8000-000000000002', 'ECE', 'Electronics and Communication Engineering')
-		ON CONFLICT (id) DO UPDATE SET code = EXCLUDED.code, name = EXCLUDED.name;
-	`, adminSubject, studentSub); err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			log.Fatal("seed acceptance database: timed out")
-		}
-		log.Fatal(fmt.Errorf("seed acceptance database: %w", err))
+		ON CONFLICT (id) DO UPDATE SET code = EXCLUDED.code, name = EXCLUDED.name
+	`); err != nil {
+		return fmt.Errorf("upsert branches: %w", err)
 	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+	return nil
 }

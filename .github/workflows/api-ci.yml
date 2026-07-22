@@ -163,10 +163,16 @@ jobs:
         working-directory: api
         run: |
           go test -tags integration -p 1 ./test/db/... ./test/store/... ./test/event/... ./test/roundtrip/... -v
-      - name: goose down + re-up (clean revert)
+      - name: goose down-to 0 + re-up (clean revert of EVERY migration)
         working-directory: api
+        # `goose down` reverts exactly ONE migration, so this gate only ever
+        # exercised the newest down script and every earlier one silently stopped
+        # being tested the moment a new migration landed. That is the worst place
+        # to have a blind spot: a down script is run during an incident, and one
+        # that does not restore the previous state leaves the database unable to
+        # roll forward again. `down-to 0` walks all of them.
         run: |
-          goose -dir db/migrations postgres "$DATABASE_URL_MIGRATOR" down
+          goose -dir db/migrations postgres "$DATABASE_URL_MIGRATOR" down-to 0
           goose -dir db/migrations postgres "$DATABASE_URL_MIGRATOR" up
       - name: Start api server (TLS, self-signed) for /health
         working-directory: api

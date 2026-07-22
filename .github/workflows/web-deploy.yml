@@ -5,6 +5,13 @@ name: web-deploy
 
 on:
   push:
+    # Branches only. A tag push points at a commit these jobs have ALREADY passed
+    # on its branch and again on main, so re-running the full matrix for the tag
+    # buys nothing and was costing ~9 minutes of the private-repo Actions budget
+    # per release. Restricting to branches excludes tag refs; drop this line once
+    # the repo is public and minutes are unmetered.
+    branches:
+      - "**"
     paths:
       - "web/**"
       - "api/**"

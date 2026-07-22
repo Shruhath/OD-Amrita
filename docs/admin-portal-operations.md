@@ -88,7 +88,15 @@ Operational rules an administrator will notice:
 - **Archiving closes the aggregate.** An archived event keeps showing its
   categories read-only, and the add form is removed entirely rather than
   disabled. The API refuses the write with `409 EVENT_ARCHIVED` regardless of
-  what the browser offers, and the database refuses it independently of the API.
+  what the browser offers, and the database refuses it independently of the API —
+  including against a concurrent archive, because the guard locks the event row
+  it checks rather than reading it and hoping.
+- **If an event is archived while its detail page is open**, the next add is
+  rejected with `409 EVENT_ARCHIVED` and the page re-reads the event, so the add
+  form disappears instead of inviting a retry that can never succeed.
+- **The detail page reads its event by id** (`GET /api/v1/admin/events/{id}`), so
+  it stays correct no matter how many events exist. It does not depend on the
+  event appearing in any particular page of the events list.
 - **Every created category writes one audit row** (`category.created`, target
   table `categories`) in the same transaction as the category itself. A rejected
   create writes neither.

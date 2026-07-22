@@ -232,3 +232,11 @@ repeatable without recreating the database.
 > startup, so a harness left running against a recreated database serves an empty
 > one. Every journey then fails on a missing `Events` heading, which looks like a
 > frontend regression and is not one.
+
+> **Restart the portal API between runs of the integration suite too.** `seed()`
+> only removes the fixtures it knows about at startup, while the category journey
+> *creates* its event through the UI — and `events.name` carries no unique
+> constraint. Running the suite twice against one long-lived harness therefore
+> leaves two events named `Browser Category Event`. The specs pick the newest, so
+> they still pass, but the audit-conservation counts are then per-event and a
+> stale duplicate will confuse anything that counts by name.

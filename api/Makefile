@@ -26,7 +26,13 @@ DB_NETWORK       := od-amrita
 # drizzle-gateway — a visual DB browser (engineering-overview.md pins :4983).
 # This is a VIEWER only: there is no Drizzle ORM anywhere in this project, and
 # schema changes still go exclusively through goose migrations.
-STUDIO_IMAGE       := ghcr.io/drizzle-team/gateway:latest
+# Pinned by DIGEST, like every other tool version in this repo (postgres:17,
+# goose v3.27.2, sqlc v1.31.1). `:latest` is the one moving target the toolchain
+# had left: a viewer that silently changes under you is a debugging trap, and
+# upstream publishes no stable semver tag for this image (only :latest), so the
+# digest is the only thing that can be pinned. Resolved from :latest at
+# 1.3.14-distroless; re-resolve deliberately when you want a newer viewer.
+STUDIO_IMAGE       := ghcr.io/drizzle-team/gateway@sha256:8bb6c6361745cf97f2564676783f948487d2f05ba60d3612b7f14b8ebc18ab19
 STUDIO_CONTAINER   := od-studio
 STUDIO_PORT        ?= 4983
 # Dev-only, same posture as the role passwords below. Never reuse it anywhere real.
@@ -92,11 +98,13 @@ db-up: ## Start the local integration Postgres (CI-matching image) and migrate i
 		if $(CONTAINER_ENGINE) logs $(DB_CONTAINER) 2>&1 | grep -q 'init process complete'; then break; fi; \
 		printf '.'; sleep 1; \
 	done
-	@for i in $$(seq 1 60); do \
-		if $(CONTAINER_ENGINE) exec $(DB_CONTAINER) pg_isready -U od_amrita -d od_amrita >/dev/null 2>&1; then break; fi; \
+	@ready=0; for i in $$(seq 1 60); do \
+		if $(CONTAINER_ENGINE) exec $(DB_CONTAINER) pg_isready -U od_amrita -d od_amrita >/dev/null 2>&1; then ready=1; break; fi; \
 		printf '.'; sleep 1; \
-	done
-	@echo ' ready'
+	done; \
+	if [ "$$ready" = "1" ]; then echo ' ready'; else \
+		echo ''; echo 'ERROR: postgres did not become ready in 60s. Recent logs:' >&2; \
+		$(CONTAINER_ENGINE) logs --tail 20 $(DB_CONTAINER) >&2; exit 1; fi
 	@$(GOOSE) -dir db/migrations postgres "$(DATABASE_URL_MIGRATOR)" up
 
 db-down: ## Stop and remove the local integration Postgres (data is discarded)
@@ -106,7 +114,13 @@ db-down: ## Stop and remove the local integration Postgres (data is discarded)
 db-reset: db-down db-up ## Recreate the local integration Postgres from scratch
 
 db-psql: ## Open a psql shell on the local integration database as the migrator
-	@$(CONTAINER_ENGINE) exec -it $(DB_CONTAINER) psql "$(DATABASE_URL_MIGRATOR)"
+	@# Connects over the CONTAINER's own loopback on 5432, not $(DATABASE_URL_MIGRATOR).
+	@# That DSN is a HOST-side address: with DB_PORT overridden (say 5433, which the
+	@# variables above explicitly invite when a port clashes) it publishes to
+	@# 127.0.0.1:5433 on the host while the server inside still listens on 5432, so
+	@# handing the host DSN to a psql running inside the container is refused.
+	@$(CONTAINER_ENGINE) exec -it $(DB_CONTAINER) \
+		psql "postgres://od_migrator:migrator_dev_only_change_me@127.0.0.1:5432/od_amrita?sslmode=disable"
 
 db-studio: ## Browse the local database in drizzle-gateway (a VIEWER — never an ORM)
 	@$(CONTAINER_ENGINE) network inspect $(DB_NETWORK) >/dev/null 2>&1 \
@@ -121,11 +135,13 @@ db-studio: ## Browse the local database in drizzle-gateway (a VIEWER — never a
 		-v od-studio-data:/data \
 		$(STUDIO_IMAGE) >/dev/null
 	@printf 'waiting for drizzle-gateway'
-	@for i in $$(seq 1 40); do \
-		if curl -sf -o /dev/null --max-time 2 http://$(DB_HOST):$(STUDIO_PORT)/; then break; fi; \
+	@ready=0; for i in $$(seq 1 40); do \
+		if curl -sf -o /dev/null --max-time 2 http://$(DB_HOST):$(STUDIO_PORT)/; then ready=1; break; fi; \
 		printf '.'; sleep 1; \
-	done
-	@echo ' ready'
+	done; \
+	if [ "$$ready" = "1" ]; then echo ' ready'; else \
+		echo ''; echo 'ERROR: drizzle-gateway did not answer on $(STUDIO_PORT) in 40s.' >&2; \
+		$(CONTAINER_ENGINE) logs --tail 20 $(STUDIO_CONTAINER) >&2; exit 1; fi
 	@echo ''
 	@echo '  ┌─ STEP 1 ── log in to the gateway itself ─────────────────────────┐'
 	@echo '     open              http://$(DB_HOST):$(STUDIO_PORT)'

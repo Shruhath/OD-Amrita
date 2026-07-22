@@ -11,6 +11,7 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -34,6 +35,55 @@ const maxCategoryNameRunes = 120
 // any other unique violation is a real fault that must not be laundered into a
 // friendly field error.
 const categoryUniqueConstraint = "uq_categories_event_id_name"
+
+// categoryIndexTrimSet is the EXACT cutset migration 0006's unique index trims
+// with (`btrim(name, E' \t\r\n')`). The duplicate pre-check below normalizes with
+// this, not with strings.TrimSpace/EqualFold, because a pre-check that disagrees
+// with the index it fronts is worse than no pre-check: strings.EqualFold applies
+// full Unicode case folding (U+017F ſ folds to s, U+00B5 µ to μ, U+212A K to k)
+// where SQL lower() does not, so the Go check was STRICTER than the constraint
+// and would permanently reject names the database would have accepted.
+//
+// Stored names are already strings.TrimSpace'd, so the wider Go trim set only
+// diverges for rows written outside this service (the od_migrator escape hatch,
+// a bulk import, the DB browser). The index remains the guarantee either way.
+const categoryIndexTrimSet = " \t\r\n"
+
+// normalizeCategoryName mirrors the unique index's expression exactly.
+func normalizeCategoryName(name string) string {
+	return strings.ToLower(strings.Trim(name, categoryIndexTrimSet))
+}
+
+// hasVisibleCharacter reports whether a name contains anything a human could
+// actually see.
+//
+// `strings.TrimSpace` and the migration's `CHECK (name ~ '\S')` both agree that
+// " " is blank, but neither rejects a name made only of INVISIBLE characters:
+// U+200B zero-width space, U+FEFF, U+2800 Braille blank and U+3164 Hangul filler
+// are not Unicode White_Space and do match `\S`. Without this, a category
+// rendering as an empty row is persisted with a real audit row, and every repeat
+// is a distinct index key, so an unbounded number can be created.
+//
+// This also rejects control characters, which is what keeps a NUL out of the
+// insert: Postgres cannot store U+0000 in `text` and answers with SQLSTATE 22021,
+// which would otherwise surface as a 500 for fully client-controlled input.
+func hasVisibleCharacter(name string) bool {
+	for _, r := range name {
+		if unicode.IsSpace(r) {
+			continue
+		}
+		if unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cs, r) {
+			continue
+		}
+		// Explicitly invisible characters that are not classified as space or
+		// format: Braille blank and Hangul filler both render as nothing.
+		if r == '⠀' || r == 'ㅤ' {
+			continue
+		}
+		return true
+	}
+	return false
+}
 
 type Category struct {
 	ID        string
@@ -60,10 +110,18 @@ type CreateCategoryWrite struct {
 // An ARCHIVED event still lists: archived is a closed aggregate, not a hidden
 // one. Only writes are refused, so the portal can show an archived event's
 // categories read-only.
-func (s *Service) ListCategories(ctx context.Context, rawEventID string) ([]Category, error) {
+// The actor is re-checked here for the same reason CreateCategory re-checks it:
+// this service is reachable from any future caller, and Story 2.4's coordinator
+// work will reach for exactly this method. Leaving the read to trust its route
+// while the write defends itself is an asymmetry that only looks harmless until
+// someone mounts the read outside the /admin group.
+func (s *Service) ListCategories(ctx context.Context, actor Actor, rawEventID string) ([]Category, error) {
 	eventID, err := parseCategoryEventID(rawEventID)
 	if err != nil {
 		return nil, err
+	}
+	if actor.Role != "admin" {
+		return nil, forbidden()
 	}
 	if _, err := s.eventStatus(ctx, eventID); err != nil {
 		return nil, err
@@ -80,8 +138,17 @@ func (s *Service) ListCategories(ctx context.Context, rawEventID string) ([]Cate
 // write or a stray ledger entry behind.
 func (s *Service) CreateCategory(ctx context.Context, actor Actor, input CreateCategoryInput) (Category, error) {
 	name := strings.TrimSpace(input.Name)
-	if name == "" {
+	if name == "" || !hasVisibleCharacter(name) {
 		return Category{}, categoryValidation("name", "required", "Category name is required.")
+	}
+	// Control characters are rejected wherever they appear, not just when the
+	// name is nothing but invisibles. A NUL surrounded by ordinary letters
+	// ("a\x00b") passes every other check here and then fails INSIDE the insert
+	// with SQLSTATE 22021 — Postgres cannot store U+0000 in `text` — which would
+	// reach the caller as a 500 for input they fully control.
+	if strings.ContainsFunc(name, func(r rune) bool { return unicode.Is(unicode.Cc, r) }) {
+		return Category{}, categoryValidation("name", "invalid_format",
+			"Category name must not contain control characters.")
 	}
 	if utf8.RuneCountInString(name) > maxCategoryNameRunes {
 		return Category{}, categoryValidation("name", "maximum", "Category name must not exceed 120 characters.")
@@ -110,8 +177,9 @@ func (s *Service) CreateCategory(ctx context.Context, actor Actor, input CreateC
 	if err != nil {
 		return Category{}, err
 	}
+	candidate := normalizeCategoryName(name)
 	for _, category := range existing {
-		if strings.EqualFold(strings.TrimSpace(category.Name), name) {
+		if normalizeCategoryName(category.Name) == candidate {
 			return Category{}, duplicateCategoryName()
 		}
 	}
@@ -181,9 +249,16 @@ func parseCategoryEventID(raw string) (uuid.UUID, error) {
 //   - 23505 on the per-event unique index: the concurrent duplicate. Without
 //     this the losing writer of a race gets an opaque 500 for input the product
 //     considers merely duplicate.
-//   - 55000 from the archived-event guard: the event was archived between the
-//     status lookup and the insert. The caller gets the SAME canonical
-//     EVENT_ARCHIVED as the pre-check, so the portal has one branch, not two.
+//   - 55000 raised by the archived-event guard ON categories: the event was
+//     archived between the status lookup and the insert. The caller gets the SAME
+//     canonical EVENT_ARCHIVED as the pre-check, so the portal has one branch,
+//     not two.
+//   - 23503 on the owning foreign key: the event was DELETED in that same window.
+//     The truthful answer is the 404 the pre-check would have given a moment
+//     earlier, not a 500. This is the exact mirror of the 55000 case.
+//
+// Everything else is returned untouched and becomes a 500, which is correct: an
+// unrecognized database fault is a fault, not a user-facing rule.
 func mapCategoryWriteError(err error) error {
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) {
@@ -192,8 +267,21 @@ func mapCategoryWriteError(err error) error {
 	switch {
 	case pgErr.Code == "23505" && pgErr.ConstraintName == categoryUniqueConstraint:
 		return duplicateCategoryName()
-	case pgErr.Code == "55000":
+	// Pinned to the categories table for the same reason the 23505 arm is pinned
+	// to its constraint name. 55000 is the GENERIC object_not_in_prerequisite_state,
+	// and 0006's guard is shared with event_branches today and with coordinator
+	// assignments and camera-credit config next. An unpinned arm would one day tell
+	// an admin that a perfectly active event is archived.
+	case pgErr.Code == "55000" && strings.Contains(pgErr.Message, "categories"):
 		return eventArchived()
+	case pgErr.Code == "23503" && strings.Contains(pgErr.ConstraintName, "event_id"):
+		return domain.DomainError{Code: contracts.ErrorCodeEVENTNOTFOUND, Message: "Event not found."}
+	// 22021 is "invalid byte sequence for encoding" — a NUL inside the name. The
+	// service rejects these before the insert (hasVisibleCharacter), so reaching
+	// here means a caller bypassed validation; answer with the same field error
+	// rather than a 500.
+	case pgErr.Code == "22021":
+		return categoryValidation("name", "invalid_format", "Category name contains characters that cannot be stored.")
 	default:
 		return err
 	}

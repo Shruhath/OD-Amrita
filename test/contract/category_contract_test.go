@@ -12,11 +12,7 @@ import (
 //
 // Invoked by: api-ci -> acceptance job (`go test ./... -v` in test/contract).
 
-const (
-	categoriesPath   = "/api/v1/admin/events/{event_id}/categories"
-	activateTask2    = "2.2 Task 2 — activate when the category operations are added to contracts/openapi.yaml"
-	activateTask2Err = "2.2 Task 2 — activate when EVENT_ARCHIVED is added to the Error.code enum"
-)
+const categoriesPath = "/api/v1/admin/events/{event_id}/categories"
 
 func TestCategoryContract_NestedOperationsRequireBearerAuth(t *testing.T) {
 	doc := loadSpec(t, repoRoot(t))

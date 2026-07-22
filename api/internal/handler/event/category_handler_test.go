@@ -54,12 +54,16 @@ type fakeCategoryService struct {
 	lastName    string
 }
 
-func (f *fakeCategoryService) ListCategories(_ context.Context, eventID string) ([]eventsvc.Category, error) {
+func (f *fakeCategoryService) ListCategories(_ context.Context, _ eventsvc.Actor, eventID string) ([]eventsvc.Category, error) {
 	f.lastEventID = eventID
 	if f.failWith != "" {
 		return nil, categoryFailure(f.failWith)
 	}
 	return f.categories, nil
+}
+
+func (f *fakeCategoryService) Get(_ context.Context, _ eventsvc.Actor, _ string) (eventsvc.Event, error) {
+	return eventsvc.Event{}, nil
 }
 
 func (f *fakeCategoryService) CreateCategory(_ context.Context, _ eventsvc.Actor, input eventsvc.CreateCategoryInput) (eventsvc.Category, error) {
@@ -131,38 +135,12 @@ var categoryWireExpectations = []categoryWireExpectation{
 	{name: "unexpected failure", serviceCode: "INTERNAL", wantStatus: 500, wantCode: "INTERNAL"},
 }
 
-// TestCategoryWireExpectationsCoverEveryDocumentedResponse runs today. It keeps
-// the table honest against the contract scaffold in test/contract, which asserts
-// the same status family from the other direction.
-func TestCategoryWireExpectationsCoverEveryDocumentedResponse(t *testing.T) {
-	byStatus := map[int]string{}
-	for _, tc := range categoryWireExpectations {
-		if existing, clash := byStatus[tc.wantStatus]; clash {
-			t.Errorf("cases %q and %q both claim status %d", existing, tc.name, tc.wantStatus)
-		}
-		byStatus[tc.wantStatus] = tc.name
-
-		if tc.wantStatus >= 400 && tc.wantCode == "" {
-			t.Errorf("%s: every non-2xx must name its envelope code", tc.name)
-		}
-		if tc.wantStatus < 400 && tc.wantCode != "" {
-			t.Errorf("%s: a success response must not carry an error code", tc.name)
-		}
-		if tc.wantDetails && tc.wantCode != "VALIDATION_FAILED" {
-			t.Errorf("%s: only VALIDATION_FAILED carries details[]", tc.name)
-		}
-	}
-
-	// POST is documented for 201/400/401/403/404/409/500 in the contract. A gap
-	// here means a response the handler can emit that nothing pins.
-	for _, status := range []int{201, 400, 401, 403, 404, 409, 500} {
-		if _, ok := byStatus[status]; !ok {
-			t.Errorf("no expectation covers status %d", status)
-		}
-	}
-}
-
 func TestCreateCategoryHandlerRendersEveryOutcomeThroughTheErrorEnvelope(t *testing.T) {
+	// Statuses the REAL handler was observed to emit. The documented-coverage
+	// assertion at the end is made against this, not against the expectation
+	// table: a table can claim to cover 409 while nothing ever produces one.
+	observed := map[int]string{}
+
 	for _, tc := range categoryWireExpectations {
 		t.Run(tc.name, func(t *testing.T) {
 			svc := &fakeCategoryService{failWith: tc.serviceCode}
@@ -173,6 +151,7 @@ func TestCreateCategoryHandlerRendersEveryOutcomeThroughTheErrorEnvelope(t *test
 			if recorder.Code != tc.wantStatus {
 				t.Fatalf("status = %d body = %s, want %d", recorder.Code, recorder.Body.String(), tc.wantStatus)
 			}
+			observed[recorder.Code] = tc.name
 
 			if tc.wantStatus == http.StatusCreated {
 				// The success body is the GENERATED type, not a hand-written
@@ -217,6 +196,16 @@ func TestCreateCategoryHandlerRendersEveryOutcomeThroughTheErrorEnvelope(t *test
 				t.Errorf("code = %s, want %s", envelope.Code, tc.wantCode)
 			}
 		})
+	}
+
+	// POST is documented for 201/400/401/403/404/409/500. Asserting it here, from
+	// statuses the handler was actually observed to return, is the difference
+	// between "the contract is covered" and "a table says the contract is
+	// covered" — the latter stays green even if the handler is deleted.
+	for _, status := range []int{201, 400, 401, 403, 404, 409, 500} {
+		if _, ok := observed[status]; !ok {
+			t.Errorf("[P0] the handler never produced a documented %d response", status)
+		}
 	}
 }
 

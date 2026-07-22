@@ -20,11 +20,6 @@ import (
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
 )
 
-const (
-	activateCategoryAction = "2.2 Task 4 — activate when ActionCategoryCreated is added to events.go and AllActions"
-	activateEventArchived  = "2.2 Task 2 — activate when EVENT_ARCHIVED is mapped in codeToStatus"
-)
-
 func TestCategoryCreatedIsARegisteredAuditAction(t *testing.T) {
 	const want Action = "category.created"
 

@@ -21,7 +21,12 @@ import (
 
 func ListCategoriesHandler(svc Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		categories, err := svc.ListCategories(c.Request.Context(), c.Param("event_id"))
+		actor, err := actorFromContext(c)
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		categories, err := svc.ListCategories(c.Request.Context(), actor, c.Param("event_id"))
 		if err != nil {
 			fail(c, err)
 			return

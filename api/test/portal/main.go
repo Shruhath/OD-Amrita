@@ -38,6 +38,11 @@ const (
 	studentSub   = "portal-student-subject"
 )
 
+// fixtureEventNames are the events the browser journeys create. seed() removes
+// them (and their children) so a run is repeatable; keep this in step with
+// web/tests/integration/*.spec.ts.
+var fixtureEventNames = []string{"Browser Persisted Event", "Browser Category Event"}
+
 type fixedVerifier struct{}
 
 func (fixedVerifier) Verify(_ context.Context, token string) (svcauth.VerifiedIdentity, error) {
@@ -88,10 +93,10 @@ func main() {
 
 	admin := api.Group("/admin")
 	admin.Use(rbac.RequireAdmin(rbac.NewSQLCPrincipalLoader(runtimePool)))
-	admin.GET("/branches", handlerevent.ListBranchesHandler(eventService))
-	admin.GET("/events", handlerevent.ListEventsHandler(eventService))
-	admin.POST("/events", handlerevent.CreateEventHandler(eventService))
-	admin.POST("/events/:event_id/archive", handlerevent.ArchiveEventHandler(eventService))
+	// Shared with cmd/api so this harness can never serve a different admin
+	// route set than production — the divergence that turns a missing route into
+	// a browser-journey 404 that reads as a frontend bug.
+	handlerevent.RegisterAdminRoutes(admin, eventService)
 
 	port := os.Getenv("PORTAL_API_PORT")
 	if port == "" {
@@ -129,15 +134,28 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// Every event name the browser journeys create. Each spec owns a DISTINCT
+	// name: two events sharing one would make the row locators ambiguous and
+	// double the audit-row counts the CI assertions check.
 	if _, err := tx.Exec(ctx, `
 		DELETE FROM event_branches
-		WHERE event_id IN (SELECT id FROM events WHERE name = 'Browser Persisted Event')
-	`); err != nil {
+		WHERE event_id IN (SELECT id FROM events WHERE name = ANY($1::text[]))
+	`, fixtureEventNames); err != nil {
 		return fmt.Errorf("delete event branches: %w", err)
 	}
+	// categories.event_id is ON DELETE RESTRICT, so an un-cleaned category from a
+	// previous run makes the event delete below fail and the whole harness refuse
+	// to start. This runs as od_migrator, which the archived-event guard exempts,
+	// so it works even after a journey archives its fixture event.
 	if _, err := tx.Exec(ctx, `
-		DELETE FROM events WHERE name = 'Browser Persisted Event'
-	`); err != nil {
+		DELETE FROM categories
+		WHERE event_id IN (SELECT id FROM events WHERE name = ANY($1::text[]))
+	`, fixtureEventNames); err != nil {
+		return fmt.Errorf("delete categories: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM events WHERE name = ANY($1::text[])
+	`, fixtureEventNames); err != nil {
 		return fmt.Errorf("delete events: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `

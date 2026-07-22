@@ -121,3 +121,29 @@ jobs:
             echo "expected exactly two event audit rows, got $count"
             exit 1
           }
+      - name: Verify category audit conservation
+        # Separate from the assertion above rather than loosening it: a
+        # category.created row targets the categories table and can never match
+        # a join against events.id.
+        #
+        # The journey adds exactly two categories and then attempts a duplicate,
+        # which must contribute NOTHING. Asserting categories == audit rows == 2
+        # is the conservation property end to end, through the browser.
+        run: |
+          categories="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT count(*)
+            FROM categories AS category
+            JOIN events AS event ON event.id = category.event_id
+            WHERE event.name = 'Browser Category Event'")"
+          audits="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT count(*)
+            FROM audit_log AS audit
+            JOIN categories AS category ON audit.target_id = category.id::text
+            JOIN events AS event ON event.id = category.event_id
+            WHERE event.name = 'Browser Category Event'
+              AND audit.action = 'category.created'
+              AND audit.target_table = 'categories'")"
+          [ "$categories" = "2" ] && [ "$audits" = "2" ] || {
+            echo "expected two categories and two category.created rows, got $categories and $audits"
+            exit 1
+          }

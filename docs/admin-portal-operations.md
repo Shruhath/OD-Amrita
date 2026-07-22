@@ -1,7 +1,8 @@
 # Admin portal operations
 
-The web portal serves the authenticated event administration route at
-`/portal/events`. It uses Supabase only to broker Microsoft sign-in and obtain a
+The web portal serves the authenticated event administration routes at
+`/portal/events` (the events list) and `/portal/events/:event_id` (one event and
+its categories). It uses Supabase only to broker Microsoft sign-in and obtain a
 session JWT; all authorization and event data decisions remain server-side.
 
 ## Browser environment
@@ -63,6 +64,45 @@ An empty result is a valid but not operationally ready state. The portal reports
 that no branches are available and disables event creation; it does not fall
 back to free-text or browser-owned branch data.
 
+## Event categories
+
+Opening an event from the events list shows the categories it already has and,
+for an active event, a form that adds one category per submission. Categories
+scope coordinators and OD records to a specific activity within an event
+(Procession, Stage Setup, …).
+
+Operational rules an administrator will notice:
+
+- **Create and list only.** There is deliberately no rename, reorder or delete.
+  Categories will be referenced by coordinator assignments, OD records, disputes
+  and tallies, so they carry the same no-hard-delete posture as events. Correcting
+  a mistyped category is not currently possible from the portal.
+- **One at a time.** Several categories are added by repeating the command; the
+  form stays open and refocuses itself.
+- **Unique within the event, not globally.** Names are compared
+  case-insensitively after trimming, so `Procession`, `procession` and
+  `  Procession  ` are the same category. Two different events may each have
+  their own `Procession`. The uniqueness is enforced by a database index, not
+  only by the form, so two administrators adding the same name at the same
+  moment cannot both succeed.
+- **Archiving closes the aggregate.** An archived event keeps showing its
+  categories read-only, and the add form is removed entirely rather than
+  disabled. The API refuses the write with `409 EVENT_ARCHIVED` regardless of
+  what the browser offers, and the database refuses it independently of the API.
+- **Every created category writes one audit row** (`category.created`, target
+  table `categories`) in the same transaction as the category itself. A rejected
+  create writes neither.
+
+Verify the categories of an event as the migrator/database owner:
+
+```sql
+SELECT category.name, category.created_at
+FROM categories AS category
+JOIN events AS event ON event.id = category.event_id
+WHERE event.name = 'YOUR EVENT NAME'
+ORDER BY category.name, category.id;
+```
+
 ## Verification commands
 
 The default local verification does not require a database:
@@ -93,3 +133,14 @@ with two branches, reload, archive it, reload again, and confirm one
 `event.created` plus one `event.archived` audit row for that event. Also call an
 admin event endpoint with a provisioned Student token and confirm `403
 RBAC_FORBIDDEN`.
+
+For the category surface, open an active event, add two categories, repeat one of
+the names in a different case and confirm it is rejected on the name field,
+reload and confirm both survive, then archive the event and confirm the
+categories render read-only with no add control. Confirm exactly two
+`category.created` audit rows exist for that event — the rejected duplicate must
+have contributed none.
+
+This live smoke check has not been run against a deployed environment; the same
+journey is executed against a real API and PostgreSQL by the `portal-integration`
+CI job.

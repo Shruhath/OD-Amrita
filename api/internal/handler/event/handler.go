@@ -24,6 +24,27 @@ type Service interface {
 	List(context.Context, eventsvc.ListInput) (eventsvc.Page, error)
 	Create(context.Context, eventsvc.Actor, eventsvc.CreateInput) (eventsvc.Event, error)
 	Archive(context.Context, eventsvc.Actor, string) (eventsvc.Event, error)
+	ListCategories(context.Context, string) ([]eventsvc.Category, error)
+	CreateCategory(context.Context, eventsvc.Actor, eventsvc.CreateCategoryInput) (eventsvc.Category, error)
+}
+
+// RegisterAdminRoutes mounts every admin event and category route on an
+// already-guarded group.
+//
+// It exists because the routes were previously hand-wired TWICE — in cmd/api and
+// again in test/portal — and a route added to one but forgotten in the other
+// 404s only in the browser integration job, where it reads as a frontend bug.
+// One registration function means the acceptance harness cannot serve a
+// different route set than production.
+func RegisterAdminRoutes(group gin.IRouter, svc Service) {
+	group.GET("/branches", ListBranchesHandler(svc))
+	group.GET("/events", ListEventsHandler(svc))
+	group.POST("/events", CreateEventHandler(svc))
+	group.POST("/events/:event_id/archive", ArchiveEventHandler(svc))
+	// Categories are nested under their event: a category has no identity
+	// without one, and nesting makes the lifecycle check fall out of the path.
+	group.GET("/events/:event_id/categories", ListCategoriesHandler(svc))
+	group.POST("/events/:event_id/categories", CreateCategoryHandler(svc))
 }
 
 func ListBranchesHandler(svc Service) gin.HandlerFunc {

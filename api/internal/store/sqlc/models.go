@@ -38,6 +38,14 @@ type Branch struct {
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
+type Category struct {
+	ID        pgtype.UUID        `json:"id"`
+	EventID   pgtype.UUID        `json:"event_id"`
+	Name      string             `json:"name"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Event struct {
 	ID               pgtype.UUID        `json:"id"`
 	Name             string             `json:"name"`

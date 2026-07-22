@@ -40,6 +40,12 @@ func (f *fakeService) Create(context.Context, eventsvc.Actor, eventsvc.CreateInp
 	f.createCalls++
 	return f.event, f.err
 }
+func (f *fakeService) ListCategories(context.Context, string) ([]eventsvc.Category, error) {
+	return nil, f.err
+}
+func (f *fakeService) CreateCategory(context.Context, eventsvc.Actor, eventsvc.CreateCategoryInput) (eventsvc.Category, error) {
+	return eventsvc.Category{}, f.err
+}
 func (f *fakeService) Archive(context.Context, eventsvc.Actor, string) (eventsvc.Event, error) {
 	return f.event, f.err
 }

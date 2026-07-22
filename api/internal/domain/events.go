@@ -38,6 +38,10 @@ const (
 	ActionAuthSessionRevoked Action = "auth.session_revoked"
 	ActionEventCreated       Action = "event.created"
 	ActionEventArchived      Action = "event.archived"
+	// ActionCategoryCreated is the per-event category creation event (Story 2.2).
+	// Singular entity, past-tense verb — the string is written verbatim into the
+	// immutable ledger, so it is a permanent wire commitment.
+	ActionCategoryCreated Action = "category.created"
 )
 
 // AllActions is the canonical registry-of-record: every declared Action, in
@@ -56,6 +60,7 @@ var AllActions = []Action{
 	ActionAuthSessionRevoked,
 	ActionEventCreated,
 	ActionEventArchived,
+	ActionCategoryCreated,
 }
 
 // registeredActions is the O(1) lookup set DERIVED from AllActions, so it can

@@ -46,6 +46,11 @@ func (e DomainError) Error() string {
 //     state (same family as SCAN_DUPLICATE's 409).
 //   - CARD_NOT_RECOGNIZED  -> 422: the token is well-formed but maps to no known
 //     card — semantically unprocessable rather than syntactically malformed (400).
+//   - EVENT_ARCHIVED       -> 409: the request is well-formed and authorized, but
+//     the event aggregate is closed and accepts no further child writes. Same
+//     state-conflict family as SCAN_DUPLICATE/SLOT_CLOSED, and deliberately
+//     distinct from EVENT_NOT_FOUND's 404 — "the id is wrong" and "the aggregate
+//     is closed" are different answers the portal branches on differently.
 var codeToStatus = map[contracts.ErrorCode]int{
 	contracts.ErrorCodeAUTHDOMAINREJECTED: 403,
 	contracts.ErrorCodeAUTHTOKENINVALID:   401,
@@ -58,6 +63,7 @@ var codeToStatus = map[contracts.ErrorCode]int{
 	contracts.ErrorCodeINVALIDSCANID:      400,
 	contracts.ErrorCodeVALIDATIONFAILED:   400,
 	contracts.ErrorCodeEVENTNOTFOUND:      404,
+	contracts.ErrorCodeEVENTARCHIVED:      409,
 	contracts.ErrorCodeINTERNAL:           500,
 }
 

@@ -73,11 +73,17 @@ type Reader interface {
 	ListBranches(context.Context) ([]Branch, error)
 	GetEvent(context.Context, uuid.UUID) (Event, error)
 	ListEvents(context.Context, ListInput) ([]Event, int64, error)
+	// EventStatus is the lifecycle lookup the category paths need. It returns
+	// ErrEventNotFound for an unknown id, which the service translates into the
+	// canonical 404 — distinct from an archived event's 409.
+	EventStatus(context.Context, uuid.UUID) (Status, error)
+	ListCategories(context.Context, uuid.UUID) ([]Category, error)
 }
 
 type Writer interface {
 	Create(context.Context, pgx.Tx, CreateWrite) (uuid.UUID, bool, error)
 	Archive(context.Context, pgx.Tx, uuid.UUID, uuid.UUID) (bool, error)
+	CreateCategory(context.Context, pgx.Tx, CreateCategoryWrite) (Category, bool, error)
 }
 
 type AuditStore interface {

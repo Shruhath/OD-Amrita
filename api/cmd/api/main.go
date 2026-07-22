@@ -113,10 +113,7 @@ func run() error {
 	admin.Use(rbac.RequireAdmin(rbac.NewSQLCPrincipalLoader(pool)))
 	admin.POST("/users/:user_id/sessions/revoke", handleradmin.RevokeSessionsHandler(revSvc))
 	eventSvc := svcevent.NewService(svcevent.NewSQLCReader(pool), st, svcevent.NewSQLCWriter())
-	admin.GET("/branches", handlerevent.ListBranchesHandler(eventSvc))
-	admin.GET("/events", handlerevent.ListEventsHandler(eventSvc))
-	admin.POST("/events", handlerevent.CreateEventHandler(eventSvc))
-	admin.POST("/events/:event_id/archive", handlerevent.ArchiveEventHandler(eventSvc))
+	handlerevent.RegisterAdminRoutes(admin, eventSvc)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.APIPort,

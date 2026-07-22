@@ -42,6 +42,7 @@ const (
 	ErrorCodeAUTHDOMAINREJECTED ErrorCode = "AUTH_DOMAIN_REJECTED"
 	ErrorCodeAUTHTOKENINVALID   ErrorCode = "AUTH_TOKEN_INVALID"
 	ErrorCodeCARDNOTRECOGNIZED  ErrorCode = "CARD_NOT_RECOGNIZED"
+	ErrorCodeEVENTARCHIVED      ErrorCode = "EVENT_ARCHIVED"
 	ErrorCodeEVENTNOTFOUND      ErrorCode = "EVENT_NOT_FOUND"
 	ErrorCodeINTERNAL           ErrorCode = "INTERNAL"
 	ErrorCodeINVALIDSCANID      ErrorCode = "INVALID_SCAN_ID"
@@ -61,6 +62,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeAUTHTOKENINVALID:
 		return true
 	case ErrorCodeCARDNOTRECOGNIZED:
+		return true
+	case ErrorCodeEVENTARCHIVED:
 		return true
 	case ErrorCodeEVENTNOTFOUND:
 		return true
@@ -265,6 +268,25 @@ type BranchSummary struct {
 	Name string             `json:"name"`
 }
 
+// Category An activity within one event (e.g. Procession, Stage Setup). A category has no identity without its event, which is why event_id is part of the resource and the operations are nested under the event.
+type Category struct {
+	CreatedAt time.Time          `json:"created_at"`
+	EventId   openapi_types.UUID `json:"event_id"`
+	Id        openapi_types.UUID `json:"id"`
+	Name      string             `json:"name"`
+}
+
+// CategoryCollection Bounded per-event reference data — deliberately unpaginated, like BranchCollection and unlike EventCollection.
+type CategoryCollection struct {
+	Data []Category `json:"data"`
+}
+
+// CreateCategoryRequest defines model for CreateCategoryRequest.
+type CreateCategoryRequest struct {
+	// Name Trimmed, nonblank category name. Unique within the event, compared case-insensitively after trimming.
+	Name string `json:"name"`
+}
+
 // CreateEventRequest defines model for CreateEventRequest.
 type CreateEventRequest struct {
 	BranchIds []openapi_types.UUID `json:"branch_ids"`
@@ -444,6 +466,9 @@ type ListAdminEventsParamsStatus string
 
 // CreateAdminEventJSONRequestBody defines body for CreateAdminEvent for application/json ContentType.
 type CreateAdminEventJSONRequestBody = CreateEventRequest
+
+// CreateAdminEventCategoryJSONRequestBody defines body for CreateAdminEventCategory for application/json ContentType.
+type CreateAdminEventCategoryJSONRequestBody = CreateCategoryRequest
 
 // RevokeUserSessionsJSONRequestBody defines body for RevokeUserSessions for application/json ContentType.
 type RevokeUserSessionsJSONRequestBody = RevokeSessionsRequest

@@ -134,6 +134,27 @@ func (s *Service) List(ctx context.Context, input ListInput) (Page, error) {
 	return Page{Data: events, Page: input.Page, PageSize: input.PageSize, Total: total}, nil
 }
 
+// Get reads one event by id.
+//
+// This is the item read behind every per-event admin surface. Before it existed
+// the portal resolved an event by fetching a page of the collection and filtering
+// locally, which reported a truthful-looking "Event not found" for a real, active
+// event as soon as the event count outgrew one page.
+func (s *Service) Get(ctx context.Context, actor Actor, rawEventID string) (Event, error) {
+	if actor.Role != "admin" {
+		return Event{}, forbidden()
+	}
+	eventID, err := uuid.Parse(rawEventID)
+	if err != nil {
+		return Event{}, validation("event_id", "invalid_format", "Event id must be a UUID.")
+	}
+	event, err := s.reader.GetEvent(ctx, eventID)
+	if errors.Is(err, ErrEventNotFound) {
+		return Event{}, domain.DomainError{Code: contracts.ErrorCodeEVENTNOTFOUND, Message: "Event not found."}
+	}
+	return event, err
+}
+
 func (s *Service) Create(ctx context.Context, actor Actor, input CreateInput) (Event, error) {
 	name, date, branchIDs, err := validateCreate(input)
 	if err != nil {

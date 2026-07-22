@@ -70,12 +70,14 @@ func TestEveryEventRouteEnforcesTheComposedAuthenticationAndRoleChain(t *testing
 			admin.GET("/branches", handler)
 			admin.GET("/events", handler)
 			admin.POST("/events", handler)
+			admin.GET("/events/:event_id", handler)
 			admin.POST("/events/:event_id/archive", handler)
 
 			for _, operation := range []struct{ method, path string }{
 				{http.MethodGet, "/api/v1/admin/branches"},
 				{http.MethodGet, "/api/v1/admin/events"},
 				{http.MethodPost, "/api/v1/admin/events"},
+				{http.MethodGet, "/api/v1/admin/events/10000000-0000-4000-8000-000000000099"},
 				{http.MethodPost, "/api/v1/admin/events/10000000-0000-4000-8000-000000000099/archive"},
 			} {
 				recorder := httptest.NewRecorder()

@@ -71,6 +71,11 @@ export function createEventApi(session: SessionPort) {
     async events(page = 1, pageSize = 20) {
       return unwrap(await client.GET('/api/v1/admin/events', { params: { query: { status: 'all', page, page_size: pageSize } } }))
     },
+    async event(eventID: string) {
+      return unwrap(await client.GET('/api/v1/admin/events/{event_id}', {
+        params: { path: { event_id: eventID } },
+      }))
+    },
     async create(input: CreateEventInput) {
       return unwrap(await client.POST('/api/v1/admin/events', { body: input }))
     },

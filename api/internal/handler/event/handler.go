@@ -22,9 +22,10 @@ import (
 type Service interface {
 	Branches(context.Context) ([]eventsvc.Branch, error)
 	List(context.Context, eventsvc.ListInput) (eventsvc.Page, error)
+	Get(context.Context, eventsvc.Actor, string) (eventsvc.Event, error)
 	Create(context.Context, eventsvc.Actor, eventsvc.CreateInput) (eventsvc.Event, error)
 	Archive(context.Context, eventsvc.Actor, string) (eventsvc.Event, error)
-	ListCategories(context.Context, string) ([]eventsvc.Category, error)
+	ListCategories(context.Context, eventsvc.Actor, string) ([]eventsvc.Category, error)
 	CreateCategory(context.Context, eventsvc.Actor, eventsvc.CreateCategoryInput) (eventsvc.Category, error)
 }
 
@@ -40,6 +41,9 @@ func RegisterAdminRoutes(group gin.IRouter, svc Service) {
 	group.GET("/branches", ListBranchesHandler(svc))
 	group.GET("/events", ListEventsHandler(svc))
 	group.POST("/events", CreateEventHandler(svc))
+	// The item read. Every per-event surface needs it; without it a client has to
+	// scan the paginated collection and filter locally.
+	group.GET("/events/:event_id", GetEventHandler(svc))
 	group.POST("/events/:event_id/archive", ArchiveEventHandler(svc))
 	// Categories are nested under their event: a category has no identity
 	// without one, and nesting makes the lifecycle check fall out of the path.
@@ -181,6 +185,27 @@ func bindCreateRequest(c *gin.Context, body *contracts.CreateEventRequest) error
 		return requestValidation("$", "invalid_json", "Request body must be valid JSON.")
 	}
 	return nil
+}
+
+func GetEventHandler(svc Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		actor, err := actorFromContext(c)
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		found, err := svc.Get(c.Request.Context(), actor, c.Param("event_id"))
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		response, err := eventContract(found)
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	}
 }
 
 func ArchiveEventHandler(svc Service) gin.HandlerFunc {

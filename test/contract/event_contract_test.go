@@ -12,6 +12,7 @@ func TestEventContract_AdminOperationsAndNoDelete(t *testing.T) {
 	want := map[string][]string{
 		"/api/v1/admin/branches":                  {"get"},
 		"/api/v1/admin/events":                    {"get", "post"},
+		"/api/v1/admin/events/{event_id}":         {"get"},
 		"/api/v1/admin/events/{event_id}/archive": {"post"},
 		// Categories are part of the same Admin-only family, so they belong in
 		// the one table that asserts bearer auth across every admin operation.

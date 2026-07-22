@@ -18,7 +18,19 @@ CREATE TABLE categories (
     -- the Go service (strings.TrimSpace) considers it blank. Requiring at least
     -- one non-whitespace character closes that gap for every whitespace form.
     name       text        NOT NULL CHECK (name ~ '\S'),
+    -- The length bound belongs here as well as in the service. The service's own
+    -- reasoning for the unique index applies verbatim: a pre-check is not the
+    -- guarantee, because od_migrator (the escape hatch below), a future bulk
+    -- import, or the DB browser can all write rows the handler never sees, and the
+    -- category list endpoint is unpaginated by contract. 120 matches
+    -- CreateCategoryRequest.maxLength; char_length counts characters, which is
+    -- what utf8.RuneCountInString counts on the Go side.
+    CONSTRAINT categories_name_length CHECK (char_length(name) <= 120),
     created_at timestamptz NOT NULL DEFAULT now(),
+    -- Maintained by the UPDATE statement, not by a trigger — the convention set by
+    -- events.sql:64 and users.sql:23, which both write `updated_at = now()` in the
+    -- query. Categories are create+list only today, so nothing updates this yet; a
+    -- future rename story must set it in its own UPDATE to match.
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -48,7 +60,33 @@ BEGIN
     -- Which column names the owning event is the trigger's argument, so one
     -- function serves every child table (event_branches today; coordinator
     -- assignments and camera-credit config next).
+    --
+    -- Generalizing this function introduced one failure mode the single-purpose
+    -- version could not have: a trigger attached with no argument, or with a
+    -- typo'd column, would leave owner_column NULL. `to_jsonb(NEW) ->> NULL` is
+    -- NULL, `WHERE id = NULL` matches nothing, target_status stays NULL, and
+    -- `NULL = 'archived'` is not true — so the guard would appear in pg_trigger
+    -- and enforce NOTHING. Fail closed on a misconfigured trigger instead.
+    IF TG_NARGS <> 1 THEN
+        RAISE EXCEPTION
+            'require_active_event_for_child_mutation on % needs exactly one argument (the owning event column), got %',
+            TG_TABLE_NAME, TG_NARGS
+            USING ERRCODE = '39P01';
+    END IF;
+
     owner_column := TG_ARGV[0];
+
+    -- A column that is not on the row is the same misconfiguration wearing a
+    -- different hat. Checked against the row itself so it costs nothing extra.
+    -- jsonb_exists(...) rather than the `?` operator: `?` is a placeholder to
+    -- several drivers, and this body will be read and re-run by hand during an
+    -- incident. The function form is unambiguous everywhere.
+    IF NOT jsonb_exists(to_jsonb(CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END), owner_column) THEN
+        RAISE EXCEPTION
+            'require_active_event_for_child_mutation: table % has no column %',
+            TG_TABLE_NAME, owner_column
+            USING ERRCODE = '39P01';
+    END IF;
 
     -- The owner must retain a cleanup/migration escape hatch; application
     -- traffic always uses od_runtime and cannot bypass this guard.
@@ -68,21 +106,36 @@ BEGIN
     -- or an archived event could be edited by moving rows out of it (or a closed
     -- aggregate could be grown by moving rows into it).
     IF TG_OP = 'UPDATE' AND old_event_id IS DISTINCT FROM new_event_id THEN
-        SELECT status INTO target_status FROM events WHERE id = old_event_id;
+        SELECT status INTO target_status FROM events WHERE id = old_event_id FOR SHARE;
         IF target_status = 'archived' THEN
             RAISE EXCEPTION 'archived event % is a closed aggregate: % is immutable', old_event_id, TG_TABLE_NAME
                 USING ERRCODE = '55000';
         END IF;
     END IF;
 
+    -- FOR SHARE, not a bare SELECT. Without a row lock this guard loses a
+    -- routine two-admin race: the categories.event_id foreign key takes only
+    -- FOR KEY SHARE on the events row, and archiving is an UPDATE of a non-key
+    -- column, which takes FOR NO KEY UPDATE — the two DO NOT conflict. Under
+    -- READ COMMITTED the create would read the pre-archive snapshot, both
+    -- transactions would commit, and an archived event would own a category
+    -- created after archived_at. FOR SHARE conflicts with FOR NO KEY UPDATE, so
+    -- the archive blocks until this write finishes and then the loser sees the
+    -- archived status. This is the same reasoning that made uniqueness an index
+    -- rather than a SELECT-then-INSERT, applied to the other invariant.
     SELECT status INTO target_status
     FROM events
-    WHERE id = CASE WHEN TG_OP = 'DELETE' THEN old_event_id ELSE new_event_id END;
+    WHERE id = CASE WHEN TG_OP = 'DELETE' THEN old_event_id ELSE new_event_id END
+    FOR SHARE;
 
     IF target_status = 'archived' THEN
         RAISE EXCEPTION 'archived event is a closed aggregate: % is immutable', TG_TABLE_NAME
             USING ERRCODE = '55000';
     END IF;
+    -- target_status IS NULL (no such event) is deliberately NOT an error here:
+    -- this is a BEFORE trigger, so the foreign key has not fired yet, and
+    -- raising would mask the FK's 23503 — which the service maps to a truthful
+    -- EVENT_NOT_FOUND 404 — behind a misleading 55000/EVENT_ARCHIVED.
     RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
 END;
 $$;

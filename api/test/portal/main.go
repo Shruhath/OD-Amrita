@@ -38,10 +38,17 @@ const (
 	studentSub   = "portal-student-subject"
 )
 
-// fixtureEventNames are the events the browser journeys create. seed() removes
-// them (and their children) so a run is repeatable; keep this in step with
-// web/tests/integration/*.spec.ts.
-var fixtureEventNames = []string{"Browser Persisted Event", "Browser Category Event"}
+// fixtureEventPrefixes are the events the browser journeys create. seed()
+// removes them (and their children) so a run is repeatable; keep this in step
+// with web/tests/integration/*.spec.ts.
+//
+// These are PREFIXES. The browser journeys suffix these with a
+// per-run token, because events carry no unique name constraint and the specs
+// create their events through the UI: a second run against a long-lived harness
+// would otherwise leave two identically-named events, making the row locators
+// ambiguous and the audit-row counts wrong. Matching on the prefix means seed()
+// still clears every previous run's leftovers.
+var fixtureEventPrefixes = []string{"Browser Persisted Event", "Browser Category Event"}
 
 type fixedVerifier struct{}
 
@@ -134,13 +141,17 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Every event name the browser journeys create. Each spec owns a DISTINCT
-	// name: two events sharing one would make the row locators ambiguous and
+	// Every event the browser journeys create, matched by PREFIX so a previous
+	// run's uniquely-suffixed fixtures are cleared too. Each spec owns a DISTINCT
+	// prefix: two specs sharing one would make the row locators ambiguous and
 	// double the audit-row counts the CI assertions check.
 	if _, err := tx.Exec(ctx, `
 		DELETE FROM event_branches
-		WHERE event_id IN (SELECT id FROM events WHERE name = ANY($1::text[]))
-	`, fixtureEventNames); err != nil {
+		WHERE event_id IN (
+			SELECT id FROM events
+			WHERE name LIKE ANY (SELECT prefix || '%' FROM unnest($1::text[]) AS prefix)
+		)
+	`, fixtureEventPrefixes); err != nil {
 		return fmt.Errorf("delete event branches: %w", err)
 	}
 	// categories.event_id is ON DELETE RESTRICT, so an un-cleaned category from a
@@ -149,13 +160,17 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 	// so it works even after a journey archives its fixture event.
 	if _, err := tx.Exec(ctx, `
 		DELETE FROM categories
-		WHERE event_id IN (SELECT id FROM events WHERE name = ANY($1::text[]))
-	`, fixtureEventNames); err != nil {
+		WHERE event_id IN (
+			SELECT id FROM events
+			WHERE name LIKE ANY (SELECT prefix || '%' FROM unnest($1::text[]) AS prefix)
+		)
+	`, fixtureEventPrefixes); err != nil {
 		return fmt.Errorf("delete categories: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		DELETE FROM events WHERE name = ANY($1::text[])
-	`, fixtureEventNames); err != nil {
+		DELETE FROM events
+		WHERE name LIKE ANY (SELECT prefix || '%' FROM unnest($1::text[]) AS prefix)
+	`, fixtureEventPrefixes); err != nil {
 		return fmt.Errorf("delete events: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `

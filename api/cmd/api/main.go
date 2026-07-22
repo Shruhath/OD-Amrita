@@ -109,8 +109,7 @@ func run() error {
 	api.Use(mwauth.RevocationGuard(revChecker))
 	api.GET("/auth/me", handlerauth.MeHandler(userSvc, eventAuditor))
 
-	admin := api.Group("/admin")
-	admin.Use(rbac.RequireAdmin(rbac.NewSQLCPrincipalLoader(pool)))
+	admin := newAdminGroup(api, rbac.NewSQLCPrincipalLoader(pool))
 	admin.POST("/users/:user_id/sessions/revoke", handleradmin.RevokeSessionsHandler(revSvc))
 	eventSvc := svcevent.NewService(svcevent.NewSQLCReader(pool), st, svcevent.NewSQLCWriter())
 	handlerevent.RegisterAdminRoutes(admin, eventSvc)
@@ -163,6 +162,21 @@ func run() error {
 // tlsMinVersion maps the configured floor to the crypto/tls constant. config
 // has already validated the value to "1.2" or "1.3", so the floor is never
 // below TLS 1.2 (NFR15).
+// newAdminGroup returns the /admin group with the RBAC guard already attached.
+//
+// It exists as a named seam so the guard can be PROVEN attached. Mounting the
+// admin routes on a group that never had RequireAdmin applied compiles cleanly —
+// RegisterAdminRoutes takes a gin.IRouter, so passing `api` instead of `admin` is
+// a one-token slip that silently serves every admin route to any authenticated
+// caller. Nothing in the handler or rbac package tests can catch that, because
+// each of them builds its own router; only the composition is at risk, so the
+// composition is what gets a test (routes_test.go).
+func newAdminGroup(api *gin.RouterGroup, loader rbac.PrincipalLoader) *gin.RouterGroup {
+	admin := api.Group("/admin")
+	admin.Use(rbac.RequireAdmin(loader))
+	return admin
+}
+
 func tlsMinVersion(v string) uint16 {
 	if v == "1.3" {
 		return tls.VersionTLS13

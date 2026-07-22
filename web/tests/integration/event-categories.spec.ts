@@ -16,7 +16,25 @@ import { expect, test, type Page } from '@playwright/test'
 // sharing a name would make every `getByRole('row').filter({hasText})` locator
 // ambiguous and would double the row count the CI audit assertions check.
 
-const eventName = 'Browser Category Event'
+// Suffixed per run. Events carry no unique name constraint and this suite
+// CREATES its event through the UI, so a fixed name means a second run against a
+// long-lived harness leaves two identical rows — ambiguous locators, and audit
+// counts that read as a conservation failure. The portal harness's seed() clears
+// anything with this prefix, so old runs never accumulate.
+const eventName = `Browser Category Event ${Date.now().toString(36)}`
+
+/**
+ * Opens the fixture event from the list.
+ *
+ * `.first()` matters: events carry no unique name constraint and this suite
+ * CREATES its event through the UI, so a re-run against an already-seeded
+ * database leaves two identically-named rows and a bare role locator fails with
+ * a strict-mode violation that looks like a UI defect rather than stale fixture
+ * state. The rows are ordered newest-first, so the first match is this run's.
+ */
+async function openFixtureEvent(page: Page) {
+  await page.getByRole('link', { name: eventName }).first().click()
+}
 const portalAPI = 'http://127.0.0.1:8081'
 
 test('persists categories through the real API and Postgres across reloads', async ({ page }) => {
@@ -32,7 +50,7 @@ test('persists categories through the real API and Postgres across reloads', asy
   await createDialog.getByRole('checkbox', { name: 'Computer Science and Engineering' }).check()
   await createDialog.getByRole('button', { name: 'Create event' }).click()
 
-  await page.getByRole('link', { name: eventName }).click()
+  await openFixtureEvent(page)
   await expect(page.getByRole('heading', { level: 1, name: eventName })).toBeVisible()
 
   const categories = page.getByRole('list', { name: 'Categories' })
@@ -59,7 +77,7 @@ test('persists categories through the real API and Postgres across reloads', asy
 
 test('rejects a duplicate category name from the real database', async ({ page }) => {
   await page.goto('/integration.html')
-  await page.getByRole('link', { name: eventName }).click()
+  await openFixtureEvent(page)
   await expect(page.getByRole('heading', { level: 1, name: eventName })).toBeVisible()
 
   // The row already exists from the journey above; this is the unique index
@@ -88,7 +106,7 @@ test('closes the aggregate when the event is archived', async ({ page }) => {
     .click()
   await expect(row).toContainText('Archived')
 
-  await page.getByRole('link', { name: eventName }).click()
+  await openFixtureEvent(page)
   await expect(page.getByRole('heading', { level: 1, name: eventName })).toBeVisible()
 
   // History stays readable; only writing is closed.

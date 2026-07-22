@@ -29,6 +29,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Shruhath/OD-Amrita/api/internal/domain"
 	eventsvc "github.com/Shruhath/OD-Amrita/api/internal/service/event"
 	"github.com/Shruhath/OD-Amrita/api/internal/store"
 )
@@ -52,7 +53,10 @@ func TestCategoriesMigrationRoundTripsCleanlyAndRestoresTheBranchGuard(t *testin
 	// A down migration that does not restore 0005's exact state leaves the
 	// database unable to roll forward again — the failure mode that makes an
 	// incident worse at the moment you most need to revert.
-	runGoose(t, ctx, migratorDSN, "down")
+	// down-to 5, not "down": this test is about 0006's down script, and a bare
+	// `down` reverts whatever the NEWEST migration happens to be. Naming the
+	// target version keeps it pointed at 0006 no matter what lands after it.
+	runGoose(t, ctx, migratorDSN, "down-to", "5")
 
 	assertTableExists(t, ctx, migrator, "categories", false)
 	assertFunctionExists(t, ctx, migrator, "require_active_event_for_child_mutation", false)
@@ -335,7 +339,7 @@ func TestCategoryCreateConservesExactlyOneAuditRowPerPersistedCategory(t *testin
 
 	// A FRESH service is the reload oracle for AC 1: no request- or
 	// service-local state can satisfy this read.
-	listed, err := newService().ListCategories(ctx, activeEvent.String())
+	listed, err := newService().ListCategories(ctx, actor, activeEvent.String())
 	if err != nil {
 		t.Fatalf("list categories: %v", err)
 	}
@@ -404,7 +408,7 @@ func TestCategoryCreateConservesExactlyOneAuditRowPerPersistedCategory(t *testin
 	}); err != nil {
 		t.Fatalf("the same name under another event must be allowed: %v", err)
 	}
-	scoped, err := newService().ListCategories(ctx, secondEvent.String())
+	scoped, err := newService().ListCategories(ctx, actor, secondEvent.String())
 	if err != nil {
 		t.Fatalf("list second event categories: %v", err)
 	}
@@ -413,9 +417,107 @@ func TestCategoryCreateConservesExactlyOneAuditRowPerPersistedCategory(t *testin
 	}
 
 	// Archived is a CLOSED aggregate, not a hidden one: the read must survive.
-	if _, err := newService().ListCategories(ctx, archivedEvent.String()); err != nil {
+	if _, err := newService().ListCategories(ctx, actor, archivedEvent.String()); err != nil {
 		t.Errorf("listing an archived event's categories must succeed: %v", err)
 	}
+}
+
+// The raced duplicate, end to end through the real service and the real index.
+//
+// This was previously proven in two halves that never met: a unit test that
+// hand-built a *pgconn.PgError with the constraint name, and an integration test
+// that provoked the real 23505 with raw SQL. Neither one runs Service.Create
+// PAST its pre-check and INTO the constraint, so renaming the index in a later
+// migration would leave both green while production started answering 500 for an
+// ordinary duplicate name.
+//
+// The pre-check is defeated the way concurrency defeats it: the row is inserted
+// behind the service's back, after the service has already read the list.
+func TestRacedDuplicateReachesTheIndexAndStillReturnsTheTypedFieldError(t *testing.T) {
+	ctx := testContext(t)
+	migrator, runtime, _ := isolatedCategoryDatabase(t, ctx)
+	actorID := seedAdmin(t, ctx, migrator, "event-admin@amrita.edu")
+	activeEvent := seedActiveEvent(t, ctx, migrator, "Onam Celebrations")
+	actor := eventsvc.Actor{UserID: actorID.String(), Email: "event-admin@amrita.edu", Role: "admin"}
+
+	// A reader that inserts the competing row AFTER answering the duplicate
+	// pre-check with an empty list — the exact interleaving of two admins
+	// submitting the same name at the same moment.
+	racing := &racingCategoryReader{
+		Reader: eventsvc.NewSQLCReader(runtime),
+		onList: func() {
+			if _, err := migrator.Exec(ctx,
+				`INSERT INTO categories (event_id, name) VALUES ($1, $2)`,
+				activeEvent, "Procession",
+			); err != nil {
+				t.Fatalf("seed the racing row: %v", err)
+			}
+		},
+	}
+	svc := eventsvc.NewService(racing, store.New(runtime), eventsvc.NewSQLCWriter())
+
+	_, err := svc.CreateCategory(ctx, actor, eventsvc.CreateCategoryInput{
+		EventID: activeEvent.String(), Name: "  procession  ",
+	})
+	if err == nil {
+		t.Fatal("[P0] a raced duplicate must be rejected, not persisted twice")
+	}
+
+	// The loser of the race is owed the same answer as the caller who simply
+	// typed a name that already existed — never an opaque 500.
+	var domainErr domain.DomainError
+	if !errors.As(err, &domainErr) {
+		t.Fatalf("[P0] error = %v, want a typed DomainError", err)
+	}
+	if string(domainErr.Code) != "VALIDATION_FAILED" {
+		t.Errorf("[P0] code = %s, want VALIDATION_FAILED", domainErr.Code)
+	}
+	if len(domainErr.Details) != 1 ||
+		domainErr.Details[0].Field != "name" || domainErr.Details[0].Code != "duplicate" {
+		t.Errorf("[P0] details = %#v, want a single name/duplicate field detail", domainErr.Details)
+	}
+
+	// Conservation still holds: the rejected create wrote no second category and
+	// no audit row.
+	var categories int
+	if err := runtime.QueryRow(ctx,
+		`SELECT count(*) FROM categories WHERE event_id = $1`, activeEvent,
+	).Scan(&categories); err != nil {
+		t.Fatalf("count categories: %v", err)
+	}
+	if categories != 1 {
+		t.Errorf("[P0] categories = %d, want the single raced row", categories)
+	}
+
+	var audits int
+	if err := runtime.QueryRow(ctx,
+		`SELECT count(*) FROM audit_log WHERE action = 'category.created'`,
+	).Scan(&audits); err != nil {
+		t.Fatalf("count audit rows: %v", err)
+	}
+	if audits != 0 {
+		t.Errorf("[P0] audit rows = %d, want none — the raced insert bypassed the service", audits)
+	}
+}
+
+// racingCategoryReader delegates everything to the real reader and runs a hook
+// immediately after the duplicate pre-check has read the list.
+type racingCategoryReader struct {
+	eventsvc.Reader
+	onList func()
+	fired  bool
+}
+
+func (r *racingCategoryReader) ListCategories(ctx context.Context, eventID uuid.UUID) ([]eventsvc.Category, error) {
+	existing, err := r.Reader.ListCategories(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if !r.fired && r.onList != nil {
+		r.fired = true
+		r.onList()
+	}
+	return existing, nil
 }
 
 func TestFailedAuditInsertRollsTheCategoryWriteBack(t *testing.T) {
@@ -513,13 +615,18 @@ func isolatedCategoryDatabase(t *testing.T, ctx context.Context) (*pgxpool.Pool,
 	return migrator, runtime, migratorDSN
 }
 
-func runGoose(t *testing.T, ctx context.Context, dsn, command string) {
+// runGoose runs one goose command. Extra arguments are passed through so a test
+// can say `down-to`, `<version>` — targeting a VERSION rather than saying "one
+// step down", which silently starts meaning something else the moment a later
+// migration is added.
+func runGoose(t *testing.T, ctx context.Context, dsn, command string, args ...string) {
 	t.Helper()
 	migrations, err := filepath.Abs(filepath.Join("..", "..", "db", "migrations"))
 	if err != nil {
 		t.Fatalf("resolve migrations: %v", err)
 	}
-	cmd := exec.CommandContext(ctx, "goose", "-dir", migrations, "postgres", dsn, command)
+	argv := append([]string{"-dir", migrations, "postgres", dsn, command}, args...)
+	cmd := exec.CommandContext(ctx, "goose", argv...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		// A PL/pgSQL body without -- +goose StatementBegin/StatementEnd fencing
 		// fails here with SQLSTATE 42601. That is what made 0005 unrunnable, and

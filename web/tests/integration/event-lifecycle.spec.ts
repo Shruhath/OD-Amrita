@@ -1,6 +1,11 @@
 import { expect, test } from '@playwright/test'
 
-const eventName = 'Browser Persisted Event'
+// Suffixed per run. Events carry no unique name constraint and this suite
+// CREATES its event through the UI, so a fixed name means a second run against a
+// long-lived harness leaves two identical rows — ambiguous locators, and audit
+// counts that read as a conservation failure. The portal harness's seed() clears
+// anything with this prefix, so old runs never accumulate.
+const eventName = `Browser Persisted Event ${Date.now().toString(36)}`
 
 test('persists create and archive through the real API and Postgres across browser reloads', async ({ page }) => {
   await page.goto('/integration.html')

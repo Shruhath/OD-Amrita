@@ -92,6 +92,13 @@ async function mockApi(page: Page, scenario: Scenario = {}) {
   await page.route('**/api/v1/admin/events', (route) =>
     json(route, { data: [eventRecord(status)], page: 1, page_size: 20, total: 1 }),
   )
+  // The detail view reads its event by ID rather than filtering the collection
+  // above, so this route is what the whole journey depends on. Registered before
+  // the categories route because Playwright matches the MOST RECENTLY added
+  // handler first and `**/events/<id>` would otherwise swallow the nested path.
+  await page.route(`**/api/v1/admin/events/${eventID}`, (route) =>
+    json(route, eventRecord(status)),
+  )
   await page.route(`**/api/v1/admin/events/${eventID}/categories`, async (route) => {
     // The browser preflights the cross-origin POST before it ever sends it.
     if (route.request().method() === 'OPTIONS') {
@@ -112,7 +119,6 @@ async function mockApi(page: Page, scenario: Scenario = {}) {
     await json(route, { data: serverCategories })
   })
 
-  return { count: () => serverCategories.length }
 }
 
 test.describe('Admin event categories journey (ATDD)', () => {

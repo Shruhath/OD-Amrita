@@ -29,6 +29,13 @@ type DetailScenario = {
   categories?: CategoryFixture[]
   categoriesStatus?: number
   createResponse?: 'ok' | 'duplicate' | 'archived'
+  /**
+   * Makes the event ITSELF flip to archived once a create has been rejected with
+   * EVENT_ARCHIVED — i.e. somebody archived it while this page was open. Without
+   * this the 409 and the event read would disagree forever, which is exactly the
+   * stale-cache state the component now refetches out of.
+   */
+  archiveOnCreate?: boolean
   createGate?: Promise<void>
   /**
    * Blocks every list read AFTER the first one. Without it a refetch re-sorts
@@ -48,8 +55,9 @@ function renderPortal({
   createResponse = 'ok',
   createGate,
   listRefetchGate,
+  archiveOnCreate = false,
 }: DetailScenario = {}) {
-  const event = createEventFixture({ id: testEventID, name: eventName, status })
+  let event = createEventFixture({ id: testEventID, name: eventName, status })
   let serverCategories = serverOrdered(categories)
   const calls: string[] = []
 
@@ -74,6 +82,19 @@ function renderPortal({
     http.get('*/api/v1/admin/events', () =>
       HttpResponse.json({ data: [event], page: 1, page_size: 20, total: 1 }),
     ),
+    // The detail page reads its event by ID. It used to scan page 1 of the
+    // collection above and filter locally, which reported "Event not found" for
+    // any event past the first page — so the item endpoint is what the detail
+    // scenarios must serve, and an unknown id must answer a real 404.
+    http.get('*/api/v1/admin/events/:eventId', ({ params }) => {
+      if (params.eventId !== testEventID) {
+        return HttpResponse.json(
+          { code: 'EVENT_NOT_FOUND', message: 'Event not found.' },
+          { status: 404 },
+        )
+      }
+      return HttpResponse.json(event)
+    }),
     http.get('*/api/v1/admin/events/:eventId/categories', async ({ params }) => {
       const isRefetch = calls.includes('list')
       calls.push('list')
@@ -96,6 +117,9 @@ function renderPortal({
         return HttpResponse.json(duplicateNameError(), { status: 400 })
       }
       if (createResponse === 'archived') {
+        if (archiveOnCreate) {
+          event = { ...event, status: 'archived' }
+        }
         return HttpResponse.json(archivedEventError(), { status: 409 })
       }
       const input = (await request.json()) as { name: string }
@@ -378,5 +402,88 @@ describe('Admin event detail and categories', () => {
     // AC 3 is a server guarantee, but a client that reads a shared cache key
     // across events would leak rows anyway.
     expect(within(list).queryByText('Another Event Category')).not.toBeInTheDocument()
+  })
+
+  test('[P0] resolves an event the events list has not loaded', async () => {
+    // The detail view used to find its event by scanning page 1 of the admin
+    // events collection and filtering locally, so an event outside that window
+    // rendered "Event not found" for an event that exists and is active. This
+    // pins the item read: the collection here deliberately returns NOTHING.
+    server.use(
+      http.get('*/api/v1/admin/events', () =>
+        HttpResponse.json({ data: [], page: 1, page_size: 20, total: 0 }),
+      ),
+    )
+    renderAt(
+      { categories: [createCategoryFixture({ name: 'Procession' })] },
+      `/portal/events/${testEventID}`,
+    )
+
+    await screen.findByRole('heading', { level: 1, name: eventName })
+    expect(screen.queryByText('Event not found')).not.toBeInTheDocument()
+    const list = await screen.findByRole('list', { name: 'Categories' })
+    expect(within(list).getByText('Procession')).toBeInTheDocument()
+  })
+
+  test('[P0] does not let a successful create hide a failed category list', async () => {
+    // setQueryData marks a query SUCCESSFUL. Writing the created row into a list
+    // whose own fetch failed would clear the error and render a ONE-ITEM list as
+    // though it were the event's complete set — a wrong count stated with full
+    // confidence, which is worse than the error it replaced.
+    const user = userEvent.setup()
+    renderAt({ categoriesStatus: 500 })
+
+    await openEventDetail(user)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Categories could not be loaded')
+
+    await user.type(await screen.findByLabelText('Category name'), 'Procession')
+    await user.click(screen.getByRole('button', { name: 'Add category' }))
+
+    // The list never claims to know the categories while its read is broken.
+    expect(await screen.findByRole('alert')).toHaveTextContent('Categories could not be loaded')
+    expect(screen.queryByRole('list', { name: 'Categories' })).not.toBeInTheDocument()
+  })
+
+  test('[P1] retracts a field rejection once the admin edits the name', async () => {
+    // The rejection described the PREVIOUS value. Leaving it wired to the input
+    // through aria-describedby means a screen reader announces "a category with
+    // this name already exists" over a name the admin has since changed.
+    const user = userEvent.setup()
+    renderAt({ categories: [createCategoryFixture({ name: 'Procession' })], createResponse: 'duplicate' })
+
+    await openEventDetail(user)
+    const input = await screen.findByLabelText('Category name')
+    await user.type(input, 'Procession')
+    await user.click(screen.getByRole('button', { name: 'Add category' }))
+
+    expect(await screen.findByText('A category with this name already exists.')).toBeInTheDocument()
+    expect(input).toHaveAttribute('aria-invalid', 'true')
+
+    await user.clear(input)
+    await user.type(input, 'Stage Setup')
+
+    expect(screen.queryByText('A category with this name already exists.')).not.toBeInTheDocument()
+    expect(input).not.toHaveAttribute('aria-invalid')
+  })
+
+  test('[P0] removes the add affordance when the event was archived elsewhere', async () => {
+    // Somebody archived this event while the page was open. Announcing the 409
+    // but leaving the form on screen invites the admin to retry forever, so the
+    // event is refetched and the UI comes back into agreement with the server.
+    const user = userEvent.setup()
+    renderAt({
+      categories: [createCategoryFixture({ name: 'Procession' })],
+      createResponse: 'archived',
+      archiveOnCreate: true,
+    })
+
+    await openEventDetail(user)
+    await user.type(await screen.findByLabelText('Category name'), 'Stage Setup')
+    await user.click(screen.getByRole('button', { name: 'Add category' }))
+
+    expect(
+      await screen.findByText('This event is archived. Its categories are read-only.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add category' })).not.toBeInTheDocument()
   })
 })

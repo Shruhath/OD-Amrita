@@ -45,6 +45,11 @@ var runtimePrivileges = map[string][]string{
 	"events":         {"SELECT", "INSERT", "UPDATE"},
 	"event_branches": {"SELECT", "INSERT", "UPDATE"},
 	"categories":     {"SELECT", "INSERT", "UPDATE"},
+
+	// A teacher's branch associations: no-hard-delete, same posture as
+	// event_branches/categories, inherited entirely from 0007's default
+	// privileges (0008 writes no explicit GRANT/REVOKE).
+	"user_branches": {"SELECT", "INSERT", "UPDATE"},
 }
 
 // gooseBookkeeping is goose's own version table. It is created by od_migrator and

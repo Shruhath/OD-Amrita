@@ -73,3 +73,9 @@ type User struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 	LastLoginAt     pgtype.Timestamptz `json:"last_login_at"`
 }
+
+type UserBranch struct {
+	UserID    pgtype.UUID        `json:"user_id"`
+	BranchID  pgtype.UUID        `json:"branch_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}

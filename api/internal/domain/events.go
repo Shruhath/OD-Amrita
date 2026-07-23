@@ -42,6 +42,11 @@ const (
 	// Singular entity, past-tense verb — the string is written verbatim into the
 	// immutable ledger, so it is a permanent wire commitment.
 	ActionCategoryCreated Action = "category.created"
+	// ActionTeacherProfileCreated covers a role elevation AND every branch
+	// association from the same request as ONE audit row (Story 2.3) — mirroring
+	// event.created's single row covering the event insert and every
+	// event_branches insert.
+	ActionTeacherProfileCreated Action = "teacher.profile_created"
 )
 
 // AllActions is the canonical registry-of-record: every declared Action, in
@@ -61,6 +66,7 @@ var AllActions = []Action{
 	ActionEventCreated,
 	ActionEventArchived,
 	ActionCategoryCreated,
+	ActionTeacherProfileCreated,
 }
 
 // registeredActions is the O(1) lookup set DERIVED from AllActions, so it can

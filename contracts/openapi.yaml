@@ -572,6 +572,123 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/admin/teachers:
+    get:
+      operationId: listAdminTeachers
+      summary: List teacher profiles across every branch
+      description: >-
+        The teacher roster scales with institution headcount, so results are
+        paginated like events (unlike the bounded branch/category reference
+        data). Results are ordered by email ASC, id ASC.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Deterministically ordered page of teacher profiles.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeacherProfileCollection"
+        "400":
+          description: Invalid pagination value.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Missing, malformed, expired, or revoked token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a provisioned Admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      operationId: createAdminTeacherProfile
+      summary: Elevate an existing provisioned user to teacher and associate branches
+      description: >-
+        Teacher-profile creation ELEVATES an existing, already-provisioned
+        `users` row (someone who has signed in at least once) — it does not
+        pre-provision an identity that has never logged in. Role elevation and
+        every branch association from one request co-commit as exactly one
+        audit row.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTeacherProfileRequest"
+      responses:
+        "201":
+          description: Role elevated and branch associations persisted atomically.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeacherProfile"
+        "400":
+          description: Request validation failed with typed field details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Missing, malformed, expired, or revoked token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a provisioned Admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No `users` row exists for the supplied email (USER_NOT_FOUND).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: >-
+            The user already has a non-student role (ROLE_ALREADY_ASSIGNED).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -719,6 +836,72 @@ components:
           items:
             $ref: "#/components/schemas/Category"
 
+    TeacherProfile:
+      type: object
+      description: >-
+        A teacher's elevated role plus the branches they are associated with.
+        Reuses BranchSummary rather than a parallel branch shape.
+      required: [user_id, email, branches, created_at]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        name:
+          type: string
+          nullable: true
+          description: Optional — some providers omit a display name.
+        branches:
+          type: array
+          items:
+            $ref: "#/components/schemas/BranchSummary"
+        created_at:
+          type: string
+          format: date-time
+
+    TeacherProfileCollection:
+      type: object
+      description: >-
+        The teacher roster scales with institution headcount — paginated like
+        EventCollection, unlike CategoryCollection/BranchCollection.
+      required: [data, page, page_size, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/TeacherProfile"
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
+
+    CreateTeacherProfileRequest:
+      type: object
+      required: [email, branch_ids]
+      properties:
+        email:
+          type: string
+          minLength: 1
+          maxLength: 320
+          description: >-
+            Email of an existing, already-provisioned users row. Resolved
+            server-side; the request does not pre-provision an identity.
+        branch_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+
     HealthStatus:
       type: object
       description: >-
@@ -772,6 +955,8 @@ components:
             - VALIDATION_FAILED
             - EVENT_NOT_FOUND
             - EVENT_ARCHIVED
+            - USER_NOT_FOUND
+            - ROLE_ALREADY_ASSIGNED
             - INTERNAL
         message:
           type: string

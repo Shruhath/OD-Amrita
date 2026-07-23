@@ -33,19 +33,20 @@ func TestAllActions_MatchesDeclaredConstants(t *testing.T) {
 	// auditable action it MUST be added both to events.go AND to this map
 	// (that per-story discipline is the CONVENTIONS rule this story establishes).
 	want := map[Action]string{
-		ActionODCreated:          "od.created",
-		ActionODOverridden:       "od.overridden",
-		ActionSyncCompleted:      "sync.completed",
-		ActionOfflineEntered:     "offline.entered",
-		ActionAuthLoginSucceeded: "auth.login_succeeded",
-		ActionAuthDomainRejected: "auth.domain_rejected",
-		ActionScanBlocked:        "scan.blocked",
-		ActionDisputeSubmitted:   "dispute.submitted",
-		ActionUserProvisioned:    "user.provisioned",
-		ActionAuthSessionRevoked: "auth.session_revoked",
-		ActionEventCreated:       "event.created",
-		ActionEventArchived:      "event.archived",
-		ActionCategoryCreated:    "category.created",
+		ActionODCreated:             "od.created",
+		ActionODOverridden:          "od.overridden",
+		ActionSyncCompleted:         "sync.completed",
+		ActionOfflineEntered:        "offline.entered",
+		ActionAuthLoginSucceeded:    "auth.login_succeeded",
+		ActionAuthDomainRejected:    "auth.domain_rejected",
+		ActionScanBlocked:           "scan.blocked",
+		ActionDisputeSubmitted:      "dispute.submitted",
+		ActionUserProvisioned:       "user.provisioned",
+		ActionAuthSessionRevoked:    "auth.session_revoked",
+		ActionEventCreated:          "event.created",
+		ActionEventArchived:         "event.archived",
+		ActionCategoryCreated:       "category.created",
+		ActionTeacherProfileCreated: "teacher.profile_created",
 	}
 
 	// (1) Each constant carries its exact architecture-mandated wire value.

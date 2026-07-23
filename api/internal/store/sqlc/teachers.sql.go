@@ -117,7 +117,7 @@ const getUserByEmail = `-- name: GetUserByEmail :one
 SELECT id, supabase_subject, email, name, role, created_at, updated_at, last_login_at
 FROM users
 WHERE lower(email) = lower($1)
-ORDER BY last_login_at DESC NULLS LAST, created_at DESC
+ORDER BY last_login_at DESC NULLS LAST, created_at DESC, id DESC
 LIMIT 1
 `
 
@@ -125,6 +125,9 @@ LIMIT 1
 // deliberately NOT UNIQUE (0003's own comment), so a plain WHERE email = $1
 // can match more than one row. Ordering by most-recently-active makes the
 // match deterministic and picks the identity that is actually in current use.
+// The trailing `id DESC` is a pure tiebreaker for the (very unlikely) case of
+// two colliding-email rows sharing an identical last_login_at and created_at —
+// without it, a tie resolves however Postgres happens to return matching rows.
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
 	row := q.db.QueryRow(ctx, getUserByEmail, email)
 	var i User

@@ -1,9 +1,10 @@
 # Admin portal operations
 
 The web portal serves the authenticated event administration routes at
-`/portal/events` (the events list) and `/portal/events/:event_id` (one event and
-its categories). It uses Supabase only to broker Microsoft sign-in and obtain a
-session JWT; all authorization and event data decisions remain server-side.
+`/portal/events` (the events list), `/portal/events/:event_id` (one event and
+its categories), and `/portal/teachers` (the teacher roster). It uses Supabase
+only to broker Microsoft sign-in and obtain a session JWT; all authorization
+and event/teacher data decisions remain server-side.
 
 ## Browser environment
 
@@ -111,6 +112,47 @@ WHERE event.name = 'YOUR EVENT NAME'
 ORDER BY category.name, category.id;
 ```
 
+## Teacher profiles
+
+Opening `/portal/teachers` shows the current teacher roster and a form that
+elevates an already-signed-in user to teacher, associating one or more branches
+in the same request.
+
+Operational rules an administrator will notice:
+
+- **Elevation, not pre-provisioning.** A teacher profile can only be created for
+  an email that already has a `users` row — i.e. someone who has signed in to
+  the portal at least once. `users.supabase_subject` is the sole identity key
+  (`email` is deliberately not unique), so there is no way to create a row ahead
+  of a person's first login. An unknown email is rejected with `404
+  USER_NOT_FOUND`; the operational workaround is to have the teacher sign in
+  once first.
+- **`student -> teacher` only.** A user who is already `admin`, `teacher`, or
+  `coordinator` is rejected with `409 ROLE_ALREADY_ASSIGNED`, including a
+  repeat call for someone already made a teacher. There is no tiered promotion
+  path and no role-reversal endpoint.
+- **Create + list only.** There is no endpoint to edit an existing teacher's
+  branches or to remove a teacher profile once created. Correcting a mistake
+  is not currently possible from the portal.
+- **One request, one audit row.** The role elevation and every branch
+  association from a single request co-commit as exactly one
+  `teacher.profile_created` audit row (target table `users`). A rejected create
+  — unknown email, already-elevated role, unknown branch — writes nothing.
+- **Paginated like events.** The roster scales with institution headcount, so
+  `GET /api/v1/admin/teachers` is paginated (`page`/`page_size`/`total`), unlike
+  the unpaginated branch/category reference data.
+
+Verify a teacher profile as the migrator/database owner:
+
+```sql
+SELECT u.email, u.name, b.code
+FROM users AS u
+JOIN user_branches AS ub ON ub.user_id = u.id
+JOIN branches AS b ON b.id = ub.branch_id
+WHERE u.role = 'teacher'
+ORDER BY u.email, b.code;
+```
+
 ## Verification commands
 
 The default local verification does not require a database:
@@ -132,7 +174,7 @@ and all three DSNs:
 SUPERUSER_DSN='postgres://...' \
 DATABASE_URL_MIGRATOR='postgres://...' \
 DATABASE_URL_RUNTIME='postgres://...' \
-go test -tags integration ./test/event/... -v
+go test -tags integration ./test/event/... ./test/teacher/... -v
 ```
 
 CI supplies these values and executes this suite after bootstrapping the roles.
@@ -149,6 +191,13 @@ categories render read-only with no add control. Confirm exactly two
 `category.created` audit rows exist for that event — the rejected duplicate must
 have contributed none.
 
+For the teacher surface, elevate a seeded student-role user by email and branch,
+reload and confirm it persists, attempt the same email again and confirm a
+`409 ROLE_ALREADY_ASSIGNED` announced on the form, and attempt an unknown email
+and confirm `404 USER_NOT_FOUND`. Confirm exactly one `teacher.profile_created`
+audit row exists for the elevated user — every rejected attempt must have
+contributed none.
+
 This live smoke check has not been run against a deployed environment; the same
-journey is executed against a real API and PostgreSQL by the `portal-integration`
-CI job.
+journeys (events, categories, and teacher profiles) are executed against a real
+API and PostgreSQL by the `portal-integration` CI job.

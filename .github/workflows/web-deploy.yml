@@ -178,3 +178,28 @@ jobs:
             echo "expected two categories and two category.created rows for event $event_id, got $categories and $audits"
             exit 1
           }
+      - name: Verify teacher audit conservation
+        # The fixture is a STABLE, non-suffixed email (unlike the events/
+        # categories fixtures above): D2 makes a repeat elevation a 409 that
+        # writes nothing, so a long-lived harness must be able to re-run this
+        # journey indefinitely while the audit row count for that one user
+        # stays at exactly 1 forever — never accumulating across CI runs and
+        # never zero once the first run has landed it.
+        run: |
+          user_id="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT id FROM users
+            WHERE lower(email) = 'teacher-fixture-student@amrita.edu' AND role = 'teacher'")"
+          if [ -z "$user_id" ]; then
+            echo "the browser journey did not elevate its fixture user"
+            exit 1
+          fi
+          count="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT count(*)
+            FROM audit_log AS audit
+            WHERE audit.target_id = '$user_id'
+              AND audit.action = 'teacher.profile_created'
+              AND audit.target_table = 'users'")"
+          [ "$count" = "1" ] || {
+            echo "expected exactly one teacher.profile_created audit row for user $user_id, got $count"
+            exit 1
+          }

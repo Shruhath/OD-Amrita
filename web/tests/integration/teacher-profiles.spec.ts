@@ -32,7 +32,11 @@ const studentFixtureEmail = 'teacher-fixture-student@amrita.edu'
 
 test('creates a teacher profile through the real API and Postgres, and it persists across reload', async ({ page }) => {
   await page.goto('/integration.html?path=%2Fportal%2Fteachers')
-  await expect(page.getByRole('heading', { name: 'Teachers' })).toBeVisible()
+  // exact: true — the empty-state "No teachers yet" heading also contains
+  // "teachers", and Playwright's default name match is a case-insensitive
+  // substring, so an un-scoped query is ambiguous whenever the roster starts
+  // empty (strict-mode violation, flaky under retries, hard-red at retries: 0).
+  await expect(page.getByRole('heading', { name: 'Teachers', exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'New teacher' }).click()
   const dialog = page.getByRole('dialog', { name: 'New teacher' })

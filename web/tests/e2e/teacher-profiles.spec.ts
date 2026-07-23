@@ -85,7 +85,12 @@ async function mockApi(page: Page, scenario: Scenario = {}) {
 test('[P0] opens the teachers view and creates a profile that persists after reload', async ({ page }) => {
   await mockApi(page, { teachers: [] })
   await page.goto('/portal/teachers')
-  await expect(page.getByRole('heading', { name: 'Teachers' })).toBeVisible()
+  // exact: true — the empty-state "No teachers yet" heading also contains
+  // "teachers", and Playwright's default name match is a case-insensitive
+  // substring, so an un-scoped query is ambiguous whenever the roster starts
+  // empty (strict-mode violation; CI's retries: 2 masked this as "flaky but
+  // green" here while the integration config's retries: 0 turned it hard-red).
+  await expect(page.getByRole('heading', { name: 'Teachers', exact: true })).toBeVisible()
   await expect(page.getByText('No teachers yet')).toBeVisible()
 
   await page.getByRole('button', { name: 'New teacher' }).click()

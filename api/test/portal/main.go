@@ -21,12 +21,14 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/domain"
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
 	handlerevent "github.com/Shruhath/OD-Amrita/api/internal/handler/event"
+	handlerteacher "github.com/Shruhath/OD-Amrita/api/internal/handler/teacher"
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
 	corsmw "github.com/Shruhath/OD-Amrita/api/internal/middleware/cors"
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
+	svcteacher "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
 	svcuser "github.com/Shruhath/OD-Amrita/api/internal/service/user"
 	"github.com/Shruhath/OD-Amrita/api/internal/store"
 )
@@ -37,6 +39,14 @@ const (
 	adminSubject = "portal-admin-subject"
 	studentSub   = "portal-student-subject"
 )
+
+// teacherFixtureEmail is the student-role row the teacher-profile browser
+// journeys elevate (web/tests/integration/teacher-profiles.spec.ts). Reused
+// exactly as-is on every run (no per-run suffix): D2 makes a second elevation
+// of the same user a 409, so seed() resets its role back to 'student' and
+// clears any prior branch associations on every start, matching the spec's
+// own reasoning for why this fixture is stable rather than suffixed.
+const teacherFixtureEmail = "teacher-fixture-student@amrita.edu"
 
 // fixtureEventPrefixes are the events the browser journeys create. seed()
 // removes them (and their children) so a run is repeatable; keep this in step
@@ -85,6 +95,7 @@ func main() {
 	userService := svcuser.NewService(st, nil, svcuser.NewSQLCProvisioner())
 	auditor := svcauth.NewEventAuditor(st)
 	eventService := svcevent.NewService(svcevent.NewSQLCReader(runtimePool), st, svcevent.NewSQLCWriter())
+	teacherService := svcteacher.NewService(svcteacher.NewSQLCReader(runtimePool), st, svcteacher.NewSQLCWriter())
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
@@ -104,6 +115,7 @@ func main() {
 	// route set than production — the divergence that turns a missing route into
 	// a browser-journey 404 that reads as a frontend bug.
 	handlerevent.RegisterAdminRoutes(admin, eventService)
+	handlerteacher.RegisterAdminRoutes(admin, teacherService)
 
 	port := os.Getenv("PORTAL_API_PORT")
 	if port == "" {
@@ -182,6 +194,25 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 		SET email = EXCLUDED.email, name = EXCLUDED.name, role = EXCLUDED.role
 	`, adminSubject, studentSub); err != nil {
 		return fmt.Errorf("upsert users: %w", err)
+	}
+	// The teacher-profile browser journeys elevate this row (student -> teacher).
+	// Reset its role back to student and clear any branch associations from a
+	// previous run FIRST, then upsert — D2 makes a second elevation a 409, so a
+	// stable, re-seeded fixture is what lets the spec re-run cleanly against a
+	// long-lived harness (mirrors why this fixture is NOT suffixed per-run, unlike
+	// the events/categories fixtures above).
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM user_branches WHERE user_id = '92000000-0000-4000-8000-000000000001'
+	`); err != nil {
+		return fmt.Errorf("clear teacher fixture branch associations: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, supabase_subject, email, name, role)
+		VALUES ('92000000-0000-4000-8000-000000000001', 'portal-teacher-fixture-subject', $1, 'Teacher Fixture', 'student')
+		ON CONFLICT (supabase_subject) DO UPDATE
+		SET email = EXCLUDED.email, name = EXCLUDED.name, role = 'student'
+	`, teacherFixtureEmail); err != nil {
+		return fmt.Errorf("upsert teacher fixture user: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO branches (id, code, name)

@@ -26,12 +26,14 @@ import (
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
 	handlerevent "github.com/Shruhath/OD-Amrita/api/internal/handler/event"
 	"github.com/Shruhath/OD-Amrita/api/internal/handler/health"
+	handlerteacher "github.com/Shruhath/OD-Amrita/api/internal/handler/teacher"
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
 	corsmw "github.com/Shruhath/OD-Amrita/api/internal/middleware/cors"
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
+	svcteacher "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
 	svcuser "github.com/Shruhath/OD-Amrita/api/internal/service/user"
 	"github.com/Shruhath/OD-Amrita/api/internal/store"
 )
@@ -113,6 +115,8 @@ func run() error {
 	admin.POST("/users/:user_id/sessions/revoke", handleradmin.RevokeSessionsHandler(revSvc))
 	eventSvc := svcevent.NewService(svcevent.NewSQLCReader(pool), st, svcevent.NewSQLCWriter())
 	handlerevent.RegisterAdminRoutes(admin, eventSvc)
+	teacherSvc := svcteacher.NewService(svcteacher.NewSQLCReader(pool), st, svcteacher.NewSQLCWriter())
+	handlerteacher.RegisterAdminRoutes(admin, teacherSvc)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.APIPort,

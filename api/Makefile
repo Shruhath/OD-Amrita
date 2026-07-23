@@ -49,7 +49,7 @@ DATABASE_URL_RUNTIME  ?= postgres://od_runtime:runtime_dev_only_change_me@$(DB_H
 
 # The integration packages share one database and are serialized with -p 1, the
 # same way api-ci runs them.
-INTEGRATION_PKGS := ./test/db/... ./test/store/... ./test/event/... ./test/roundtrip/...
+INTEGRATION_PKGS := ./test/db/... ./test/store/... ./test/event/... ./test/roundtrip/... ./test/teacher/...
 
 .PHONY: build test lint sqlc sqlc-check migrate-up migrate-down run-api run-worker \
         db-up db-down db-reset db-psql db-studio db-studio-down test-integration

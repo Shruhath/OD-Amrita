@@ -10,6 +10,9 @@ export type CreateEventInput = components['schemas']['CreateEventRequest']
 export type CategoryRecord = components['schemas']['Category']
 export type CategoryCollection = components['schemas']['CategoryCollection']
 export type CreateCategoryInput = components['schemas']['CreateCategoryRequest']
+export type TeacherProfile = components['schemas']['TeacherProfile']
+export type TeacherProfileCollection = components['schemas']['TeacherProfileCollection']
+export type CreateTeacherProfileInput = components['schemas']['CreateTeacherProfileRequest']
 export type ValidationError = components['schemas']['ValidationError']
 export type ErrorEnvelope = components['schemas']['Error']
 
@@ -94,6 +97,12 @@ export function createEventApi(session: SessionPort) {
         params: { path: { event_id: eventID } },
         body: input,
       }))
+    },
+    async teachers(page = 1, pageSize = 20) {
+      return unwrap(await client.GET('/api/v1/admin/teachers', { params: { query: { page, page_size: pageSize } } }))
+    },
+    async createTeacher(input: CreateTeacherProfileInput) {
+      return unwrap(await client.POST('/api/v1/admin/teachers', { body: input }))
     },
   }
 }

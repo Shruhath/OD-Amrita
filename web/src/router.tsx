@@ -1,6 +1,7 @@
 import { createBrowserRouter, createMemoryRouter, Navigate } from 'react-router-dom'
 import EventsRoute from './routes/portal/events/EventsRoute'
 import EventDetailRoute from './routes/portal/events/EventDetailRoute'
+import TeachersRoute from './routes/portal/teachers/TeachersRoute'
 
 const routes = [
   { path: '/portal/events', Component: EventsRoute },
@@ -8,6 +9,7 @@ const routes = [
   // 2.8 (per-event credit configuration) both need this route, which is why the
   // categories live here rather than in an expandable list row.
   { path: '/portal/events/:event_id', Component: EventDetailRoute },
+  { path: '/portal/teachers', Component: TeachersRoute },
   { path: '*', element: <Navigate to="/portal/events" replace /> },
 ]
 

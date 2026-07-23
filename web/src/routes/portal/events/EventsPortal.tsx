@@ -45,6 +45,10 @@ export default function EventsPortal() {
           <span className="brand-mark" aria-hidden="true">OD</span>
           <span className="brand-name">OD-Amrita</span>
         </div>
+        <nav className="portal-nav" aria-label="Administration sections">
+          <Link to="/portal/events" aria-current="page">Events</Link>
+          <Link to="/portal/teachers">Teachers</Link>
+        </nav>
         <div className="account-actions">
           <span>{identity?.name ?? identity?.email}</span>
           <button className="text-button" type="button" onClick={() => void signOut()}>Sign out</button>

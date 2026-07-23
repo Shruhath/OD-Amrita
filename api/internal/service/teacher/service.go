@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -149,6 +150,9 @@ func (s *Service) Create(ctx context.Context, actor Actor, input CreateInput) (T
 	email := strings.TrimSpace(input.Email)
 	if email == "" {
 		return TeacherProfile{}, validation("email", "required", "Email is required.")
+	}
+	if utf8.RuneCountInString(email) > 320 {
+		return TeacherProfile{}, validation("email", "maximum", "Email must not exceed 320 characters.")
 	}
 	branchIDs, err := validateBranchIDs(input.BranchIDs)
 	if err != nil {

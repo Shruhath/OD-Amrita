@@ -8,6 +8,7 @@ package teacher
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -50,6 +51,13 @@ var teacherRejections = []teacherRejection{
 		wantCode:   "VALIDATION_FAILED",
 		wantField:  "email",
 		wantDetail: "required",
+		wantStatus: 400,
+	},
+	{
+		name:       "an email over the contract's 320-character maximum is rejected before any lookup",
+		wantCode:   "VALIDATION_FAILED",
+		wantField:  "email",
+		wantDetail: "maximum",
 		wantStatus: 400,
 	},
 	{
@@ -146,6 +154,7 @@ func TestTeacherRejectionMatrixIsInternallyCoherent(t *testing.T) {
 	// before a transaction opens" property this story's whole design rests on.
 	wantOrder := []string{
 		"blank email is rejected before anything else is consulted",
+		"an email over the contract's 320-character maximum is rejected before any lookup",
 		"empty branch_ids is rejected before any lookup",
 		"more than 100 branch_ids is rejected",
 		"a non-UUID branch id is a field error, never a 500",
@@ -266,6 +275,8 @@ func TestTeacherCreateRejectsEveryInvalidRequestBeforeOpeningATransaction(t *tes
 			switch tc.name {
 			case "blank email is rejected before anything else is consulted":
 				input.Email = "   "
+			case "an email over the contract's 320-character maximum is rejected before any lookup":
+				input.Email = strings.Repeat("a", 310) + "@amrita.edu" // 321 runes
 			case "empty branch_ids is rejected before any lookup":
 				input.BranchIDs = nil
 			case "more than 100 branch_ids is rejected":

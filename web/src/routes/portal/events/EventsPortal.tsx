@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Branch, CreateEventInput, EventRecord, ValidationError } from '../../../api/client'
 import { ApiFailure } from '../../../api/client'
 import { useAuth } from '../../../features/auth/context'
+import { formatDate, messageOf, titleCase } from './format'
 
 const branchKey = ['admin', 'branches'] as const
 const eventKeyRoot = ['admin', 'events', 'all'] as const
@@ -43,6 +45,10 @@ export default function EventsPortal() {
           <span className="brand-mark" aria-hidden="true">OD</span>
           <span className="brand-name">OD-Amrita</span>
         </div>
+        <nav className="portal-nav" aria-label="Administration sections">
+          <Link to="/portal/events" aria-current="page">Events</Link>
+          <Link to="/portal/teachers">Teachers</Link>
+        </nav>
         <div className="account-actions">
           <span>{identity?.name ?? identity?.email}</span>
           <button className="text-button" type="button" onClick={() => void signOut()}>Sign out</button>
@@ -94,7 +100,7 @@ export default function EventsPortal() {
                 <tbody>
                   {eventData.map((event) => (
                     <tr key={event.id} className={event.status === 'archived' ? 'archived-row' : undefined}>
-                      <th scope="row">{event.name}</th>
+                      <th scope="row"><Link to={`/portal/events/${event.id}`}>{event.name}</Link></th>
                       <td>{formatDate(event.event_date)}</td>
                       <td><div className="branch-list">{event.branches.map((branch) => <span className="branch-chip" key={branch.id}>{branch.name} <small>{branch.code}</small></span>)}</div></td>
                       <td><span className={`status-badge ${event.status}`}><span aria-hidden="true">{event.status === 'active' ? '●' : '✓'}</span><span>{titleCase(event.status)}</span></span></td>
@@ -253,18 +259,6 @@ function Dialog({ title, onClose, initialFocus, children }: { title: string; onC
 function ErrorState({ message, retry }: { message: string; retry(): void }) {
   return <div className="notice error" role="alert"><span>{message}</span><button type="button" onClick={retry}>Try again</button></div>
 }
-
-function messageOf(cause: unknown, fallback: string) {
-  if (cause instanceof ApiFailure) return cause.body.message
-  return cause instanceof Error && cause.message ? cause.message : fallback
-}
-
-function formatDate(value: string) {
-  const [year, month, day] = value.split('-').map(Number)
-  return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(year ?? 0, (month ?? 1) - 1, day ?? 1))
-}
-
-function titleCase(value: string) { return value.charAt(0).toUpperCase() + value.slice(1) }
 
 function orderedEvents(events: EventRecord[]) {
   return [...events].sort((left, right) =>

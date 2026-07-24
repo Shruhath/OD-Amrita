@@ -30,15 +30,26 @@ type fakeService struct {
 	event       eventsvc.Event
 	err         error
 	createCalls int
+	getCalls    int
 }
 
 func (f *fakeService) Branches(context.Context) ([]eventsvc.Branch, error) { return f.branches, f.err }
 func (f *fakeService) List(context.Context, eventsvc.ListInput) (eventsvc.Page, error) {
 	return f.page, f.err
 }
+func (f *fakeService) Get(context.Context, eventsvc.Actor, string) (eventsvc.Event, error) {
+	f.getCalls++
+	return f.event, f.err
+}
 func (f *fakeService) Create(context.Context, eventsvc.Actor, eventsvc.CreateInput) (eventsvc.Event, error) {
 	f.createCalls++
 	return f.event, f.err
+}
+func (f *fakeService) ListCategories(context.Context, eventsvc.Actor, string) ([]eventsvc.Category, error) {
+	return nil, f.err
+}
+func (f *fakeService) CreateCategory(context.Context, eventsvc.Actor, eventsvc.CreateCategoryInput) (eventsvc.Category, error) {
+	return eventsvc.Category{}, f.err
 }
 func (f *fakeService) Archive(context.Context, eventsvc.Actor, string) (eventsvc.Event, error) {
 	return f.event, f.err
@@ -67,12 +78,50 @@ func TestHandlersReturnGeneratedSuccessShapes(t *testing.T) {
 		{http.MethodGet, "/branches", "", http.StatusOK},
 		{http.MethodGet, "/events", "", http.StatusOK},
 		{http.MethodPost, "/events", `{"name":"Innovation Day","event_date":"2026-08-15","branch_ids":["` + branchID + `"]}`, http.StatusCreated},
+		{http.MethodGet, "/events/" + eventID, "", http.StatusOK},
 		{http.MethodPost, "/events/" + eventID + "/archive", "", http.StatusOK},
 	} {
 		recorder := request(router, tc.method, tc.path, tc.body)
 		if recorder.Code != tc.status {
 			t.Errorf("%s %s status=%d body=%s", tc.method, tc.path, recorder.Code, recorder.Body.String())
 		}
+	}
+}
+
+// The item read is the endpoint that replaced a client-side scan of the
+// paginated collection, so its two failure shapes matter as much as its success:
+// a malformed id must be a field error, and an unknown id must be the canonical
+// 404 — never the "not on this page" silence the portal used to render.
+func TestGetEventHandlerRendersTheGeneratedEventAndItsFailureShapes(t *testing.T) {
+	eventID := uuid.NewString()
+	branchID := uuid.NewString()
+	svc := &fakeService{event: eventsvc.Event{
+		ID: eventID, Name: "Innovation Day", EventDate: "2026-08-15", Status: eventsvc.StatusActive,
+		Branches:  []eventsvc.Branch{{ID: branchID, Code: "CSE", Name: "Computer Science"}},
+		CreatedAt: time.Date(2026, 7, 20, 3, 0, 0, 0, time.UTC),
+	}}
+
+	recorder := request(eventRouter(svc), http.MethodGet, "/events/"+eventID, "")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s, want 200", recorder.Code, recorder.Body.String())
+	}
+	var found contracts.Event
+	if err := json.Unmarshal(recorder.Body.Bytes(), &found); err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+	if found.Id.String() != eventID || found.Name != "Innovation Day" {
+		t.Errorf("event = %#v, want the requested event", found)
+	}
+	if len(found.Branches) != 1 {
+		t.Errorf("branches = %#v, want the event's branch associations", found.Branches)
+	}
+
+	notFound := &fakeService{err: domain.DomainError{
+		Code: contracts.ErrorCodeEVENTNOTFOUND, Message: "Event not found.",
+	}}
+	recorder = request(eventRouter(notFound), http.MethodGet, "/events/"+uuid.NewString(), "")
+	if recorder.Code != http.StatusNotFound {
+		t.Errorf("unknown id status = %d body = %s, want 404", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -209,6 +258,7 @@ func eventRouter(svc Service) *gin.Engine {
 	router.GET("/branches", ListBranchesHandler(svc))
 	router.GET("/events", ListEventsHandler(svc))
 	router.POST("/events", CreateEventHandler(svc))
+	router.GET("/events/:event_id", GetEventHandler(svc))
 	router.POST("/events/:event_id/archive", ArchiveEventHandler(svc))
 	return router
 }

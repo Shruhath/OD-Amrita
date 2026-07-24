@@ -46,19 +46,33 @@ func (e DomainError) Error() string {
 //     state (same family as SCAN_DUPLICATE's 409).
 //   - CARD_NOT_RECOGNIZED  -> 422: the token is well-formed but maps to no known
 //     card — semantically unprocessable rather than syntactically malformed (400).
+//   - EVENT_ARCHIVED       -> 409: the request is well-formed and authorized, but
+//     the event aggregate is closed and accepts no further child writes. Same
+//     state-conflict family as SCAN_DUPLICATE/SLOT_CLOSED, and deliberately
+//     distinct from EVENT_NOT_FOUND's 404 — "the id is wrong" and "the aggregate
+//     is closed" are different answers the portal branches on differently.
+//   - USER_NOT_FOUND        -> 404: no `users` row matches the supplied email
+//     (Story 2.3). Teacher-profile creation elevates an existing identity; there
+//     is genuinely no prior code for "no such user".
+//   - ROLE_ALREADY_ASSIGNED -> 409: the user already holds a non-student role.
+//     Same state-conflict family as EVENT_ARCHIVED/SCAN_DUPLICATE, not reused
+//     from EVENT_ARCHIVED because it is a distinct aggregate/state.
 var codeToStatus = map[contracts.ErrorCode]int{
-	contracts.ErrorCodeAUTHDOMAINREJECTED: 403,
-	contracts.ErrorCodeAUTHTOKENINVALID:   401,
-	contracts.ErrorCodeRBACFORBIDDEN:      403,
-	contracts.ErrorCodeSCANDUPLICATE:      409,
-	contracts.ErrorCodeSLOTCLOSED:         409,
-	contracts.ErrorCodeCARDNOTRECOGNIZED:  422,
-	contracts.ErrorCodeQRLIMITREACHED:     429,
-	contracts.ErrorCodeRATELIMITED:        429,
-	contracts.ErrorCodeINVALIDSCANID:      400,
-	contracts.ErrorCodeVALIDATIONFAILED:   400,
-	contracts.ErrorCodeEVENTNOTFOUND:      404,
-	contracts.ErrorCodeINTERNAL:           500,
+	contracts.ErrorCodeAUTHDOMAINREJECTED:  403,
+	contracts.ErrorCodeAUTHTOKENINVALID:    401,
+	contracts.ErrorCodeRBACFORBIDDEN:       403,
+	contracts.ErrorCodeSCANDUPLICATE:       409,
+	contracts.ErrorCodeSLOTCLOSED:          409,
+	contracts.ErrorCodeCARDNOTRECOGNIZED:   422,
+	contracts.ErrorCodeQRLIMITREACHED:      429,
+	contracts.ErrorCodeRATELIMITED:         429,
+	contracts.ErrorCodeINVALIDSCANID:       400,
+	contracts.ErrorCodeVALIDATIONFAILED:    400,
+	contracts.ErrorCodeEVENTNOTFOUND:       404,
+	contracts.ErrorCodeEVENTARCHIVED:       409,
+	contracts.ErrorCodeUSERNOTFOUND:        404,
+	contracts.ErrorCodeROLEALREADYASSIGNED: 409,
+	contracts.ErrorCodeINTERNAL:            500,
 }
 
 // HTTPStatus returns the HTTP status for a domain error code. An unknown or

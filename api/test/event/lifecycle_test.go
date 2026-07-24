@@ -4,6 +4,7 @@ package eventtest
 
 import (
 	"context"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -178,14 +179,33 @@ func isolatedEventDatabase(t *testing.T, ctx context.Context) (*pgxpool.Pool, *p
 	return migrator, runtime
 }
 
+// databaseDSN re-points a DSN at a different database on the same server.
+//
+// It rewrites the URL PATH rather than going through pgxpool.ParseConfig: that
+// type's ConnString() returns the string it was originally parsed from and
+// ignores any mutation of ConnConfig.Database, so the obvious-looking
+// parse-mutate-serialize version silently returned the ORIGINAL dsn. Every
+// "isolated" database was therefore created, never connected to, and dropped
+// empty while the test ran against the shared one — which is why two tests that
+// each seed a 'CSE' branch collided the moment a second caller appeared.
 func databaseDSN(t *testing.T, base, database string) string {
 	t.Helper()
-	config, err := pgxpool.ParseConfig(base)
+	parsed, err := url.Parse(base)
 	if err != nil {
 		t.Fatalf("parse database DSN: %v", err)
 	}
-	config.ConnConfig.Database = database
-	return config.ConnString()
+	parsed.Path = "/" + database
+	dsn := parsed.String()
+
+	// Fail loudly rather than silently running against the wrong database again.
+	config, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatalf("re-parse rewritten DSN: %v", err)
+	}
+	if config.ConnConfig.Database != database {
+		t.Fatalf("rewritten DSN targets database %q, want %q", config.ConnConfig.Database, database)
+	}
+	return dsn
 }
 
 func connectPool(t *testing.T, ctx context.Context, dsn, label string) *pgxpool.Pool {

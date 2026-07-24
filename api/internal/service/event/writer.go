@@ -16,6 +16,7 @@ type eventWriteQueries interface {
 	CreateEvent(context.Context, sqlc.CreateEventParams) (sqlc.CreateEventRow, error)
 	AddEventBranch(context.Context, sqlc.AddEventBranchParams) (int64, error)
 	ArchiveEvent(context.Context, sqlc.ArchiveEventParams) (pgtype.UUID, error)
+	CreateCategory(context.Context, sqlc.CreateCategoryParams) (sqlc.CreateCategoryRow, error)
 }
 
 type queryFactory func(pgx.Tx) eventWriteQueries
@@ -81,6 +82,24 @@ func (w *SQLCWriter) Archive(ctx context.Context, tx pgx.Tx, eventID, actorID uu
 		return false, nil
 	}
 	return false, err
+}
+
+// CreateCategory inserts one category on the audited transaction and returns the
+// row the database actually wrote — id and created_at are server-assigned, so
+// the caller must never synthesize them.
+func (w *SQLCWriter) CreateCategory(ctx context.Context, tx pgx.Tx, input CreateCategoryWrite) (Category, bool, error) {
+	row, err := w.queries(tx).CreateCategory(ctx, sqlc.CreateCategoryParams{
+		EventID: dbUUID(input.EventID),
+		Name:    input.Name,
+	})
+	if err != nil {
+		return Category{}, false, err
+	}
+	category, mapErr := mapCategory(row.ID, row.EventID, row.Name, row.CreatedAt)
+	if mapErr != nil {
+		return Category{}, false, mapErr
+	}
+	return category, true, nil
 }
 
 func dbUUID(id uuid.UUID) pgtype.UUID {

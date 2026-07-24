@@ -76,6 +76,50 @@ func (r *SQLCReader) ListEvents(ctx context.Context, input ListInput) ([]Event, 
 	return events, total, nil
 }
 
+// EventStatus reuses the existing GetEventMutationStatus query rather than
+// adding a second status lookup.
+func (r *SQLCReader) EventStatus(ctx context.Context, id uuid.UUID) (Status, error) {
+	status, err := r.queries.GetEventMutationStatus(ctx, dbUUID(id))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrEventNotFound
+		}
+		return "", err
+	}
+	if status != string(StatusActive) && status != string(StatusArchived) {
+		return "", fmt.Errorf("event: row contains invalid status %q", status)
+	}
+	return Status(status), nil
+}
+
+func (r *SQLCReader) ListCategories(ctx context.Context, eventID uuid.UUID) ([]Category, error) {
+	rows, err := r.queries.ListCategoriesByEvent(ctx, dbUUID(eventID))
+	if err != nil {
+		return nil, err
+	}
+	categories := make([]Category, 0, len(rows))
+	for _, row := range rows {
+		category, mapErr := mapCategory(row.ID, row.EventID, row.Name, row.CreatedAt)
+		if mapErr != nil {
+			return nil, mapErr
+		}
+		categories = append(categories, category)
+	}
+	return categories, nil
+}
+
+func mapCategory(id, eventID pgtype.UUID, name string, createdAt pgtype.Timestamptz) (Category, error) {
+	if !id.Valid || !eventID.Valid || !createdAt.Valid {
+		return Category{}, errors.New("event: category row contains invalid required values")
+	}
+	return Category{
+		ID:        uuid.UUID(id.Bytes).String(),
+		EventID:   uuid.UUID(eventID.Bytes).String(),
+		Name:      name,
+		CreatedAt: createdAt.Time,
+	}, nil
+}
+
 func pageOffset(total int64, page, pageSize int) (int64, bool) {
 	if total <= 0 || page < 1 || pageSize < 1 {
 		return 0, false

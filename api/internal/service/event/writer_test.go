@@ -14,13 +14,17 @@ import (
 )
 
 type fakeWriteQueries struct {
-	created      sqlc.CreateEventRow
-	createErr    error
-	branchRows   int64
-	branchErr    error
-	archivedID   pgtype.UUID
-	archiveErr   error
-	branchWrites int
+	created         sqlc.CreateEventRow
+	createErr       error
+	branchRows      int64
+	branchErr       error
+	archivedID      pgtype.UUID
+	archiveErr      error
+	branchWrites    int
+	category        sqlc.CreateCategoryRow
+	categoryErr     error
+	categoryWrites  int
+	categoryLastArg sqlc.CreateCategoryParams
 }
 
 func (f *fakeWriteQueries) CreateEvent(context.Context, sqlc.CreateEventParams) (sqlc.CreateEventRow, error) {
@@ -34,6 +38,56 @@ func (f *fakeWriteQueries) AddEventBranch(context.Context, sqlc.AddEventBranchPa
 
 func (f *fakeWriteQueries) ArchiveEvent(context.Context, sqlc.ArchiveEventParams) (pgtype.UUID, error) {
 	return f.archivedID, f.archiveErr
+}
+
+func (f *fakeWriteQueries) CreateCategory(_ context.Context, arg sqlc.CreateCategoryParams) (sqlc.CreateCategoryRow, error) {
+	f.categoryWrites++
+	f.categoryLastArg = arg
+	return f.category, f.categoryErr
+}
+
+// TestSQLCWriterCreateCategoryReturnsTheRowTheDatabaseWrote pins that the id and
+// timestamp come from RETURNING rather than being synthesized client-side: a
+// synthesized id would name a row the ledger could never be joined to.
+func TestSQLCWriterCreateCategoryReturnsTheRowTheDatabaseWrote(t *testing.T) {
+	categoryID := uuid.New()
+	eventID := uuid.New()
+	createdAt := time.Date(2026, 7, 21, 3, 0, 0, 0, time.UTC)
+	queries := &fakeWriteQueries{category: sqlc.CreateCategoryRow{
+		ID:        dbUUID(categoryID),
+		EventID:   dbUUID(eventID),
+		Name:      "Procession",
+		CreatedAt: pgtype.Timestamptz{Time: createdAt, Valid: true},
+	}}
+	writer := newSQLCWriter(func(pgx.Tx) eventWriteQueries { return queries })
+
+	got, changed, err := writer.CreateCategory(context.Background(), nil, CreateCategoryWrite{
+		EventID: eventID, Name: "Procession",
+	})
+	if err != nil || !changed {
+		t.Fatalf("CreateCategory = (%#v, %v, %v), want the inserted row", got, changed, err)
+	}
+	if got.ID != categoryID.String() || got.EventID != eventID.String() || !got.CreatedAt.Equal(createdAt) {
+		t.Errorf("category = %#v, want the RETURNING values", got)
+	}
+	if queries.categoryLastArg.Name != "Procession" {
+		t.Errorf("persisted name = %q, want the normalized name", queries.categoryLastArg.Name)
+	}
+}
+
+func TestSQLCWriterCreateCategorySurfacesTheDatabaseError(t *testing.T) {
+	// The 23505/55000 mapping lives in the service; the writer must hand the
+	// driver error through unwrapped so errors.As can still reach *pgconn.PgError.
+	boom := errors.New("insert failed")
+	queries := &fakeWriteQueries{categoryErr: boom}
+	writer := newSQLCWriter(func(pgx.Tx) eventWriteQueries { return queries })
+
+	_, changed, err := writer.CreateCategory(context.Background(), nil, CreateCategoryWrite{
+		EventID: uuid.New(), Name: "Procession",
+	})
+	if !errors.Is(err, boom) || changed {
+		t.Fatalf("CreateCategory = (%v, %v), want the raw error and changed=false", changed, err)
+	}
 }
 
 func TestSQLCWriterCreateUsesReturningAndEveryAssociation(t *testing.T) {

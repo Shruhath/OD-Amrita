@@ -5,6 +5,13 @@ name: web-deploy
 
 on:
   push:
+    # Branches only. A tag push points at a commit these jobs have ALREADY passed
+    # on its branch and again on main, so re-running the full matrix for the tag
+    # buys nothing and was costing ~9 minutes of the private-repo Actions budget
+    # per release. Restricting to branches excludes tag refs; drop this line once
+    # the repo is public and minutes are unmetered.
+    branches:
+      - "**"
     paths:
       - "web/**"
       - "api/**"
@@ -110,14 +117,89 @@ jobs:
       - name: Browser persistence and authorization journey
         run: pnpm --filter od-amrita-web test:e2e:integration
       - name: Verify event audit conservation
+        # Scoped to ONE event id, matched by prefix: the journey suffixes its
+        # fixture name per run so repeated runs cannot leave two identically
+        # named events behind, and a count across every match would then read as
+        # a conservation failure caused by the feature rather than the fixture.
         run: |
+          event_id="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT id FROM events
+            WHERE name LIKE 'Browser Persisted Event%'
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1")"
+          if [ -z "$event_id" ]; then
+            echo "the browser journey did not create its fixture event"
+            exit 1
+          fi
           count="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
             SELECT count(*)
             FROM audit_log AS audit
-            JOIN events AS event ON audit.target_id = event.id::text
-            WHERE event.name = 'Browser Persisted Event'
+            WHERE audit.target_id = '$event_id'
               AND audit.action IN ('event.created', 'event.archived')")"
           [ "$count" = "2" ] || {
-            echo "expected exactly two event audit rows, got $count"
+            echo "expected exactly two event audit rows for event $event_id, got $count"
+            exit 1
+          }
+      - name: Verify category audit conservation
+        # Separate from the assertion above rather than loosening it: a
+        # category.created row targets the categories table and can never match
+        # a join against events.id.
+        #
+        # The journey adds exactly two categories and then attempts a duplicate,
+        # which must contribute NOTHING. Asserting categories == audit rows == 2
+        # is the conservation property end to end, through the browser.
+        #
+        # Scoped to ONE event id rather than to every event sharing the fixture
+        # name. events.name carries no unique constraint and the journey creates
+        # its event through the UI, so a Playwright retry or a second local run
+        # leaves two identically-named events behind — and a name-filtered count
+        # then reports 4 and fails as an "audit conservation" error, pointing at
+        # the feature instead of at the duplicate fixture.
+        run: |
+          event_id="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT id FROM events
+            WHERE name LIKE 'Browser Category Event%'
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1")"
+          if [ -z "$event_id" ]; then
+            echo "the browser journey did not create its fixture event"
+            exit 1
+          fi
+          categories="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT count(*) FROM categories WHERE event_id = '$event_id'")"
+          audits="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT count(*)
+            FROM audit_log AS audit
+            JOIN categories AS category ON audit.target_id = category.id::text
+            WHERE category.event_id = '$event_id'
+              AND audit.action = 'category.created'
+              AND audit.target_table = 'categories'")"
+          [ "$categories" = "2" ] && [ "$audits" = "2" ] || {
+            echo "expected two categories and two category.created rows for event $event_id, got $categories and $audits"
+            exit 1
+          }
+      - name: Verify teacher audit conservation
+        # The fixture is a STABLE, non-suffixed email (unlike the events/
+        # categories fixtures above): D2 makes a repeat elevation a 409 that
+        # writes nothing, so a long-lived harness must be able to re-run this
+        # journey indefinitely while the audit row count for that one user
+        # stays at exactly 1 forever — never accumulating across CI runs and
+        # never zero once the first run has landed it.
+        run: |
+          user_id="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT id FROM users
+            WHERE lower(email) = 'teacher-fixture-student@amrita.edu' AND role = 'teacher'")"
+          if [ -z "$user_id" ]; then
+            echo "the browser journey did not elevate its fixture user"
+            exit 1
+          fi
+          count="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT count(*)
+            FROM audit_log AS audit
+            WHERE audit.target_id = '$user_id'
+              AND audit.action = 'teacher.profile_created'
+              AND audit.target_table = 'users'")"
+          [ "$count" = "1" ] || {
+            echo "expected exactly one teacher.profile_created audit row for user $user_id, got $count"
             exit 1
           }

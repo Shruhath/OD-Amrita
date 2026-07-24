@@ -1,8 +1,10 @@
 # Admin portal operations
 
-The web portal serves the authenticated event administration route at
-`/portal/events`. It uses Supabase only to broker Microsoft sign-in and obtain a
-session JWT; all authorization and event data decisions remain server-side.
+The web portal serves the authenticated event administration routes at
+`/portal/events` (the events list), `/portal/events/:event_id` (one event and
+its categories), and `/portal/teachers` (the teacher roster). It uses Supabase
+only to broker Microsoft sign-in and obtain a session JWT; all authorization
+and event/teacher data decisions remain server-side.
 
 ## Browser environment
 
@@ -63,6 +65,94 @@ An empty result is a valid but not operationally ready state. The portal reports
 that no branches are available and disables event creation; it does not fall
 back to free-text or browser-owned branch data.
 
+## Event categories
+
+Opening an event from the events list shows the categories it already has and,
+for an active event, a form that adds one category per submission. Categories
+scope coordinators and OD records to a specific activity within an event
+(Procession, Stage Setup, …).
+
+Operational rules an administrator will notice:
+
+- **Create and list only.** There is deliberately no rename, reorder or delete.
+  Categories will be referenced by coordinator assignments, OD records, disputes
+  and tallies, so they carry the same no-hard-delete posture as events. Correcting
+  a mistyped category is not currently possible from the portal.
+- **One at a time.** Several categories are added by repeating the command; the
+  form stays open and refocuses itself.
+- **Unique within the event, not globally.** Names are compared
+  case-insensitively after trimming, so `Procession`, `procession` and
+  `  Procession  ` are the same category. Two different events may each have
+  their own `Procession`. The uniqueness is enforced by a database index, not
+  only by the form, so two administrators adding the same name at the same
+  moment cannot both succeed.
+- **Archiving closes the aggregate.** An archived event keeps showing its
+  categories read-only, and the add form is removed entirely rather than
+  disabled. The API refuses the write with `409 EVENT_ARCHIVED` regardless of
+  what the browser offers, and the database refuses it independently of the API —
+  including against a concurrent archive, because the guard locks the event row
+  it checks rather than reading it and hoping.
+- **If an event is archived while its detail page is open**, the next add is
+  rejected with `409 EVENT_ARCHIVED` and the page re-reads the event, so the add
+  form disappears instead of inviting a retry that can never succeed.
+- **The detail page reads its event by id** (`GET /api/v1/admin/events/{id}`), so
+  it stays correct no matter how many events exist. It does not depend on the
+  event appearing in any particular page of the events list.
+- **Every created category writes one audit row** (`category.created`, target
+  table `categories`) in the same transaction as the category itself. A rejected
+  create writes neither.
+
+Verify the categories of an event as the migrator/database owner:
+
+```sql
+SELECT category.name, category.created_at
+FROM categories AS category
+JOIN events AS event ON event.id = category.event_id
+WHERE event.name = 'YOUR EVENT NAME'
+ORDER BY category.name, category.id;
+```
+
+## Teacher profiles
+
+Opening `/portal/teachers` shows the current teacher roster and a form that
+elevates an already-signed-in user to teacher, associating one or more branches
+in the same request.
+
+Operational rules an administrator will notice:
+
+- **Elevation, not pre-provisioning.** A teacher profile can only be created for
+  an email that already has a `users` row — i.e. someone who has signed in to
+  the portal at least once. `users.supabase_subject` is the sole identity key
+  (`email` is deliberately not unique), so there is no way to create a row ahead
+  of a person's first login. An unknown email is rejected with `404
+  USER_NOT_FOUND`; the operational workaround is to have the teacher sign in
+  once first.
+- **`student -> teacher` only.** A user who is already `admin`, `teacher`, or
+  `coordinator` is rejected with `409 ROLE_ALREADY_ASSIGNED`, including a
+  repeat call for someone already made a teacher. There is no tiered promotion
+  path and no role-reversal endpoint.
+- **Create + list only.** There is no endpoint to edit an existing teacher's
+  branches or to remove a teacher profile once created. Correcting a mistake
+  is not currently possible from the portal.
+- **One request, one audit row.** The role elevation and every branch
+  association from a single request co-commit as exactly one
+  `teacher.profile_created` audit row (target table `users`). A rejected create
+  — unknown email, already-elevated role, unknown branch — writes nothing.
+- **Paginated like events.** The roster scales with institution headcount, so
+  `GET /api/v1/admin/teachers` is paginated (`page`/`page_size`/`total`), unlike
+  the unpaginated branch/category reference data.
+
+Verify a teacher profile as the migrator/database owner:
+
+```sql
+SELECT u.email, u.name, b.code
+FROM users AS u
+JOIN user_branches AS ub ON ub.user_id = u.id
+JOIN branches AS b ON b.id = ub.branch_id
+WHERE u.role = 'teacher'
+ORDER BY u.email, b.code;
+```
+
 ## Verification commands
 
 The default local verification does not require a database:
@@ -84,7 +174,7 @@ and all three DSNs:
 SUPERUSER_DSN='postgres://...' \
 DATABASE_URL_MIGRATOR='postgres://...' \
 DATABASE_URL_RUNTIME='postgres://...' \
-go test -tags integration ./test/event/... -v
+go test -tags integration ./test/event/... ./test/teacher/... -v
 ```
 
 CI supplies these values and executes this suite after bootstrapping the roles.
@@ -93,3 +183,21 @@ with two branches, reload, archive it, reload again, and confirm one
 `event.created` plus one `event.archived` audit row for that event. Also call an
 admin event endpoint with a provisioned Student token and confirm `403
 RBAC_FORBIDDEN`.
+
+For the category surface, open an active event, add two categories, repeat one of
+the names in a different case and confirm it is rejected on the name field,
+reload and confirm both survive, then archive the event and confirm the
+categories render read-only with no add control. Confirm exactly two
+`category.created` audit rows exist for that event — the rejected duplicate must
+have contributed none.
+
+For the teacher surface, elevate a seeded student-role user by email and branch,
+reload and confirm it persists, attempt the same email again and confirm a
+`409 ROLE_ALREADY_ASSIGNED` announced on the form, and attempt an unknown email
+and confirm `404 USER_NOT_FOUND`. Confirm exactly one `teacher.profile_created`
+audit row exists for the elevated user — every rejected attempt must have
+contributed none.
+
+This live smoke check has not been run against a deployed environment; the same
+journeys (events, categories, and teacher profiles) are executed against a real
+API and PostgreSQL by the `portal-integration` CI job.

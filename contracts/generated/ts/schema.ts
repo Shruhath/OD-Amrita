@@ -125,6 +125,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/events/{event_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one event by id
+         * @description The item read behind every per-event admin surface. Without it a client has to scan the paginated collection and filter locally, which silently stops working once the event count outgrows one page.
+         */
+        get: operations["getAdminEvent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/events/{event_id}/archive": {
         parameters: {
             query?: never;
@@ -139,6 +159,56 @@ export interface paths {
          * @description Transitions an active event to archived. Repeating the command is an idempotent read: it returns the same resource and creates no audit row.
          */
         post: operations["archiveAdminEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/events/{event_id}/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * List the categories belonging to one event
+         * @description Categories are bounded per-event reference data, so the collection is unpaginated. Results are ordered by name ASC, id ASC. An archived event remains readable — only writing is closed.
+         */
+        get: operations["listAdminEventCategories"];
+        put?: never;
+        /**
+         * Add one category to an event
+         * @description Adds a single category. Several categories are added by repeating the command. Names are compared case-insensitively after trimming and must be unique within the event; a repeat is rejected as a typed field error.
+         */
+        post: operations["createAdminEventCategory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/teachers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List teacher profiles across every branch
+         * @description The teacher roster scales with institution headcount, so results are paginated like events (unlike the bounded branch/category reference data). Results are ordered by email ASC, id ASC.
+         */
+        get: operations["listAdminTeachers"];
+        put?: never;
+        /**
+         * Elevate an existing provisioned user to teacher and associate branches
+         * @description Teacher-profile creation ELEVATES an existing, already-provisioned `users` row (someone who has signed in at least once) — it does not pre-provision an identity that has never logged in. Role elevation and every branch association from one request co-commit as exactly one audit row.
+         */
+        post: operations["createAdminTeacherProfile"];
         delete?: never;
         options?: never;
         head?: never;
@@ -186,6 +256,47 @@ export interface components {
             page_size: number;
             total: number;
         };
+        /** @description An activity within one event (e.g. Procession, Stage Setup). A category has no identity without its event, which is why event_id is part of the resource and the operations are nested under the event. */
+        Category: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            event_id: string;
+            name: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        CreateCategoryRequest: {
+            /** @description Trimmed, nonblank category name. Unique within the event, compared case-insensitively after trimming. */
+            name: string;
+        };
+        /** @description Bounded per-event reference data — deliberately unpaginated, like BranchCollection and unlike EventCollection. */
+        CategoryCollection: {
+            data: components["schemas"]["Category"][];
+        };
+        /** @description A teacher's elevated role plus the branches they are associated with. Reuses BranchSummary rather than a parallel branch shape. */
+        TeacherProfile: {
+            /** Format: uuid */
+            user_id: string;
+            email: string;
+            /** @description Optional — some providers omit a display name. */
+            name?: string | null;
+            branches: components["schemas"]["BranchSummary"][];
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @description The teacher roster scales with institution headcount — paginated like EventCollection, unlike CategoryCollection/BranchCollection. */
+        TeacherProfileCollection: {
+            data: components["schemas"]["TeacherProfile"][];
+            page: number;
+            page_size: number;
+            total: number;
+        };
+        CreateTeacherProfileRequest: {
+            /** @description Email of an existing, already-provisioned users row. Resolved server-side; the request does not pre-provision an identity. */
+            email: string;
+            branch_ids: string[];
+        };
         /** @description Health probe shape — overall service status plus database connectivity. */
         HealthStatus: {
             /**
@@ -205,7 +316,7 @@ export interface components {
              * @description Canonical SCREAMING_SNAKE error code. This enum is the WIRE source of truth; the Go `errors.go` const registry mirrors it. Do not invent free-text codes.
              * @enum {string}
              */
-            code: "AUTH_DOMAIN_REJECTED" | "AUTH_TOKEN_INVALID" | "RBAC_FORBIDDEN" | "SCAN_DUPLICATE" | "SLOT_CLOSED" | "CARD_NOT_RECOGNIZED" | "QR_LIMIT_REACHED" | "RATE_LIMITED" | "INVALID_SCAN_ID" | "VALIDATION_FAILED" | "EVENT_NOT_FOUND" | "INTERNAL";
+            code: "AUTH_DOMAIN_REJECTED" | "AUTH_TOKEN_INVALID" | "RBAC_FORBIDDEN" | "SCAN_DUPLICATE" | "SLOT_CLOSED" | "CARD_NOT_RECOGNIZED" | "QR_LIMIT_REACHED" | "RATE_LIMITED" | "INVALID_SCAN_ID" | "VALIDATION_FAILED" | "EVENT_NOT_FOUND" | "EVENT_ARCHIVED" | "USER_NOT_FOUND" | "ROLE_ALREADY_ASSIGNED" | "INTERNAL";
             /** @description Human-readable message. For diagnostics/display only — branch on `code`. */
             message: string;
             /** @description Optional, freeform context for generic errors. Typed validation failures use ValidationError.details (a typed array) instead. */
@@ -699,6 +810,73 @@ export interface operations {
             };
         };
     };
+    getAdminEvent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The requested event. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Event"];
+                };
+            };
+            /** @description The event id is malformed. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No event exists with the supplied id. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     archiveAdminEvent: {
         parameters: {
             query?: never;
@@ -748,6 +926,290 @@ export interface operations {
             };
             /** @description No event exists with the supplied id. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listAdminEventCategories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every category of the requested event, in server order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CategoryCollection"];
+                };
+            };
+            /** @description The event id is malformed. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No event exists with the supplied id. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createAdminEventCategory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCategoryRequest"];
+            };
+        };
+        responses: {
+            /** @description Category persisted under the event with its audit row. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Category"];
+                };
+            };
+            /** @description Request validation failed with typed field details, including a duplicate name within the same event. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No event exists with the supplied id. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The event is archived. An archived event is a closed aggregate and accepts no child writes (EVENT_ARCHIVED). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listAdminTeachers: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deterministically ordered page of teacher profiles. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeacherProfileCollection"];
+                };
+            };
+            /** @description Invalid pagination value. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createAdminTeacherProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTeacherProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description Role elevated and branch associations persisted atomically. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeacherProfile"];
+                };
+            };
+            /** @description Request validation failed with typed field details. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No `users` row exists for the supplied email (USER_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The user already has a non-student role (ROLE_ALREADY_ASSIGNED). */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

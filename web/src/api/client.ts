@@ -7,6 +7,12 @@ export type Branch = components['schemas']['BranchSummary']
 export type EventRecord = components['schemas']['Event']
 export type EventCollection = components['schemas']['EventCollection']
 export type CreateEventInput = components['schemas']['CreateEventRequest']
+export type CategoryRecord = components['schemas']['Category']
+export type CategoryCollection = components['schemas']['CategoryCollection']
+export type CreateCategoryInput = components['schemas']['CreateCategoryRequest']
+export type TeacherProfile = components['schemas']['TeacherProfile']
+export type TeacherProfileCollection = components['schemas']['TeacherProfileCollection']
+export type CreateTeacherProfileInput = components['schemas']['CreateTeacherProfileRequest']
 export type ValidationError = components['schemas']['ValidationError']
 export type ErrorEnvelope = components['schemas']['Error']
 
@@ -68,6 +74,11 @@ export function createEventApi(session: SessionPort) {
     async events(page = 1, pageSize = 20) {
       return unwrap(await client.GET('/api/v1/admin/events', { params: { query: { status: 'all', page, page_size: pageSize } } }))
     },
+    async event(eventID: string) {
+      return unwrap(await client.GET('/api/v1/admin/events/{event_id}', {
+        params: { path: { event_id: eventID } },
+      }))
+    },
     async create(input: CreateEventInput) {
       return unwrap(await client.POST('/api/v1/admin/events', { body: input }))
     },
@@ -75,6 +86,23 @@ export function createEventApi(session: SessionPort) {
       return unwrap(await client.POST('/api/v1/admin/events/{event_id}/archive', {
         params: { path: { event_id: eventID } },
       }))
+    },
+    async categories(eventID: string) {
+      return unwrap(await client.GET('/api/v1/admin/events/{event_id}/categories', {
+        params: { path: { event_id: eventID } },
+      }))
+    },
+    async createCategory(eventID: string, input: CreateCategoryInput) {
+      return unwrap(await client.POST('/api/v1/admin/events/{event_id}/categories', {
+        params: { path: { event_id: eventID } },
+        body: input,
+      }))
+    },
+    async teachers(page = 1, pageSize = 20) {
+      return unwrap(await client.GET('/api/v1/admin/teachers', { params: { query: { page, page_size: pageSize } } }))
+    },
+    async createTeacher(input: CreateTeacherProfileInput) {
+      return unwrap(await client.POST('/api/v1/admin/teachers', { body: input }))
     },
   }
 }

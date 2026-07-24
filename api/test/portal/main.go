@@ -21,12 +21,14 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/domain"
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
 	handlerevent "github.com/Shruhath/OD-Amrita/api/internal/handler/event"
+	handlerteacher "github.com/Shruhath/OD-Amrita/api/internal/handler/teacher"
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
 	corsmw "github.com/Shruhath/OD-Amrita/api/internal/middleware/cors"
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
+	svcteacher "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
 	svcuser "github.com/Shruhath/OD-Amrita/api/internal/service/user"
 	"github.com/Shruhath/OD-Amrita/api/internal/store"
 )
@@ -37,6 +39,26 @@ const (
 	adminSubject = "portal-admin-subject"
 	studentSub   = "portal-student-subject"
 )
+
+// teacherFixtureEmail is the student-role row the teacher-profile browser
+// journeys elevate (web/tests/integration/teacher-profiles.spec.ts). Reused
+// exactly as-is on every run (no per-run suffix): D2 makes a second elevation
+// of the same user a 409, so seed() resets its role back to 'student' and
+// clears any prior branch associations on every start, matching the spec's
+// own reasoning for why this fixture is stable rather than suffixed.
+const teacherFixtureEmail = "teacher-fixture-student@amrita.edu"
+
+// fixtureEventPrefixes are the events the browser journeys create. seed()
+// removes them (and their children) so a run is repeatable; keep this in step
+// with web/tests/integration/*.spec.ts.
+//
+// These are PREFIXES. The browser journeys suffix these with a
+// per-run token, because events carry no unique name constraint and the specs
+// create their events through the UI: a second run against a long-lived harness
+// would otherwise leave two identically-named events, making the row locators
+// ambiguous and the audit-row counts wrong. Matching on the prefix means seed()
+// still clears every previous run's leftovers.
+var fixtureEventPrefixes = []string{"Browser Persisted Event", "Browser Category Event"}
 
 type fixedVerifier struct{}
 
@@ -73,6 +95,7 @@ func main() {
 	userService := svcuser.NewService(st, nil, svcuser.NewSQLCProvisioner())
 	auditor := svcauth.NewEventAuditor(st)
 	eventService := svcevent.NewService(svcevent.NewSQLCReader(runtimePool), st, svcevent.NewSQLCWriter())
+	teacherService := svcteacher.NewService(svcteacher.NewSQLCReader(runtimePool), st, svcteacher.NewSQLCWriter())
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
@@ -88,10 +111,11 @@ func main() {
 
 	admin := api.Group("/admin")
 	admin.Use(rbac.RequireAdmin(rbac.NewSQLCPrincipalLoader(runtimePool)))
-	admin.GET("/branches", handlerevent.ListBranchesHandler(eventService))
-	admin.GET("/events", handlerevent.ListEventsHandler(eventService))
-	admin.POST("/events", handlerevent.CreateEventHandler(eventService))
-	admin.POST("/events/:event_id/archive", handlerevent.ArchiveEventHandler(eventService))
+	// Shared with cmd/api so this harness can never serve a different admin
+	// route set than production — the divergence that turns a missing route into
+	// a browser-journey 404 that reads as a frontend bug.
+	handlerevent.RegisterAdminRoutes(admin, eventService)
+	handlerteacher.RegisterAdminRoutes(admin, teacherService)
 
 	port := os.Getenv("PORTAL_API_PORT")
 	if port == "" {
@@ -129,15 +153,36 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// Every event the browser journeys create, matched by PREFIX so a previous
+	// run's uniquely-suffixed fixtures are cleared too. Each spec owns a DISTINCT
+	// prefix: two specs sharing one would make the row locators ambiguous and
+	// double the audit-row counts the CI assertions check.
 	if _, err := tx.Exec(ctx, `
 		DELETE FROM event_branches
-		WHERE event_id IN (SELECT id FROM events WHERE name = 'Browser Persisted Event')
-	`); err != nil {
+		WHERE event_id IN (
+			SELECT id FROM events
+			WHERE name LIKE ANY (SELECT prefix || '%' FROM unnest($1::text[]) AS prefix)
+		)
+	`, fixtureEventPrefixes); err != nil {
 		return fmt.Errorf("delete event branches: %w", err)
 	}
+	// categories.event_id is ON DELETE RESTRICT, so an un-cleaned category from a
+	// previous run makes the event delete below fail and the whole harness refuse
+	// to start. This runs as od_migrator, which the archived-event guard exempts,
+	// so it works even after a journey archives its fixture event.
 	if _, err := tx.Exec(ctx, `
-		DELETE FROM events WHERE name = 'Browser Persisted Event'
-	`); err != nil {
+		DELETE FROM categories
+		WHERE event_id IN (
+			SELECT id FROM events
+			WHERE name LIKE ANY (SELECT prefix || '%' FROM unnest($1::text[]) AS prefix)
+		)
+	`, fixtureEventPrefixes); err != nil {
+		return fmt.Errorf("delete categories: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM events
+		WHERE name LIKE ANY (SELECT prefix || '%' FROM unnest($1::text[]) AS prefix)
+	`, fixtureEventPrefixes); err != nil {
 		return fmt.Errorf("delete events: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
@@ -149,6 +194,25 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 		SET email = EXCLUDED.email, name = EXCLUDED.name, role = EXCLUDED.role
 	`, adminSubject, studentSub); err != nil {
 		return fmt.Errorf("upsert users: %w", err)
+	}
+	// The teacher-profile browser journeys elevate this row (student -> teacher).
+	// Reset its role back to student and clear any branch associations from a
+	// previous run FIRST, then upsert — D2 makes a second elevation a 409, so a
+	// stable, re-seeded fixture is what lets the spec re-run cleanly against a
+	// long-lived harness (mirrors why this fixture is NOT suffixed per-run, unlike
+	// the events/categories fixtures above).
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM user_branches WHERE user_id = '92000000-0000-4000-8000-000000000001'
+	`); err != nil {
+		return fmt.Errorf("clear teacher fixture branch associations: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, supabase_subject, email, name, role)
+		VALUES ('92000000-0000-4000-8000-000000000001', 'portal-teacher-fixture-subject', $1, 'Teacher Fixture', 'student')
+		ON CONFLICT (supabase_subject) DO UPDATE
+		SET email = EXCLUDED.email, name = EXCLUDED.name, role = 'student'
+	`, teacherFixtureEmail); err != nil {
+		return fmt.Errorf("upsert teacher fixture user: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO branches (id, code, name)

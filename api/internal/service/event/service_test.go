@@ -33,6 +33,12 @@ func (f *fakeReader) ListEvents(_ context.Context, input ListInput) ([]Event, in
 	f.listIn = input
 	return f.events, f.total, f.err
 }
+func (f *fakeReader) EventStatus(context.Context, uuid.UUID) (Status, error) {
+	return f.event.Status, f.err
+}
+func (f *fakeReader) ListCategories(context.Context, uuid.UUID) ([]Category, error) {
+	return nil, f.err
+}
 
 type fakeWriter struct {
 	createID      uuid.UUID
@@ -50,6 +56,9 @@ func (f *fakeWriter) Create(_ context.Context, _ pgx.Tx, input CreateWrite) (uui
 func (f *fakeWriter) Archive(context.Context, pgx.Tx, uuid.UUID, uuid.UUID) (bool, error) {
 	f.archiveCalls++
 	return f.archiveChange, f.err
+}
+func (f *fakeWriter) CreateCategory(context.Context, pgx.Tx, CreateCategoryWrite) (Category, bool, error) {
+	return Category{}, false, f.err
 }
 
 type fakeAuditStore struct {

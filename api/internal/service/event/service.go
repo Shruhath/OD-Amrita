@@ -73,11 +73,17 @@ type Reader interface {
 	ListBranches(context.Context) ([]Branch, error)
 	GetEvent(context.Context, uuid.UUID) (Event, error)
 	ListEvents(context.Context, ListInput) ([]Event, int64, error)
+	// EventStatus is the lifecycle lookup the category paths need. It returns
+	// ErrEventNotFound for an unknown id, which the service translates into the
+	// canonical 404 — distinct from an archived event's 409.
+	EventStatus(context.Context, uuid.UUID) (Status, error)
+	ListCategories(context.Context, uuid.UUID) ([]Category, error)
 }
 
 type Writer interface {
 	Create(context.Context, pgx.Tx, CreateWrite) (uuid.UUID, bool, error)
 	Archive(context.Context, pgx.Tx, uuid.UUID, uuid.UUID) (bool, error)
+	CreateCategory(context.Context, pgx.Tx, CreateCategoryWrite) (Category, bool, error)
 }
 
 type AuditStore interface {
@@ -126,6 +132,27 @@ func (s *Service) List(ctx context.Context, input ListInput) (Page, error) {
 		return Page{}, err
 	}
 	return Page{Data: events, Page: input.Page, PageSize: input.PageSize, Total: total}, nil
+}
+
+// Get reads one event by id.
+//
+// This is the item read behind every per-event admin surface. Before it existed
+// the portal resolved an event by fetching a page of the collection and filtering
+// locally, which reported a truthful-looking "Event not found" for a real, active
+// event as soon as the event count outgrew one page.
+func (s *Service) Get(ctx context.Context, actor Actor, rawEventID string) (Event, error) {
+	if actor.Role != "admin" {
+		return Event{}, forbidden()
+	}
+	eventID, err := uuid.Parse(rawEventID)
+	if err != nil {
+		return Event{}, validation("event_id", "invalid_format", "Event id must be a UUID.")
+	}
+	event, err := s.reader.GetEvent(ctx, eventID)
+	if errors.Is(err, ErrEventNotFound) {
+		return Event{}, domain.DomainError{Code: contracts.ErrorCodeEVENTNOTFOUND, Message: "Event not found."}
+	}
+	return event, err
 }
 
 func (s *Service) Create(ctx context.Context, actor Actor, input CreateInput) (Event, error) {

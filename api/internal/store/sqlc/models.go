@@ -38,6 +38,14 @@ type Branch struct {
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
+type Category struct {
+	ID        pgtype.UUID        `json:"id"`
+	EventID   pgtype.UUID        `json:"event_id"`
+	Name      string             `json:"name"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Event struct {
 	ID               pgtype.UUID        `json:"id"`
 	Name             string             `json:"name"`
@@ -64,4 +72,10 @@ type User struct {
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 	LastLoginAt     pgtype.Timestamptz `json:"last_login_at"`
+}
+
+type UserBranch struct {
+	UserID    pgtype.UUID        `json:"user_id"`
+	BranchID  pgtype.UUID        `json:"branch_id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }

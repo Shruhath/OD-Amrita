@@ -41,7 +41,21 @@ architecture#Naming-Patterns and architecture#Documentation-&-Enforcement.
   nothing**). Enforced by grants (`db/init/00_roles.sql` + migrations), verified
   by the integration role-denial tests (`api/test/db`).
 - The app **never** connects as `od_migrator`. New tables reach `od_runtime`
-  via `ALTER DEFAULT PRIVILEGES` — do not hand-grant per table.
+  through the `ALTER DEFAULT PRIVILEGES` standing rule set in `0001` — which
+  grants **`SELECT, INSERT, UPDATE` only**. `DELETE` is *not* in the default and
+  must be granted explicitly by the migration that wants it.
+  - This is deliberately **fail-safe**: the default was `SELECT, INSERT, UPDATE,
+    DELETE` until `0007`, which made every no-hard-delete table safe only if its
+    author remembered a `REVOKE` — silent, and in the wrong direction for a
+    project whose posture is no hard deletion of anything OD records reference.
+  - Each migration also **restates its table's grants explicitly** (the
+    belt-and-suspenders pattern `0003` introduced and every table since follows),
+    so the intended access reads at the table and in a schema dump rather than
+    living only in the default-privilege machinery.
+  - `api/test/db/runtime_privileges_test.go` is the guard: it asserts every
+    table's actual `od_runtime` privileges against a declared posture and fails on
+    a table nobody declared, so "may the app delete these rows?" is answered once,
+    in review.
 - Login roles are bootstrapped by a superuser (`db/init/00_roles.sql` — docker
   initdb locally, documented operator step in prod); goose owns schema + grants.
 

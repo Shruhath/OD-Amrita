@@ -26,12 +26,14 @@ import (
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
 	handlerevent "github.com/Shruhath/OD-Amrita/api/internal/handler/event"
 	"github.com/Shruhath/OD-Amrita/api/internal/handler/health"
+	handlerteacher "github.com/Shruhath/OD-Amrita/api/internal/handler/teacher"
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
 	corsmw "github.com/Shruhath/OD-Amrita/api/internal/middleware/cors"
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
+	svcteacher "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
 	svcuser "github.com/Shruhath/OD-Amrita/api/internal/service/user"
 	"github.com/Shruhath/OD-Amrita/api/internal/store"
 )
@@ -109,14 +111,12 @@ func run() error {
 	api.Use(mwauth.RevocationGuard(revChecker))
 	api.GET("/auth/me", handlerauth.MeHandler(userSvc, eventAuditor))
 
-	admin := api.Group("/admin")
-	admin.Use(rbac.RequireAdmin(rbac.NewSQLCPrincipalLoader(pool)))
+	admin := newAdminGroup(api, rbac.NewSQLCPrincipalLoader(pool))
 	admin.POST("/users/:user_id/sessions/revoke", handleradmin.RevokeSessionsHandler(revSvc))
 	eventSvc := svcevent.NewService(svcevent.NewSQLCReader(pool), st, svcevent.NewSQLCWriter())
-	admin.GET("/branches", handlerevent.ListBranchesHandler(eventSvc))
-	admin.GET("/events", handlerevent.ListEventsHandler(eventSvc))
-	admin.POST("/events", handlerevent.CreateEventHandler(eventSvc))
-	admin.POST("/events/:event_id/archive", handlerevent.ArchiveEventHandler(eventSvc))
+	handlerevent.RegisterAdminRoutes(admin, eventSvc)
+	teacherSvc := svcteacher.NewService(svcteacher.NewSQLCReader(pool), st, svcteacher.NewSQLCWriter())
+	handlerteacher.RegisterAdminRoutes(admin, teacherSvc)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.APIPort,
@@ -166,6 +166,21 @@ func run() error {
 // tlsMinVersion maps the configured floor to the crypto/tls constant. config
 // has already validated the value to "1.2" or "1.3", so the floor is never
 // below TLS 1.2 (NFR15).
+// newAdminGroup returns the /admin group with the RBAC guard already attached.
+//
+// It exists as a named seam so the guard can be PROVEN attached. Mounting the
+// admin routes on a group that never had RequireAdmin applied compiles cleanly —
+// RegisterAdminRoutes takes a gin.IRouter, so passing `api` instead of `admin` is
+// a one-token slip that silently serves every admin route to any authenticated
+// caller. Nothing in the handler or rbac package tests can catch that, because
+// each of them builds its own router; only the composition is at risk, so the
+// composition is what gets a test (routes_test.go).
+func newAdminGroup(api *gin.RouterGroup, loader rbac.PrincipalLoader) *gin.RouterGroup {
+	admin := api.Group("/admin")
+	admin.Use(rbac.RequireAdmin(loader))
+	return admin
+}
+
 func tlsMinVersion(v string) uint16 {
 	if v == "1.3" {
 		return tls.VersionTLS13

@@ -22,8 +22,33 @@ import (
 type Service interface {
 	Branches(context.Context) ([]eventsvc.Branch, error)
 	List(context.Context, eventsvc.ListInput) (eventsvc.Page, error)
+	Get(context.Context, eventsvc.Actor, string) (eventsvc.Event, error)
 	Create(context.Context, eventsvc.Actor, eventsvc.CreateInput) (eventsvc.Event, error)
 	Archive(context.Context, eventsvc.Actor, string) (eventsvc.Event, error)
+	ListCategories(context.Context, eventsvc.Actor, string) ([]eventsvc.Category, error)
+	CreateCategory(context.Context, eventsvc.Actor, eventsvc.CreateCategoryInput) (eventsvc.Category, error)
+}
+
+// RegisterAdminRoutes mounts every admin event and category route on an
+// already-guarded group.
+//
+// It exists because the routes were previously hand-wired TWICE — in cmd/api and
+// again in test/portal — and a route added to one but forgotten in the other
+// 404s only in the browser integration job, where it reads as a frontend bug.
+// One registration function means the acceptance harness cannot serve a
+// different route set than production.
+func RegisterAdminRoutes(group gin.IRouter, svc Service) {
+	group.GET("/branches", ListBranchesHandler(svc))
+	group.GET("/events", ListEventsHandler(svc))
+	group.POST("/events", CreateEventHandler(svc))
+	// The item read. Every per-event surface needs it; without it a client has to
+	// scan the paginated collection and filter locally.
+	group.GET("/events/:event_id", GetEventHandler(svc))
+	group.POST("/events/:event_id/archive", ArchiveEventHandler(svc))
+	// Categories are nested under their event: a category has no identity
+	// without one, and nesting makes the lifecycle check fall out of the path.
+	group.GET("/events/:event_id/categories", ListCategoriesHandler(svc))
+	group.POST("/events/:event_id/categories", CreateCategoryHandler(svc))
 }
 
 func ListBranchesHandler(svc Service) gin.HandlerFunc {
@@ -160,6 +185,27 @@ func bindCreateRequest(c *gin.Context, body *contracts.CreateEventRequest) error
 		return requestValidation("$", "invalid_json", "Request body must be valid JSON.")
 	}
 	return nil
+}
+
+func GetEventHandler(svc Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		actor, err := actorFromContext(c)
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		found, err := svc.Get(c.Request.Context(), actor, c.Param("event_id"))
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		response, err := eventContract(found)
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	}
 }
 
 func ArchiveEventHandler(svc Service) gin.HandlerFunc {

@@ -39,18 +39,21 @@ func (e AuthenticatedIdentityRole) Valid() bool {
 
 // Defines values for ErrorCode.
 const (
-	ErrorCodeAUTHDOMAINREJECTED ErrorCode = "AUTH_DOMAIN_REJECTED"
-	ErrorCodeAUTHTOKENINVALID   ErrorCode = "AUTH_TOKEN_INVALID"
-	ErrorCodeCARDNOTRECOGNIZED  ErrorCode = "CARD_NOT_RECOGNIZED"
-	ErrorCodeEVENTNOTFOUND      ErrorCode = "EVENT_NOT_FOUND"
-	ErrorCodeINTERNAL           ErrorCode = "INTERNAL"
-	ErrorCodeINVALIDSCANID      ErrorCode = "INVALID_SCAN_ID"
-	ErrorCodeQRLIMITREACHED     ErrorCode = "QR_LIMIT_REACHED"
-	ErrorCodeRATELIMITED        ErrorCode = "RATE_LIMITED"
-	ErrorCodeRBACFORBIDDEN      ErrorCode = "RBAC_FORBIDDEN"
-	ErrorCodeSCANDUPLICATE      ErrorCode = "SCAN_DUPLICATE"
-	ErrorCodeSLOTCLOSED         ErrorCode = "SLOT_CLOSED"
-	ErrorCodeVALIDATIONFAILED   ErrorCode = "VALIDATION_FAILED"
+	ErrorCodeAUTHDOMAINREJECTED  ErrorCode = "AUTH_DOMAIN_REJECTED"
+	ErrorCodeAUTHTOKENINVALID    ErrorCode = "AUTH_TOKEN_INVALID"
+	ErrorCodeCARDNOTRECOGNIZED   ErrorCode = "CARD_NOT_RECOGNIZED"
+	ErrorCodeEVENTARCHIVED       ErrorCode = "EVENT_ARCHIVED"
+	ErrorCodeEVENTNOTFOUND       ErrorCode = "EVENT_NOT_FOUND"
+	ErrorCodeINTERNAL            ErrorCode = "INTERNAL"
+	ErrorCodeINVALIDSCANID       ErrorCode = "INVALID_SCAN_ID"
+	ErrorCodeQRLIMITREACHED      ErrorCode = "QR_LIMIT_REACHED"
+	ErrorCodeRATELIMITED         ErrorCode = "RATE_LIMITED"
+	ErrorCodeRBACFORBIDDEN       ErrorCode = "RBAC_FORBIDDEN"
+	ErrorCodeROLEALREADYASSIGNED ErrorCode = "ROLE_ALREADY_ASSIGNED"
+	ErrorCodeSCANDUPLICATE       ErrorCode = "SCAN_DUPLICATE"
+	ErrorCodeSLOTCLOSED          ErrorCode = "SLOT_CLOSED"
+	ErrorCodeUSERNOTFOUND        ErrorCode = "USER_NOT_FOUND"
+	ErrorCodeVALIDATIONFAILED    ErrorCode = "VALIDATION_FAILED"
 )
 
 // Valid indicates whether the value is a known member of the ErrorCode enum.
@@ -61,6 +64,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeAUTHTOKENINVALID:
 		return true
 	case ErrorCodeCARDNOTRECOGNIZED:
+		return true
+	case ErrorCodeEVENTARCHIVED:
 		return true
 	case ErrorCodeEVENTNOTFOUND:
 		return true
@@ -74,9 +79,13 @@ func (e ErrorCode) Valid() bool {
 		return true
 	case ErrorCodeRBACFORBIDDEN:
 		return true
+	case ErrorCodeROLEALREADYASSIGNED:
+		return true
 	case ErrorCodeSCANDUPLICATE:
 		return true
 	case ErrorCodeSLOTCLOSED:
+		return true
+	case ErrorCodeUSERNOTFOUND:
 		return true
 	case ErrorCodeVALIDATIONFAILED:
 		return true
@@ -265,6 +274,25 @@ type BranchSummary struct {
 	Name string             `json:"name"`
 }
 
+// Category An activity within one event (e.g. Procession, Stage Setup). A category has no identity without its event, which is why event_id is part of the resource and the operations are nested under the event.
+type Category struct {
+	CreatedAt time.Time          `json:"created_at"`
+	EventId   openapi_types.UUID `json:"event_id"`
+	Id        openapi_types.UUID `json:"id"`
+	Name      string             `json:"name"`
+}
+
+// CategoryCollection Bounded per-event reference data — deliberately unpaginated, like BranchCollection and unlike EventCollection.
+type CategoryCollection struct {
+	Data []Category `json:"data"`
+}
+
+// CreateCategoryRequest defines model for CreateCategoryRequest.
+type CreateCategoryRequest struct {
+	// Name Trimmed, nonblank category name. Unique within the event, compared case-insensitively after trimming.
+	Name string `json:"name"`
+}
+
 // CreateEventRequest defines model for CreateEventRequest.
 type CreateEventRequest struct {
 	BranchIds []openapi_types.UUID `json:"branch_ids"`
@@ -272,6 +300,14 @@ type CreateEventRequest struct {
 
 	// Name Trimmed, nonblank event name.
 	Name string `json:"name"`
+}
+
+// CreateTeacherProfileRequest defines model for CreateTeacherProfileRequest.
+type CreateTeacherProfileRequest struct {
+	BranchIds []openapi_types.UUID `json:"branch_ids"`
+
+	// Email Email of an existing, already-provisioned users row. Resolved server-side; the request does not pre-provision an identity.
+	Email string `json:"email"`
 }
 
 // Error Standard error envelope for all non-2xx responses. Clients branch on `code`, never on `message`.
@@ -401,6 +437,25 @@ type SessionRevocationResult struct {
 	RevocationId string `json:"revocation_id"`
 }
 
+// TeacherProfile A teacher's elevated role plus the branches they are associated with. Reuses BranchSummary rather than a parallel branch shape.
+type TeacherProfile struct {
+	Branches  []BranchSummary `json:"branches"`
+	CreatedAt time.Time       `json:"created_at"`
+	Email     string          `json:"email"`
+
+	// Name Optional — some providers omit a display name.
+	Name   *string            `json:"name,omitempty"`
+	UserId openapi_types.UUID `json:"user_id"`
+}
+
+// TeacherProfileCollection The teacher roster scales with institution headcount — paginated like EventCollection, unlike CategoryCollection/BranchCollection.
+type TeacherProfileCollection struct {
+	Data     []TeacherProfile `json:"data"`
+	Page     int              `json:"page"`
+	PageSize int              `json:"page_size"`
+	Total    int              `json:"total"`
+}
+
 // ValidationError 400 validation error — the error envelope whose `details` is a TYPED array of field-level failures (AC3), not a freeform object.
 type ValidationError struct {
 	// Code Always VALIDATION_FAILED for validation (400) responses.
@@ -442,8 +497,20 @@ type ListAdminEventsParams struct {
 // ListAdminEventsParamsStatus defines parameters for ListAdminEvents.
 type ListAdminEventsParamsStatus string
 
+// ListAdminTeachersParams defines parameters for ListAdminTeachers.
+type ListAdminTeachersParams struct {
+	Page     *int `form:"page,omitempty" json:"page,omitempty"`
+	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+}
+
 // CreateAdminEventJSONRequestBody defines body for CreateAdminEvent for application/json ContentType.
 type CreateAdminEventJSONRequestBody = CreateEventRequest
+
+// CreateAdminEventCategoryJSONRequestBody defines body for CreateAdminEventCategory for application/json ContentType.
+type CreateAdminEventCategoryJSONRequestBody = CreateCategoryRequest
+
+// CreateAdminTeacherProfileJSONRequestBody defines body for CreateAdminTeacherProfile for application/json ContentType.
+type CreateAdminTeacherProfileJSONRequestBody = CreateTeacherProfileRequest
 
 // RevokeUserSessionsJSONRequestBody defines body for RevokeUserSessions for application/json ContentType.
 type RevokeUserSessionsJSONRequestBody = RevokeSessionsRequest

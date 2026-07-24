@@ -5,9 +5,9 @@
 ships and `/health` is live. Confirmed on the dev Neon project (2026-07-11): **Free tier,
 6-hour PITR window, no scheduled snapshots** — see §2.2, this is thinner than assumed and
 needs a plan upgrade before the event. Still open, tracked in §7: the daily `pg_dump` is
-**not scheduled anywhere yet**, no Uptime Robot monitor exists (no deployed URL), and — the
-one that matters most — **no restore drill has been run**. Until that drill happens, this
-document describes a backup nobody has ever restored from.
+**not scheduled anywhere yet**, no Uptime Robot monitor exists yet — though the URL to point it
+at is now known (§4.2) — and, the one that matters most, **no restore drill has been run**.
+Until that drill happens, this document describes a backup nobody has ever restored from.
 **Owner:** Shruhath
 
 > **A code review of the first draft of this runbook (2026-07-11) found that its restore
@@ -22,6 +22,11 @@ document describes a backup nobody has ever restored from.
 > **standard Amrita IT**: no knowledge of the original build is assumed.
 > **No secret values are stored here** — only the names of the settings and where the
 > real values live.
+>
+> **For *deploying* the system** — the Fly and Vercel hosts, the live role bootstrap, the
+> cross-origin wiring and the post-deploy smoke check — see
+> [`docs/deployment-runbook.md`](deployment-runbook.md). The two documents are deliberately
+> not duplicated: that one deploys, this one recovers and observes.
 
 ---
 
@@ -102,7 +107,7 @@ Neon console → **Backup & Restore** (per branch) → *Restore from history* �
 | Plan / tier | **Free** | ✅ 2026-07-11 |
 | **History retention (PITR window)** | **6 hours** — the Free-tier maximum | ✅ 2026-07-11 |
 | Scheduled snapshots (Neon's own) | **None. "No snapshots, no schedule set"** — Neon gates snapshot *schedules* behind a paid plan | ✅ 2026-07-11 |
-| Production app DB | *not yet chosen — hosting deferred* | ☐ (§7) |
+| Production app DB | **the same `Amrita-OD` project** — the deployed API connects to it; there is no separate production project. See [`docs/deployment-runbook.md`](deployment-runbook.md) §3. | ☐ (§7) |
 
 > **⚠️ Read the number above carefully: PITR is 6 hours, not 30 days.** On the Free tier,
 > anything that happened more than **6 hours** ago cannot be recovered by PITR at all, and
@@ -258,17 +263,18 @@ lets an external monitor poll it.
 | Field | Value | Confirmed |
 |---|---|---|
 | Monitor type | **HTTP(s)** (or *Keyword*) | ☐ |
-| URL | `https://<deployed-host>/health` | ☐ |
+| URL | `https://od-amrita-api.fly.dev/health` (the deployed API — see [`docs/deployment-runbook.md`](deployment-runbook.md) §6) | ☐ |
 | Keyword (if keyword monitor) | `ok` — present in the 200 body, absent from the 503 body (`degraded`) | ☐ |
 | Alert condition | Non-200 response (a 503 **must** alert) | ☐ |
 | Monitoring interval | 5 minutes (Uptime Robot free tier) | ☐ |
 | Alert contacts | `______` (Shruhath + at least one Amrita IT contact — a monitor alerting one person who is asleep is not monitoring) | ☐ |
 | Registered on | `______` (date) | ☐ |
 
-> **Blocked on a deployed URL.** Hosting is deferred, so there is no public backend URL to
-> point a monitor at yet. The config above is final; creating the monitor is an operator
-> step (§7). If a staging/tunnel URL exists sooner, register against it and note it here as
-> provisional.
+> **The URL is known; the monitor still has to be created.** The API is deployed to Fly
+> (`od-amrita-api`), so the `<deployed-host>` placeholder this table used to carry is now the
+> origin above — confirm it against §6 of [`docs/deployment-runbook.md`](deployment-runbook.md)
+> after the first deploy, in case a custom domain was added. Creating the monitor and adding
+> the alert contacts remain operator steps (§7).
 
 ---
 
@@ -453,6 +459,14 @@ application's `DATABASE_URL_RUNTIME` — in the environment only, never in a fil
    **`curl: (7) Connection refused` is not a restore failure** — it means you are pointed at
    the wrong port or scheme. Check `API_PORT` before concluding anything about the backup.
 
+   *If you are verifying the **deployed** API rather than a local one, use the packaged check
+   instead — it asserts the same `db:"up"` body plus the transport rule, and exits non-zero
+   rather than leaving you to read the output:*
+   ```bash
+   BASE_URL=https://od-amrita-api.fly.dev api/scripts/smoke.sh
+   ```
+   *See [`docs/deployment-runbook.md`](deployment-runbook.md) §7.*
+
 4. **Record the outcome** in §7's drill log. A restore nobody wrote down is a restore nobody
    can repeat.
 
@@ -470,13 +484,18 @@ elsewhere; point at this runbook.
 ## 7. Operator checklist (human-only steps — tracked, not dropped)
 
 Everything below needs a console, an account, or a human decision. A code agent cannot do
-any of it. Items blocked on the deferred hosting decision are marked **[blocked]** — they
-are tracked here precisely so they are not silently forgotten at deploy time.
+any of it.
+
+> **Hosting is no longer deferred.** The API runs on Fly (`od-amrita-api`, 2× `bom`) and the
+> web surface on Vercel; see [`docs/deployment-runbook.md`](deployment-runbook.md) for the
+> deploy procedure and its own operator checklist. The items below that were previously parked
+> pending a host or a deployed URL now name both. They are **actionable, not done** — a human
+> still has to run every one of them.
 
 **Backup — layer 1 (PITR)**
 - [x] Confirm the **PITR / history-retention window** on the **dev** Neon project and record the plan tier + window in §2.2. *(Done 2026-07-11: project `Amrita-OD`, **Free** tier, **6-hour** window, no scheduled snapshots.)*
 - [ ] **Upgrade the app-DB Neon plan before the event** so the PITR window covers the event **and the days after it** when disputes surface (Free = 6h is not enough; Launch = 7d, Scale = 30d). Record the new window in §2.2.
-- [ ] **[blocked: hosting]** Confirm PITR is enabled at the plan maximum on the **production** app DB once the host is chosen, and record it in §2.2.
+- [ ] Confirm PITR is enabled at the plan maximum on the **production** app DB — the Neon `Amrita-OD` project, which is also the deployed database (there is no separate production project) — and record it in §2.2.
 
 - [ ] Record the **Supabase plan tier** in §2.4. If it is Free, the auth project has no
       built-in backups at all — confirm the reconstructability argument still holds.
@@ -484,11 +503,11 @@ are tracked here precisely so they are not silently forgotten at deploy time.
 **Backup — layer 2 (90-day logical snapshots)**
 - [ ] Create the object-storage bucket for dumps; enable **encryption at rest**; record it in §2.3.
 - [ ] Set a **bucket lifecycle rule to expire objects after 90 days** (the authoritative retention — §2.3).
-- [ ] **[blocked: hosting]** Schedule `api/scripts/pg_backup.sh` daily (cron or CI) against the production DSN, with `BACKUP_UPLOAD_CMD` set, and **alert on non-zero exit**.
+- [ ] Schedule `api/scripts/pg_backup.sh` daily (cron or CI) against the production DSN, with `BACKUP_UPLOAD_CMD` set, and **alert on non-zero exit**. The API host (Fly) runs no cron of its own — use a scheduled workflow or any always-on box that can reach Neon.
 - [ ] Confirm a dump actually lands in the bucket, and that it is non-trivial in size.
 
 **Monitoring**
-- [ ] **[blocked: deployed URL]** Create the **Uptime Robot monitor** against `https://<deployed-host>/health` per §4.2 (alert on non-200 — the 503 must page someone).
+- [ ] Create the **Uptime Robot monitor** against `https://od-amrita-api.fly.dev/health` per §4.2 (alert on non-200 — the 503 must page someone). The URL is known now; registering the monitor is still a human step.
 - [ ] Add a second alert contact besides Shruhath (§4.2).
 
 **The one that actually proves any of this works**
@@ -510,4 +529,4 @@ are tracked here precisely so they are not silently forgotten at deploy time.
 | **D1** | **Back up Neon (app DB); Supabase gets a light posture.** | Supabase is the auth broker; all OD data + the audit ledger are on Neon. Supabase identity is reconstructable from `supabase_subject` in Neon `users` + a re-login. §1, §2.4. |
 | **D2** | **"90-day PITR" = PITR at host max + `pg_dump` @ 90 days.** | No managed host offers 90-day PITR (Neon and Supabase both cap at 30d). Two layers meet the intent; one layer cannot. §2.1. |
 | **D3** | **`/health` is unchanged.** | It already returns system status, and its 503-on-DB-down is the correct readiness signal for the monitor. §4.1. |
-| **D4** | **Hosting-blocked steps are tracked, not held open.** | Uptime Robot registration and prod PITR confirmation cannot be done before hosting exists. They are unchecked boxes in §7, actioned at deploy — rather than stalling the foundation on an external decision. |
+| **D4** | **Hosting-blocked steps are tracked, not held open.** | Uptime Robot registration and prod PITR confirmation could not be done before hosting existed. They stayed unchecked boxes in §7 rather than stalling the foundation on an external decision — and were made actionable once the hosts were chosen (Fly + Vercel + Neon; see [`docs/deployment-runbook.md`](deployment-runbook.md)). They remain unchecked because a human still has to run them. |

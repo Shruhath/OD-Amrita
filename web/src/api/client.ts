@@ -36,6 +36,12 @@ function createAuthorizedFetch(session: SessionPort): typeof fetch {
       const headers = new Headers(request.headers)
       if (token) headers.set('Authorization', `Bearer ${token}`)
       headers.set('Accept', 'application/json')
+      // Pre-production only: while the API is reached through a development
+      // tunnel, the tunnel's free tier answers browser-looking requests with an
+      // HTML interstitial instead of proxying them, which breaks every API call
+      // from the deployed web app. This header opts out of that page. It is inert
+      // against any other host — remove it once the API is on its own domain.
+      headers.set('ngrok-skip-browser-warning', 'true')
       return fetch(new Request(request, { headers }))
     }
 

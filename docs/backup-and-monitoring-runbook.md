@@ -511,13 +511,14 @@ any of it.
 - [ ] Add a second alert contact besides Shruhath (§4.2).
 
 **The one that actually proves any of this works**
-- [ ] **Run one real restore drill** (§5.2 → §5.4): restore a `pg_dump` snapshot into a throwaway database, bootstrap the roles, confirm goose reports schema parity and the API returns `{"status":"ok","db":"up"}` against it. **A documented-but-never-tested restore is not a restore.**
+- [x] **Run one real restore drill** (§5.2 → §5.4): restore a `pg_dump` snapshot into a throwaway database, bootstrap the roles, confirm goose reports schema parity and the API returns `{"status":"ok","db":"up"}` against it. *(Done 2026-07-24 — see the drill log below. **Scope caveat:** the target was a throwaway local Postgres 17 database, not a throwaway Neon project, so the Neon-specific half of §5.3 — bootstrapping as `neondb_owner` on a cluster with no true superuser — was **not** exercised. The procedure, the privilege split and the app-level verification were.)*
 - [ ] Run the PITR restore drill (§5.1) as well, once the production host is settled.
 
 **Drill log** — record every drill here, even the failed ones (especially those):
 
 | Date | Path (PITR / pg_dump) | Restored into | Outcome | Notes |
 |---|---|---|---|---|
+| 2026-07-24 | `pg_dump` (Path B, §5.2) | throwaway local Postgres 17 database `od_amrita_restore` | ✅ **PASS** | Dump 30,005 bytes from a source at schema v8 carrying a seeded `audit_log` row. `pg_restore` exit 0, no ignored errors. Verified: `max(version_id)` = **8**; `audit_log` row count **1** (data came back); 9 public tables. `od_runtime` **could** read the restored data and was **correctly refused** DDL (`permission denied for schema public`) — the privilege split survives a restore. The append-only trigger also survived: `UPDATE`/`DELETE` on `audit_log` both rejected with *"audit_log is append-only"*. Final check per §5.4 step 3: the API booted against the restored database and returned `{"db":"up","status":"ok"}`. **Not exercised:** Neon-specific role bootstrap (no true superuser) and the PITR path. |
 | `______` | `______` | `______` | `______` | `______` |
 
 ---

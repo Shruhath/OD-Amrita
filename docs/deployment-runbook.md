@@ -240,11 +240,36 @@ fails differently and none of them fail at build time.
 
 | Setting | Where it is set | Value used | Confirmed |
 |---|---|---|---|
-| `PORTAL_ALLOWED_ORIGINS` | Fly secret (§4.2) | `______` (the exact Vercel production origin) | ☐ |
-| `VITE_API_BASE_URL` | Vercel env var (§5.3) | `______` (the Fly API origin) | ☐ |
-| Supabase **Redirect URLs** | Supabase console (§6.1) | `______` (`<vercel-origin>/**`) | ☐ |
-| Fly API origin | — | `______` (expected `https://od-amrita-api.fly.dev`) | ☐ |
-| Vercel production origin | — | `______` | ☐ |
+| `PORTAL_ALLOWED_ORIGINS` | Fly secret (§4.2) | `https://od-amrita-web.vercel.app` | ✅ 2026-07-24 (verified: preflight 204 for this origin, 403 for an untrusted one) |
+| `VITE_API_BASE_URL` | Vercel env var (§5.3) | the API origin — **currently the pre-production tunnel**, see §6.3 | ✅ 2026-07-24 |
+| Supabase **Redirect URLs** | Supabase console (§6.1) | `https://od-amrita-web.vercel.app/**` | ☐ |
+| Fly API origin | — | `______` (expected `https://od-amrita-api.fly.dev`) | ☐ not yet deployed |
+| Vercel production origin | — | `https://od-amrita-web.vercel.app` | ✅ 2026-07-24 |
+
+**Vercel project settings in force** (recorded so they can be re-created): project `od-amrita-web`,
+Root Directory `web`, framework preset Vite, **Production Branch `0-event-mvp`**. The production
+branch is *not* the repository default — see the warning in §5 step 2; a deployment built from the
+default branch serves an application without this work and looks like a broken deploy.
+
+### 6.3 ⚠️ Pre-production: the API is on a development tunnel, not Fly
+
+Until the Fly app exists, the API runs **on an operator laptop** behind a development tunnel that
+terminates TLS and forwards to the local container. This is a **testing arrangement only** and is
+deliberately called out because it does **not** meet the production transport posture:
+
+- **NFR15 is not satisfied by the tunnel.** Plain HTTP on a tunnel host is not refused the way §4.1's
+  port-443-only service block refuses it. `api/scripts/smoke.sh` check 2 is therefore expected to be
+  meaningful only once the API is on Fly. Do not read a passing tunnel smoke run as an NFR15 pass.
+- **The web app sends an interstitial opt-out header** on API requests so the tunnel's free tier does
+  not answer browser requests with an HTML page. That header is inert against any other host and
+  **should be removed when the API moves to its own domain**.
+- **The database is a local container, not Neon.** The deployed Neon project is reachable over HTTPS
+  but its Postgres port is blocked from the operator network, so migrations `0004`–`0008` are **not**
+  applied there yet. Applying them (§3) is part of the Fly cutover, from a network that permits 5432.
+
+**Cutover checklist when Fly lands:** deploy per §4 → apply §3 against Neon → set `VITE_API_BASE_URL`
+to the Fly origin → remove the interstitial header → redeploy the web → re-run `smoke.sh` and treat
+its NFR15 check as binding from that point on.
 
 - **Wrong `PORTAL_ALLOWED_ORIGINS`** → the browser blocks every call on CORS. The API is fine;
   `curl` works; only the browser fails. Remember: **exact origin, no trailing slash.**

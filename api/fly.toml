@@ -1,0 +1,86 @@
+# fly.toml — OD-Amrita API on Fly.io.
+#
+# WHAT THIS FILE IS
+#   The host configuration for the always-on API container. It carries config
+#   SHAPE only: every credential (the runtime DSN, the JWKS URL, the bootstrap
+#   admin email, the allowed browser origin) is a Fly SECRET set with
+#   `flyctl secrets set`, never an [env] entry here. See
+#   docs/deployment-runbook.md for the deploy procedure and the operator steps.
+#
+# HOW TO DEPLOY — FROM THE REPOSITORY ROOT, NOT FROM api/
+#   flyctl deploy --config api/fly.toml --dockerfile api/Dockerfile
+#
+#   api/Dockerfile COPYs go.work, api/, contracts/ and test/, so its build
+#   context is the REPO ROOT. A deploy run from inside api/ cannot load the Go
+#   workspace and fails while resolving contracts/generated/go. The explicit
+#   --config/--dockerfile flags are what let the command run from the root.
+
+app = "od-amrita-api"
+primary_region = "bom"
+
+[build]
+  dockerfile = "Dockerfile"
+
+# Non-secret runtime settings only. Anything with a credential in it belongs in
+# `flyctl secrets set` — see the deployment runbook's operator checklist.
+[env]
+  APP_ENV = "production"
+  # 8443 matches the Dockerfile's EXPOSE and the API_PORT default in
+  # api/.env.example, and is what internal_port below forwards to.
+  API_PORT = "8443"
+  # The Fly edge holds the *.fly.dev certificate and terminates TLS; the
+  # container serves plaintext HTTP *behind* that edge. This is the
+  # ingress-terminated mode api/cmd/api/main.go already implements — it logs a
+  # loud "serving PLAINTEXT HTTP" warning in this mode, which is expected and
+  # correct here, not a misconfiguration.
+  TLS_ENABLED = "false"
+  # Stated explicitly even though false is the default: config.Load() refuses to
+  # boot when this is true, naming NFR15. There is no redirect code path in the
+  # API and there must never be one.
+  HTTP_REDIRECT_LISTENER = "false"
+
+# ── NFR15: plain HTTP is REFUSED, not redirected ────────────────────────────
+#
+# DO NOT replace this with [http_service]. Fly's ergonomic default implies a
+# port-80 listener, and its force_https setting answers plain HTTP with a 301
+# REDIRECT. NFR15 requires plain HTTP to be rejected outright — a redirect still
+# accepts the insecure connection and tells the client where to go.
+#
+# The shape below is what enforces that: a single ports entry for 443, and NO
+# port-80 entry at all. With no listener bound on 80, a plain-HTTP request gets
+# a refused connection (curl exit 7) rather than any HTTP response. Adding a
+# port-80 block or a force_https key would silently undo this — api/scripts/smoke.sh
+# checks the live host for exactly that regression.
+[[services]]
+  internal_port = 8443
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  # /health pings the od_runtime pool and answers 200 {"status":"ok","db":"up"}
+  # or 503 {"status":"degraded","db":"down"}.
+  #
+  # FAIL-CLOSED, DELIBERATELY: when Neon is unreachable the check fails and Fly
+  # pulls the machine out of rotation. That is the behaviour we want — a mark
+  # must never be routed to an instance that cannot write it — but it does make
+  # Neon a hard dependency of availability, which is the accepted no-offline
+  # posture. The deployment runbook says so where an operator will read it.
+  #
+  # grace_period covers first boot: pgxpool connects lazily, so a machine needs
+  # a moment to answer db:up. Without it a healthy machine gets killed before it
+  # can ever report healthy.
+  [[services.http_checks]]
+    path = "/health"
+    method = "get"
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "10s"
+
+# Machine size. The COUNT is not expressible here — it is set once at deploy
+# time with `flyctl scale count 2 --region bom` and recorded in the deployment
+# runbook. Two machines is the reliability posture: a single Fly machine is the
+# arrangement this project explicitly rejected.
+[[vm]]
+  size = "shared-cpu-1x"

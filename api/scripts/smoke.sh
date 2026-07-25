@@ -88,10 +88,29 @@ case "$base_url" in
     ;;
 esac
 
-# Host only — scheme stripped, any path dropped. Check 2 has to build the
-# plain-HTTP form of the SAME host.
+# Reject a BASE_URL that carries a path. Check 1 builds "$base_url/health" while
+# check 2 rebuilds the host from scratch, so a path here would make the two
+# checks probe different URLs — and "$base_url/health" could 404 a healthy
+# deploy (e.g. https://host/api -> https://host/api/health). Origin only.
+case "${base_url#https://}" in
+  */*)
+    printf 'smoke.sh: BASE_URL must be an origin with no path, got %s\n' "$base_url" >&2
+    printf '  Pass just the scheme and host, e.g. https://od-amrita-api.fly.dev\n' >&2
+    exit 2
+    ;;
+esac
+
+# Host for check 2's plain-HTTP probe: scheme stripped, and any explicit :port
+# dropped so the probe targets port 80. NFR15 is a claim about port 80 — probing
+# http://host:443 would test the TLS port in cleartext and pass vacuously. A
+# bracketed IPv6 literal keeps its brackets.
 host="${base_url#https://}"
-host="${host%%/*}"
+http_host="$host"
+case "$host" in
+  \[*\]) ;;                        # IPv6 literal, no port — leave it
+  *\]:*) http_host="${host%:*}" ;; # IPv6 literal with a port — drop the port
+  *:*)   http_host="${host%:*}" ;; # host:port — drop the port
+esac
 
 failures=0
 
@@ -135,34 +154,39 @@ else
   esac
 fi
 
-# ── Check 2 — plain HTTP is refused, not redirected (NFR15) ─────────────────
-printf '\nCheck 2: plain HTTP on %s must be REFUSED, not redirected\n' "$host"
+# ── Check 2 — plain HTTP is refused, not answered (NFR15) ───────────────────
+printf '\nCheck 2: plain HTTP on %s must be REFUSED, not answered\n' "$http_host"
 
 http_code=""
 http_exit=0
-http_code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "http://${host}/health" 2>/dev/null) || http_exit=$?
+http_code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "http://${http_host}/health" 2>/dev/null) || http_exit=$?
 
-if [ "$http_exit" -eq 7 ]; then
+if [ "$http_exit" -eq 0 ]; then
+  # curl got an HTTP response, so SOMETHING is listening on port 80 and answered
+  # in cleartext. That fails NFR15 whatever the status: a 200/404/502 accepts and
+  # serves the insecure request exactly as a 301/308 redirect accepts it. Only a
+  # refused or unanswered connection passes.
+  case "$http_code" in
+    3??)
+      fail "plain HTTP was REDIRECTED with $http_code — NFR15 forbids a redirect; it still accepts the insecure connection before pointing at the secure one."
+      ;;
+    *)
+      fail "plain HTTP was ANSWERED with $http_code — something is listening on port 80. NFR15 requires plain HTTP to hit NO listener and be refused."
+      ;;
+  esac
+  printf '        Check api/fly.toml (§4.1): a port-80 entry, a plain http handler, or force_https has been re-added.\n' >&2
+elif [ "$http_exit" -eq 7 ]; then
   # The expected result with the port-443-only service block: nothing is
   # listening on 80, so the connection is refused before any HTTP is spoken.
   pass 'connection refused (curl exit 7) — nothing is listening on port 80'
-elif [ "$http_exit" -ne 0 ]; then
-  pass "no HTTP response served (curl exit $http_exit) — plain HTTP is not answered"
+elif [ "$http_exit" -eq 28 ]; then
+  # A DROP firewall swallows the SYN, so curl times out rather than getting a
+  # refusal. Nothing was answered, which is what NFR15 requires.
+  pass 'no response before timeout (curl exit 28) — plain HTTP is not answered'
 else
-  case "$http_code" in
-    301 | 308)
-      fail "plain HTTP was REDIRECTED with $http_code — NFR15 forbids this."
-      printf '        A redirect accepts the insecure connection and then points at\n' >&2
-      printf '        the secure one. The requirement is rejection. Check api/fly.toml:\n' >&2
-      printf '        a port-80 entry or force_https has been added back.\n' >&2
-      ;;
-    3??)
-      fail "plain HTTP was redirected with $http_code — NFR15 requires rejection."
-      ;;
-    *)
-      pass "plain HTTP answered $http_code — not a redirect"
-      ;;
-  esac
+  # Any other curl error (DNS failure 6, connect error, …) proves nothing about
+  # port 80. Do NOT read it as a satisfied security property — it is inconclusive.
+  fail "could not probe plain HTTP (curl exit $http_exit) — INCONCLUSIVE, not a pass. Check the host is reachable, then re-run."
 fi
 
 printf '\n'

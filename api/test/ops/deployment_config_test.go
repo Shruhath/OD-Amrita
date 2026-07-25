@@ -1,23 +1,23 @@
 package ops
 
-// deployment_config_test.go — Story 0.1 (Deployed Host, HTTPS & Runtime
-// Foundation) acceptance coverage for the artifacts a dev can actually deliver
-// without spending money: api/fly.toml, web/vercel.json, api/scripts/smoke.sh
-// and docs/deployment-runbook.md, plus the backup runbook's unblocking.
+// deployment_config_test.go — deployed-host / HTTPS / runtime-foundation
+// acceptance coverage for the artifacts a dev can actually deliver without
+// spending money: api/fly.toml, web/vercel.json, api/scripts/smoke.sh and
+// docs/deployment-runbook.md, plus the backup runbook's unblocking.
 //
 // Invoked by: api-ci -> build job (`go test ./...`). Deliberately UNTAGGED and
 // dependency-free — no database, no network, no new module requirement — so it
-// runs inside the existing gate with NO new CI wiring, exactly like the Story
-// 1.8 suites next door.
+// runs inside the existing gate with NO new CI wiring, exactly like the
+// backup-and-monitoring suites next door.
 //
 // ── RED PHASE ───────────────────────────────────────────────────────────────
 // These are ACTIVE, red-by-assertion tests, not t.Skip()'d scaffolds. That is
 // the established shape for artifact-shape suites in this package: readArtifact
 // in helpers_test.go is documented as "the RED-phase entry point: today both
 // artifacts are absent and every test in this package fails here, by design",
-// which is precisely how Story 1.8's ops suite began. All four artifacts under
-// test are absent today, so this whole file is RED until Tasks 3-6 create them,
-// and it turns green with no test edit — the dev activates nothing.
+// which is precisely how the backup-and-monitoring ops suite began. All four
+// artifacts under test are absent at the start, so this whole file is RED until
+// Tasks 3-6 create them, and it turns green with no test edit.
 //
 // ── WHAT THIS SUITE CAN AND CANNOT PROVE ────────────────────────────────────
 // It proves the committed artifacts EXIST, have the shape the acceptance
@@ -25,10 +25,10 @@ package ops
 // deployed, that TLS really terminates at the Fly edge, that /health really
 // reports db:up, or that the OAuth round trip works — all of those are gated on
 // the paid Fly/Neon/Vercel/Supabase console steps (H5) and are verified by an
-// operator running api/scripts/smoke.sh against the live origin. The story is
+// operator running api/scripts/smoke.sh against the live origin. The spec is
 // explicit that CI must not pretend to test a host it has no URL for, so this
-// suite deliberately stops at artifact shape. See the "Testing standards for
-// this story (be honest)" section of the story file.
+// suite deliberately stops at artifact shape. See the "Testing standards (be
+// honest)" section of the spec.
 
 import (
 	"encoding/json"
@@ -39,7 +39,7 @@ import (
 	"testing"
 )
 
-// Paths of the Story 0.1 artifacts under test, relative to the repository root.
+// Paths of the deployed-host artifacts under test, relative to the repo root.
 const (
 	flyConfigRel     = "api/fly.toml"
 	vercelConfigRel  = "web/vercel.json"
@@ -52,7 +52,7 @@ const (
 	deployRunbookWhy = "AC 5 needs the deployment runbook recording origins, wiring values and the operator checklist (Task 5)"
 )
 
-// secretShaped is the credential scan shared by every committed Story 0.1
+// secretShaped is the credential scan shared by every committed deployed-host
 // artifact (AC 7). It bans the value, never the reference: naming
 // $DATABASE_URL_RUNTIME or <vercel-origin> is correct; pasting a DSN with a
 // password, a real anon key or a PEM block is not.
@@ -92,7 +92,7 @@ func assertNoSecrets(t *testing.T, rel, content string) {
 // table, which is exactly the structure these assertions need. Validity remains
 // Task 8's `flyctl config validate`. A real parser would mean importing
 // pelletier/go-toml (currently an INDIRECT dependency), and promoting it would
-// edit go.mod, which this story's Project Structure Notes forbid.
+// edit go.mod, which the spec's Project Structure Notes forbid.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type tomlBlock struct {
@@ -100,19 +100,26 @@ type tomlBlock struct {
 	body   string
 }
 
-// stripTOMLComments removes trailing `#` comments that fall outside a
-// double-quoted string, so `port = 80  # legacy` is seen as the assignment it
-// is rather than hidden behind the comment.
+// stripTOMLComments removes trailing `#` comments that fall outside a quoted
+// string, so `port = 80  # legacy` is seen as the assignment it is rather than
+// hidden behind the comment. Both TOML string forms are honoured — basic ("...")
+// and literal ('...') — so a `#` inside either (e.g. a single-quoted value that
+// contains one) does not truncate the value. Escaped quotes inside a basic
+// string are not handled; the artifacts under test do not use them.
 func stripTOMLComments(s string) string {
 	var out strings.Builder
 	for _, line := range strings.Split(s, "\n") {
-		inQuote := false
+		var quote rune // 0 when outside a string, else the opening quote char
 		cut := len(line)
 		for i, r := range line {
 			switch {
-			case r == '"':
-				inQuote = !inQuote
-			case r == '#' && !inQuote:
+			case quote != 0:
+				if r == quote {
+					quote = 0
+				}
+			case r == '"' || r == '\'':
+				quote = r
+			case r == '#':
 				cut = i
 			}
 			if cut != len(line) && i >= cut {
@@ -160,8 +167,11 @@ func blocksNamed(blocks []tomlBlock, header string) []tomlBlock {
 }
 
 // tomlValue returns the raw right-hand side of `key = …` within one block body.
+// The key match is case-SENSITIVE, as TOML keys are — TLS_ENABLED and
+// tls_enabled are distinct keys, and folding them would let a mis-cased
+// duplicate satisfy an assertion it should not.
 func tomlValue(body, key string) (string, bool) {
-	re := regexp.MustCompile(`(?mi)^\s*` + regexp.QuoteMeta(key) + `\s*=\s*(.+?)\s*$`)
+	re := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(key) + `\s*=\s*(.+?)\s*$`)
 	if m := re.FindStringSubmatch(body); m != nil {
 		return strings.Trim(m[1], `"'`), true
 	}
@@ -218,10 +228,10 @@ func TestFlyConfig_ExistsAndNamesTheAppAndMumbaiRegion(t *testing.T) {
 	if !regexp.MustCompile(`(?m)^\s*app\s*=\s*["']od-amrita-api["']`).MatchString(cfg) {
 		t.Errorf("[P0] %s must set app = \"od-amrita-api\" (H1)", flyConfigRel)
 	}
-	// bom (Mumbai) is load-bearing, not cosmetic: Epic 0 has no offline queue, so
-	// every POST /mark is synchronous and round-trip latency is felt directly.
+	// bom (Mumbai) is load-bearing, not cosmetic: the MVP has no offline queue,
+	// so every POST /mark is synchronous and round-trip latency is felt directly.
 	if !regexp.MustCompile(`(?m)^\s*primary_region\s*=\s*["']bom["']`).MatchString(cfg) {
-		t.Errorf("[P0] %s must set primary_region = \"bom\" — Mumbai is the only India region among the candidate hosts, and Epic 0's synchronous mark path has no offline queue to mask latency (H1)", flyConfigRel)
+		t.Errorf("[P0] %s must set primary_region = \"bom\" — Mumbai is the only India region among the candidate hosts, and the synchronous mark path has no offline queue to mask latency (H1)", flyConfigRel)
 	}
 	if !containsAny(cfg, "shared-cpu-1x") {
 		t.Errorf("[P1] %s must size the machine shared-cpu-1x (H1)", flyConfigRel)
@@ -239,7 +249,7 @@ func TestFlyConfig_RefusesPlainHTTPRatherThanRedirectingIt(t *testing.T) {
 	// An actual assignment, not a bare mention: Task 3 explicitly tells the dev
 	// to leave a COMMENT naming force_https so a future "helpful" edit does not
 	// re-add it. A test that failed on that comment would punish the dev for
-	// following the story — comments are stripped before this check.
+	// following the spec — comments are stripped before this check.
 	if anyBlockHasKey(blocks, "force_https") {
 		t.Errorf("[P0] %s sets force_https — that is exactly the 301 redirect NFR15 forbids. Remove it; the absence of a port-80 handler is what refuses HTTP.", flyConfigRel)
 	}
@@ -474,34 +484,44 @@ func TestSmokeScript_AssertsHealthReportsTheDatabaseIsUp(t *testing.T) {
 	}
 }
 
-func TestSmokeScript_FailsLoudlyIfPlainHTTPIsRedirectedRatherThanRefused(t *testing.T) {
-	// Comment lines are stripped first: a script that only MENTIONS 301 in a
-	// comment has not tested anything, and the un-stripped version of this check
-	// would have accepted exactly that.
+func TestSmokeScript_FailsWhenPlainHTTPIsAnsweredNotJustWhenRedirected(t *testing.T) {
+	// Comment lines are stripped first: a script that only MENTIONS these cases
+	// in a comment has not tested anything, and the un-stripped version of this
+	// check would have accepted exactly that.
 	script := stripFullLineShellComments(readArtifact(t, smokeScriptRel, smokeScriptWhy))
 
-	// The NFR15 half. The expected live result with Task 3's fly.toml shape is a
-	// REFUSED connection (curl exit 7). The failure this must catch is a 301/308,
-	// which would mean somebody re-added a port-80 handler or force_https.
+	// NFR15 is a claim about port 80, and only an http:// request can test it.
 	if !containsAny(script, "http://") {
 		t.Errorf("[P0] %s must probe the plain-http:// origin — NFR15 is a claim about what happens on port 80, and only an http:// request can test it (AC 1)", smokeScriptRel)
 	}
-	if !containsAny(script, "301") || !containsAny(script, "308") {
-		t.Errorf("[P0] %s must name BOTH 301 and 308 as executable failure cases — NFR15 forbids a redirect, and a permanent redirect can arrive as either code (Task 6)", smokeScriptRel)
+	// A redirect (any 3xx) must be a failure: it still accepts the insecure
+	// connection first, then points at the secure one.
+	if !regexp.MustCompile(`(?i)fail\b[^\n]*redirect`).MatchString(script) {
+		t.Errorf("[P0] %s must FAIL on a redirected plain-HTTP response — a 3xx still accepts the insecure connection before answering it (Task 6)", smokeScriptRel)
 	}
-	// A script that detects a redirect and then exits 0 has reported success for
-	// an NFR15 violation. Requiring a non-zero exit path is the cheapest proof
-	// that the detection is wired to an actual failure.
+	// The soundness fix: a plain-HTTP request ANSWERED with a non-3xx status
+	// (200/404/502 from a port-80 handler that serves the app in cleartext) must
+	// ALSO fail. An earlier version passed the catch-all "answered <code> — not a
+	// redirect", green-lighting exactly that regression.
+	if regexp.MustCompile(`(?i)\bpass\b[^\n]*answered[^\n]*not a redirect`).MatchString(script) {
+		t.Errorf("[P0] %s still PASSes when plain HTTP is answered with a non-3xx status — NFR15 requires plain HTTP to be refused/unanswered, so ANY answered status must fail, not just a 3xx redirect (Task 6)", smokeScriptRel)
+	}
+	if !regexp.MustCompile(`(?i)fail\b[^\n]*answered`).MatchString(script) {
+		t.Errorf("[P0] %s must FAIL when plain HTTP is answered with any status — something listening on port 80 accepts the insecure connection whatever code it returns (Task 6)", smokeScriptRel)
+	}
+	// A script that detects a violation and then exits 0 has reported success for
+	// it. Requiring a non-zero exit path is the cheapest proof the detection is
+	// wired to an actual failure.
 	if !regexp.MustCompile(`exit\s+[1-9]`).MatchString(script) {
-		t.Errorf("[P0] %s must exit non-zero when an assertion fails — a smoke check that detects a 301 and still exits 0 reports success for exactly the violation it exists to catch (Task 6)", smokeScriptRel)
+		t.Errorf("[P0] %s must exit non-zero when an assertion fails — a smoke check that detects a violation and still exits 0 reports success for exactly what it exists to catch (Task 6)", smokeScriptRel)
 	}
 }
 
-// TestSmokeScript_IsNotWiredIntoCI is the inverse assertion this story
-// explicitly asks for: "do not wire it into .github/workflows/** or claim it as
-// automated coverage". CI has no deployed URL, so a job invoking this script
-// could only ever pass vacuously or fail for the wrong reason — the "hollow
-// harness" failure mode the Epic 1 retro named.
+// TestSmokeScript_IsNotWiredIntoCI is the inverse assertion the spec explicitly
+// asks for: "do not wire it into .github/workflows/** or claim it as automated
+// coverage". CI has no deployed URL, so a job invoking this script could only
+// ever pass vacuously or fail for the wrong reason — the "hollow harness"
+// failure mode a prior retrospective named.
 func TestSmokeScript_IsNotWiredIntoCI(t *testing.T) {
 	dir := filepath.Join(repoRoot(t), workflowsRel)
 	entries, err := os.ReadDir(dir)
@@ -517,7 +537,7 @@ func TestSmokeScript_IsNotWiredIntoCI(t *testing.T) {
 			t.Fatalf("read %s: %v", entry.Name(), err)
 		}
 		if strings.Contains(string(body), "smoke.sh") {
-			t.Errorf("[P0] .github/workflows/%s invokes smoke.sh — this script is operator-run against the LIVE origin, which CI has no URL for. A CI job around it would pass vacuously or fail for the wrong reason, and the story forbids claiming it as automated coverage.", entry.Name())
+			t.Errorf("[P0] .github/workflows/%s invokes smoke.sh — this script is operator-run against the LIVE origin, which CI has no URL for. A CI job around it would pass vacuously or fail for the wrong reason, and the spec forbids claiming it as automated coverage.", entry.Name())
 		}
 	}
 }
@@ -592,11 +612,11 @@ func TestDeploymentRunbook_RecordsTheCrossOriginWiringTheAuthRoundTripNeeds(t *t
 func TestDeploymentRunbook_CoversTheSecureContextAndFailClosedHealthConsequences(t *testing.T) {
 	doc := readArtifact(t, deployRunbookRel, deployRunbookWhy)
 
-	// The coordinator device note is why this story is P0-1: Web NFC and
-	// getUserMedia only exist in a secure context, so stories 0.5/0.6 are
-	// impossible without the HTTPS origin recorded here.
+	// The coordinator device note is why this is the first foundation slice: Web
+	// NFC and getUserMedia only exist in a secure context, so the later NFC and
+	// camera surfaces are impossible without the HTTPS origin recorded here.
 	if !containsAny(doc, "chrome") || !containsAny(doc, "android") {
-		t.Errorf("[P0] %s must carry the coordinator device-setup note (open the web origin in Chrome on Android over HTTPS) — Web NFC and the camera require a secure context, which is what makes stories 0.5/0.6 possible at all (AC 5)", deployRunbookRel)
+		t.Errorf("[P0] %s must carry the coordinator device-setup note (open the web origin in Chrome on Android over HTTPS) — Web NFC and the camera require a secure context, which is what makes the NFC and camera surfaces possible at all (AC 5)", deployRunbookRel)
 	}
 	if !containsAny(doc, "nfr15") && !containsAny(doc, "not redirected", "rejected, not") {
 		t.Errorf("[P0] %s must document the NFR15 verification step (plain HTTP refused, NOT redirected) (AC 1, Task 5)", deployRunbookRel)
@@ -623,9 +643,9 @@ func TestDeploymentRunbook_ReferencesTheSmokeScriptAndTracksThePaidStepsAsUnchec
 		t.Errorf("[P0] %s must reference api/scripts/smoke.sh as the \"did the deploy actually work\" check (Task 6)", deployRunbookRel)
 	}
 
-	// H5: the story lands `blocked`, and the remaining ACs are gated on console
+	// H5: this slice lands `blocked`, and the remaining ACs are gated on console
 	// steps that cost money. Tracking them as unchecked boxes is what lets a
-	// human see at a glance what is still owed — the same convention Story 1.8's
+	// human see at a glance what is still owed — the same convention the backup
 	// runbook uses and TestRunbook_TracksBlockedOperatorStepsAsUncheckedBoxes
 	// enforces next door.
 	boxes := uncheckedBoxes(doc)
@@ -657,32 +677,33 @@ func TestDeploymentRunbook_CarriesNoCredentials(t *testing.T) {
 func TestBackupRunbook_DeployedURLAndHostingItemsAreNoLongerBlocked(t *testing.T) {
 	doc := readArtifact(t, runbookRel, runbookWhy)
 
-	// Story 1.8 could not name a URL or a host, so it parked these. Story 0.1's
-	// whole job is to supply both; leaving the markers in place would mean the
-	// monitoring gap silently survives the story that closed it.
+	// The backup-and-monitoring work could not name a URL or a host, so it parked
+	// these. This slice's whole job is to supply both; leaving the markers in
+	// place would mean the monitoring gap silently survives the change that
+	// closed it.
 	for _, marker := range []string{"[blocked: deployed URL]", "[blocked: hosting]"} {
 		if strings.Contains(doc, marker) {
-			t.Errorf("[P0] %s still carries %q — Story 0.1 supplies the deployed URL and the host, so these items must become actionable (point the uptime monitor at the /health origin) rather than staying parked (AC 5, Task 5)", runbookRel, marker)
+			t.Errorf("[P0] %s still carries %q — the deployed URL and the host are now known, so these items must become actionable (point the uptime monitor at the /health origin) rather than staying parked (AC 5, Task 5)", runbookRel, marker)
 		}
 	}
 	if !containsAny(doc, "deployment-runbook") {
 		t.Errorf("[P0] %s must cross-link docs/deployment-runbook.md — the two runbooks share the restore/role-bootstrap procedure and must not duplicate it (Task 5)", runbookRel)
 	}
 
-	// GUARD AGAINST A CROSS-STORY CONFLICT.
+	// GUARD AGAINST A CROSS-SUITE CONFLICT.
 	//
 	// "Unblock these items" is one edit away from "tick these boxes", and ticking
-	// them breaks Story 1.8's TestRunbook_TracksBlockedOperatorStepsAsUncheckedBoxes,
+	// them breaks the backup runbook's TestRunbook_TracksBlockedOperatorStepsAsUncheckedBoxes,
 	// which requires at least three UNCHECKED `- [ ]` items including an
 	// Uptime-Robot one. That failure would surface in a different file, for a
-	// different story, with no hint that this task caused it.
+	// different suite, with no hint that this change caused it.
 	//
-	// Unblocked is not the same as done: Story 0.1 supplies the URL, but a human
-	// still has to register the monitor, which is why 0.1 itself lands `blocked`.
+	// Unblocked is not the same as done: the URL is supplied, but a human still
+	// has to register the monitor, which is why this slice itself lands `blocked`.
 	// So the box must survive — with a real endpoint in it instead of a marker.
 	boxes := uncheckedBoxes(doc)
 	if len(boxes) < 3 {
-		t.Errorf("[P0] %s now has %d unchecked operator items; Story 1.8's suite requires at least 3.\n  Making an item ACTIONABLE means replacing the [blocked: …] marker with the real endpoint — NOT checking the box or deleting the item. The human still has to register the monitor, which is why Story 0.1 lands `blocked`.", runbookRel, len(boxes))
+		t.Errorf("[P0] %s now has %d unchecked operator items; the backup runbook's suite requires at least 3.\n  Making an item ACTIONABLE means replacing the [blocked: …] marker with the real endpoint — NOT checking the box or deleting the item. The human still has to register the monitor, which is why this slice lands `blocked`.", runbookRel, len(boxes))
 	}
 	monitorBox := false
 	for _, box := range boxes {
@@ -691,6 +712,6 @@ func TestBackupRunbook_DeployedURLAndHostingItemsAreNoLongerBlocked(t *testing.T
 		}
 	}
 	if !monitorBox {
-		t.Errorf("[P0] %s no longer has an UNCHECKED Uptime Robot monitor item — Story 1.8's TestRunbook_TracksBlockedOperatorStepsAsUncheckedBoxes requires one, and registering the monitor is still a human step even now that the URL is known (AC 5)", runbookRel)
+		t.Errorf("[P0] %s no longer has an UNCHECKED Uptime Robot monitor item — the backup runbook's TestRunbook_TracksBlockedOperatorStepsAsUncheckedBoxes requires one, and registering the monitor is still a human step even now that the URL is known (AC 5)", runbookRel)
 	}
 }

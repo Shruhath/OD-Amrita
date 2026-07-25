@@ -54,6 +54,12 @@ func Middleware(origins []string) gin.HandlerFunc {
 				requested = "Authorization, Content-Type, Accept"
 			}
 			headers.Set("Access-Control-Allow-Headers", requested)
+			// The preflight answer now depends on Access-Control-Request-Headers,
+			// so it must vary on that header too — otherwise a shared cache keyed
+			// on method+URL(+Origin) could serve this 600s-cached Allow-Headers to
+			// a later preflight announcing a different header set and the browser
+			// would wrongly block the real request.
+			headers.Add("Vary", "Access-Control-Request-Headers")
 			headers.Set("Access-Control-Max-Age", "600")
 			c.AbortWithStatus(http.StatusNoContent)
 			return

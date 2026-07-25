@@ -238,13 +238,19 @@ Routing happens in the browser; the host has to serve the app for every non-asse
 The API and the web app are on **different origins**, so three settings have to agree. Each one
 fails differently and none of them fail at build time.
 
+> **Read the ✅ marks below as _tunnel/pre-production_, not production.** The top-of-document status
+> is still "nothing is deployed to Fly yet" — the checks that pass here were run against the
+> development tunnel + local container of §6.3, which does **not** meet the production transport
+> posture (NFR15 in particular). Each ✅ says what was actually exercised; none of them asserts the
+> Fly deploy.
+
 | Setting | Where it is set | Value used | Confirmed |
 |---|---|---|---|
-| `PORTAL_ALLOWED_ORIGINS` | Fly secret (§4.2) | `https://od-amrita-web.vercel.app` | ✅ 2026-07-24 (verified: preflight 204 for this origin, 403 for an untrusted one) |
-| `VITE_API_BASE_URL` | Vercel env var (§5.3) | the API origin — **currently the pre-production tunnel**, see §6.3 | ✅ 2026-07-24 |
+| `PORTAL_ALLOWED_ORIGINS` | Fly secret (§4.2) | `https://od-amrita-web.vercel.app` | ✅ 2026-07-24 **(tunnel only)** — preflight 204 for this origin, 403 for an untrusted one; re-confirm on Fly |
+| `VITE_API_BASE_URL` | Vercel env var (§5.3) | the API origin — **currently the pre-production tunnel**, see §6.3 | ✅ 2026-07-24 **(tunnel only)** — points at the tunnel, not the Fly origin yet |
 | Supabase **Redirect URLs** | Supabase console (§6.1) | `https://od-amrita-web.vercel.app/**` | ☐ |
 | Fly API origin | — | `______` (expected `https://od-amrita-api.fly.dev`) | ☐ not yet deployed |
-| Vercel production origin | — | `https://od-amrita-web.vercel.app` | ✅ 2026-07-24 |
+| Vercel production origin | — | `https://od-amrita-web.vercel.app` | ✅ 2026-07-24 (Vercel build live; the web origin is real, the API it talks to is still the tunnel) |
 
 **Vercel project settings in force** (recorded so they can be re-created): project `od-amrita-web`,
 Root Directory `web`, framework preset Vite, **Production Branch `0-event-mvp`**. The production

@@ -52,6 +52,20 @@ func TestExactOriginCORSAllowDenyAndPreflight(t *testing.T) {
 		t.Error("preflight missing allowed headers or methods")
 	}
 
+	// A trusted origin may announce an extra non-credentialed request header
+	// (a deployment tunnel's bypass header is the motivating case); the
+	// preflight must reflect it in Access-Control-Allow-Headers, or the browser
+	// blocks the real request before it is ever sent.
+	reflect := httptest.NewRecorder()
+	reflectReq := httptest.NewRequest(http.MethodOptions, "/api/v1/admin/events", nil)
+	reflectReq.Header.Set("Origin", "https://portal.od-amrita.example")
+	reflectReq.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	reflectReq.Header.Set("Access-Control-Request-Headers", "authorization,ngrok-skip-browser-warning")
+	router.ServeHTTP(reflect, reflectReq)
+	if got := reflect.Header().Get("Access-Control-Allow-Headers"); got != "authorization,ngrok-skip-browser-warning" {
+		t.Errorf("preflight did not reflect requested headers: allow-headers = %q", got)
+	}
+
 	deniedPreflight := httptest.NewRecorder()
 	deniedPreflightReq := httptest.NewRequest(http.MethodOptions, "/api/v1/admin/events", nil)
 	deniedPreflightReq.Header.Set("Origin", "https://attacker.example")

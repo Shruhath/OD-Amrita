@@ -41,7 +41,19 @@ func Middleware(origins []string) gin.HandlerFunc {
 		headers.Set("Access-Control-Allow-Origin", origin)
 		if c.Request.Method == http.MethodOptions {
 			headers.Set("Access-Control-Allow-Methods", strings.Join([]string{http.MethodGet, http.MethodPost, http.MethodOptions}, ", "))
-			headers.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept")
+			// Reflect the browser's requested headers, falling back to the
+			// standard set when none are announced. This lets a client send an
+			// additional non-credentialed request header (e.g. a deployment
+			// tunnel's bypass header) without a server change. Safe here: the
+			// policy is bearer-only — Access-Control-Allow-Credentials is never
+			// set, so no cookies ride along — and the origin has already been
+			// checked against the exact allow-list above, so only a trusted
+			// origin ever reaches this line.
+			requested := c.GetHeader("Access-Control-Request-Headers")
+			if requested == "" {
+				requested = "Authorization, Content-Type, Accept"
+			}
+			headers.Set("Access-Control-Allow-Headers", requested)
 			headers.Set("Access-Control-Max-Age", "600")
 			c.AbortWithStatus(http.StatusNoContent)
 			return

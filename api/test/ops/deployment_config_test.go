@@ -219,7 +219,7 @@ func stripFullLineShellComments(s string) string {
 // NOT contain 80, so port 80 has no listener at all.
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestFlyConfig_ExistsAndNamesTheAppAndMumbaiRegion(t *testing.T) {
+func TestFlyConfig_ExistsAndNamesTheAppAndALowLatencyIndiaRegion(t *testing.T) {
 	cfg := readArtifact(t, flyConfigRel, flyConfigWhy)
 
 	if strings.TrimSpace(cfg) == "" {
@@ -228,10 +228,14 @@ func TestFlyConfig_ExistsAndNamesTheAppAndMumbaiRegion(t *testing.T) {
 	if !regexp.MustCompile(`(?m)^\s*app\s*=\s*["']od-amrita-api["']`).MatchString(cfg) {
 		t.Errorf("[P0] %s must set app = \"od-amrita-api\" (H1)", flyConfigRel)
 	}
-	// bom (Mumbai) is load-bearing, not cosmetic: the MVP has no offline queue,
-	// so every POST /mark is synchronous and round-trip latency is felt directly.
-	if !regexp.MustCompile(`(?m)^\s*primary_region\s*=\s*["']bom["']`).MatchString(cfg) {
-		t.Errorf("[P0] %s must set primary_region = \"bom\" — Mumbai is the only India region among the candidate hosts, and the synchronous mark path has no offline queue to mask latency (H1)", flyConfigRel)
+	// The region is load-bearing, not cosmetic: the MVP has no offline queue, so
+	// every POST /mark is synchronous and round-trip latency is felt directly.
+	// bom (Mumbai, ~15ms) is the PREFERRED home. sin (Singapore, ~40-60ms) is the
+	// accepted FALLBACK for when Fly reports no capacity in bom — it is the
+	// next-nearest region to India. Any region outside that pair (a US/EU host)
+	// still fails: what H1 guards is proximity to India, not the literal "bom".
+	if !regexp.MustCompile(`(?m)^\s*primary_region\s*=\s*["'](bom|sin)["']`).MatchString(cfg) {
+		t.Errorf("[P0] %s must set primary_region = \"bom\" (preferred) or \"sin\" (fallback when Mumbai capacity is unavailable) — the synchronous mark path has no offline queue to mask latency, so a region far from India is rejected (H1)", flyConfigRel)
 	}
 	if !containsAny(cfg, "shared-cpu-1x") {
 		t.Errorf("[P1] %s must size the machine shared-cpu-1x (H1)", flyConfigRel)
@@ -582,7 +586,7 @@ func TestDeploymentRunbook_RecordsTheExactDeployCommandAndItsRepoRootContext(t *
 		t.Errorf("[P0] %s must record `--config api/fly.toml` — the Dockerfile's build context is the REPO ROOT (it COPYs go.work and contracts/), so a deploy from inside api/ fails to load the workspace (Task 3/5)", deployRunbookRel)
 	}
 	if !containsAny(doc, "scale count 2") {
-		t.Errorf("[P1] %s must record `flyctl scale count 2 --region bom` — the 2-machine count is a deploy-time concern that fly.toml cannot express, and one machine is the reliability posture H1 explicitly rejected", deployRunbookRel)
+		t.Errorf("[P1] %s must record `flyctl scale count 2 --region <fly.toml region>` (bom preferred, sin fallback) — the 2-machine count is a deploy-time concern that fly.toml cannot express, and one machine is the reliability posture H1 explicitly rejected", deployRunbookRel)
 	}
 }
 

@@ -21,7 +21,7 @@ redirect URL — is a human step and is tracked as an unchecked box in §8.
 
 | Surface | Host | What it is | Notes |
 |---|---|---|---|
-| **API** | **Fly.io** — app `od-amrita-api`, **2 machines** in **`bom` (Mumbai)**, `shared-cpu-1x` | The Go/gin server from `api/Dockerfile`. Config in `api/fly.toml`. | TLS terminates at the **Fly edge**; the container runs `TLS_ENABLED=false` behind it. |
+| **API** | **Fly.io** — app `od-amrita-api`, **2 machines** in **`sin` (Singapore)**, `shared-cpu-1x` | The Go/gin server from `api/Dockerfile`. Config in `api/fly.toml`. | TLS terminates at the **Fly edge**; the container runs `TLS_ENABLED=false` behind it. **`bom` (Mumbai) is preferred but had no Fly capacity at deploy; `sin` is the nearest fallback — move back to `bom` when capacity returns.** |
 | **Web** | **Vercel** — Root Directory `web`, framework preset **Vite** | The React SPA. Built by Vercel's Git integration on push. Config in `web/vercel.json`. | A **separate origin** from the API. That is why CORS and the redirect URL below both matter. |
 | **Database** | **Neon** — project `Amrita-OD` | Every OD record and the immutable audit ledger. | The backup target. See the backup runbook §1. |
 | **Auth broker** | **Supabase** | Brokers the Microsoft OAuth login and issues the session JWT the API verifies. | Not the application database. Holds no OD data. |
@@ -30,9 +30,11 @@ redirect URL — is a human step and is tracked as an unchecked box in §8.
 restart window in the middle of it. Two `shared-cpu-1x` machines cost roughly $5–6/month
 combined. The count is **not** set in `fly.toml` — it is a deploy-time command (§4, step 5).
 
-**Why Mumbai.** Every mark is written synchronously — there is no offline queue to hide latency
-behind — so the round trip is felt directly by a coordinator standing in front of a student.
-`bom` is the nearest region.
+**Why a region near India.** Every mark is written synchronously — there is no offline queue to
+hide latency behind — so the round trip is felt directly by a coordinator standing in front of a
+student. `bom` (Mumbai, ~15 ms) is the nearest region and the preferred home. When Fly has no
+capacity in `bom`, `sin` (Singapore, ~40–60 ms) is the accepted fallback — the next-nearest region.
+The current deploy is on `sin` for that reason; move it back to `bom` once Mumbai capacity returns.
 
 **Why the web surface must be HTTPS.** Web NFC (`NDEFReader`) and the camera (`getUserMedia`)
 are only available to a **secure context**. A non-HTTPS origin does not merely warn — the APIs
@@ -174,7 +176,9 @@ on Fly it is the intended arrangement.
 **5. Scale to two machines** (the count cannot be expressed in `fly.toml`):
 
 ```bash
-flyctl scale count 2 --region bom
+# Use the region set in api/fly.toml — bom when it has capacity, otherwise the
+# sin fallback (the current deploy is on sin; see "Why a region near India").
+flyctl scale count 2 --region sin
 flyctl status --config api/fly.toml   # expect two machines, both passing the health check
 ```
 
@@ -355,7 +359,7 @@ is why these are tracked here rather than assumed.
 
 **API (Fly)**
 - [ ] Create the **Fly** app (`flyctl launch --no-deploy`) and set every secret from §4.2 — nothing with a credential in it goes into `fly.toml`.
-- [ ] Deploy, then `flyctl scale count 2 --region bom`, and confirm **two** machines pass the health check (§4.3–4.5).
+- [ ] Deploy, then `flyctl scale count 2 --region <fly.toml region>` (`bom` preferred, `sin` the current fallback), and confirm **two** machines pass the health check (§4.3–4.5).
 - [ ] Record the API origin in §6.
 
 **Web (Vercel)**
@@ -383,7 +387,7 @@ is why these are tracked here rather than assumed.
 
 | # | Decision | Why |
 |---|---|---|
-| **H1** | **Fly.io, 2 machines, `bom`.** | Two machines (~$5–6/mo total) are cheaper than one instance on the alternatives considered and more redundant than any single one. `bom` is the only India region among them, and the synchronous mark path has no queue to mask latency. |
+| **H1** | **Fly.io, 2 machines, `bom` (preferred) / `sin` (fallback).** | Two machines (~$5–6/mo total) are cheaper than one instance on the alternatives considered and more redundant than any single one. `bom` (Mumbai) is the only India region and the synchronous mark path has no queue to mask latency; when Fly has no `bom` capacity, `sin` (Singapore) is the next-nearest fallback. **Currently deployed on `sin` — Fly had no `bom` capacity at deploy; revisit when it returns.** |
 | **H2** | **Vercel, separate origin, Git integration.** | Matches the decoupled-frontend architecture and reuses the already-built CORS middleware instead of adding single-origin embedding to the Go binary. Instant HTTPS gives the secure context NFC and the camera require. No Actions deploy job — Vercel already builds on push. |
 | **H3** | **Neon stays the application database.** | Moving to another Postgres would be lateral: it removes no work, solves no hosting problem, and would mean redoing the dual roles, the audit trigger and the privilege defaults on a different pooler. |
 | **H4** | **TLS terminates at the Fly edge; the container runs `TLS_ENABLED=false`.** | Fly manages the `*.fly.dev` certificate; the container cannot easily obtain it. The application already supports ingress-terminated mode. The hazard is that Fly's default shape *redirects* plain HTTP, so §4.1's port-443-only service block is what keeps it **rejected** instead. |

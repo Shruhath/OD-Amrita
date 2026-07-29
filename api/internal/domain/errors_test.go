@@ -58,6 +58,7 @@ var codeStatusCases = []struct {
 	{contracts.ErrorCodeEVENTNOTFOUND, []int{404}},           // event archive target does not exist
 	{contracts.ErrorCodeEVENTARCHIVED, []int{409}},           // 2.2: closed aggregate refuses child writes — pinned 409
 	{contracts.ErrorCodeUSERNOTFOUND, []int{404}},            // 2.3: no users row matches the supplied email — pinned 404
+	{contracts.ErrorCodeSTUDENTNOTFOUND, []int{404}},         // 0.3: no students row matches the supplied id — pinned 404
 	{contracts.ErrorCodeROLEALREADYASSIGNED, []int{409}},     // 2.3: non-student role is a state conflict — pinned 409
 	{contracts.ErrorCodeINTERNAL, []int{500}},                // arch: 5xx internal
 }

@@ -235,6 +235,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/students/{student_id}/card-seal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Seal one student's NFC card token
+         * @description Admin-only card-populator endpoint. Returns the active seal version, the HMAC token, and the exact card payload to write. The card payload carries only version and token; student identity is resolved server-side later.
+         */
+        post: operations["sealAdminStudentCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/card-tokens/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve a sealed card token for populator verification
+         * @description Admin-only verification endpoint for the card populator. Unknown, malformed, disabled-version, or absent-ledger tokens all return the same CARD_NOT_RECOGNIZED response so callers cannot enumerate valid versions or token prefixes.
+         */
+        post: operations["resolveAdminCardToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -334,6 +374,28 @@ export interface components {
             code: string;
             message: string;
         };
+        ResolvedCardStudent: {
+            /** Format: uuid */
+            student_id: string;
+            roll_no: string;
+            display_name: string;
+            branch: string;
+            section: string;
+            batch: string;
+        };
+        CardSeal: {
+            student: components["schemas"]["ResolvedCardStudent"];
+            version: string;
+            token: string;
+            payload: {
+                version: string;
+                token: string;
+            };
+        };
+        CardTokenResolveRequest: {
+            version: string;
+            token: string;
+        };
         /** @description Health probe shape — overall service status plus database connectivity. */
         HealthStatus: {
             /**
@@ -353,7 +415,7 @@ export interface components {
              * @description Canonical SCREAMING_SNAKE error code. This enum is the WIRE source of truth; the Go `errors.go` const registry mirrors it. Do not invent free-text codes.
              * @enum {string}
              */
-            code: "AUTH_DOMAIN_REJECTED" | "AUTH_TOKEN_INVALID" | "RBAC_FORBIDDEN" | "SCAN_DUPLICATE" | "SLOT_CLOSED" | "CARD_NOT_RECOGNIZED" | "QR_LIMIT_REACHED" | "RATE_LIMITED" | "INVALID_SCAN_ID" | "VALIDATION_FAILED" | "EVENT_NOT_FOUND" | "EVENT_ARCHIVED" | "USER_NOT_FOUND" | "ROLE_ALREADY_ASSIGNED" | "INTERNAL";
+            code: "AUTH_DOMAIN_REJECTED" | "AUTH_TOKEN_INVALID" | "RBAC_FORBIDDEN" | "SCAN_DUPLICATE" | "SLOT_CLOSED" | "CARD_NOT_RECOGNIZED" | "QR_LIMIT_REACHED" | "RATE_LIMITED" | "INVALID_SCAN_ID" | "VALIDATION_FAILED" | "EVENT_NOT_FOUND" | "EVENT_ARCHIVED" | "USER_NOT_FOUND" | "STUDENT_NOT_FOUND" | "ROLE_ALREADY_ASSIGNED" | "INTERNAL";
             /** @description Human-readable message. For diagnostics/display only — branch on `code`. */
             message: string;
             /** @description Optional, freeform context for generic errors. Typed validation failures use ValidationError.details (a typed array) instead. */
@@ -1310,6 +1372,143 @@ export interface operations {
             };
             /** @description Caller is not a provisioned Admin. */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    sealAdminStudentCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Student row id to seal for the active card-token version. */
+                student_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Token sealed and ledgered for the selected student. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardSeal"];
+                };
+            };
+            /** @description Request validation failed with typed field details. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No `students` row exists for the supplied id (STUDENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    resolveAdminCardToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CardTokenResolveRequest"];
+            };
+        };
+        responses: {
+            /** @description Token matched a ledgered student. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolvedCardStudent"];
+                };
+            };
+            /** @description Request validation failed with typed field details. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Token was not recognized (CARD_NOT_RECOGNIZED). */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

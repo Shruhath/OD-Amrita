@@ -239,7 +239,7 @@ func mapKeys(m map[string]any) []string {
 var errorCodeRegistry = []string{
 	"AUTH_DOMAIN_REJECTED", "RBAC_FORBIDDEN", "SCAN_DUPLICATE", "SLOT_CLOSED",
 	"CARD_NOT_RECOGNIZED", "QR_LIMIT_REACHED", "RATE_LIMITED", "INVALID_SCAN_ID",
-	"INTERNAL", "VALIDATION_FAILED",
+	"INTERNAL", "VALIDATION_FAILED", "STUDENT_NOT_FOUND",
 }
 
 // ---------------------------------------------------------------------------

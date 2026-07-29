@@ -17,11 +17,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	handlercardtoken "github.com/Shruhath/OD-Amrita/api/internal/handler/cardtoken"
 	handlerevent "github.com/Shruhath/OD-Amrita/api/internal/handler/event"
 	handlerstudent "github.com/Shruhath/OD-Amrita/api/internal/handler/student"
 	handlerteacher "github.com/Shruhath/OD-Amrita/api/internal/handler/teacher"
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
+	cardtokensvc "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
 	eventsvc "github.com/Shruhath/OD-Amrita/api/internal/service/event"
 	studentsvc "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 	teachersvc "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
@@ -106,6 +108,18 @@ func (s reachingStudentService) Import(context.Context, studentsvc.Actor, studen
 	return studentsvc.Result{}, nil
 }
 
+type reachingCardTokenService struct{ reached *reachCounter }
+
+func (s reachingCardTokenService) Seal(context.Context, cardtokensvc.Actor, cardtokensvc.SealInput) (cardtokensvc.SealResult, error) {
+	s.reached.hits++
+	return cardtokensvc.SealResult{}, nil
+}
+
+func (s reachingCardTokenService) Resolve(context.Context, cardtokensvc.Actor, cardtokensvc.ResolveInput) (cardtokensvc.ResolvedStudent, error) {
+	s.reached.hits++
+	return cardtokensvc.ResolvedStudent{}, nil
+}
+
 func TestAdminGroupGuardsEveryRouteRegisterAdminRoutesMounts(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -124,6 +138,7 @@ func TestAdminGroupGuardsEveryRouteRegisterAdminRoutesMounts(t *testing.T) {
 	handlerevent.RegisterAdminRoutes(admin, reachingService{reached: reached})
 	handlerteacher.RegisterAdminRoutes(admin, reachingTeacherService{reached: reached})
 	handlerstudent.RegisterAdminRoutes(admin, reachingStudentService{reached: reached})
+	handlercardtoken.RegisterAdminRoutes(admin, reachingCardTokenService{reached: reached})
 	admin.POST("/users/:user_id/sessions/revoke", reached.handler)
 
 	// Every route the admin group actually serves, discovered from the router

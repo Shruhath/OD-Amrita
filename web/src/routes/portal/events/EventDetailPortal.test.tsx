@@ -47,6 +47,9 @@ type DetailScenario = {
 }
 
 const eventName = 'Onam Celebrations'
+const adminEventsCollectionPath = /\/api\/v1\/admin\/events(?:\?.*)?$/
+const adminEventItemPath = /\/api\/v1\/admin\/events\/[^/?]+$/
+const adminEventCategoriesPath = /\/api\/v1\/admin\/events\/[^/?]+\/categories$/
 
 function renderPortal({
   status = 'active',
@@ -79,15 +82,16 @@ function renderPortal({
       }),
     ),
     http.get('*/api/v1/admin/branches', () => HttpResponse.json({ data: testBranches })),
-    http.get('*/api/v1/admin/events', () =>
+    http.get(adminEventsCollectionPath, () =>
       HttpResponse.json({ data: [event], page: 1, page_size: 20, total: 1 }),
     ),
     // The detail page reads its event by ID. It used to scan page 1 of the
     // collection above and filter locally, which reported "Event not found" for
     // any event past the first page — so the item endpoint is what the detail
     // scenarios must serve, and an unknown id must answer a real 404.
-    http.get('*/api/v1/admin/events/:eventId', ({ params }) => {
-      if (params.eventId !== testEventID) {
+    http.get(adminEventItemPath, ({ request }) => {
+      const eventID = lastPathSegment(request.url)
+      if (eventID !== testEventID) {
         return HttpResponse.json(
           { code: 'EVENT_NOT_FOUND', message: 'Event not found.' },
           { status: 404 },
@@ -95,7 +99,8 @@ function renderPortal({
       }
       return HttpResponse.json(event)
     }),
-    http.get('*/api/v1/admin/events/:eventId/categories', async ({ params }) => {
+    http.get(adminEventCategoriesPath, async ({ request }) => {
+      const eventID = categoryEventID(request.url)
       const isRefetch = calls.includes('list')
       calls.push('list')
       if (listRefetchGate && isRefetch) await listRefetchGate
@@ -107,10 +112,11 @@ function renderPortal({
       }
       // Scoping is server-side: a request for another event must never see
       // this event's rows.
-      const scoped = serverCategories.filter((category) => category.event_id === params.eventId)
+      const scoped = serverCategories.filter((category) => category.event_id === eventID)
       return HttpResponse.json({ data: scoped })
     }),
-    http.post('*/api/v1/admin/events/:eventId/categories', async ({ params, request }) => {
+    http.post(adminEventCategoriesPath, async ({ request }) => {
+      const eventID = categoryEventID(request.url)
       calls.push('create')
       if (createGate) await createGate
       if (createResponse === 'duplicate') {
@@ -124,7 +130,7 @@ function renderPortal({
       }
       const input = (await request.json()) as { name: string }
       const created = createCategoryFixture({
-        event_id: String(params.eventId),
+        event_id: eventID,
         name: input.name.trim(),
       })
       serverCategories = serverOrdered([...serverCategories, created])
@@ -133,6 +139,16 @@ function renderPortal({
   )
 
   return { calls, event, session }
+}
+
+function lastPathSegment(rawURL: string) {
+  const segments = new URL(rawURL).pathname.split('/').filter(Boolean)
+  return segments[segments.length - 1] ?? ''
+}
+
+function categoryEventID(rawURL: string) {
+  const segments = new URL(rawURL).pathname.split('/').filter(Boolean)
+  return segments[segments.length - 2] ?? ''
 }
 
 function renderAt(scenario: DetailScenario = {}, path?: string) {
@@ -147,7 +163,7 @@ function renderAt(scenario: DetailScenario = {}, path?: string) {
 }
 
 async function openEventDetail(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(await screen.findByRole('link', { name: eventName }))
+  await user.click(await screen.findByRole('link', { name: eventName }, { timeout: 5_000 }))
   return screen.findByRole('heading', { level: 1, name: eventName })
 }
 
@@ -410,7 +426,7 @@ describe('Admin event detail and categories', () => {
     // rendered "Event not found" for an event that exists and is active. This
     // pins the item read: the collection here deliberately returns NOTHING.
     server.use(
-      http.get('*/api/v1/admin/events', () =>
+      http.get(adminEventsCollectionPath, () =>
         HttpResponse.json({ data: [], page: 1, page_size: 20, total: 0 }),
       ),
     )

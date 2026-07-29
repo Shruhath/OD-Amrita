@@ -83,6 +83,8 @@ jobs:
       SUPERUSER_DSN: postgres://od_amrita:ci_only_password@localhost:5432/od_amrita?sslmode=disable
       DATABASE_URL_MIGRATOR: postgres://od_migrator:migrator_dev_only_change_me@localhost:5432/od_amrita?sslmode=disable
       DATABASE_URL_RUNTIME: postgres://od_runtime:runtime_dev_only_change_me@localhost:5432/od_amrita?sslmode=disable
+      CARD_SEAL_ACTIVE_VERSION: dev
+      CARD_SEAL_HMAC_KEYS: dev=Y2ktZGV2LWNhcmQtc2VhbC1rZXktMzItYnl0ZXMhISEh
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

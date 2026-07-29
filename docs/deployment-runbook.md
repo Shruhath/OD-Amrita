@@ -109,7 +109,7 @@ unset PGPASSWORD
 psql "$DATABASE_URL_MIGRATOR" -c 'SELECT max(version_id) FROM goose_db_version;'
 ```
 
-Expect **9** — migrations `0001`–`0009`. A lower number, or a missing table, means the
+Expect **10** — migrations `0001`–`0010`. A lower number, or a missing table, means the
 migrations did not all apply; stop and fix that before deploying, because the API will fail at
 runtime rather than at boot.
 
@@ -144,6 +144,8 @@ flyctl secrets set \
   AUTH_AUDIENCE='authenticated' \
   AUTH_ALLOWED_DOMAIN='amrita.edu' \
   AUTH_BOOTSTRAP_ADMINS='<the first admin email>' \
+  CARD_SEAL_ACTIVE_VERSION='v1' \
+  CARD_SEAL_HMAC_KEYS='v1=<base64url 32-byte random key>' \
   PORTAL_ALLOWED_ORIGINS='<vercel-production-origin>'
 ```
 
@@ -154,6 +156,12 @@ already in `fly.toml`'s `[env]` block. Do not duplicate them here.
 > `https://od-amrita.vercel.app`. **No trailing slash**, no path, no query, no wildcard. The
 > API validates this at boot and **refuses to start** on a malformed value, so a stray `/` at
 > the end turns into a deploy that never comes up. Multiple origins are comma-separated.
+
+> **`CARD_SEAL_HMAC_KEYS` is the server-only NFC card secret.** Generate at least 32 random
+> bytes and encode them with unpadded base64url; keep the active version at 16 characters or
+> fewer, e.g. `v1`. The API validates this at boot and refuses to start on missing, malformed,
+> short, duplicate, or overlong versions. Never put this value in `web/`, `mobile/`, NFC
+> payloads, audit payloads, logs, or generated client code.
 
 **3. Deploy:**
 
@@ -274,7 +282,7 @@ deliberately called out because it does **not** meet the production transport po
   not answer browser requests with an HTML page. That header is inert against any other host and
   **should be removed when the API moves to its own domain**.
 - **The database is a local container, not Neon.** The deployed Neon project is reachable over HTTPS
-  but its Postgres port is blocked from the operator network, so migrations `0004`–`0009` are **not**
+  but its Postgres port is blocked from the operator network, so migrations `0004`–`0010` are **not**
   applied there yet. Applying them (§3) is part of the Fly cutover, from a network that permits 5432.
 
 **Cutover checklist when Fly lands:** deploy per §4 → apply §3 against Neon → set `VITE_API_BASE_URL`

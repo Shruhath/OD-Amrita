@@ -53,9 +53,9 @@ func TestEventSchema_RuntimeCannotHardDelete(t *testing.T) {
 
 	var eventID, branchID string
 	if err := migrator.QueryRow(ctx, `
-		INSERT INTO branches (code, name)
-		VALUES ('DELETE-GATE-' || substr(gen_random_uuid()::text, 1, 8), 'Delete gate fixture')
-		RETURNING id::text`).Scan(&branchID); err != nil {
+			INSERT INTO branches (code, name)
+			VALUES ('DELETE-GATE-' || upper(substr(gen_random_uuid()::text, 1, 8)), 'Delete gate fixture')
+			RETURNING id::text`).Scan(&branchID); err != nil {
 		t.Fatalf("seed branch: %v", err)
 	}
 	if err := migrator.QueryRow(ctx, `
@@ -96,9 +96,9 @@ func TestEventSchema_ArchivedAggregateIsImmutable(t *testing.T) {
 	}
 	for target, code := range map[*string]string{&firstBranchID: "ARCHIVE-A", &secondBranchID: "ARCHIVE-B"} {
 		if err := migrator.QueryRow(ctx, `
-			INSERT INTO branches (code, name)
-			VALUES ($1 || '-' || substr(gen_random_uuid()::text, 1, 8), $1 || ' fixture')
-			RETURNING id::text`, code).Scan(target); err != nil {
+				INSERT INTO branches (code, name)
+				VALUES ($1 || '-' || upper(substr(gen_random_uuid()::text, 1, 8)), $1 || ' fixture')
+				RETURNING id::text`, code).Scan(target); err != nil {
 			t.Fatalf("seed branch: %v", err)
 		}
 	}

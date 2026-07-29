@@ -37,6 +37,7 @@ type AuditEvent struct {
 	TargetTable  *string
 	TargetID     *string
 	Payload      []byte
+	PayloadFunc  func() ([]byte, error)
 }
 
 // AuditInserter inserts one audit row inside the caller's transaction. It is the

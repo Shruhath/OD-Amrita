@@ -184,14 +184,31 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("delete categories: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		DELETE FROM events
-		WHERE name LIKE ANY (SELECT prefix || '%' FROM unnest($1::text[]) AS prefix)
-	`, fixtureEventPrefixes); err != nil {
+			DELETE FROM events
+			WHERE name LIKE ANY (SELECT prefix || '%' FROM unnest($1::text[]) AS prefix)
+		`, fixtureEventPrefixes); err != nil {
 		return fmt.Errorf("delete events: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO users (id, supabase_subject, email, name, role)
-		VALUES
+			DELETE FROM student_roster_imports
+			WHERE source_filename IN (
+				'student-roster.csv',
+				'mixed.csv',
+				'students.csv',
+				'mixed-students.csv'
+			)
+		`); err != nil {
+		return fmt.Errorf("delete student roster imports: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+			DELETE FROM students
+			WHERE roll_no LIKE 'CB.SC.U4CSE%'
+		`); err != nil {
+		return fmt.Errorf("delete student roster fixtures: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+			INSERT INTO users (id, supabase_subject, email, name, role)
+			VALUES
 			('90000000-0000-4000-8000-000000000001', $1, 'portal-admin@amrita.edu', 'Portal Admin', 'admin'),
 			('90000000-0000-4000-8000-000000000002', $2, 'portal-student@amrita.edu', 'Portal Student', 'student')
 		ON CONFLICT (supabase_subject) DO UPDATE

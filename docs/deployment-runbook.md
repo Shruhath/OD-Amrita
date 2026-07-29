@@ -109,7 +109,7 @@ unset PGPASSWORD
 psql "$DATABASE_URL_MIGRATOR" -c 'SELECT max(version_id) FROM goose_db_version;'
 ```
 
-Expect **8** — migrations `0001`–`0008`. A lower number, or a missing table, means the
+Expect **9** — migrations `0001`–`0009`. A lower number, or a missing table, means the
 migrations did not all apply; stop and fix that before deploying, because the API will fail at
 runtime rather than at boot.
 
@@ -274,7 +274,7 @@ deliberately called out because it does **not** meet the production transport po
   not answer browser requests with an HTML page. That header is inert against any other host and
   **should be removed when the API moves to its own domain**.
 - **The database is a local container, not Neon.** The deployed Neon project is reachable over HTTPS
-  but its Postgres port is blocked from the operator network, so migrations `0004`–`0008` are **not**
+  but its Postgres port is blocked from the operator network, so migrations `0004`–`0009` are **not**
   applied there yet. Applying them (§3) is part of the Fly cutover, from a network that permits 5432.
 
 **Cutover checklist when Fly lands:** deploy per §4 → apply §3 against Neon → set `VITE_API_BASE_URL`
@@ -354,7 +354,7 @@ is why these are tracked here rather than assumed.
 
 **Database (Neon)**
 - [ ] Run the **Neon** role bootstrap on the live `Amrita-OD` database — `00_roles.sql` as the owner role, then **change both role passwords** (§3.1–3.2).
-- [ ] Apply migrations as `od_migrator` and confirm `SELECT max(version_id) FROM goose_db_version` returns **8** (§3.3–3.4).
+- [ ] Apply migrations as `od_migrator` and confirm `SELECT max(version_id) FROM goose_db_version` returns **9** (§3.3–3.4).
 - [ ] **Upgrade the Neon plan before the event.** Free gives a **6-hour** PITR window, which does not cover an event plus the days afterwards when disputes are raised (Launch = 7 days, Scale = 30 days). Record the new window in the backup runbook §2.2.
 
 **API (Fly)**

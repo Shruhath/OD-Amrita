@@ -28,6 +28,8 @@ const (
 	maxBranchRunes   = 32
 	maxSectionRunes  = 32
 	maxBatchRunes    = 32
+	maxCSVRows       = 2000
+	maxRowErrors     = 1000
 	defaultSourceCSV = "students.csv"
 )
 
@@ -117,6 +119,9 @@ func (s *Service) Import(ctx context.Context, actor Actor, input ImportInput) (R
 	if source == "" {
 		source = defaultSourceCSV
 	}
+	if !validText(source) {
+		return Result{}, validation("file", "invalid_encoding", "CSV filename must be valid UTF-8 text without NUL bytes.")
+	}
 	if utf8.RuneCountInString(source) > 255 {
 		return Result{}, validation("file", "maximum", "CSV filename must not exceed 255 characters.")
 	}
@@ -140,22 +145,27 @@ func (s *Service) Import(ctx context.Context, actor Actor, input ImportInput) (R
 	actorRole := actor.Role
 	targetTable := "student_roster_imports"
 	var targetID string
-	payload, _ := json.Marshal(map[string]any{
-		"source_filename": source,
-		"total_rows":      totalRows,
-		"valid_rows":      len(rows),
-		"invalid_rows":    invalidRows,
-	})
 	evt := store.AuditEvent{
 		Action:       domain.ActionStudentRosterImported,
 		ActorAccount: stringPtrOrNil(actorAccount),
 		ActorRole:    stringPtrOrNil(actorRole),
 		TargetTable:  &targetTable,
 		TargetID:     &targetID,
-		Payload:      payload,
 	}
 
 	var result Result
+	evt.PayloadFunc = func() ([]byte, error) {
+		return json.Marshal(map[string]any{
+			"source_filename": source,
+			"total_rows":      totalRows,
+			"valid_rows":      len(rows),
+			"inserted_rows":   result.InsertedRows,
+			"updated_rows":    result.UpdatedRows,
+			"unchanged_rows":  result.UnchangedRows,
+			"invalid_rows":    result.InvalidRows,
+			"database_count":  result.DatabaseCount,
+		})
+	}
 	err = s.store.WithAudit(ctx, evt, func(ctx context.Context, tx pgx.Tx) (bool, error) {
 		written, writeErr := s.writer.Import(ctx, tx, ImportWrite{
 			SourceFilename: source,
@@ -212,10 +222,16 @@ func (s *Service) parse(ctx context.Context, source io.Reader) (int, []ImportRow
 			return 0, nil, 0, nil, validation("file", "invalid_csv", fmt.Sprintf("CSV row %d could not be parsed.", rowNumber))
 		}
 		totalRows++
+		if totalRows > maxCSVRows {
+			return 0, nil, 0, nil, validation("file", "too_many_rows", fmt.Sprintf("CSV must not contain more than %d data rows.", maxCSVRows))
+		}
 		rowErrs := make([]RowError, 0, 2)
 		if len(record) != len(header) {
 			invalidRows++
-			errs = append(errs, rowError(rowNumber, "$row", "record_length", "Row has a different number of fields than the header."))
+			errs = appendRowErrors(errs, rowError(rowNumber, "$row", "record_length", "Row has a different number of fields than the header."))
+			if len(errs) > maxRowErrors {
+				return 0, nil, 0, nil, validation("file", "too_many_errors", fmt.Sprintf("CSV has more than %d validation errors; fix the earlier rows and upload again.", maxRowErrors))
+			}
 			continue
 		}
 		cell := func(field string) string {
@@ -226,15 +242,16 @@ func (s *Service) parse(ctx context.Context, source io.Reader) (int, []ImportRow
 			return strings.TrimSpace(record[index])
 		}
 
-		roll := strings.ToUpper(cell("roll_no"))
-		if roll == "" {
+		rawRoll := cell("roll_no")
+		roll := strings.ToUpper(rawRoll)
+		if rawRoll == "" {
 			rowErrs = append(rowErrs, rowError(rowNumber, "roll_no", "required", "Roll number is required."))
+		} else if !validText(rawRoll) {
+			rowErrs = append(rowErrs, rowError(rowNumber, "roll_no", "invalid_encoding", "Roll number must be valid UTF-8 text without NUL bytes."))
 		} else if utf8.RuneCountInString(roll) > maxRollRunes || !rollPattern.MatchString(roll) {
 			rowErrs = append(rowErrs, rowError(rowNumber, "roll_no", "invalid", "Roll number contains unsupported characters."))
 		} else if _, duplicate := seenRolls[roll]; duplicate {
 			rowErrs = append(rowErrs, rowError(rowNumber, "roll_no", "duplicate", "Roll number appears more than once in this file."))
-		} else {
-			seenRolls[roll] = struct{}{}
 		}
 
 		name := cell("name")
@@ -243,11 +260,12 @@ func (s *Service) parse(ctx context.Context, source io.Reader) (int, []ImportRow
 		rowErrs = append(rowErrs, validateRequired(rowNumber, "section", section, maxSectionRunes)...)
 		batch := cell("batch")
 		rowErrs = append(rowErrs, validateRequired(rowNumber, "batch", batch, maxBatchRunes)...)
-		branchCode := strings.ToUpper(cell("branch"))
-		rowErrs = append(rowErrs, validateRequired(rowNumber, "branch", branchCode, maxBranchRunes)...)
+		rawBranch := cell("branch")
+		branchCode := strings.ToUpper(rawBranch)
+		rowErrs = append(rowErrs, validateRequired(rowNumber, "branch", rawBranch, maxBranchRunes)...)
 
 		var branch Branch
-		if branchCode != "" && utf8.RuneCountInString(branchCode) <= maxBranchRunes {
+		if rawBranch != "" && validText(rawBranch) && utf8.RuneCountInString(branchCode) <= maxBranchRunes {
 			resolved, branchErr := s.reader.ResolveBranch(ctx, branchCode)
 			if errors.Is(branchErr, ErrBranchNotFound) {
 				rowErrs = append(rowErrs, rowError(rowNumber, "branch", "unknown", fmt.Sprintf("Branch code %s does not exist.", branchCode)))
@@ -260,9 +278,13 @@ func (s *Service) parse(ctx context.Context, source io.Reader) (int, []ImportRow
 
 		if len(rowErrs) > 0 {
 			invalidRows++
-			errs = append(errs, rowErrs...)
+			errs = appendRowErrors(errs, rowErrs...)
+			if len(errs) > maxRowErrors {
+				return 0, nil, 0, nil, validation("file", "too_many_errors", fmt.Sprintf("CSV has more than %d validation errors; fix the earlier rows and upload again.", maxRowErrors))
+			}
 			continue
 		}
+		seenRolls[roll] = struct{}{}
 		rows = append(rows, ImportRow{RollNo: roll, Name: name, BranchID: branch.ID, Section: section, Batch: batch})
 	}
 	return totalRows, rows, invalidRows, errs, nil
@@ -271,6 +293,9 @@ func (s *Service) parse(ctx context.Context, source io.Reader) (int, []ImportRow
 func mapHeaders(header []string) (map[string]int, error) {
 	columns := make(map[string]int, len(header))
 	for index, raw := range header {
+		if !validText(raw) {
+			return nil, validation("header", "invalid_encoding", "CSV headers must be valid UTF-8 text without NUL bytes.")
+		}
 		name := headerField(raw)
 		if name == "" {
 			continue
@@ -316,10 +341,28 @@ func validateRequired(row int, field, value string, limit int) []RowError {
 	if value == "" {
 		return []RowError{rowError(row, field, "required", strings.ReplaceAll(field, "_", " ")+" is required.")}
 	}
+	if !validText(value) {
+		return []RowError{rowError(row, field, "invalid_encoding", fmt.Sprintf("%s must be valid UTF-8 text without NUL bytes.", strings.ReplaceAll(field, "_", " ")))}
+	}
 	if utf8.RuneCountInString(value) > limit {
 		return []RowError{rowError(row, field, "maximum", fmt.Sprintf("%s must not exceed %d characters.", strings.ReplaceAll(field, "_", " "), limit))}
 	}
 	return nil
+}
+
+func validText(value string) bool {
+	return utf8.ValidString(value) && !strings.ContainsRune(value, '\x00')
+}
+
+func appendRowErrors(errs []RowError, rowErrs ...RowError) []RowError {
+	remaining := maxRowErrors + 1 - len(errs)
+	if remaining <= 0 {
+		return errs
+	}
+	if len(rowErrs) > remaining {
+		rowErrs = rowErrs[:remaining]
+	}
+	return append(errs, rowErrs...)
 }
 
 func validation(field, code, message string) domain.DomainError {

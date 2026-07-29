@@ -4,6 +4,7 @@ package student
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -121,19 +122,49 @@ func TestImportRollsBackWhenAuditInsertFails(t *testing.T) {
 	}
 }
 
+func TestRosterSchemaRejectsNonCanonicalReferenceData(t *testing.T) {
+	ctx := testCtx(t)
+	migrator := connect(t, ctx, dsnOrSkip(t, envMigratorDSN))
+	seed(t, ctx, migrator)
+
+	if _, err := migrator.Exec(ctx, `
+		INSERT INTO branches (id, code, name)
+		VALUES ('94000000-0000-4000-8000-000000000099', 'cse', 'Lowercase CSE')
+	`); err == nil {
+		t.Fatal("expected lowercase branch code to be rejected")
+	}
+
+	if _, err := migrator.Exec(ctx, `
+		INSERT INTO students (roll_no, name, branch_id, section, batch)
+		VALUES ('cb.sc.u4cse24999', 'Lowercase Roll', $1, 'A', '2024')
+	`, branchID); err == nil {
+		t.Fatal("expected lowercase student roll number to be rejected")
+	}
+}
+
 func assertImportAudit(t *testing.T, ctx context.Context, pool *pgxpool.Pool, importID string) {
 	t.Helper()
 	var count int
+	var payloadText string
 	if err := pool.QueryRow(ctx, `
-		SELECT count(*)
+		SELECT count(*), coalesce(max(payload::text), '{}')
 		FROM audit_log
 		WHERE action = 'student_roster.imported'
 		  AND target_table = 'student_roster_imports'
-		  AND target_id = $1`, importID).Scan(&count); err != nil {
+		  AND target_id = $1`, importID).Scan(&count, &payloadText); err != nil {
 		t.Fatalf("count import audit: %v", err)
 	}
 	if count != 1 {
 		t.Fatalf("audit rows for import %s = %d, want 1", importID, count)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(payloadText), &payload); err != nil {
+		t.Fatalf("decode import audit payload: %v (%s)", err, payloadText)
+	}
+	for _, key := range []string{"total_rows", "valid_rows", "inserted_rows", "updated_rows", "unchanged_rows", "invalid_rows", "database_count"} {
+		if _, ok := payload[key]; !ok {
+			t.Errorf("audit payload missing %s: %#v", key, payload)
+		}
 	}
 }
 

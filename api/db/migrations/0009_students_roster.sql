@@ -7,6 +7,12 @@
 
 -- +goose Up
 
+ALTER TABLE branches
+    ADD CONSTRAINT branches_code_upper_chk CHECK (code = upper(code));
+
+CREATE UNIQUE INDEX branches_code_lower_unique_idx
+    ON branches (lower(code));
+
 CREATE TABLE students (
     id         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
     roll_no    text        NOT NULL UNIQUE,
@@ -16,7 +22,7 @@ CREATE TABLE students (
     batch      text        NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT students_roll_no_trimmed_nonblank_chk CHECK (roll_no = btrim(roll_no) AND roll_no <> '' AND length(roll_no) <= 64),
+    CONSTRAINT students_roll_no_canonical_chk CHECK (roll_no = btrim(roll_no) AND roll_no <> '' AND length(roll_no) <= 64 AND roll_no = upper(roll_no) AND roll_no ~ '^[A-Z0-9][A-Z0-9._/-]*$'),
     CONSTRAINT students_name_trimmed_nonblank_chk CHECK (name = btrim(name) AND name <> '' AND length(name) <= 200),
     CONSTRAINT students_section_trimmed_nonblank_chk CHECK (section = btrim(section) AND section <> '' AND length(section) <= 32),
     CONSTRAINT students_batch_trimmed_nonblank_chk CHECK (batch = btrim(batch) AND batch <> '' AND length(batch) <= 32)
@@ -61,3 +67,6 @@ CREATE INDEX student_roster_imports_created_at_idx
 
 DROP TABLE student_roster_imports;
 DROP TABLE students;
+DROP INDEX branches_code_lower_unique_idx;
+ALTER TABLE branches
+    DROP CONSTRAINT branches_code_upper_chk;

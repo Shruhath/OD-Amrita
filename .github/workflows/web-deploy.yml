@@ -112,6 +112,8 @@ jobs:
           done
           cat /tmp/od-portal-api.log
           exit 1
+      - name: API roster import journey
+        run: pnpm --filter od-amrita-web test:api
       - name: Install Playwright Chromium
         run: pnpm --filter od-amrita-web exec playwright install --with-deps chromium
       - name: Browser persistence and authorization journey

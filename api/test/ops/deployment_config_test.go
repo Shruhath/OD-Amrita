@@ -32,9 +32,11 @@ package ops
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -570,6 +572,50 @@ func TestDeploymentRunbook_ExistsAndHasTheSectionsThatMakeItOperable(t *testing.
 			t.Errorf("[P0] %s is missing a %q section — %s\n  (looked for a heading containing: %v)", deployRunbookRel, r.what, r.why, r.keywords)
 		}
 	}
+}
+
+func TestDeploymentRunbook_DocumentsTheCurrentMigrationVersion(t *testing.T) {
+	doc := readArtifact(t, deployRunbookRel, deployRunbookWhy)
+	latest := latestMigrationVersion(t)
+	padded := fmt.Sprintf("%04d", latest)
+
+	if !strings.Contains(doc, fmt.Sprintf("Expect **%d**", latest)) {
+		t.Errorf("[P0] %s must tell operators to expect goose version %d, matching the highest committed migration %s", deployRunbookRel, latest, padded)
+	}
+	if !strings.Contains(doc, fmt.Sprintf("`0001`–`%s`", padded)) {
+		t.Errorf("[P1] %s must name the applied migration range through %s", deployRunbookRel, padded)
+	}
+}
+
+func latestMigrationVersion(t *testing.T) int {
+	t.Helper()
+	dir := filepath.Join(repoRoot(t), "api/db/migrations")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read migrations: %v", err)
+	}
+	versionRe := regexp.MustCompile(`^([0-9]+)_.*\.sql$`)
+	latest := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		match := versionRe.FindStringSubmatch(entry.Name())
+		if match == nil {
+			continue
+		}
+		version, err := strconv.Atoi(match[1])
+		if err != nil {
+			t.Fatalf("parse migration version from %s: %v", entry.Name(), err)
+		}
+		if version > latest {
+			latest = version
+		}
+	}
+	if latest == 0 {
+		t.Fatal("no numbered migrations found")
+	}
+	return latest
 }
 
 func TestDeploymentRunbook_RecordsTheExactDeployCommandAndItsRepoRootContext(t *testing.T) {

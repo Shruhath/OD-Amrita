@@ -14,12 +14,18 @@
 #        before an event rather than during one.
 #
 #     2. Plain HTTP is REFUSED, not redirected (NFR15). The transport rule is
-#        that an insecure request is rejected outright; a 301/308 redirect still
-#        accepts the connection first. The host config in api/fly.toml achieves
-#        the rejection by exposing port 443 only, so nothing is listening on 80.
-#        A redirect here means somebody re-added a port-80 handler or switched
-#        the service block to [http_service]/force_https — a regression this
-#        check exists to catch loudly.
+#        that an insecure request is not ANSWERED and not REDIRECTED; a 301/308
+#        redirect still accepts the connection first. The host config in
+#        api/fly.toml achieves this by exposing port 443 only, so nothing serves
+#        HTTP on 80. What that looks like on the wire depends on who owns the IP:
+#        a directly-bound host REFUSES the connection (curl exit 7), while a
+#        TLS-terminating edge on a shared Anycast IP (Fly, and most CDNs/ingress)
+#        ACCEPTS the port-80 TCP connection and then drops it with no data —
+#        empty reply (curl 52) or reset (curl 56), http_code 000. All of those
+#        satisfy NFR15 equally: no HTTP response came back. The failure this
+#        check exists to catch loudly is any HTTP status line at all — above all
+#        a redirect — which means somebody re-added a port-80 handler or switched
+#        the service block to [http_service]/force_https.
 #
 # WHERE IT RUNS
 #   OPERATOR-RUN, against the LIVE deployed origin — during the deploy and again
@@ -176,9 +182,17 @@ if [ "$http_exit" -eq 0 ]; then
   esac
   printf '        Check api/fly.toml (§4.1): a port-80 entry, a plain http handler, or force_https has been re-added.\n' >&2
 elif [ "$http_exit" -eq 7 ]; then
-  # The expected result with the port-443-only service block: nothing is
+  # A directly-bound host with the port-443-only service block: nothing is
   # listening on 80, so the connection is refused before any HTTP is spoken.
   pass 'connection refused (curl exit 7) — nothing is listening on port 80'
+elif [ "$http_exit" -eq 52 ] || [ "$http_exit" -eq 56 ]; then
+  # A TLS-terminating edge (Fly's shared Anycast IP, and most CDNs/ingress) owns
+  # port 80 at the IP even with no port-80 service mapped: it accepts the TCP
+  # connection and then closes it with no data (curl 52, empty reply) or resets
+  # it (curl 56). http_code is 000 — no status line, no Location — so plain HTTP
+  # was neither answered nor redirected, which is what NFR15 requires. This, not
+  # exit 7, is the compliant result for an edge-terminated deploy like api/fly.toml.
+  pass "no HTTP response (curl exit $http_exit) — the edge accepted then dropped the cleartext connection without answering"
 elif [ "$http_exit" -eq 28 ]; then
   # A DROP firewall swallows the SYN, so curl times out rather than getting a
   # refusal. Nothing was answered, which is what NFR15 requires.

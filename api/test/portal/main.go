@@ -21,6 +21,7 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/domain"
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
 	handlerevent "github.com/Shruhath/OD-Amrita/api/internal/handler/event"
+	handlerstudent "github.com/Shruhath/OD-Amrita/api/internal/handler/student"
 	handlerteacher "github.com/Shruhath/OD-Amrita/api/internal/handler/teacher"
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
 	corsmw "github.com/Shruhath/OD-Amrita/api/internal/middleware/cors"
@@ -28,6 +29,7 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
+	svcstudent "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 	svcteacher "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
 	svcuser "github.com/Shruhath/OD-Amrita/api/internal/service/user"
 	"github.com/Shruhath/OD-Amrita/api/internal/store"
@@ -96,6 +98,7 @@ func main() {
 	auditor := svcauth.NewEventAuditor(st)
 	eventService := svcevent.NewService(svcevent.NewSQLCReader(runtimePool), st, svcevent.NewSQLCWriter())
 	teacherService := svcteacher.NewService(svcteacher.NewSQLCReader(runtimePool), st, svcteacher.NewSQLCWriter())
+	studentService := svcstudent.NewService(svcstudent.NewSQLCReader(runtimePool), st, svcstudent.NewSQLCWriter())
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
@@ -116,6 +119,7 @@ func main() {
 	// a browser-journey 404 that reads as a frontend bug.
 	handlerevent.RegisterAdminRoutes(admin, eventService)
 	handlerteacher.RegisterAdminRoutes(admin, teacherService)
+	handlerstudent.RegisterAdminRoutes(admin, studentService)
 
 	port := os.Getenv("PORTAL_API_PORT")
 	if port == "" {
@@ -180,14 +184,31 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("delete categories: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		DELETE FROM events
-		WHERE name LIKE ANY (SELECT prefix || '%' FROM unnest($1::text[]) AS prefix)
-	`, fixtureEventPrefixes); err != nil {
+			DELETE FROM events
+			WHERE name LIKE ANY (SELECT prefix || '%' FROM unnest($1::text[]) AS prefix)
+		`, fixtureEventPrefixes); err != nil {
 		return fmt.Errorf("delete events: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO users (id, supabase_subject, email, name, role)
-		VALUES
+			DELETE FROM student_roster_imports
+			WHERE source_filename IN (
+				'student-roster.csv',
+				'mixed.csv',
+				'students.csv',
+				'mixed-students.csv'
+			)
+		`); err != nil {
+		return fmt.Errorf("delete student roster imports: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+			DELETE FROM students
+			WHERE roll_no LIKE 'CB.SC.U4CSE%'
+		`); err != nil {
+		return fmt.Errorf("delete student roster fixtures: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+			INSERT INTO users (id, supabase_subject, email, name, role)
+			VALUES
 			('90000000-0000-4000-8000-000000000001', $1, 'portal-admin@amrita.edu', 'Portal Admin', 'admin'),
 			('90000000-0000-4000-8000-000000000002', $2, 'portal-student@amrita.edu', 'Portal Student', 'student')
 		ON CONFLICT (supabase_subject) DO UPDATE

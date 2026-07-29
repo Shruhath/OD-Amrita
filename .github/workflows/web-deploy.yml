@@ -112,6 +112,8 @@ jobs:
           done
           cat /tmp/od-portal-api.log
           exit 1
+      - name: API roster import journey
+        run: pnpm --filter od-amrita-web test:api
       - name: Install Playwright Chromium
         run: pnpm --filter od-amrita-web exec playwright install --with-deps chromium
       - name: Browser persistence and authorization journey
@@ -201,5 +203,22 @@ jobs:
               AND audit.target_table = 'users'")"
           [ "$count" = "1" ] || {
             echo "expected exactly one teacher.profile_created audit row for user $user_id, got $count"
+            exit 1
+          }
+      - name: Verify student import audit conservation
+        run: |
+          imports="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT count(*)
+            FROM student_roster_imports
+            WHERE source_filename IN ('students.csv', 'mixed-students.csv')")"
+          audits="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT count(*)
+            FROM student_roster_imports AS roster_import
+            JOIN audit_log AS audit ON audit.target_id = roster_import.id::text
+            WHERE roster_import.source_filename IN ('students.csv', 'mixed-students.csv')
+              AND audit.action = 'student_roster.imported'
+              AND audit.target_table = 'student_roster_imports'")"
+          [ "$imports" = "3" ] && [ "$audits" = "3" ] || {
+            echo "expected three student imports and three student_roster.imported rows, got $imports and $audits"
             exit 1
           }

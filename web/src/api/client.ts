@@ -13,6 +13,8 @@ export type CreateCategoryInput = components['schemas']['CreateCategoryRequest']
 export type TeacherProfile = components['schemas']['TeacherProfile']
 export type TeacherProfileCollection = components['schemas']['TeacherProfileCollection']
 export type CreateTeacherProfileInput = components['schemas']['CreateTeacherProfileRequest']
+export type StudentRosterImportResult = components['schemas']['StudentRosterImportResult']
+export type StudentRosterImportError = components['schemas']['StudentRosterImportError']
 export type ValidationError = components['schemas']['ValidationError']
 export type ErrorEnvelope = components['schemas']['Error']
 
@@ -29,6 +31,13 @@ export class ApiFailure extends Error {
 
 const apiBaseURL = import.meta.env.VITE_API_BASE_URL ?? window.location.origin
 
+// Pre-production only: true while the API is reached through an ngrok tunnel,
+// false the moment VITE_API_BASE_URL points at the API's own domain (Fly). Gating
+// the tunnel bypass header on this means it disappears automatically at cutover
+// rather than relying on someone remembering to delete a line — and it keeps the
+// header (which forces a CORS preflight on every call) off the production origin.
+const isNgrokTunnel = /\bngrok\b/.test(apiBaseURL)
+
 function createAuthorizedFetch(session: SessionPort): typeof fetch {
   return async (input, init) => {
     const initial = new Request(input, init)
@@ -36,6 +45,13 @@ function createAuthorizedFetch(session: SessionPort): typeof fetch {
       const headers = new Headers(request.headers)
       if (token) headers.set('Authorization', `Bearer ${token}`)
       headers.set('Accept', 'application/json')
+      // Pre-production only: while the API is reached through an ngrok tunnel,
+      // the tunnel's free tier answers browser-looking requests with an HTML
+      // interstitial instead of proxying them, which breaks every API call from
+      // the deployed web app. This header opts out of that page. Sent only when
+      // the API base URL is the tunnel (see isNgrokTunnel) so it drops off
+      // automatically once the API moves to its own domain.
+      if (isNgrokTunnel) headers.set('ngrok-skip-browser-warning', 'true')
       return fetch(new Request(request, { headers }))
     }
 
@@ -103,6 +119,14 @@ export function createEventApi(session: SessionPort) {
     },
     async createTeacher(input: CreateTeacherProfileInput) {
       return unwrap(await client.POST('/api/v1/admin/teachers', { body: input }))
+    },
+    async importStudents(file: File) {
+      const body = new FormData()
+      body.append('file', file)
+      return unwrap(await client.POST('/api/v1/admin/students/import', {
+        body: { file: file.name },
+        bodySerializer: () => body,
+      }))
     },
   }
 }

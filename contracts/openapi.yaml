@@ -689,6 +689,60 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/admin/students/import:
+    post:
+      operationId: importAdminStudents
+      summary: Import the student roster from a UTF-8 CSV
+      description: >-
+        Admin-only roster import. The CSV is uploaded as multipart field `file`.
+        Rows are reconciled by canonical roll number; valid rows commit even
+        when other rows are invalid. A malformed file or an upload with zero
+        valid data rows is rejected with typed validation details.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "201":
+          description: Valid rows imported and reconciliation counts returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StudentRosterImportResult"
+        "400":
+          description: Request, CSV, or zero-valid-row validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Missing, malformed, expired, or revoked token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a provisioned Admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -901,6 +955,50 @@ components:
           items:
             type: string
             format: uuid
+
+    StudentRosterImportResult:
+      type: object
+      required: [import_id, total_rows, inserted_rows, updated_rows, unchanged_rows, invalid_rows, database_count, errors]
+      properties:
+        import_id:
+          type: string
+          format: uuid
+        total_rows:
+          type: integer
+          minimum: 0
+        inserted_rows:
+          type: integer
+          minimum: 0
+        updated_rows:
+          type: integer
+          minimum: 0
+        unchanged_rows:
+          type: integer
+          minimum: 0
+        invalid_rows:
+          type: integer
+          minimum: 0
+        database_count:
+          type: integer
+          minimum: 0
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/StudentRosterImportError"
+
+    StudentRosterImportError:
+      type: object
+      required: [row, field, code, message]
+      properties:
+        row:
+          type: integer
+          minimum: 1
+        field:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
 
     HealthStatus:
       type: object

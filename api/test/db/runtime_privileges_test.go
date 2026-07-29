@@ -50,6 +50,11 @@ var runtimePrivileges = map[string][]string{
 	// event_branches/categories, inherited entirely from 0007's default
 	// privileges (0008 writes no explicit GRANT/REVOKE).
 	"user_branches": {"SELECT", "INSERT", "UPDATE"},
+
+	// Imported student roster and its import summaries are stable references for
+	// attendance, dashboard, and correction flows.
+	"students":               {"SELECT", "INSERT", "UPDATE"},
+	"student_roster_imports": {"SELECT", "INSERT", "UPDATE"},
 }
 
 // gooseBookkeeping is goose's own version table. It is created by od_migrator and

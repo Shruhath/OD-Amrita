@@ -215,6 +215,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/students/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import the student roster from a UTF-8 CSV
+         * @description Admin-only roster import. The CSV is uploaded as multipart field `file`. Rows are reconciled by canonical roll number; valid rows commit even when other rows are invalid. A malformed file or an upload with zero valid data rows is rejected with typed validation details.
+         */
+        post: operations["importAdminStudents"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -296,6 +316,23 @@ export interface components {
             /** @description Email of an existing, already-provisioned users row. Resolved server-side; the request does not pre-provision an identity. */
             email: string;
             branch_ids: string[];
+        };
+        StudentRosterImportResult: {
+            /** Format: uuid */
+            import_id: string;
+            total_rows: number;
+            inserted_rows: number;
+            updated_rows: number;
+            unchanged_rows: number;
+            invalid_rows: number;
+            database_count: number;
+            errors: components["schemas"]["StudentRosterImportError"][];
+        };
+        StudentRosterImportError: {
+            row: number;
+            field: string;
+            code: string;
+            message: string;
         };
         /** @description Health probe shape — overall service status plus database connectivity. */
         HealthStatus: {
@@ -1210,6 +1247,69 @@ export interface operations {
             };
             /** @description The user already has a non-student role (ROLE_ALREADY_ASSIGNED). */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    importAdminStudents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Valid rows imported and reconciliation counts returned. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentRosterImportResult"];
+                };
+            };
+            /** @description Request, CSV, or zero-valid-row validation failed. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

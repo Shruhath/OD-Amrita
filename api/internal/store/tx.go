@@ -79,11 +79,13 @@ func (s *Store) WithAudit(
 	if !evt.Action.Registered() {
 		return fmt.Errorf("%w: %q", ErrUnregisteredAction, string(evt.Action))
 	}
-	payload, err := normalizeAuditPayload(evt.Payload)
-	if err != nil {
-		return err
+	if evt.PayloadFunc == nil {
+		payload, err := normalizeAuditPayload(evt.Payload)
+		if err != nil {
+			return err
+		}
+		evt.Payload = payload
 	}
-	evt.Payload = payload
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -101,6 +103,17 @@ func (s *Store) WithAudit(
 	// Only a real state change earns an audit row. On a no-op the business tx
 	// still commits cleanly (below) — it simply carries no audit row.
 	if changed {
+		if evt.PayloadFunc != nil {
+			payload, err := evt.PayloadFunc()
+			if err != nil {
+				return fmt.Errorf("store: audit payload: %w", err)
+			}
+			payload, err = normalizeAuditPayload(payload)
+			if err != nil {
+				return err
+			}
+			evt.Payload = payload
+		}
 		if err := s.auditInserter(ctx, tx, evt); err != nil {
 			return fmt.Errorf("store: audit insert: %w", err)
 		}

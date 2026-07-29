@@ -63,6 +63,31 @@ type EventBranch struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type Student struct {
+	ID        pgtype.UUID        `json:"id"`
+	RollNo    string             `json:"roll_no"`
+	Name      string             `json:"name"`
+	BranchID  pgtype.UUID        `json:"branch_id"`
+	Section   string             `json:"section"`
+	Batch     string             `json:"batch"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+type StudentRosterImport struct {
+	ID             pgtype.UUID        `json:"id"`
+	SourceFilename string             `json:"source_filename"`
+	TotalRows      int32              `json:"total_rows"`
+	InsertedRows   int32              `json:"inserted_rows"`
+	UpdatedRows    int32              `json:"updated_rows"`
+	UnchangedRows  int32              `json:"unchanged_rows"`
+	InvalidRows    int32              `json:"invalid_rows"`
+	DatabaseCount  int32              `json:"database_count"`
+	ActorUserID    pgtype.UUID        `json:"actor_user_id"`
+	ActorEmail     pgtype.Text        `json:"actor_email"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
 type User struct {
 	ID              pgtype.UUID        `json:"id"`
 	SupabaseSubject string             `json:"supabase_subject"`

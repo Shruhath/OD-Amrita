@@ -22,7 +22,7 @@ func TestAuditFailureRollsBackEventCreation(t *testing.T) {
 	runtime := poolFromEnv(t, "DATABASE_URL_RUNTIME")
 	branchID := uuid.New()
 	if _, err := migrator.Exec(ctx, `
-		INSERT INTO branches (id, code, name) VALUES ($1, $2, 'Audit rollback fixture')`,
+		INSERT INTO branches (id, code, name) VALUES ($1, upper($2), 'Audit rollback fixture')`,
 		branchID, "AUDIT-"+branchID.String()[:8]); err != nil {
 		t.Fatalf("seed branch: %v", err)
 	}

@@ -20,6 +20,7 @@ import (
 
 	"github.com/Shruhath/OD-Amrita/api/internal/domain"
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
+	handlercardtoken "github.com/Shruhath/OD-Amrita/api/internal/handler/cardtoken"
 	handlerevent "github.com/Shruhath/OD-Amrita/api/internal/handler/event"
 	handlerstudent "github.com/Shruhath/OD-Amrita/api/internal/handler/student"
 	handlerteacher "github.com/Shruhath/OD-Amrita/api/internal/handler/teacher"
@@ -28,6 +29,7 @@ import (
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
+	svccardtoken "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
 	svcstudent "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 	svcteacher "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
@@ -99,6 +101,13 @@ func main() {
 	eventService := svcevent.NewService(svcevent.NewSQLCReader(runtimePool), st, svcevent.NewSQLCWriter())
 	teacherService := svcteacher.NewService(svcteacher.NewSQLCReader(runtimePool), st, svcteacher.NewSQLCWriter())
 	studentService := svcstudent.NewService(svcstudent.NewSQLCReader(runtimePool), st, svcstudent.NewSQLCWriter())
+	cardKeyring, err := svccardtoken.NewKeyring("dev", map[string][]byte{
+		"dev": []byte("portal-dev-card-seal-key-32-bytes"),
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	cardTokenService := svccardtoken.NewService(svccardtoken.NewSQLCReader(runtimePool), svccardtoken.NewSQLCLedger(runtimePool), st, cardKeyring)
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
@@ -120,6 +129,7 @@ func main() {
 	handlerevent.RegisterAdminRoutes(admin, eventService)
 	handlerteacher.RegisterAdminRoutes(admin, teacherService)
 	handlerstudent.RegisterAdminRoutes(admin, studentService)
+	handlercardtoken.RegisterAdminRoutes(admin, cardTokenService)
 
 	port := os.Getenv("PORTAL_API_PORT")
 	if port == "" {

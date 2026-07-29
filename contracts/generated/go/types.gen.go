@@ -52,6 +52,7 @@ const (
 	ErrorCodeROLEALREADYASSIGNED ErrorCode = "ROLE_ALREADY_ASSIGNED"
 	ErrorCodeSCANDUPLICATE       ErrorCode = "SCAN_DUPLICATE"
 	ErrorCodeSLOTCLOSED          ErrorCode = "SLOT_CLOSED"
+	ErrorCodeSTUDENTNOTFOUND     ErrorCode = "STUDENT_NOT_FOUND"
 	ErrorCodeUSERNOTFOUND        ErrorCode = "USER_NOT_FOUND"
 	ErrorCodeVALIDATIONFAILED    ErrorCode = "VALIDATION_FAILED"
 )
@@ -84,6 +85,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeSCANDUPLICATE:
 		return true
 	case ErrorCodeSLOTCLOSED:
+		return true
+	case ErrorCodeSTUDENTNOTFOUND:
 		return true
 	case ErrorCodeUSERNOTFOUND:
 		return true
@@ -274,6 +277,23 @@ type BranchSummary struct {
 	Name string             `json:"name"`
 }
 
+// CardSeal defines model for CardSeal.
+type CardSeal struct {
+	Payload struct {
+		Token   string `json:"token"`
+		Version string `json:"version"`
+	} `json:"payload"`
+	Student ResolvedCardStudent `json:"student"`
+	Token   string              `json:"token"`
+	Version string              `json:"version"`
+}
+
+// CardTokenResolveRequest defines model for CardTokenResolveRequest.
+type CardTokenResolveRequest struct {
+	Token   string `json:"token"`
+	Version string `json:"version"`
+}
+
 // Category An activity within one event (e.g. Procession, Stage Setup). A category has no identity without its event, which is why event_id is part of the resource and the operations are nested under the event.
 type Category struct {
 	CreatedAt time.Time          `json:"created_at"`
@@ -361,6 +381,16 @@ type HealthStatusDb string
 
 // HealthStatusStatus Overall service status. "ok" when every dependency is reachable; "degraded" (served with HTTP 503) when the database is not.
 type HealthStatusStatus string
+
+// ResolvedCardStudent defines model for ResolvedCardStudent.
+type ResolvedCardStudent struct {
+	Batch       string             `json:"batch"`
+	Branch      string             `json:"branch"`
+	DisplayName string             `json:"display_name"`
+	RollNo      string             `json:"roll_no"`
+	Section     string             `json:"section"`
+	StudentId   openapi_types.UUID `json:"student_id"`
+}
 
 // RevokeSessionsRequest Forced-logout request. `scope` is required and explicit — the server never infers it. `session_id` is required (and a UUID) iff `scope` is `session`, and MUST be absent when `scope` is `all`.
 type RevokeSessionsRequest struct {
@@ -527,6 +557,9 @@ type ListAdminTeachersParams struct {
 	Page     *int `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
+
+// ResolveAdminCardTokenJSONRequestBody defines body for ResolveAdminCardToken for application/json ContentType.
+type ResolveAdminCardTokenJSONRequestBody = CardTokenResolveRequest
 
 // CreateAdminEventJSONRequestBody defines body for CreateAdminEvent for application/json ContentType.
 type CreateAdminEventJSONRequestBody = CreateEventRequest

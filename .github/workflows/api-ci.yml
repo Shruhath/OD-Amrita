@@ -142,6 +142,8 @@ jobs:
       # Role passwords match the dev-only defaults in api/db/init/00_roles.sql.
       DATABASE_URL_MIGRATOR: postgres://od_migrator:migrator_dev_only_change_me@localhost:5432/od_amrita?sslmode=disable
       DATABASE_URL_RUNTIME: postgres://od_runtime:runtime_dev_only_change_me@localhost:5432/od_amrita?sslmode=disable
+      CARD_SEAL_ACTIVE_VERSION: dev
+      CARD_SEAL_HMAC_KEYS: dev=Y2ktZGV2LWNhcmQtc2VhbC1rZXktMzItYnl0ZXMhISEh
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -169,7 +171,7 @@ jobs:
         # users write back and returns 500, never 200.
         working-directory: api
         run: |
-          go test -tags integration -p 1 ./test/db/... ./test/store/... ./test/event/... ./test/roundtrip/... ./test/teacher/... ./test/student/... -v
+          go test -tags integration -p 1 ./test/db/... ./test/store/... ./test/event/... ./test/roundtrip/... ./test/teacher/... ./test/student/... ./test/cardtoken/... -v
       - name: goose down-to 0 + re-up (clean revert of EVERY migration)
         working-directory: api
         # `goose down` reverts exactly ONE migration, so this gate only ever

@@ -48,6 +48,7 @@ const (
 	// event_branches insert.
 	ActionTeacherProfileCreated Action = "teacher.profile_created"
 	ActionStudentRosterImported Action = "student_roster.imported"
+	ActionCardTokenSealed       Action = "card_token.sealed"
 )
 
 // AllActions is the canonical registry-of-record: every declared Action, in
@@ -69,6 +70,7 @@ var AllActions = []Action{
 	ActionCategoryCreated,
 	ActionTeacherProfileCreated,
 	ActionStudentRosterImported,
+	ActionCardTokenSealed,
 }
 
 // registeredActions is the O(1) lookup set DERIVED from AllActions, so it can

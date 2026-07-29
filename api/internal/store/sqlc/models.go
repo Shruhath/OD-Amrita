@@ -74,6 +74,15 @@ type Student struct {
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
+type StudentCardToken struct {
+	ID          pgtype.UUID        `json:"id"`
+	StudentID   pgtype.UUID        `json:"student_id"`
+	Version     string             `json:"version"`
+	TokenSha256 []byte             `json:"token_sha256"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
 type StudentRosterImport struct {
 	ID             pgtype.UUID        `json:"id"`
 	SourceFilename string             `json:"source_filename"`

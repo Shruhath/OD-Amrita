@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,8 +35,15 @@ func setEnv(t *testing.T, env map[string]string) {
 		"AUTH_JWKS_URL", "AUTH_ISSUER", "AUTH_AUDIENCE", "AUTH_ALLOWED_DOMAIN",
 		"AUTH_BOOTSTRAP_ADMINS",
 		"PORTAL_ALLOWED_ORIGINS",
+		"CARD_SEAL_ACTIVE_VERSION", "CARD_SEAL_HMAC_KEYS",
 	} {
 		t.Setenv(k, "")
+	}
+	if _, ok := env["CARD_SEAL_ACTIVE_VERSION"]; !ok {
+		t.Setenv("CARD_SEAL_ACTIVE_VERSION", "dev")
+	}
+	if _, ok := env["CARD_SEAL_HMAC_KEYS"]; !ok {
+		t.Setenv("CARD_SEAL_HMAC_KEYS", "dev="+base64.RawURLEncoding.EncodeToString([]byte("dev-only-card-seal-key-32-bytes!!")))
 	}
 	for k, v := range env {
 		t.Setenv(k, v)

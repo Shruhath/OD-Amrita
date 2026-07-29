@@ -3,6 +3,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/url"
 	"os"
@@ -37,6 +38,13 @@ type Auth struct {
 	BootstrapAdmins map[string]struct{}
 }
 
+// CardSeal holds server-only card-token HMAC keys. Keys are decoded bytes from
+// CARD_SEAL_HMAC_KEYS and must never be logged or returned to clients.
+type CardSeal struct {
+	ActiveVersion string
+	HMACKeys      map[string][]byte
+}
+
 // Config is the fully-resolved api process configuration.
 type Config struct {
 	AppEnv               string
@@ -49,8 +57,9 @@ type Config struct {
 	// DatabaseURLRuntime is the od_runtime (DML-only) DSN the app pool uses.
 	DatabaseURLRuntime string
 
-	TLS  TLS
-	Auth Auth
+	TLS      TLS
+	Auth     Auth
+	CardSeal CardSeal
 }
 
 // Load reads the environment and fails fast on a configuration the server
@@ -128,6 +137,11 @@ func Load() (*Config, error) {
 	if err := validateAuth(cfg.Auth, cfg.AppEnv); err != nil {
 		return nil, err
 	}
+	cardSeal, err := parseCardSealConfig(os.Getenv("CARD_SEAL_ACTIVE_VERSION"), os.Getenv("CARD_SEAL_HMAC_KEYS"))
+	if err != nil {
+		return nil, err
+	}
+	cfg.CardSeal = cardSeal
 	for _, origin := range cfg.PortalAllowedOrigins {
 		if err := validateOrigin(origin); err != nil {
 			return nil, err
@@ -135,6 +149,44 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func parseCardSealConfig(activeRaw, keysRaw string) (CardSeal, error) {
+	active := strings.TrimSpace(activeRaw)
+	if active == "" {
+		return CardSeal{}, fmt.Errorf("config: CARD_SEAL_ACTIVE_VERSION is required")
+	}
+	keys := map[string][]byte{}
+	for _, part := range strings.Split(keysRaw, ",") {
+		entry := strings.TrimSpace(part)
+		if entry == "" {
+			continue
+		}
+		version, encoded, ok := strings.Cut(entry, "=")
+		version = strings.TrimSpace(version)
+		encoded = strings.TrimSpace(encoded)
+		if !ok || version == "" || encoded == "" {
+			return CardSeal{}, fmt.Errorf("config: CARD_SEAL_HMAC_KEYS must contain comma-separated version=base64url-key entries")
+		}
+		if _, exists := keys[version]; exists {
+			return CardSeal{}, fmt.Errorf("config: CARD_SEAL_HMAC_KEYS contains duplicate version %q", version)
+		}
+		decoded, err := base64.RawURLEncoding.DecodeString(encoded)
+		if err != nil {
+			return CardSeal{}, fmt.Errorf("config: CARD_SEAL_HMAC_KEYS contains malformed base64url key for version %q", version)
+		}
+		if len(decoded) < 32 {
+			return CardSeal{}, fmt.Errorf("config: CARD_SEAL_HMAC_KEYS key for version %q must decode to at least 32 bytes", version)
+		}
+		keys[version] = decoded
+	}
+	if len(keys) == 0 {
+		return CardSeal{}, fmt.Errorf("config: CARD_SEAL_HMAC_KEYS is required")
+	}
+	if _, ok := keys[active]; !ok {
+		return CardSeal{}, fmt.Errorf("config: CARD_SEAL_HMAC_KEYS must include active version %q", active)
+	}
+	return CardSeal{ActiveVersion: active, HMACKeys: keys}, nil
 }
 
 func validateOrigin(raw string) error {

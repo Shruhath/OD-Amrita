@@ -743,6 +743,117 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/admin/students/{student_id}/card-seal:
+    post:
+      operationId: sealAdminStudentCard
+      summary: Seal one student's NFC card token
+      description: >-
+        Admin-only card-populator endpoint. Returns the active seal version, the
+        HMAC token, and the exact card payload to write. The card payload carries
+        only version and token; student identity is resolved server-side later.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: student_id
+          in: path
+          required: true
+          description: Student row id to seal for the active card-token version.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "201":
+          description: Token sealed and ledgered for the selected student.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CardSeal"
+        "400":
+          description: Request validation failed with typed field details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Missing, malformed, expired, or revoked token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a provisioned Admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No `students` row exists for the supplied id (STUDENT_NOT_FOUND).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/card-tokens/resolve:
+    post:
+      operationId: resolveAdminCardToken
+      summary: Resolve a sealed card token for populator verification
+      description: >-
+        Admin-only verification endpoint for the card populator. Unknown,
+        malformed, disabled-version, or absent-ledger tokens all return the same
+        CARD_NOT_RECOGNIZED response so callers cannot enumerate valid versions
+        or token prefixes.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CardTokenResolveRequest"
+      responses:
+        "200":
+          description: Token matched a ledgered student.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolvedCardStudent"
+        "400":
+          description: Request validation failed with typed field details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Missing, malformed, expired, or revoked token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a provisioned Admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Token was not recognized (CARD_NOT_RECOGNIZED).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1000,6 +1111,75 @@ components:
         message:
           type: string
 
+    ResolvedCardStudent:
+      type: object
+      required: [student_id, roll_no, display_name, branch, section, batch]
+      properties:
+        student_id:
+          type: string
+          format: uuid
+        roll_no:
+          type: string
+          minLength: 1
+          maxLength: 64
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        branch:
+          type: string
+          minLength: 1
+          maxLength: 32
+        section:
+          type: string
+          minLength: 1
+          maxLength: 32
+        batch:
+          type: string
+          minLength: 1
+          maxLength: 32
+
+    CardSeal:
+      type: object
+      required: [student, version, token, payload]
+      properties:
+        student:
+          $ref: "#/components/schemas/ResolvedCardStudent"
+        version:
+          type: string
+          minLength: 1
+          maxLength: 16
+        token:
+          type: string
+          minLength: 43
+          maxLength: 128
+        payload:
+          type: object
+          required: [version, token]
+          additionalProperties: false
+          properties:
+            version:
+              type: string
+              minLength: 1
+              maxLength: 16
+            token:
+              type: string
+              minLength: 43
+              maxLength: 128
+
+    CardTokenResolveRequest:
+      type: object
+      required: [version, token]
+      properties:
+        version:
+          type: string
+          minLength: 1
+          maxLength: 16
+        token:
+          type: string
+          minLength: 43
+          maxLength: 128
+
     HealthStatus:
       type: object
       description: >-
@@ -1054,6 +1234,7 @@ components:
             - EVENT_NOT_FOUND
             - EVENT_ARCHIVED
             - USER_NOT_FOUND
+            - STUDENT_NOT_FOUND
             - ROLE_ALREADY_ASSIGNED
             - INTERNAL
         message:

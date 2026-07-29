@@ -24,6 +24,7 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/config"
 	handleradmin "github.com/Shruhath/OD-Amrita/api/internal/handler/admin"
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
+	handlercardtoken "github.com/Shruhath/OD-Amrita/api/internal/handler/cardtoken"
 	handlerevent "github.com/Shruhath/OD-Amrita/api/internal/handler/event"
 	"github.com/Shruhath/OD-Amrita/api/internal/handler/health"
 	handlerstudent "github.com/Shruhath/OD-Amrita/api/internal/handler/student"
@@ -33,6 +34,7 @@ import (
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
+	svccardtoken "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
 	svcstudent "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 	svcteacher "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
@@ -121,6 +123,12 @@ func run() error {
 	handlerteacher.RegisterAdminRoutes(admin, teacherSvc)
 	studentSvc := svcstudent.NewService(svcstudent.NewSQLCReader(pool), st, svcstudent.NewSQLCWriter())
 	handlerstudent.RegisterAdminRoutes(admin, studentSvc)
+	cardKeyring, err := svccardtoken.NewKeyring(cfg.CardSeal.ActiveVersion, cfg.CardSeal.HMACKeys)
+	if err != nil {
+		return err
+	}
+	cardTokenSvc := svccardtoken.NewService(svccardtoken.NewSQLCReader(pool), svccardtoken.NewSQLCLedger(pool), st, cardKeyring)
+	handlercardtoken.RegisterAdminRoutes(admin, cardTokenSvc)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.APIPort,

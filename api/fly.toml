@@ -16,7 +16,12 @@
 #   --config/--dockerfile flags are what let the command run from the root.
 
 app = "od-amrita-api"
-primary_region = "bom"
+# Primary region. Mumbai (bom) is the intended home for India-facing traffic, but
+# Fly reported "no capacity available in bom" at first deploy, so this is on
+# Singapore (sin) — the nearest region with capacity (~40-60ms from campus).
+# Move back to bom when Mumbai capacity returns: set this to "bom" and rerun
+# `flyctl scale count 2 --region bom`, then remove the sin machines.
+primary_region = "sin"
 
 [build]
   dockerfile = "Dockerfile"

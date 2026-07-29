@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -30,11 +31,6 @@ func RegisterAdminRoutes(group gin.IRouter, svc Service) {
 
 func SealHandler(svc Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		studentID := c.Param("student_id")
-		if _, err := uuid.Parse(studentID); err != nil {
-			fail(c, requestValidation("student_id", "invalid_format", "Student id must be a UUID."))
-			return
-		}
 		actor, err := actorFromContext(c)
 		if err != nil {
 			fail(c, err)
@@ -42,6 +38,11 @@ func SealHandler(svc Service) gin.HandlerFunc {
 		}
 		if actor.Role != "admin" {
 			fail(c, forbidden())
+			return
+		}
+		studentID := c.Param("student_id")
+		if _, err := uuid.Parse(studentID); err != nil {
+			fail(c, requestValidation("student_id", "invalid_format", "Student id must be a UUID."))
 			return
 		}
 		sealed, err := svc.Seal(c.Request.Context(), actor, cardtokensvc.SealInput{StudentID: studentID})
@@ -60,11 +61,6 @@ func SealHandler(svc Service) gin.HandlerFunc {
 
 func ResolveHandler(svc Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var body contracts.CardTokenResolveRequest
-		if err := bindResolveRequest(c, &body); err != nil {
-			fail(c, err)
-			return
-		}
 		actor, err := actorFromContext(c)
 		if err != nil {
 			fail(c, err)
@@ -72,6 +68,11 @@ func ResolveHandler(svc Service) gin.HandlerFunc {
 		}
 		if actor.Role != "admin" {
 			fail(c, forbidden())
+			return
+		}
+		var body contracts.CardTokenResolveRequest
+		if err := bindResolveRequest(c, &body); err != nil {
+			fail(c, err)
 			return
 		}
 		resolved, err := svc.Resolve(c.Request.Context(), actor, cardtokensvc.ResolveInput{Version: body.Version, Token: body.Token})
@@ -94,6 +95,11 @@ type resolveRequestShape struct {
 }
 
 const maxResolveRequestBytes int64 = 1 << 20
+const (
+	maxVersionRunes = 16
+	minTokenRunes   = 43
+	maxTokenRunes   = 128
+)
 
 func bindResolveRequest(c *gin.Context, body *contracts.CardTokenResolveRequest) error {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxResolveRequestBytes)
@@ -116,6 +122,22 @@ func bindResolveRequest(c *gin.Context, body *contracts.CardTokenResolveRequest)
 	}
 	if err := c.ShouldBindBodyWith(body, binding.JSON); err != nil {
 		return requestValidation("$", "invalid_json", "Request body must be valid JSON.")
+	}
+	if body.Version == "" {
+		return requestValidation("version", "required", "version is required.")
+	}
+	if utf8.RuneCountInString(body.Version) > maxVersionRunes {
+		return requestValidation("version", "maximum", "version must not exceed 16 characters.")
+	}
+	tokenLen := utf8.RuneCountInString(body.Token)
+	if body.Token == "" {
+		return requestValidation("token", "required", "token is required.")
+	}
+	if tokenLen < minTokenRunes {
+		return requestValidation("token", "minimum", "token must be at least 43 characters.")
+	}
+	if tokenLen > maxTokenRunes {
+		return requestValidation("token", "maximum", "token must not exceed 128 characters.")
 	}
 	return nil
 }

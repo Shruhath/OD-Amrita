@@ -137,7 +137,7 @@ func Load() (*Config, error) {
 	if err := validateAuth(cfg.Auth, cfg.AppEnv); err != nil {
 		return nil, err
 	}
-	cardSeal, err := parseCardSealConfig(os.Getenv("CARD_SEAL_ACTIVE_VERSION"), os.Getenv("CARD_SEAL_HMAC_KEYS"))
+	cardSeal, err := LoadCardSealFromEnv()
 	if err != nil {
 		return nil, err
 	}
@@ -151,10 +151,20 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
+// LoadCardSealFromEnv loads only the card-seal keyring configuration. Test
+// harnesses that compose the API without the full config still use the same
+// server-only env contract and validation path as production.
+func LoadCardSealFromEnv() (CardSeal, error) {
+	return parseCardSealConfig(os.Getenv("CARD_SEAL_ACTIVE_VERSION"), os.Getenv("CARD_SEAL_HMAC_KEYS"))
+}
+
 func parseCardSealConfig(activeRaw, keysRaw string) (CardSeal, error) {
 	active := strings.TrimSpace(activeRaw)
 	if active == "" {
 		return CardSeal{}, fmt.Errorf("config: CARD_SEAL_ACTIVE_VERSION is required")
+	}
+	if len(active) > 16 {
+		return CardSeal{}, fmt.Errorf("config: CARD_SEAL_ACTIVE_VERSION must not exceed 16 characters")
 	}
 	keys := map[string][]byte{}
 	for _, part := range strings.Split(keysRaw, ",") {
@@ -167,6 +177,9 @@ func parseCardSealConfig(activeRaw, keysRaw string) (CardSeal, error) {
 		encoded = strings.TrimSpace(encoded)
 		if !ok || version == "" || encoded == "" {
 			return CardSeal{}, fmt.Errorf("config: CARD_SEAL_HMAC_KEYS must contain comma-separated version=base64url-key entries")
+		}
+		if len(version) > 16 {
+			return CardSeal{}, fmt.Errorf("config: CARD_SEAL_HMAC_KEYS contains version %q longer than 16 characters", version)
 		}
 		if _, exists := keys[version]; exists {
 			return CardSeal{}, fmt.Errorf("config: CARD_SEAL_HMAC_KEYS contains duplicate version %q", version)

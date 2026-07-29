@@ -144,6 +144,8 @@ flyctl secrets set \
   AUTH_AUDIENCE='authenticated' \
   AUTH_ALLOWED_DOMAIN='amrita.edu' \
   AUTH_BOOTSTRAP_ADMINS='<the first admin email>' \
+  CARD_SEAL_ACTIVE_VERSION='v1' \
+  CARD_SEAL_HMAC_KEYS='v1=<base64url 32-byte random key>' \
   PORTAL_ALLOWED_ORIGINS='<vercel-production-origin>'
 ```
 
@@ -154,6 +156,12 @@ already in `fly.toml`'s `[env]` block. Do not duplicate them here.
 > `https://od-amrita.vercel.app`. **No trailing slash**, no path, no query, no wildcard. The
 > API validates this at boot and **refuses to start** on a malformed value, so a stray `/` at
 > the end turns into a deploy that never comes up. Multiple origins are comma-separated.
+
+> **`CARD_SEAL_HMAC_KEYS` is the server-only NFC card secret.** Generate at least 32 random
+> bytes and encode them with unpadded base64url; keep the active version at 16 characters or
+> fewer, e.g. `v1`. The API validates this at boot and refuses to start on missing, malformed,
+> short, duplicate, or overlong versions. Never put this value in `web/`, `mobile/`, NFC
+> payloads, audit payloads, logs, or generated client code.
 
 **3. Deploy:**
 

@@ -76,7 +76,7 @@ func TestResolveHandlerMapsKnownTokenAndUniformUnknownFailures(t *testing.T) {
 	}
 
 	for _, requestBody := range []string{
-		`{"version":"v1","token":"malformed"}`,
+		`{"version":"v1","token":"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"}`,
 		`{"version":"disabled","token":"QlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlI"}`,
 		`{"version":"v1","token":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}`,
 	} {
@@ -109,6 +109,29 @@ func TestCardTokenAdminRoutesRejectNonAdminBeforeService(t *testing.T) {
 	}
 	if svc.calls != 0 {
 		t.Fatalf("service was called %d times for non-admin requests", svc.calls)
+	}
+}
+
+func TestResolveHandlerEnforcesGeneratedStringBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "blank version", body: `{"version":"","token":"QlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlI"}`},
+		{name: "overlong version", body: `{"version":"version-name-over-16","token":"QlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlI"}`},
+		{name: "short token", body: `{"version":"v1","token":"abc"}`},
+		{name: "overlong token", body: `{"version":"v1","token":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &fakeService{}
+			recorder := request(cardTokenRouter(svc, "admin"), http.MethodPost, "/card-tokens/resolve", bytes.NewBufferString(tc.body))
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s, want 400", recorder.Code, recorder.Body.String())
+			}
+			if svc.calls != 0 {
+				t.Fatalf("service was called %d times for invalid request", svc.calls)
+			}
+		})
 	}
 }
 

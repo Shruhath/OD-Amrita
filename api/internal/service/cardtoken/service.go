@@ -107,6 +107,9 @@ func NewKeyring(active string, keys map[string][]byte) (Keyring, error) {
 		if version == "" {
 			return Keyring{}, errors.New("cardtoken: seal key version is required")
 		}
+		if len(version) > 16 {
+			return Keyring{}, fmt.Errorf("cardtoken: seal key version %q must not exceed 16 characters", version)
+		}
 		if len(key) < 32 {
 			return Keyring{}, fmt.Errorf("cardtoken: seal key for version %q must be at least 32 bytes", version)
 		}

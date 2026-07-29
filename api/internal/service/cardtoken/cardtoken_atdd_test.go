@@ -58,6 +58,13 @@ func TestSealDeterministicPayloadAndLedgerIdempotency(t *testing.T) {
 	if ledger.upserts != 2 || ledger.createdRows != 1 {
 		t.Fatalf("ledger upserts=%d createdRows=%d, want two attempts and one active row", ledger.upserts, ledger.createdRows)
 	}
+	if ledger.lastVersion != "v1" {
+		t.Fatalf("ledger version = %q, want v1", ledger.lastVersion)
+	}
+	wantHash := sha256.Sum256([]byte(first.Token))
+	if ledger.lastHash != wantHash {
+		t.Fatalf("ledger hash = %x, want SHA256(token) %x", ledger.lastHash, wantHash)
+	}
 	if audit.changedWrites != 1 {
 		t.Fatalf("audit changed writes=%d, want only first seal audited", audit.changedWrites)
 	}
@@ -111,6 +118,12 @@ func TestResolveKnownTokenAndRejectsUniformFailures(t *testing.T) {
 	}
 	if resolved.StudentID != student.ID || resolved.RollNo != student.RollNo || resolved.DisplayName != student.DisplayName {
 		t.Fatalf("resolved = %+v, want %+v", resolved, student)
+	}
+	if ledger.resolveVersion != sealed.Version {
+		t.Fatalf("resolved version = %q, want %q", ledger.resolveVersion, sealed.Version)
+	}
+	if want := sha256.Sum256([]byte(sealed.Token)); ledger.resolveHash != want {
+		t.Fatalf("resolved hash = %x, want SHA256(token) %x", ledger.resolveHash, want)
 	}
 
 	for _, tc := range []ResolveInput{
@@ -172,14 +185,19 @@ func (f fakeReader) StudentByID(context.Context, string) (Student, error) {
 }
 
 type fakeLedger struct {
-	upserts     int
-	createdRows int
-	lastHash    []byte
-	resolved    Student
+	upserts        int
+	createdRows    int
+	lastVersion    string
+	lastHash       [sha256.Size]byte
+	resolveVersion string
+	resolveHash    [sha256.Size]byte
+	resolved       Student
 }
 
-func (f *fakeLedger) Upsert(context.Context, pgx.Tx, LedgerEntry) (bool, error) {
+func (f *fakeLedger) Upsert(_ context.Context, _ pgx.Tx, entry LedgerEntry) (bool, error) {
 	f.upserts++
+	f.lastVersion = entry.Version
+	f.lastHash = entry.TokenSHA256
 	if f.upserts == 1 {
 		f.createdRows++
 		return true, nil
@@ -187,7 +205,9 @@ func (f *fakeLedger) Upsert(context.Context, pgx.Tx, LedgerEntry) (bool, error) 
 	return false, nil
 }
 
-func (f *fakeLedger) Resolve(context.Context, string, [sha256.Size]byte) (Student, error) {
+func (f *fakeLedger) Resolve(_ context.Context, version string, fingerprint [sha256.Size]byte) (Student, error) {
+	f.resolveVersion = version
+	f.resolveHash = fingerprint
 	if f.resolved.ID == "" {
 		return Student{}, ErrCardNotRecognized
 	}

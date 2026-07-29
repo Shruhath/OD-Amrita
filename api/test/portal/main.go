@@ -18,6 +18,7 @@ import (
 
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
 
+	"github.com/Shruhath/OD-Amrita/api/internal/config"
 	"github.com/Shruhath/OD-Amrita/api/internal/domain"
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
 	handlercardtoken "github.com/Shruhath/OD-Amrita/api/internal/handler/cardtoken"
@@ -101,9 +102,11 @@ func main() {
 	eventService := svcevent.NewService(svcevent.NewSQLCReader(runtimePool), st, svcevent.NewSQLCWriter())
 	teacherService := svcteacher.NewService(svcteacher.NewSQLCReader(runtimePool), st, svcteacher.NewSQLCWriter())
 	studentService := svcstudent.NewService(svcstudent.NewSQLCReader(runtimePool), st, svcstudent.NewSQLCWriter())
-	cardKeyring, err := svccardtoken.NewKeyring("dev", map[string][]byte{
-		"dev": []byte("portal-dev-card-seal-key-32-bytes"),
-	})
+	cardSeal, err := config.LoadCardSealFromEnv()
+	if err != nil {
+		log.Fatal(err)
+	}
+	cardKeyring, err := svccardtoken.NewKeyring(cardSeal.ActiveVersion, cardSeal.HMACKeys)
 	if err != nil {
 		log.Fatal(err)
 	}

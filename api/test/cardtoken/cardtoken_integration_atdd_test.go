@@ -3,15 +3,25 @@
 package cardtokentest
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
+
+	"github.com/Shruhath/OD-Amrita/api/internal/domain"
+	svccardtoken "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
+	"github.com/Shruhath/OD-Amrita/api/internal/store"
 )
 
 func TestCardTokenLedgerSchemaAndRuntimePrivileges(t *testing.T) {
@@ -59,20 +69,39 @@ func TestCardTokenLedgerSchemaAndRuntimePrivileges(t *testing.T) {
 			t.Errorf("[P0] od_runtime %s on student_card_tokens = %v, want %v", privilege, got, want)
 		}
 	}
+
+	var hasLookupIndex bool
+	if err := migrator.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM pg_indexes
+			WHERE schemaname = 'public'
+			  AND tablename = 'student_card_tokens'
+			  AND indexname = 'student_card_tokens_version_fingerprint_unique_idx'
+			  AND indexdef LIKE '%(version, token_sha256)%'
+		)`).Scan(&hasLookupIndex); err != nil {
+		t.Fatalf("check version/fingerprint lookup index: %v", err)
+	}
+	if !hasLookupIndex {
+		t.Fatal("[P0] student_card_tokens must keep an indexed O(1)-shape lookup on (version, token_sha256)")
+	}
 }
 
 func TestCardTokenLedgerStoresFingerprintOnlyAndResolvesInConstantLookupShape(t *testing.T) {
 	ctx := testCtx(t)
 	migrator := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_MIGRATOR"))
-	seedStudent(t, ctx, migrator)
+	studentID := uuid.NewString()
+	rollNo := uniqueRollNo(studentID)
+	seedStudent(t, ctx, migrator, studentID, rollNo)
 
-	token := "QlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlI"
+	tokenSeed := sha256.Sum256([]byte(studentID))
+	token := base64.RawURLEncoding.EncodeToString(tokenSeed[:])
 	hash := sha256.Sum256([]byte(token))
 	if _, err := migrator.Exec(ctx, `
 		INSERT INTO student_card_tokens (student_id, version, token_sha256)
-		VALUES ('97000000-0000-4000-8000-000000000101', 'v1', $1)
+		VALUES ($2, 'v1', $1)
 		ON CONFLICT (student_id, version) DO UPDATE
-		SET token_sha256 = EXCLUDED.token_sha256, updated_at = now()`, hash[:]); err != nil {
+		SET token_sha256 = EXCLUDED.token_sha256, updated_at = now()`, hash[:], studentID); err != nil {
 		t.Fatalf("upsert token ledger row: %v", err)
 	}
 
@@ -87,22 +116,102 @@ func TestCardTokenLedgerStoresFingerprintOnlyAndResolvesInConstantLookupShape(t 
 		t.Fatalf("[P0] raw token appears in ledger storage")
 	}
 
-	var rollNo, name, branch, section, batch string
+	var gotRollNo, name, branch, section, batch string
 	if err := migrator.QueryRow(ctx, `
 		SELECT s.roll_no, s.name, b.code, s.section, s.batch
 		FROM student_card_tokens t
 		JOIN students s ON s.id = t.student_id
 		JOIN branches b ON b.id = s.branch_id
 		WHERE t.version = 'v1' AND t.token_sha256 = decode($1, 'hex')`, hex.EncodeToString(hash[:])).
-		Scan(&rollNo, &name, &branch, &section, &batch); err != nil {
+		Scan(&gotRollNo, &name, &branch, &section, &batch); err != nil {
 		t.Fatalf("resolve token fingerprint: %v", err)
 	}
-	if rollNo != "CB.SC.U4CSE24101" || name != "ATDD Card Student" || branch != "CSE" || section != "A" || batch != "2024" {
-		t.Fatalf("resolved student = %s/%s/%s/%s/%s", rollNo, name, branch, section, batch)
+	if gotRollNo != rollNo || name != "ATDD Card Student" || branch != "CSE" || section != "A" || batch != "2024" {
+		t.Fatalf("resolved student = %s/%s/%s/%s/%s", gotRollNo, name, branch, section, batch)
 	}
 }
 
-func seedStudent(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func TestCardTokenServiceSealsAuditsIdempotentlyAndRejectsUnknownTokens(t *testing.T) {
+	ctx := testCtx(t)
+	migrator := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_MIGRATOR"))
+	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
+	studentID := uuid.NewString()
+	rollNo := uniqueRollNo(studentID)
+	seedStudent(t, ctx, migrator, studentID, rollNo)
+
+	keyring, err := svccardtoken.NewKeyring("v1", map[string][]byte{"v1": bytes.Repeat([]byte{0x42}, 32)})
+	if err != nil {
+		t.Fatalf("keyring: %v", err)
+	}
+	svc := svccardtoken.NewService(svccardtoken.NewSQLCReader(runtime), svccardtoken.NewSQLCLedger(runtime), store.New(runtime), keyring)
+	actor := svccardtoken.Actor{UserID: uuid.NewString(), Email: "admin@amrita.edu", Role: "admin"}
+
+	first, err := svc.Seal(ctx, actor, svccardtoken.SealInput{StudentID: studentID})
+	if err != nil {
+		t.Fatalf("first seal: %v", err)
+	}
+	second, err := svc.Seal(ctx, actor, svccardtoken.SealInput{StudentID: studentID})
+	if err != nil {
+		t.Fatalf("repeat seal: %v", err)
+	}
+	if first.Token != second.Token || first.Version != "v1" {
+		t.Fatalf("repeat seal returned %q/%q then %q/%q", first.Version, first.Token, second.Version, second.Token)
+	}
+
+	var ledgerRows int
+	if err := migrator.QueryRow(ctx,
+		`SELECT count(*) FROM student_card_tokens WHERE student_id = $1 AND version = 'v1'`,
+		studentID,
+	).Scan(&ledgerRows); err != nil {
+		t.Fatalf("count ledger rows: %v", err)
+	}
+	if ledgerRows != 1 {
+		t.Fatalf("[P0] ledger rows for student/version = %d, want 1", ledgerRows)
+	}
+
+	hash := sha256.Sum256([]byte(first.Token))
+	var storedHash []byte
+	if err := migrator.QueryRow(ctx,
+		`SELECT token_sha256 FROM student_card_tokens WHERE student_id = $1 AND version = 'v1'`,
+		studentID,
+	).Scan(&storedHash); err != nil {
+		t.Fatalf("read stored fingerprint: %v", err)
+	}
+	if !bytes.Equal(storedHash, hash[:]) {
+		t.Fatalf("stored fingerprint = %x, want SHA256(token) %x", storedHash, hash)
+	}
+
+	var auditRows int
+	if err := migrator.QueryRow(ctx, `
+		SELECT count(*)
+		FROM audit_log
+		WHERE action = $1
+		  AND target_table = 'student_card_tokens'
+		  AND target_id = $2`,
+		string(domain.ActionCardTokenSealed), studentID,
+	).Scan(&auditRows); err != nil {
+		t.Fatalf("count audit rows: %v", err)
+	}
+	if auditRows != 1 {
+		t.Fatalf("[P0] card-token seal audit rows = %d, want exactly one changed write", auditRows)
+	}
+
+	resolved, err := svc.Resolve(ctx, actor, svccardtoken.ResolveInput{Version: first.Version, Token: first.Token})
+	if err != nil {
+		t.Fatalf("resolve known token: %v", err)
+	}
+	if resolved.StudentID != studentID || resolved.RollNo != rollNo {
+		t.Fatalf("resolved = %+v, want student %s/%s", resolved, studentID, rollNo)
+	}
+
+	_, err = svc.Resolve(ctx, actor, svccardtoken.ResolveInput{Version: "v1", Token: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
+	var de domain.DomainError
+	if !errors.As(err, &de) || de.Code != contracts.ErrorCodeCARDNOTRECOGNIZED {
+		t.Fatalf("unknown token error = %v, want CARD_NOT_RECOGNIZED", err)
+	}
+}
+
+func seedStudent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, studentID, rollNo string) {
 	t.Helper()
 	var branchID uuid.UUID
 	if err := pool.QueryRow(ctx, `
@@ -114,13 +223,17 @@ func seedStudent(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO students (id, roll_no, name, branch_id, section, batch)
-		VALUES ('97000000-0000-4000-8000-000000000101', 'CB.SC.U4CSE24101', 'ATDD Card Student',
+		VALUES ($2, $3, 'ATDD Card Student',
 		        $1, 'A', '2024')
 		ON CONFLICT (id) DO UPDATE
 		SET roll_no = EXCLUDED.roll_no, name = EXCLUDED.name, branch_id = EXCLUDED.branch_id,
-		    section = EXCLUDED.section, batch = EXCLUDED.batch`, branchID); err != nil {
+		    section = EXCLUDED.section, batch = EXCLUDED.batch`, branchID, studentID, rollNo); err != nil {
 		t.Fatalf("seed student: %v", err)
 	}
+}
+
+func uniqueRollNo(studentID string) string {
+	return "CB.SC.U4CSE" + strings.ToUpper(studentID[:8])
 }
 
 func testCtx(t *testing.T) context.Context {

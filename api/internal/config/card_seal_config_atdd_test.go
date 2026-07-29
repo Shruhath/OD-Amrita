@@ -37,6 +37,8 @@ func TestLoadCardSealConfigFailsFastForMissingMalformedOrShortKeys(t *testing.T)
 	}{
 		{name: "blank active version", active: "", keys: validCardSealKey("v1", 0x01), wantErr: "CARD_SEAL_ACTIVE_VERSION"},
 		{name: "missing active key", active: "v2", keys: validCardSealKey("v1", 0x01), wantErr: "CARD_SEAL_HMAC_KEYS"},
+		{name: "overlong active version", active: "version-name-over-16", keys: validCardSealKey("v1", 0x01), wantErr: "CARD_SEAL_ACTIVE_VERSION"},
+		{name: "overlong configured version", active: "v1", keys: validCardSealKey("version-name-over-16", 0x01), wantErr: "16 characters"},
 		{name: "malformed base64", active: "v1", keys: "v1=not+base64", wantErr: "CARD_SEAL_HMAC_KEYS"},
 		{name: "short decoded key", active: "v1", keys: "v1=" + base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{0x01}, 31)), wantErr: "32 bytes"},
 		{name: "duplicate version", active: "v1", keys: validCardSealKey("v1", 0x01) + "," + validCardSealKey("v1", 0x02), wantErr: "duplicate"},

@@ -48,6 +48,7 @@ export default function EventsPortal() {
         <nav className="portal-nav" aria-label="Administration sections">
           <Link to="/portal/events" aria-current="page">Events</Link>
           <Link to="/portal/teachers">Teachers</Link>
+          <Link to="/portal/students">Students</Link>
         </nav>
         <div className="account-actions">
           <span>{identity?.name ?? identity?.email}</span>

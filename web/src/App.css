@@ -80,6 +80,15 @@ tbody tr:last-child > * { border-bottom: 0; }
 .category-form label { margin: 0; }
 .category-form input { flex: 1 1 220px; min-width: 0; margin: 0; }
 .category-form .field-error { flex-basis: 100%; margin: 0; }
+.roster-import { margin-bottom: 20px; }
+.roster-form { display: grid; grid-template-columns: minmax(220px, 1fr) auto; align-items: end; gap: 10px 14px; }
+.roster-form label, .roster-form .field-error { grid-column: 1 / -1; }
+.roster-form input[type='file'] { min-width: 0; border: 1px solid var(--line-strong); border-radius: 8px; padding: 9px; background: white; }
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 18px 0; }
+.summary-grid div { padding: 13px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-subtle); }
+.summary-grid dt { color: var(--muted); font-size: 12px; font-weight: 750; text-transform: uppercase; letter-spacing: .05em; }
+.summary-grid dd { margin: 5px 0 0; font-size: 24px; font-weight: 760; color: var(--ink); }
+.import-errors { margin-top: 16px; box-shadow: none; }
 
 @media (max-width: 720px) {
   .topbar { padding: 0 18px; }
@@ -88,4 +97,5 @@ tbody tr:last-child > * { border-bottom: 0; }
   .page-heading { align-items: stretch; flex-direction: column; }
   .page-heading > button { align-self: flex-start; }
   .category-form { align-items: stretch; flex-direction: column; }
+  .roster-form { grid-template-columns: 1fr; align-items: stretch; }
 }

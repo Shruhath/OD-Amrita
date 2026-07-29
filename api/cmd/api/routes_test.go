@@ -18,9 +18,13 @@ import (
 	"github.com/gin-gonic/gin"
 
 	handlerevent "github.com/Shruhath/OD-Amrita/api/internal/handler/event"
+	handlerstudent "github.com/Shruhath/OD-Amrita/api/internal/handler/student"
+	handlerteacher "github.com/Shruhath/OD-Amrita/api/internal/handler/teacher"
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
 	eventsvc "github.com/Shruhath/OD-Amrita/api/internal/service/event"
+	studentsvc "github.com/Shruhath/OD-Amrita/api/internal/service/student"
+	teachersvc "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
 )
 
 // refusingLoader stands in for the database-backed principal loader. Every admin
@@ -83,6 +87,25 @@ func (s reachingService) CreateCategory(context.Context, eventsvc.Actor, eventsv
 	return eventsvc.Category{}, nil
 }
 
+type reachingTeacherService struct{ reached *reachCounter }
+
+func (s reachingTeacherService) List(context.Context, teachersvc.Actor, teachersvc.ListInput) (teachersvc.Page, error) {
+	s.reached.hits++
+	return teachersvc.Page{}, nil
+}
+
+func (s reachingTeacherService) Create(context.Context, teachersvc.Actor, teachersvc.CreateInput) (teachersvc.TeacherProfile, error) {
+	s.reached.hits++
+	return teachersvc.TeacherProfile{}, nil
+}
+
+type reachingStudentService struct{ reached *reachCounter }
+
+func (s reachingStudentService) Import(context.Context, studentsvc.Actor, studentsvc.ImportInput) (studentsvc.Result, error) {
+	s.reached.hits++
+	return studentsvc.Result{}, nil
+}
+
 func TestAdminGroupGuardsEveryRouteRegisterAdminRoutesMounts(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -99,6 +122,8 @@ func TestAdminGroupGuardsEveryRouteRegisterAdminRoutesMounts(t *testing.T) {
 	// The same call run() makes, with a service-free stand-in: this test is about
 	// the CHAIN in front of the handlers, not the handlers themselves.
 	handlerevent.RegisterAdminRoutes(admin, reachingService{reached: reached})
+	handlerteacher.RegisterAdminRoutes(admin, reachingTeacherService{reached: reached})
+	handlerstudent.RegisterAdminRoutes(admin, reachingStudentService{reached: reached})
 	admin.POST("/users/:user_id/sessions/revoke", reached.handler)
 
 	// Every route the admin group actually serves, discovered from the router

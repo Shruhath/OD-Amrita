@@ -13,6 +13,8 @@ export type CreateCategoryInput = components['schemas']['CreateCategoryRequest']
 export type TeacherProfile = components['schemas']['TeacherProfile']
 export type TeacherProfileCollection = components['schemas']['TeacherProfileCollection']
 export type CreateTeacherProfileInput = components['schemas']['CreateTeacherProfileRequest']
+export type StudentRosterImportResult = components['schemas']['StudentRosterImportResult']
+export type StudentRosterImportError = components['schemas']['StudentRosterImportError']
 export type ValidationError = components['schemas']['ValidationError']
 export type ErrorEnvelope = components['schemas']['Error']
 
@@ -117,6 +119,14 @@ export function createEventApi(session: SessionPort) {
     },
     async createTeacher(input: CreateTeacherProfileInput) {
       return unwrap(await client.POST('/api/v1/admin/teachers', { body: input }))
+    },
+    async importStudents(file: File) {
+      const body = new FormData()
+      body.append('file', file)
+      return unwrap(await client.POST('/api/v1/admin/students/import', {
+        body: { file: file.name },
+        bodySerializer: () => body,
+      }))
     },
   }
 }

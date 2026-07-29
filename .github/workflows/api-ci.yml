@@ -169,7 +169,7 @@ jobs:
         # users write back and returns 500, never 200.
         working-directory: api
         run: |
-          go test -tags integration -p 1 ./test/db/... ./test/store/... ./test/event/... ./test/roundtrip/... ./test/teacher/... -v
+          go test -tags integration -p 1 ./test/db/... ./test/store/... ./test/event/... ./test/roundtrip/... ./test/teacher/... ./test/student/... -v
       - name: goose down-to 0 + re-up (clean revert of EVERY migration)
         working-directory: api
         # `goose down` reverts exactly ONE migration, so this gate only ever

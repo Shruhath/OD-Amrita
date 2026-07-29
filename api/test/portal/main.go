@@ -21,6 +21,7 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/domain"
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
 	handlerevent "github.com/Shruhath/OD-Amrita/api/internal/handler/event"
+	handlerstudent "github.com/Shruhath/OD-Amrita/api/internal/handler/student"
 	handlerteacher "github.com/Shruhath/OD-Amrita/api/internal/handler/teacher"
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
 	corsmw "github.com/Shruhath/OD-Amrita/api/internal/middleware/cors"
@@ -28,6 +29,7 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
+	svcstudent "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 	svcteacher "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
 	svcuser "github.com/Shruhath/OD-Amrita/api/internal/service/user"
 	"github.com/Shruhath/OD-Amrita/api/internal/store"
@@ -96,6 +98,7 @@ func main() {
 	auditor := svcauth.NewEventAuditor(st)
 	eventService := svcevent.NewService(svcevent.NewSQLCReader(runtimePool), st, svcevent.NewSQLCWriter())
 	teacherService := svcteacher.NewService(svcteacher.NewSQLCReader(runtimePool), st, svcteacher.NewSQLCWriter())
+	studentService := svcstudent.NewService(svcstudent.NewSQLCReader(runtimePool), st, svcstudent.NewSQLCWriter())
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
@@ -116,6 +119,7 @@ func main() {
 	// a browser-journey 404 that reads as a frontend bug.
 	handlerevent.RegisterAdminRoutes(admin, eventService)
 	handlerteacher.RegisterAdminRoutes(admin, teacherService)
+	handlerstudent.RegisterAdminRoutes(admin, studentService)
 
 	port := os.Getenv("PORTAL_API_PORT")
 	if port == "" {

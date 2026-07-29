@@ -1,6 +1,7 @@
 import { createBrowserRouter, createMemoryRouter, Navigate } from 'react-router-dom'
 import EventsRoute from './routes/portal/events/EventsRoute'
 import EventDetailRoute from './routes/portal/events/EventDetailRoute'
+import StudentsRoute from './routes/portal/students/StudentsRoute'
 import TeachersRoute from './routes/portal/teachers/TeachersRoute'
 
 const routes = [
@@ -10,6 +11,7 @@ const routes = [
   // categories live here rather than in an expandable list row.
   { path: '/portal/events/:event_id', Component: EventDetailRoute },
   { path: '/portal/teachers', Component: TeachersRoute },
+  { path: '/portal/students', Component: StudentsRoute },
   { path: '*', element: <Navigate to="/portal/events" replace /> },
 ]
 

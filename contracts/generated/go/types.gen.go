@@ -437,6 +437,26 @@ type SessionRevocationResult struct {
 	RevocationId string `json:"revocation_id"`
 }
 
+// StudentRosterImportError defines model for StudentRosterImportError.
+type StudentRosterImportError struct {
+	Code    string `json:"code"`
+	Field   string `json:"field"`
+	Message string `json:"message"`
+	Row     int    `json:"row"`
+}
+
+// StudentRosterImportResult defines model for StudentRosterImportResult.
+type StudentRosterImportResult struct {
+	DatabaseCount int                        `json:"database_count"`
+	Errors        []StudentRosterImportError `json:"errors"`
+	ImportId      openapi_types.UUID         `json:"import_id"`
+	InsertedRows  int                        `json:"inserted_rows"`
+	InvalidRows   int                        `json:"invalid_rows"`
+	TotalRows     int                        `json:"total_rows"`
+	UnchangedRows int                        `json:"unchanged_rows"`
+	UpdatedRows   int                        `json:"updated_rows"`
+}
+
 // TeacherProfile A teacher's elevated role plus the branches they are associated with. Reuses BranchSummary rather than a parallel branch shape.
 type TeacherProfile struct {
 	Branches  []BranchSummary `json:"branches"`
@@ -497,6 +517,11 @@ type ListAdminEventsParams struct {
 // ListAdminEventsParamsStatus defines parameters for ListAdminEvents.
 type ListAdminEventsParamsStatus string
 
+// ImportAdminStudentsMultipartBody defines parameters for ImportAdminStudents.
+type ImportAdminStudentsMultipartBody struct {
+	File openapi_types.File `json:"file"`
+}
+
 // ListAdminTeachersParams defines parameters for ListAdminTeachers.
 type ListAdminTeachersParams struct {
 	Page     *int `form:"page,omitempty" json:"page,omitempty"`
@@ -508,6 +533,9 @@ type CreateAdminEventJSONRequestBody = CreateEventRequest
 
 // CreateAdminEventCategoryJSONRequestBody defines body for CreateAdminEventCategory for application/json ContentType.
 type CreateAdminEventCategoryJSONRequestBody = CreateCategoryRequest
+
+// ImportAdminStudentsMultipartRequestBody defines body for ImportAdminStudents for multipart/form-data ContentType.
+type ImportAdminStudentsMultipartRequestBody ImportAdminStudentsMultipartBody
 
 // CreateAdminTeacherProfileJSONRequestBody defines body for CreateAdminTeacherProfile for application/json ContentType.
 type CreateAdminTeacherProfileJSONRequestBody = CreateTeacherProfileRequest

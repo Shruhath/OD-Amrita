@@ -70,6 +70,7 @@ var codeToStatus = map[contracts.ErrorCode]int{
 	contracts.ErrorCodeVALIDATIONFAILED:    400,
 	contracts.ErrorCodeEVENTNOTFOUND:       404,
 	contracts.ErrorCodeEVENTARCHIVED:       409,
+	contracts.ErrorCodeCATEGORYNOTFOUND:    404,
 	contracts.ErrorCodeUSERNOTFOUND:        404,
 	contracts.ErrorCodeSTUDENTNOTFOUND:     404,
 	contracts.ErrorCodeROLEALREADYASSIGNED: 409,

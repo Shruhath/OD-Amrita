@@ -63,6 +63,20 @@ type EventBranch struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type OdRecord struct {
+	ID               pgtype.UUID        `json:"id"`
+	StudentID        pgtype.UUID        `json:"student_id"`
+	EventID          pgtype.UUID        `json:"event_id"`
+	CategoryID       pgtype.UUID        `json:"category_id"`
+	Slot             int32              `json:"slot"`
+	Status           string             `json:"status"`
+	CaptureMethod    string             `json:"capture_method"`
+	ActorUserID      pgtype.UUID        `json:"actor_user_id"`
+	ActorRole        string             `json:"actor_role"`
+	ServerReceivedAt pgtype.Timestamptz `json:"server_received_at"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+}
+
 type Student struct {
 	ID        pgtype.UUID        `json:"id"`
 	RollNo    string             `json:"roll_no"`

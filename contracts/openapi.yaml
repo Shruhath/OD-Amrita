@@ -108,6 +108,73 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/mark:
+    post:
+      operationId: markAttendance
+      summary: Synchronously mark one student present for the current event slot
+      description: >-
+        Live one-event MVP marking path. The server resolves either a card token
+        or direct student id, derives coordinator slots from server time, writes
+        one OD record and one audit row in the same transaction, and rejects
+        duplicate present records through the database uniqueness guarantee.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarkAttendanceRequest"
+      responses:
+        "201":
+          description: Attendance mark was committed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarkAttendanceResult"
+        "400":
+          description: Request validation failed (typed field-level details).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Forbidden (RBAC).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Event, category, or student was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Duplicate scan, closed slot, or archived event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Card token was not recognized.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/auth/me:
     get:
       operationId: getAuthenticatedIdentity
@@ -1180,6 +1247,100 @@ components:
           minLength: 43
           maxLength: 128
 
+    CaptureMethod:
+      type: string
+      enum: [nfc, camera, search]
+      x-enum-varnames: [Nfc, Camera, Search]
+
+    MarkAttendanceRequest:
+      type: object
+      required: [event_id, category_id, capture_method]
+      oneOf:
+        - type: object
+          required: [student_id]
+          properties:
+            student_id:
+              type: string
+              format: uuid
+          not:
+            required: [card]
+        - type: object
+          required: [card]
+          properties:
+            card:
+              $ref: "#/components/schemas/CardTokenResolveRequest"
+          not:
+            required: [student_id]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        category_id:
+          type: string
+          format: uuid
+        capture_method:
+          type: string
+          enum: [nfc, camera, search]
+        student_id:
+          type: string
+          format: uuid
+        card:
+          $ref: "#/components/schemas/CardTokenResolveRequest"
+        slot:
+          type: integer
+          minimum: 1.0
+          maximum: 12.0
+
+    MarkAttendanceResult:
+      type: object
+      required:
+        - record_id
+        - student
+        - event_id
+        - category_id
+        - slot
+        - capture_method
+        - server_received_at
+      properties:
+        record_id:
+          type: string
+          format: uuid
+        student:
+          $ref: "#/components/schemas/MarkedStudent"
+        event_id:
+          type: string
+          format: uuid
+        category_id:
+          type: string
+          format: uuid
+        slot:
+          type: integer
+          minimum: 1.0
+          maximum: 12.0
+        capture_method:
+          $ref: "#/components/schemas/CaptureMethod"
+        server_received_at:
+          type: string
+          format: date-time
+
+    MarkedStudent:
+      type: object
+      required: [student_id, roll_no, display_name, branch, section, batch]
+      properties:
+        student_id:
+          type: string
+          format: uuid
+        roll_no:
+          type: string
+        display_name:
+          type: string
+        branch:
+          type: string
+        section:
+          type: string
+        batch:
+          type: string
+
     HealthStatus:
       type: object
       description: >-
@@ -1233,6 +1394,7 @@ components:
             - VALIDATION_FAILED
             - EVENT_NOT_FOUND
             - EVENT_ARCHIVED
+            - CATEGORY_NOT_FOUND
             - USER_NOT_FOUND
             - STUDENT_NOT_FOUND
             - ROLE_ALREADY_ASSIGNED

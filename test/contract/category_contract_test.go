@@ -161,10 +161,10 @@ func TestCategoryContract_EventArchivedJoinsTheErrorCodeEnum(t *testing.T) {
 		t.Errorf("Error.code enum must contain EVENT_ARCHIVED, got %v", codes)
 	}
 
-	// CATEGORY_NOT_FOUND is deliberately absent: nothing in this story addresses
-	// a category by id, and an unused code is a promise no handler keeps.
-	if codes := enumStrings(code); slices.Contains(codes, "CATEGORY_NOT_FOUND") {
-		t.Error("Error.code enum must not contain CATEGORY_NOT_FOUND in this story")
+	// The mark endpoint addresses categories by id, so the contract now carries
+	// the truthful 404 code that handler can return for a missing category.
+	if codes := enumStrings(code); !slices.Contains(codes, "CATEGORY_NOT_FOUND") {
+		t.Error("Error.code enum must contain CATEGORY_NOT_FOUND")
 	}
 }
 

@@ -44,7 +44,7 @@ func RequireAdmin(loader PrincipalLoader) gin.HandlerFunc {
 		principal, err := loader.Load(c.Request.Context(), identity.Subject)
 		if err != nil {
 			if errors.Is(err, ErrPrincipalNotFound) {
-				forbidden(c)
+				adminForbidden(c)
 				return
 			}
 			_ = c.Error(err)
@@ -52,7 +52,7 @@ func RequireAdmin(loader PrincipalLoader) gin.HandlerFunc {
 			return
 		}
 		if principal.Role != RoleAdmin {
-			forbidden(c)
+			adminForbidden(c)
 			return
 		}
 
@@ -61,10 +61,43 @@ func RequireAdmin(loader PrincipalLoader) gin.HandlerFunc {
 	}
 }
 
-func forbidden(c *gin.Context) {
+func RequirePrincipal(loader PrincipalLoader) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		identity, ok := mwauth.IdentityFromContext(c)
+		if !ok {
+			_ = c.Error(errors.New("rbac: verified identity missing from context"))
+			c.Abort()
+			return
+		}
+
+		principal, err := loader.Load(c.Request.Context(), identity.Subject)
+		if err != nil {
+			if errors.Is(err, ErrPrincipalNotFound) {
+				principalForbidden(c)
+				return
+			}
+			_ = c.Error(err)
+			c.Abort()
+			return
+		}
+
+		c.Set(principalKey, principal)
+		c.Next()
+	}
+}
+
+func adminForbidden(c *gin.Context) {
 	_ = c.Error(domain.DomainError{
 		Code:    contracts.ErrorCodeRBACFORBIDDEN,
 		Message: "Administrator access is required.",
+	})
+	c.Abort()
+}
+
+func principalForbidden(c *gin.Context) {
+	_ = c.Error(domain.DomainError{
+		Code:    contracts.ErrorCodeRBACFORBIDDEN,
+		Message: "Authenticated principal access is required.",
 	})
 	c.Abort()
 }

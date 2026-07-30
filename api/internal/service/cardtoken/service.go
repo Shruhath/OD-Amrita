@@ -224,6 +224,10 @@ func (s *Service) Resolve(ctx context.Context, actor Actor, input ResolveInput) 
 	if actor.Role != "admin" {
 		return ResolvedStudent{}, forbidden()
 	}
+	return s.ResolveToken(ctx, input)
+}
+
+func (s *Service) ResolveToken(ctx context.Context, input ResolveInput) (ResolvedStudent, error) {
 	version := strings.TrimSpace(input.Version)
 	token := strings.TrimSpace(input.Token)
 	decoded, err := base64.RawURLEncoding.DecodeString(token)

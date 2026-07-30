@@ -27,6 +27,7 @@ import (
 	handlercardtoken "github.com/Shruhath/OD-Amrita/api/internal/handler/cardtoken"
 	handlerevent "github.com/Shruhath/OD-Amrita/api/internal/handler/event"
 	"github.com/Shruhath/OD-Amrita/api/internal/handler/health"
+	handlerodrecord "github.com/Shruhath/OD-Amrita/api/internal/handler/od_record"
 	handlerstudent "github.com/Shruhath/OD-Amrita/api/internal/handler/student"
 	handlerteacher "github.com/Shruhath/OD-Amrita/api/internal/handler/teacher"
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
@@ -36,6 +37,7 @@ import (
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	svccardtoken "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
+	svcodrecord "github.com/Shruhath/OD-Amrita/api/internal/service/od_record"
 	svcstudent "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 	svcteacher "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
 	svcuser "github.com/Shruhath/OD-Amrita/api/internal/service/user"
@@ -115,7 +117,23 @@ func run() error {
 	api.Use(mwauth.RevocationGuard(revChecker))
 	api.GET("/auth/me", handlerauth.MeHandler(userSvc, eventAuditor))
 
-	admin := newAdminGroup(api, rbac.NewSQLCPrincipalLoader(pool))
+	principalLoader := rbac.NewSQLCPrincipalLoader(pool)
+	cardKeyring, err := svccardtoken.NewKeyring(cfg.CardSeal.ActiveVersion, cfg.CardSeal.HMACKeys)
+	if err != nil {
+		return err
+	}
+	markAPI := api.Group("")
+	markAPI.Use(rbac.RequirePrincipal(principalLoader))
+	markSvc := svcodrecord.NewService(
+		svcodrecord.NewSQLCReader(pool),
+		svcodrecord.NewCardTokenResolver(svccardtoken.NewSQLCLedger(pool), cardKeyring),
+		svcodrecord.NewSQLCWriter(),
+		st,
+		nil,
+	)
+	handlerodrecord.RegisterRoutes(markAPI, markSvc)
+
+	admin := newAdminGroup(api, principalLoader)
 	admin.POST("/users/:user_id/sessions/revoke", handleradmin.RevokeSessionsHandler(revSvc))
 	eventSvc := svcevent.NewService(svcevent.NewSQLCReader(pool), st, svcevent.NewSQLCWriter())
 	handlerevent.RegisterAdminRoutes(admin, eventSvc)
@@ -123,10 +141,6 @@ func run() error {
 	handlerteacher.RegisterAdminRoutes(admin, teacherSvc)
 	studentSvc := svcstudent.NewService(svcstudent.NewSQLCReader(pool), st, svcstudent.NewSQLCWriter())
 	handlerstudent.RegisterAdminRoutes(admin, studentSvc)
-	cardKeyring, err := svccardtoken.NewKeyring(cfg.CardSeal.ActiveVersion, cfg.CardSeal.HMACKeys)
-	if err != nil {
-		return err
-	}
 	cardTokenSvc := svccardtoken.NewService(svccardtoken.NewSQLCReader(pool), svccardtoken.NewSQLCLedger(pool), st, cardKeyring)
 	handlercardtoken.RegisterAdminRoutes(admin, cardTokenSvc)
 

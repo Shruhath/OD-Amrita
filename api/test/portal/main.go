@@ -23,6 +23,7 @@ import (
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
 	handlercardtoken "github.com/Shruhath/OD-Amrita/api/internal/handler/cardtoken"
 	handlerevent "github.com/Shruhath/OD-Amrita/api/internal/handler/event"
+	handlerodrecord "github.com/Shruhath/OD-Amrita/api/internal/handler/od_record"
 	handlerstudent "github.com/Shruhath/OD-Amrita/api/internal/handler/student"
 	handlerteacher "github.com/Shruhath/OD-Amrita/api/internal/handler/teacher"
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
@@ -32,6 +33,7 @@ import (
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	svccardtoken "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
+	svcodrecord "github.com/Shruhath/OD-Amrita/api/internal/service/od_record"
 	svcstudent "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 	svcteacher "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
 	svcuser "github.com/Shruhath/OD-Amrita/api/internal/service/user"
@@ -111,6 +113,13 @@ func main() {
 		log.Fatal(err)
 	}
 	cardTokenService := svccardtoken.NewService(svccardtoken.NewSQLCReader(runtimePool), svccardtoken.NewSQLCLedger(runtimePool), st, cardKeyring)
+	markService := svcodrecord.NewService(
+		svcodrecord.NewSQLCReader(runtimePool),
+		svcodrecord.NewCardTokenResolver(svccardtoken.NewSQLCLedger(runtimePool), cardKeyring),
+		svcodrecord.NewSQLCWriter(),
+		st,
+		nil,
+	)
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
@@ -124,8 +133,13 @@ func main() {
 	api.Use(mwauth.RevocationGuard(svcauth.NewSQLCRevocationChecker(runtimePool)))
 	api.GET("/auth/me", handlerauth.MeHandler(userService, auditor))
 
+	principalLoader := rbac.NewSQLCPrincipalLoader(runtimePool)
+	markAPI := api.Group("")
+	markAPI.Use(rbac.RequirePrincipal(principalLoader))
+	handlerodrecord.RegisterRoutes(markAPI, markService)
+
 	admin := api.Group("/admin")
-	admin.Use(rbac.RequireAdmin(rbac.NewSQLCPrincipalLoader(runtimePool)))
+	admin.Use(rbac.RequireAdmin(principalLoader))
 	// Shared with cmd/api so this harness can never serve a different admin
 	// route set than production — the divergence that turns a missing route into
 	// a browser-journey 404 that reads as a frontend bug.

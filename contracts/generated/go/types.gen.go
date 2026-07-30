@@ -4,8 +4,11 @@
 package contracts
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 
+	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
@@ -37,11 +40,33 @@ func (e AuthenticatedIdentityRole) Valid() bool {
 	}
 }
 
+// Defines values for CaptureMethod.
+const (
+	CaptureMethodCamera CaptureMethod = "camera"
+	CaptureMethodNfc    CaptureMethod = "nfc"
+	CaptureMethodSearch CaptureMethod = "search"
+)
+
+// Valid indicates whether the value is a known member of the CaptureMethod enum.
+func (e CaptureMethod) Valid() bool {
+	switch e {
+	case CaptureMethodCamera:
+		return true
+	case CaptureMethodNfc:
+		return true
+	case CaptureMethodSearch:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ErrorCode.
 const (
 	ErrorCodeAUTHDOMAINREJECTED  ErrorCode = "AUTH_DOMAIN_REJECTED"
 	ErrorCodeAUTHTOKENINVALID    ErrorCode = "AUTH_TOKEN_INVALID"
 	ErrorCodeCARDNOTRECOGNIZED   ErrorCode = "CARD_NOT_RECOGNIZED"
+	ErrorCodeCATEGORYNOTFOUND    ErrorCode = "CATEGORY_NOT_FOUND"
 	ErrorCodeEVENTARCHIVED       ErrorCode = "EVENT_ARCHIVED"
 	ErrorCodeEVENTNOTFOUND       ErrorCode = "EVENT_NOT_FOUND"
 	ErrorCodeINTERNAL            ErrorCode = "INTERNAL"
@@ -65,6 +90,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeAUTHTOKENINVALID:
 		return true
 	case ErrorCodeCARDNOTRECOGNIZED:
+		return true
+	case ErrorCodeCATEGORYNOTFOUND:
 		return true
 	case ErrorCodeEVENTARCHIVED:
 		return true
@@ -145,6 +172,27 @@ func (e HealthStatusStatus) Valid() bool {
 	case HealthStatusStatusDegraded:
 		return true
 	case HealthStatusStatusOk:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MarkAttendanceRequestCaptureMethod.
+const (
+	MarkAttendanceRequestCaptureMethodCamera MarkAttendanceRequestCaptureMethod = "camera"
+	MarkAttendanceRequestCaptureMethodNfc    MarkAttendanceRequestCaptureMethod = "nfc"
+	MarkAttendanceRequestCaptureMethodSearch MarkAttendanceRequestCaptureMethod = "search"
+)
+
+// Valid indicates whether the value is a known member of the MarkAttendanceRequestCaptureMethod enum.
+func (e MarkAttendanceRequestCaptureMethod) Valid() bool {
+	switch e {
+	case MarkAttendanceRequestCaptureMethodCamera:
+		return true
+	case MarkAttendanceRequestCaptureMethodNfc:
+		return true
+	case MarkAttendanceRequestCaptureMethodSearch:
 		return true
 	default:
 		return false
@@ -277,6 +325,9 @@ type BranchSummary struct {
 	Name string             `json:"name"`
 }
 
+// CaptureMethod defines model for CaptureMethod.
+type CaptureMethod string
+
 // CardSeal defines model for CardSeal.
 type CardSeal struct {
 	Payload struct {
@@ -381,6 +432,51 @@ type HealthStatusDb string
 
 // HealthStatusStatus Overall service status. "ok" when every dependency is reachable; "degraded" (served with HTTP 503) when the database is not.
 type HealthStatusStatus string
+
+// MarkAttendanceRequest defines model for MarkAttendanceRequest.
+type MarkAttendanceRequest struct {
+	CaptureMethod MarkAttendanceRequestCaptureMethod `json:"capture_method"`
+	Card          *CardTokenResolveRequest           `json:"card,omitempty"`
+	CategoryId    openapi_types.UUID                 `json:"category_id"`
+	EventId       openapi_types.UUID                 `json:"event_id"`
+	Slot          *int                               `json:"slot,omitempty"`
+	StudentId     *openapi_types.UUID                `json:"student_id,omitempty"`
+	union         json.RawMessage
+}
+
+// MarkAttendanceRequestCaptureMethod defines model for MarkAttendanceRequest.CaptureMethod.
+type MarkAttendanceRequestCaptureMethod string
+
+// MarkAttendanceRequest0 defines model for .
+type MarkAttendanceRequest0 struct {
+	StudentId openapi_types.UUID `json:"student_id"`
+}
+
+// MarkAttendanceRequest1 defines model for .
+type MarkAttendanceRequest1 struct {
+	Card CardTokenResolveRequest `json:"card"`
+}
+
+// MarkAttendanceResult defines model for MarkAttendanceResult.
+type MarkAttendanceResult struct {
+	CaptureMethod    CaptureMethod      `json:"capture_method"`
+	CategoryId       openapi_types.UUID `json:"category_id"`
+	EventId          openapi_types.UUID `json:"event_id"`
+	RecordId         openapi_types.UUID `json:"record_id"`
+	ServerReceivedAt time.Time          `json:"server_received_at"`
+	Slot             int                `json:"slot"`
+	Student          MarkedStudent      `json:"student"`
+}
+
+// MarkedStudent defines model for MarkedStudent.
+type MarkedStudent struct {
+	Batch       string             `json:"batch"`
+	Branch      string             `json:"branch"`
+	DisplayName string             `json:"display_name"`
+	RollNo      string             `json:"roll_no"`
+	Section     string             `json:"section"`
+	StudentId   openapi_types.UUID `json:"student_id"`
+}
 
 // ResolvedCardStudent defines model for ResolvedCardStudent.
 type ResolvedCardStudent struct {
@@ -576,5 +672,168 @@ type CreateAdminTeacherProfileJSONRequestBody = CreateTeacherProfileRequest
 // RevokeUserSessionsJSONRequestBody defines body for RevokeUserSessions for application/json ContentType.
 type RevokeUserSessionsJSONRequestBody = RevokeSessionsRequest
 
+// MarkAttendanceJSONRequestBody defines body for MarkAttendance for application/json ContentType.
+type MarkAttendanceJSONRequestBody = MarkAttendanceRequest
+
 // SubmitScansJSONRequestBody defines body for SubmitScans for application/json ContentType.
 type SubmitScansJSONRequestBody = ScanBatchRequest
+
+// AsMarkAttendanceRequest0 returns the union data inside the MarkAttendanceRequest as a MarkAttendanceRequest0
+func (t MarkAttendanceRequest) AsMarkAttendanceRequest0() (MarkAttendanceRequest0, error) {
+	var body MarkAttendanceRequest0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMarkAttendanceRequest0 overwrites any union data inside the MarkAttendanceRequest as the provided MarkAttendanceRequest0
+func (t *MarkAttendanceRequest) FromMarkAttendanceRequest0(v MarkAttendanceRequest0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMarkAttendanceRequest0 performs a merge with any union data inside the MarkAttendanceRequest, using the provided MarkAttendanceRequest0
+func (t *MarkAttendanceRequest) MergeMarkAttendanceRequest0(v MarkAttendanceRequest0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsMarkAttendanceRequest1 returns the union data inside the MarkAttendanceRequest as a MarkAttendanceRequest1
+func (t MarkAttendanceRequest) AsMarkAttendanceRequest1() (MarkAttendanceRequest1, error) {
+	var body MarkAttendanceRequest1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMarkAttendanceRequest1 overwrites any union data inside the MarkAttendanceRequest as the provided MarkAttendanceRequest1
+func (t *MarkAttendanceRequest) FromMarkAttendanceRequest1(v MarkAttendanceRequest1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMarkAttendanceRequest1 performs a merge with any union data inside the MarkAttendanceRequest, using the provided MarkAttendanceRequest1
+func (t *MarkAttendanceRequest) MergeMarkAttendanceRequest1(v MarkAttendanceRequest1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t MarkAttendanceRequest) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	object["capture_method"], err = json.Marshal(t.CaptureMethod)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'capture_method': %w", err)
+	}
+
+	if t.Card != nil {
+		object["card"], err = json.Marshal(t.Card)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'card': %w", err)
+		}
+	}
+
+	object["category_id"], err = json.Marshal(t.CategoryId)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'category_id': %w", err)
+	}
+
+	object["event_id"], err = json.Marshal(t.EventId)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'event_id': %w", err)
+	}
+
+	if t.Slot != nil {
+		object["slot"], err = json.Marshal(t.Slot)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'slot': %w", err)
+		}
+	}
+
+	if t.StudentId != nil {
+		object["student_id"], err = json.Marshal(t.StudentId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'student_id': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *MarkAttendanceRequest) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["capture_method"]; found {
+		err = json.Unmarshal(raw, &t.CaptureMethod)
+		if err != nil {
+			return fmt.Errorf("error reading 'capture_method': %w", err)
+		}
+	}
+
+	if raw, found := object["card"]; found {
+		err = json.Unmarshal(raw, &t.Card)
+		if err != nil {
+			return fmt.Errorf("error reading 'card': %w", err)
+		}
+	}
+
+	if raw, found := object["category_id"]; found {
+		err = json.Unmarshal(raw, &t.CategoryId)
+		if err != nil {
+			return fmt.Errorf("error reading 'category_id': %w", err)
+		}
+	}
+
+	if raw, found := object["event_id"]; found {
+		err = json.Unmarshal(raw, &t.EventId)
+		if err != nil {
+			return fmt.Errorf("error reading 'event_id': %w", err)
+		}
+	}
+
+	if raw, found := object["slot"]; found {
+		err = json.Unmarshal(raw, &t.Slot)
+		if err != nil {
+			return fmt.Errorf("error reading 'slot': %w", err)
+		}
+	}
+
+	if raw, found := object["student_id"]; found {
+		err = json.Unmarshal(raw, &t.StudentId)
+		if err != nil {
+			return fmt.Errorf("error reading 'student_id': %w", err)
+		}
+	}
+
+	return err
+}

@@ -47,6 +47,9 @@ func TestODMarkContract_RequestShapePinsIdentityAndCaptureSemantics(t *testing.T
 	if missing := missingRequired(request, "event_id", "category_id", "capture_method"); len(missing) > 0 {
 		t.Errorf("[P0] MarkAttendanceRequest required is missing %v", missing)
 	}
+	if oneOf, ok := request["oneOf"].([]any); !ok || len(oneOf) != 2 {
+		t.Fatalf("[P1] MarkAttendanceRequest must document exactly one student_id/card identity source")
+	}
 	props := getMap(request, "properties")
 	for _, field := range []string{"event_id", "category_id", "capture_method", "student_id", "card", "slot"} {
 		if _, ok := props[field]; !ok {

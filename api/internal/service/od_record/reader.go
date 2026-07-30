@@ -2,16 +2,17 @@ package odrecord
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
 	"errors"
 	"strings"
 
+	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Shruhath/OD-Amrita/api/internal/domain"
+	cardtoken "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
 	"github.com/Shruhath/OD-Amrita/api/internal/store/sqlc"
 )
 
@@ -81,33 +82,33 @@ func (r *SQLCReader) StudentForMark(ctx context.Context, id string) (Student, er
 	return mapStudent(row.ID, row.RollNo, row.Name, row.Branch, row.Section, row.Batch)
 }
 
-type SQLCCardTokenResolver struct {
-	queries *sqlc.Queries
+type CardTokenResolver struct {
+	service interface {
+		ResolveToken(context.Context, cardtoken.ResolveInput) (cardtoken.ResolvedStudent, error)
+	}
 }
 
-func NewCardTokenResolver(pool *pgxpool.Pool) *SQLCCardTokenResolver {
-	return &SQLCCardTokenResolver{queries: sqlc.New(pool)}
+func NewCardTokenResolver(ledger cardtoken.Ledger, keyring cardtoken.Keyring) *CardTokenResolver {
+	return &CardTokenResolver{service: cardtoken.NewService(nil, ledger, nil, keyring)}
 }
 
-func (r *SQLCCardTokenResolver) Resolve(ctx context.Context, _ Actor, input CardInput) (Student, error) {
-	version := strings.TrimSpace(input.Version)
-	token := strings.TrimSpace(input.Token)
-	decoded, err := base64.RawURLEncoding.DecodeString(token)
-	if version == "" || err != nil || len(decoded) != sha256.Size || base64.RawURLEncoding.EncodeToString(decoded) != token {
-		return Student{}, ErrCardNotRecognized
-	}
-	fingerprint := sha256.Sum256([]byte(token))
-	row, err := r.queries.ResolveStudentCardToken(ctx, sqlc.ResolveStudentCardTokenParams{
-		Version:     version,
-		TokenSha256: fingerprint[:],
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Student{}, ErrCardNotRecognized
-	}
+func (r *CardTokenResolver) Resolve(ctx context.Context, _ Actor, input CardInput) (Student, error) {
+	resolved, err := r.service.ResolveToken(ctx, cardtoken.ResolveInput{Version: input.Version, Token: input.Token})
 	if err != nil {
+		var de domain.DomainError
+		if errors.As(err, &de) && de.Code == contracts.ErrorCodeCARDNOTRECOGNIZED {
+			return Student{}, ErrCardNotRecognized
+		}
 		return Student{}, err
 	}
-	return mapStudent(row.ID, row.RollNo, row.Name, row.Branch, row.Section, row.Batch)
+	return Student{
+		StudentID:   resolved.StudentID,
+		RollNo:      resolved.RollNo,
+		DisplayName: resolved.DisplayName,
+		Branch:      resolved.Branch,
+		Section:     resolved.Section,
+		Batch:       resolved.Batch,
+	}, nil
 }
 
 func mapStudent(id pgtype.UUID, rollNo, name, branch, section, batch string) (Student, error) {

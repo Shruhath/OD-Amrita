@@ -68,6 +68,26 @@ func TestDuplicateUniqueIndexViolationMapsToScanDuplicate(t *testing.T) {
 	}
 }
 
+func TestUnknownCardIsRejectedBeforeSlotClosedAudit(t *testing.T) {
+	fixture := newServiceFixture(t, time.Date(2026, 8, 3, 10, 35, 0, 0, campusLocation(t)))
+	fixture.cardResolver.err = ErrCardNotRecognized
+	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock)
+
+	_, err := svc.Mark(context.Background(), coordinatorActor(), MarkInput{
+		EventID:       fixture.eventID,
+		CategoryID:    fixture.categoryID,
+		CaptureMethod: CaptureMethodNFC,
+		Card:          &CardInput{Version: "v1", Token: "unknown-card-token"},
+	})
+	var de domain.DomainError
+	if !errors.As(err, &de) || de.Code != contracts.ErrorCodeCARDNOTRECOGNIZED {
+		t.Fatalf("error = %v, want CARD_NOT_RECOGNIZED before slot checks", err)
+	}
+	if fixture.auditStore.changedWrites != 0 {
+		t.Fatalf("blocked audit writes = %d, want none for unknown card", fixture.auditStore.changedWrites)
+	}
+}
+
 func TestCoordinatorOutsideSlotWritesBlockedAuditOnly(t *testing.T) {
 	fixture := newServiceFixture(t, time.Date(2026, 8, 3, 10, 35, 0, 0, campusLocation(t)))
 	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock)
@@ -141,6 +161,18 @@ func TestValidationRejectsAmbiguousIdentityUnsupportedRoleAndRawTokenPersistence
 			actor: Actor{UserID: uuid.NewString(), Email: "teacher@amrita.edu", Role: "teacher"},
 			input: MarkInput{EventID: fixture.eventID, CategoryID: fixture.categoryID, CaptureMethod: CaptureMethodNFC, Card: &CardInput{Version: "v1", Token: "token"}, Slot: intPtr(1)},
 			code:  contracts.ErrorCodeRBACFORBIDDEN,
+		},
+		{
+			name:  "nfc with direct student id",
+			actor: coordinatorActor(),
+			input: MarkInput{EventID: fixture.eventID, CategoryID: fixture.categoryID, CaptureMethod: CaptureMethodNFC, StudentID: &fixture.studentID},
+			code:  contracts.ErrorCodeVALIDATIONFAILED,
+		},
+		{
+			name:  "search with card identity",
+			actor: coordinatorActor(),
+			input: MarkInput{EventID: fixture.eventID, CategoryID: fixture.categoryID, CaptureMethod: CaptureMethodSearch, Card: &CardInput{Version: "v1", Token: "token"}},
+			code:  contracts.ErrorCodeVALIDATIONFAILED,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -227,9 +259,15 @@ func (r *fakeReader) CategoryForEvent(context.Context, string, string) (Category
 }
 func (r *fakeReader) StudentForMark(context.Context, string) (Student, error) { return r.student, nil }
 
-type fakeCardResolver struct{ student Student }
+type fakeCardResolver struct {
+	student Student
+	err     error
+}
 
 func (r *fakeCardResolver) Resolve(ctx context.Context, actor Actor, input CardInput) (Student, error) {
+	if r.err != nil {
+		return Student{}, r.err
+	}
 	return r.student, nil
 }
 

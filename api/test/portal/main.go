@@ -115,7 +115,7 @@ func main() {
 	cardTokenService := svccardtoken.NewService(svccardtoken.NewSQLCReader(runtimePool), svccardtoken.NewSQLCLedger(runtimePool), st, cardKeyring)
 	markService := svcodrecord.NewService(
 		svcodrecord.NewSQLCReader(runtimePool),
-		svcodrecord.NewCardTokenResolver(runtimePool),
+		svcodrecord.NewCardTokenResolver(svccardtoken.NewSQLCLedger(runtimePool), cardKeyring),
 		svcodrecord.NewSQLCWriter(),
 		st,
 		nil,

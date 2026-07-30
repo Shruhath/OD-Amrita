@@ -4,8 +4,11 @@
 package contracts
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 
+	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
@@ -438,10 +441,21 @@ type MarkAttendanceRequest struct {
 	EventId       openapi_types.UUID                 `json:"event_id"`
 	Slot          *int                               `json:"slot,omitempty"`
 	StudentId     *openapi_types.UUID                `json:"student_id,omitempty"`
+	union         json.RawMessage
 }
 
 // MarkAttendanceRequestCaptureMethod defines model for MarkAttendanceRequest.CaptureMethod.
 type MarkAttendanceRequestCaptureMethod string
+
+// MarkAttendanceRequest0 defines model for .
+type MarkAttendanceRequest0 struct {
+	StudentId openapi_types.UUID `json:"student_id"`
+}
+
+// MarkAttendanceRequest1 defines model for .
+type MarkAttendanceRequest1 struct {
+	Card CardTokenResolveRequest `json:"card"`
+}
 
 // MarkAttendanceResult defines model for MarkAttendanceResult.
 type MarkAttendanceResult struct {
@@ -663,3 +677,163 @@ type MarkAttendanceJSONRequestBody = MarkAttendanceRequest
 
 // SubmitScansJSONRequestBody defines body for SubmitScans for application/json ContentType.
 type SubmitScansJSONRequestBody = ScanBatchRequest
+
+// AsMarkAttendanceRequest0 returns the union data inside the MarkAttendanceRequest as a MarkAttendanceRequest0
+func (t MarkAttendanceRequest) AsMarkAttendanceRequest0() (MarkAttendanceRequest0, error) {
+	var body MarkAttendanceRequest0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMarkAttendanceRequest0 overwrites any union data inside the MarkAttendanceRequest as the provided MarkAttendanceRequest0
+func (t *MarkAttendanceRequest) FromMarkAttendanceRequest0(v MarkAttendanceRequest0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMarkAttendanceRequest0 performs a merge with any union data inside the MarkAttendanceRequest, using the provided MarkAttendanceRequest0
+func (t *MarkAttendanceRequest) MergeMarkAttendanceRequest0(v MarkAttendanceRequest0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsMarkAttendanceRequest1 returns the union data inside the MarkAttendanceRequest as a MarkAttendanceRequest1
+func (t MarkAttendanceRequest) AsMarkAttendanceRequest1() (MarkAttendanceRequest1, error) {
+	var body MarkAttendanceRequest1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMarkAttendanceRequest1 overwrites any union data inside the MarkAttendanceRequest as the provided MarkAttendanceRequest1
+func (t *MarkAttendanceRequest) FromMarkAttendanceRequest1(v MarkAttendanceRequest1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMarkAttendanceRequest1 performs a merge with any union data inside the MarkAttendanceRequest, using the provided MarkAttendanceRequest1
+func (t *MarkAttendanceRequest) MergeMarkAttendanceRequest1(v MarkAttendanceRequest1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t MarkAttendanceRequest) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	object["capture_method"], err = json.Marshal(t.CaptureMethod)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'capture_method': %w", err)
+	}
+
+	if t.Card != nil {
+		object["card"], err = json.Marshal(t.Card)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'card': %w", err)
+		}
+	}
+
+	object["category_id"], err = json.Marshal(t.CategoryId)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'category_id': %w", err)
+	}
+
+	object["event_id"], err = json.Marshal(t.EventId)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'event_id': %w", err)
+	}
+
+	if t.Slot != nil {
+		object["slot"], err = json.Marshal(t.Slot)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'slot': %w", err)
+		}
+	}
+
+	if t.StudentId != nil {
+		object["student_id"], err = json.Marshal(t.StudentId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'student_id': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *MarkAttendanceRequest) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["capture_method"]; found {
+		err = json.Unmarshal(raw, &t.CaptureMethod)
+		if err != nil {
+			return fmt.Errorf("error reading 'capture_method': %w", err)
+		}
+	}
+
+	if raw, found := object["card"]; found {
+		err = json.Unmarshal(raw, &t.Card)
+		if err != nil {
+			return fmt.Errorf("error reading 'card': %w", err)
+		}
+	}
+
+	if raw, found := object["category_id"]; found {
+		err = json.Unmarshal(raw, &t.CategoryId)
+		if err != nil {
+			return fmt.Errorf("error reading 'category_id': %w", err)
+		}
+	}
+
+	if raw, found := object["event_id"]; found {
+		err = json.Unmarshal(raw, &t.EventId)
+		if err != nil {
+			return fmt.Errorf("error reading 'event_id': %w", err)
+		}
+	}
+
+	if raw, found := object["slot"]; found {
+		err = json.Unmarshal(raw, &t.Slot)
+		if err != nil {
+			return fmt.Errorf("error reading 'slot': %w", err)
+		}
+	}
+
+	if raw, found := object["student_id"]; found {
+		err = json.Unmarshal(raw, &t.StudentId)
+		if err != nil {
+			return fmt.Errorf("error reading 'student_id': %w", err)
+		}
+	}
+
+	return err
+}

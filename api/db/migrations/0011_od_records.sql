@@ -14,7 +14,7 @@ CREATE TABLE od_records (
     status             text        NOT NULL DEFAULT 'present' CHECK (status IN ('present')),
     capture_method     text        NOT NULL CHECK (capture_method IN ('nfc', 'camera', 'search')),
     actor_user_id      uuid        NULL REFERENCES users(id) ON DELETE SET NULL,
-    actor_role         text        NOT NULL,
+    actor_role         text        NOT NULL CHECK (actor_role IN ('coordinator', 'teacher', 'admin')),
     server_received_at timestamptz NOT NULL DEFAULT now(),
     created_at         timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT od_records_category_event_fk

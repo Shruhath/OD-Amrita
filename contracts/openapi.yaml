@@ -1255,6 +1255,22 @@ components:
     MarkAttendanceRequest:
       type: object
       required: [event_id, category_id, capture_method]
+      oneOf:
+        - type: object
+          required: [student_id]
+          properties:
+            student_id:
+              type: string
+              format: uuid
+          not:
+            required: [card]
+        - type: object
+          required: [card]
+          properties:
+            card:
+              $ref: "#/components/schemas/CardTokenResolveRequest"
+          not:
+            required: [student_id]
       properties:
         event_id:
           type: string

@@ -429,7 +429,12 @@ export interface components {
             student_id?: string;
             card?: components["schemas"]["CardTokenResolveRequest"];
             slot?: number;
-        };
+        } & ({
+            /** Format: uuid */
+            student_id: string;
+        } | {
+            card: components["schemas"]["CardTokenResolveRequest"];
+        });
         MarkAttendanceResult: {
             /** Format: uuid */
             record_id: string;

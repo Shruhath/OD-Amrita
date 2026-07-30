@@ -90,6 +90,9 @@ func mapPgError(err error) error {
 	case sqlstateObjectNotInPrerequisiteState:
 		return ErrEventArchived
 	case sqlstateForeignKeyViolation:
+		if pgErr.ConstraintName == "od_records_event_id_fkey" {
+			return ErrEventNotFound
+		}
 		if pgErr.ConstraintName == "od_records_category_event_fk" {
 			return ErrCategoryNotFound
 		}

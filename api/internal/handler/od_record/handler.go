@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -72,17 +73,20 @@ func bindMarkRequest(c *gin.Context, actor odsvc.Actor) (contracts.MarkAttendanc
 		}
 		return contracts.MarkAttendanceRequest{}, requestValidation("$", "invalid_json", "Request body must be valid JSON.")
 	}
-	for field, raw := range map[string]*json.RawMessage{
-		"event_id":       shape.EventID,
-		"category_id":    shape.CategoryID,
-		"capture_method": shape.CaptureMethod,
+	for _, required := range []struct {
+		field string
+		raw   *json.RawMessage
+	}{
+		{field: "event_id", raw: shape.EventID},
+		{field: "category_id", raw: shape.CategoryID},
+		{field: "capture_method", raw: shape.CaptureMethod},
 	} {
-		if raw == nil || len(*raw) == 0 {
-			return contracts.MarkAttendanceRequest{}, requestValidation(field, "required", field+" is required.")
+		if !rawProvided(required.raw) {
+			return contracts.MarkAttendanceRequest{}, requestValidation(required.field, "required", required.field+" is required.")
 		}
 	}
-	hasStudent := shape.StudentID != nil
-	hasCard := shape.Card != nil
+	hasStudent := rawProvided(shape.StudentID)
+	hasCard := rawProvided(shape.Card)
 	if hasStudent == hasCard {
 		return contracts.MarkAttendanceRequest{}, requestValidation("identity", "exactly_one", "Provide exactly one of student_id or card.")
 	}
@@ -98,6 +102,13 @@ func bindMarkRequest(c *gin.Context, actor odsvc.Actor) (contracts.MarkAttendanc
 		return contracts.MarkAttendanceRequest{}, requestValidation("capture_method", "unsupported", "capture_method must be one of nfc, camera, or search.")
 	}
 	return body, nil
+}
+
+func rawProvided(raw *json.RawMessage) bool {
+	if raw == nil || len(*raw) == 0 {
+		return false
+	}
+	return strings.TrimSpace(string(*raw)) != "null"
 }
 
 func actorFromContext(c *gin.Context) (odsvc.Actor, error) {

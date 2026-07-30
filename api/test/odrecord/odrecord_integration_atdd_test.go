@@ -1,10 +1,13 @@
-//go:build atdd && integration
+//go:build integration
 
 package odrecordtest
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"os"
 	"strings"
@@ -18,6 +21,7 @@ import (
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
 
 	"github.com/Shruhath/OD-Amrita/api/internal/domain"
+	svccardtoken "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
 	odsvc "github.com/Shruhath/OD-Amrita/api/internal/service/od_record"
 	"github.com/Shruhath/OD-Amrita/api/internal/store"
 )
@@ -60,6 +64,23 @@ func TestODRecordsSchemaRuntimePrivilegesAndInvariants(t *testing.T) {
 			t.Errorf("[P0] od_records.%s type=%q, want %q", name, columns[name], typ)
 		}
 	}
+	var actorRoleCheck bool
+	if err := migrator.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM pg_constraint
+				WHERE conrelid = 'od_records'::regclass
+				  AND contype = 'c'
+				  AND pg_get_constraintdef(oid) LIKE '%actor_role%'
+				  AND pg_get_constraintdef(oid) LIKE '%coordinator%'
+				  AND pg_get_constraintdef(oid) LIKE '%teacher%'
+				  AND pg_get_constraintdef(oid) LIKE '%admin%'
+			)`).Scan(&actorRoleCheck); err != nil {
+		t.Fatalf("check actor_role constraint: %v", err)
+	}
+	if !actorRoleCheck {
+		t.Fatal("[P1] od_records.actor_role must be constrained to roles that can create marks")
+	}
 	for privilege, want := range map[string]bool{"SELECT": true, "INSERT": true, "UPDATE": true, "DELETE": false} {
 		var got bool
 		if err := migrator.QueryRow(ctx, `SELECT has_table_privilege('od_runtime', 'od_records', $1)`, privilege).Scan(&got); err != nil {
@@ -95,7 +116,13 @@ func TestODRecordServiceDuplicateRaceAuditAndBlockedSlot(t *testing.T) {
 	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
 	fixture := seedMarkFixture(t, ctx, migrator)
 
-	svc := odsvc.NewService(odsvc.NewSQLCReader(runtime), odsvc.NewCardTokenResolver(runtime), odsvc.NewSQLCWriter(), store.New(runtime), fixedClock{now: fixture.slotOneTime})
+	svc := odsvc.NewService(
+		odsvc.NewSQLCReader(runtime),
+		odsvc.NewCardTokenResolver(svccardtoken.NewSQLCLedger(runtime), fixture.cardKeyring),
+		odsvc.NewSQLCWriter(),
+		store.New(runtime),
+		fixedClock{now: fixture.slotOneTime},
+	)
 	actor := odsvc.Actor{UserID: fixture.coordinatorID, Email: "coordinator@amrita.edu", Role: "coordinator"}
 
 	var wg sync.WaitGroup
@@ -144,7 +171,13 @@ func TestODRecordServiceDuplicateRaceAuditAndBlockedSlot(t *testing.T) {
 		t.Fatalf("[P0] od/audit conservation = %d/%d, want exactly one each", odRows, auditRows)
 	}
 
-	closedSvc := odsvc.NewService(odsvc.NewSQLCReader(runtime), odsvc.NewCardTokenResolver(runtime), odsvc.NewSQLCWriter(), store.New(runtime), fixedClock{now: fixture.breakTime})
+	closedSvc := odsvc.NewService(
+		odsvc.NewSQLCReader(runtime),
+		odsvc.NewCardTokenResolver(svccardtoken.NewSQLCLedger(runtime), fixture.cardKeyring),
+		odsvc.NewSQLCWriter(),
+		store.New(runtime),
+		fixedClock{now: fixture.breakTime},
+	)
 	_, err := closedSvc.Mark(ctx, actor, odsvc.MarkInput{
 		EventID:       fixture.eventID,
 		CategoryID:    fixture.categoryID,
@@ -169,6 +202,7 @@ type markFixture struct {
 	studentID     string
 	coordinatorID string
 	cardToken     string
+	cardKeyring   svccardtoken.Keyring
 	slotOneTime   time.Time
 	breakTime     time.Time
 }
@@ -180,12 +214,17 @@ func seedMarkFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) mark
 		t.Fatalf("load campus location: %v", err)
 	}
 	eventDate := time.Date(2026, 8, 3, 0, 0, 0, 0, loc)
+	cardKey := bytes.Repeat([]byte{0x33}, 32)
+	cardKeyring, err := svccardtoken.NewKeyring("v1", map[string][]byte{"v1": cardKey})
+	if err != nil {
+		t.Fatalf("create card keyring: %v", err)
+	}
 	fixture := markFixture{
 		eventID:       uuid.NewString(),
 		categoryID:    uuid.NewString(),
 		studentID:     uuid.NewString(),
 		coordinatorID: uuid.NewString(),
-		cardToken:     "QlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlI",
+		cardKeyring:   cardKeyring,
 		slotOneTime:   time.Date(2026, 8, 3, 8, 25, 0, 0, loc),
 		breakTime:     time.Date(2026, 8, 3, 10, 35, 0, 0, loc),
 	}
@@ -213,12 +252,16 @@ func seedMarkFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) mark
 		t.Fatalf("seed category: %v", err)
 	}
 	rollSuffix := strings.ToUpper(strings.ReplaceAll(fixture.studentID, "-", ""))[:8]
+	rollNo := "CB.SC.U4ODR" + rollSuffix
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO students (id, roll_no, name, branch_id, section, batch)
-		VALUES ($1, $2, 'ATDD Mark Student', '91000000-0000-4000-8000-000000000001', 'A', '2024')`,
-		fixture.studentID, "CB.SC.U4ODR"+rollSuffix); err != nil {
+			INSERT INTO students (id, roll_no, name, branch_id, section, batch)
+			VALUES ($1, $2, 'ATDD Mark Student', '91000000-0000-4000-8000-000000000001', 'A', '2024')`,
+		fixture.studentID, rollNo); err != nil {
 		t.Fatalf("seed student: %v", err)
 	}
+	mac := hmac.New(sha256.New, cardKey)
+	_, _ = mac.Write([]byte(rollNo))
+	fixture.cardToken = base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 	hash := sha256.Sum256([]byte(fixture.cardToken))
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO student_card_tokens (student_id, version, token_sha256)

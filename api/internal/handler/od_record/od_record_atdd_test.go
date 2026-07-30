@@ -61,6 +61,7 @@ func TestMarkHandlerValidatesExactlyOneIdentitySourceAndTypedErrors(t *testing.T
 		body string
 	}{
 		{name: "missing identity", body: `{"event_id":"` + eventID + `","category_id":"` + categoryID + `","capture_method":"search"}`},
+		{name: "null identity", body: `{"event_id":"` + eventID + `","category_id":"` + categoryID + `","capture_method":"search","student_id":null}`},
 		{name: "both identity sources", body: `{"event_id":"` + eventID + `","category_id":"` + categoryID + `","capture_method":"search","student_id":"` + uuid.NewString() + `","card":{"version":"v1","token":"token"}}`},
 		{name: "coordinator supplies slot", body: `{"event_id":"` + eventID + `","category_id":"` + categoryID + `","capture_method":"nfc","slot":1,"card":{"version":"v1","token":"token"}}`},
 	} {

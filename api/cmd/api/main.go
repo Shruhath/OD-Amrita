@@ -118,11 +118,15 @@ func run() error {
 	api.GET("/auth/me", handlerauth.MeHandler(userSvc, eventAuditor))
 
 	principalLoader := rbac.NewSQLCPrincipalLoader(pool)
+	cardKeyring, err := svccardtoken.NewKeyring(cfg.CardSeal.ActiveVersion, cfg.CardSeal.HMACKeys)
+	if err != nil {
+		return err
+	}
 	markAPI := api.Group("")
 	markAPI.Use(rbac.RequirePrincipal(principalLoader))
 	markSvc := svcodrecord.NewService(
 		svcodrecord.NewSQLCReader(pool),
-		svcodrecord.NewCardTokenResolver(pool),
+		svcodrecord.NewCardTokenResolver(svccardtoken.NewSQLCLedger(pool), cardKeyring),
 		svcodrecord.NewSQLCWriter(),
 		st,
 		nil,
@@ -137,10 +141,6 @@ func run() error {
 	handlerteacher.RegisterAdminRoutes(admin, teacherSvc)
 	studentSvc := svcstudent.NewService(svcstudent.NewSQLCReader(pool), st, svcstudent.NewSQLCWriter())
 	handlerstudent.RegisterAdminRoutes(admin, studentSvc)
-	cardKeyring, err := svccardtoken.NewKeyring(cfg.CardSeal.ActiveVersion, cfg.CardSeal.HMACKeys)
-	if err != nil {
-		return err
-	}
 	cardTokenSvc := svccardtoken.NewService(svccardtoken.NewSQLCReader(pool), svccardtoken.NewSQLCLedger(pool), st, cardKeyring)
 	handlercardtoken.RegisterAdminRoutes(admin, cardTokenSvc)
 

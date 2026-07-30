@@ -147,6 +147,9 @@ func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkR
 	if !validCaptureMethod(input.CaptureMethod) {
 		return MarkResult{}, validation("capture_method", "unsupported", "capture_method must be one of nfc, camera, or search.")
 	}
+	if err := validateIdentityCapturePair(input); err != nil {
+		return MarkResult{}, err
+	}
 	if _, err := uuid.Parse(strings.TrimSpace(input.EventID)); err != nil {
 		return MarkResult{}, validation("event_id", "invalid_format", "event_id must be a UUID.")
 	}
@@ -170,17 +173,6 @@ func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkR
 		return MarkResult{}, err
 	}
 
-	slot, serverReceivedAt, err := s.slotFor(actor, input, event)
-	if err != nil {
-		var de domain.DomainError
-		if errors.As(err, &de) && de.Code == contracts.ErrorCodeSLOTCLOSED {
-			if auditErr := s.writeBlockedAudit(ctx, actor, input, serverReceivedAt); auditErr != nil {
-				return MarkResult{}, auditErr
-			}
-		}
-		return MarkResult{}, err
-	}
-
 	student, err := s.resolveStudent(ctx, actor, input)
 	if errors.Is(err, ErrStudentNotFound) {
 		return MarkResult{}, studentNotFound()
@@ -189,6 +181,17 @@ func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkR
 		return MarkResult{}, cardNotRecognized()
 	}
 	if err != nil {
+		return MarkResult{}, err
+	}
+
+	slot, serverReceivedAt, err := s.slotFor(actor, input, event)
+	if err != nil {
+		var de domain.DomainError
+		if errors.As(err, &de) && de.Code == contracts.ErrorCodeSLOTCLOSED {
+			if auditErr := s.writeBlockedAudit(ctx, actor, input, serverReceivedAt); auditErr != nil {
+				return MarkResult{}, auditErr
+			}
+		}
 		return MarkResult{}, err
 	}
 
@@ -237,6 +240,23 @@ func validateIdentity(input MarkInput) error {
 	}
 	if hasCard && (strings.TrimSpace(input.Card.Version) == "" || strings.TrimSpace(input.Card.Token) == "") {
 		return cardNotRecognized()
+	}
+	return nil
+}
+
+func validateIdentityCapturePair(input MarkInput) error {
+	if input.Card != nil {
+		switch input.CaptureMethod {
+		case CaptureMethodNFC, CaptureMethodCamera:
+			return nil
+		default:
+			return validation("identity", "capture_method_mismatch", "card identity is valid only for nfc or camera marks.")
+		}
+	}
+	if input.StudentID != nil {
+		if input.CaptureMethod != CaptureMethodSearch {
+			return validation("identity", "capture_method_mismatch", "student_id identity is valid only for search marks.")
+		}
 	}
 	return nil
 }

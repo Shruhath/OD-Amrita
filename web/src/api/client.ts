@@ -15,6 +15,12 @@ export type TeacherProfileCollection = components['schemas']['TeacherProfileColl
 export type CreateTeacherProfileInput = components['schemas']['CreateTeacherProfileRequest']
 export type StudentRosterImportResult = components['schemas']['StudentRosterImportResult']
 export type StudentRosterImportError = components['schemas']['StudentRosterImportError']
+export type StudentCollection = components['schemas']['StudentCollection']
+export type ResolvedCardStudent = components['schemas']['ResolvedCardStudent']
+export type CardSeal = components['schemas']['CardSeal']
+export type CardTokenResolveRequest = components['schemas']['CardTokenResolveRequest']
+/** The exact object written to an NFC card — version and token, nothing else. */
+export type CardPayload = CardSeal['payload']
 export type ValidationError = components['schemas']['ValidationError']
 export type ErrorEnvelope = components['schemas']['Error']
 
@@ -127,6 +133,45 @@ export function createEventApi(session: SessionPort) {
         body: { file: file.name },
         bodySerializer: () => body,
       }))
+    },
+    /**
+     * One page of the card-populator roster.
+     *
+     * Filters are omitted rather than sent blank when unset — an empty
+     * `section=` would be a filter for the empty string, which no student row
+     * can match, silently returning an empty roster.
+     */
+    async students(filters: {
+      branchID?: string
+      batch?: string
+      section?: string
+      page?: number
+      pageSize?: number
+    } = {}) {
+      const query: Record<string, string | number> = {
+        page: filters.page ?? 1,
+        page_size: filters.pageSize ?? 100,
+      }
+      if (filters.branchID) query.branch_id = filters.branchID
+      if (filters.batch) query.batch = filters.batch
+      if (filters.section) query.section = filters.section
+      return unwrap(await client.GET('/api/v1/admin/students', { params: { query } }))
+    },
+    /**
+     * Seals one student's card server-side and returns the payload to write.
+     *
+     * Deliberately per-student: there is no bulk seal, so the number of raw
+     * tokens this client has ever held is bounded by the cards actually being
+     * written (AR20, and the endpoint scope Story 0.3 established).
+     */
+    async sealStudentCard(studentID: string) {
+      return unwrap(await client.POST('/api/v1/admin/students/{student_id}/card-seal', {
+        params: { path: { student_id: studentID } },
+      }))
+    },
+    /** Resolves a token read back off a card to its student, server-side. */
+    async resolveCardToken(input: CardTokenResolveRequest) {
+      return unwrap(await client.POST('/api/v1/admin/card-tokens/resolve', { body: input }))
     },
   }
 }

@@ -211,6 +211,32 @@ describe('Web NFC adapter for card population', () => {
     await expect(pending).rejects.toMatchObject({ kind: 'read-failed' })
   })
 
+  test('[P0] rejects blank or malformed card reads instead of staying pending', async () => {
+    const { windowRef, emitReading } = fakeReaderFactory()
+
+    const pending = createWebNfcAdapter(windowRef).read()
+    await Promise.resolve()
+    emitReading([])
+
+    await expect(pending).rejects.toMatchObject({ kind: 'card-payload' })
+  })
+
+  test('[P0] times out when a scan starts but no card event arrives', async () => {
+    vi.useFakeTimers()
+    try {
+      const { windowRef } = fakeReaderFactory()
+
+      const pending = createWebNfcAdapter(windowRef).read()
+      const assertion = expect(pending).rejects.toMatchObject({ kind: 'read-failed' })
+      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      await assertion
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   test('[P0] rejects when scanning cannot start', async () => {
     const { state, windowRef } = fakeReaderFactory()
     state.scanError = new Error('nfc is off')

@@ -1,126 +1,1054 @@
-.portal-shell { min-height: 100vh; background: var(--canvas); color: var(--ink); }
-.topbar { height: 64px; padding: 0 36px; display: flex; align-items: center; justify-content: space-between; background: var(--surface); border-bottom: 1px solid var(--line); }
-.topbar > div, .account-actions { display: flex; align-items: center; gap: 12px; }
-.brand-mark { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; background: var(--navy); color: white; font-weight: 750; font-size: 13px; letter-spacing: .08em; }
-.brand-name { font-weight: 700; }
-.portal-nav { display: flex; align-items: center; gap: 20px; }
-.portal-nav a { color: var(--muted); font-weight: 650; text-decoration: none; }
-.portal-nav a:hover, .portal-nav a[aria-current='page'] { color: var(--blue); }
-.account-actions { color: var(--muted); font-size: 14px; }
-.workspace { width: min(1180px, calc(100% - 48px)); margin: 0 auto; padding: 56px 0 80px; }
-.page-heading { display: flex; align-items: end; justify-content: space-between; gap: 32px; margin-bottom: 32px; }
-.page-heading h1 { margin: 5px 0 7px; font-size: clamp(32px, 5vw, 46px); letter-spacing: -.035em; }
-.page-heading p:last-child { color: var(--muted); max-width: 620px; }
-.eyebrow { margin: 0; color: var(--blue); text-transform: uppercase; font-size: 12px; font-weight: 750; letter-spacing: .12em; }
-button, input { font: inherit; }
-button { border: 1px solid var(--line-strong); border-radius: 9px; background: var(--surface); color: var(--ink); padding: 9px 14px; font-weight: 650; cursor: pointer; }
-button:hover:not(:disabled) { border-color: var(--blue); }
-button:focus-visible, input:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
-button:disabled { cursor: not-allowed; opacity: .56; }
-.primary { background: var(--blue); border-color: var(--blue); color: white; box-shadow: 0 5px 14px rgba(22, 79, 140, .16); }
-.secondary { padding: 7px 11px; color: var(--navy); }
-.danger { background: var(--danger); color: white; border-color: var(--danger); }
-.text-button { padding: 5px 8px; border: 0; background: transparent; color: var(--blue); }
-.table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 10px 32px rgba(29, 44, 60, .06); }
-.pagination { display: flex; justify-content: flex-end; align-items: center; gap: 14px; margin-top: 16px; color: var(--muted); font-size: 14px; }
-table { width: 100%; min-width: 760px; border-collapse: collapse; text-align: left; }
-th, td { padding: 17px 20px; border-bottom: 1px solid var(--line); vertical-align: middle; }
-thead th { color: var(--muted); background: var(--surface-subtle); font-size: 12px; letter-spacing: .07em; text-transform: uppercase; }
-tbody th { font-size: 15px; }
-tbody td { color: var(--muted); font-size: 14px; }
-tbody tr:last-child > * { border-bottom: 0; }
-.archived-row { background: #fafbfc; }
-.archived-row > * { color: #6f7882; }
-.branch-list { display: flex; flex-wrap: wrap; gap: 6px; }
-.branch-chip { padding: 4px 8px; border: 1px solid #cbd9e6; border-radius: 8px; color: #405b70; background: #f3f7fa; font-weight: 650; font-size: 11px; }
-.branch-chip small { margin-left: 4px; color: #61788a; font-weight: 800; }
-.status-badge { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
-.status-badge.active { color: #176342; }
-.status-badge.archived { color: #69727c; }
-.row-action { text-align: right; }
-.empty-state, .center-state { border: 1px dashed var(--line-strong); border-radius: 14px; padding: 56px 28px; text-align: center; background: var(--surface); }
-.empty-state h2, .center-state h1 { margin: 0 0 10px; }
-.empty-state p, .center-state p { color: var(--muted); }
-.center-state { width: min(560px, calc(100% - 48px)); box-sizing: border-box; margin: 12vh auto 0; }
-.center-state button { margin-top: 24px; }
-.sign-in { padding: 68px 36px; border-style: solid; box-shadow: 0 24px 70px rgba(29, 44, 60, .1); }
-.notice { margin-top: 18px; padding: 13px 15px; border-radius: 9px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.notice.error { color: #7b2727; background: #fff1f0; border: 1px solid #edc6c3; }
-.dialog-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px; background: rgba(15, 28, 42, .5); }
-.dialog { width: min(520px, 100%); max-height: calc(100vh - 48px); overflow: auto; box-sizing: border-box; padding: 28px; border-radius: 14px; background: var(--surface); box-shadow: 0 30px 90px rgba(15, 28, 42, .3); }
-.dialog h2 { margin: 0 0 18px; font-size: 24px; }
-.dialog p { color: var(--muted); }
-.dialog form { display: grid; gap: 8px; }
-.dialog label, .dialog legend { font-weight: 700; font-size: 14px; }
-.dialog input[type='text'], .dialog input:not([type]) , .dialog input[type='date'], .dialog input[type='email'] { width: 100%; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: 8px; padding: 10px 11px; color: var(--ink); background: white; }
-.dialog input[aria-invalid='true'] { border-color: var(--danger); }
-.dialog fieldset { margin: 10px 0 0; padding: 0; border: 0; }
-.branch-options { display: grid; gap: 8px; margin-top: 8px; }
-.branch-options label { display: flex; gap: 10px; align-items: center; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
-.branch-options input { width: 18px; height: 18px; }
-.branch-options span { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; }
-.branch-options small { color: var(--muted); }
-.field-error { margin: -2px 0 5px; color: var(--danger) !important; font-size: 13px; }
-.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
-.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+/* Component layer.
+   Two visual modes, as the previous OD Manager app shipped:
 
-/* Event detail surface (categories). */
-.detail-section { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px 24px; box-shadow: 0 10px 32px rgba(29, 44, 60, .06); }
-.detail-section > h2 { margin: 0 0 6px; }
-.detail-section > p { margin: 0 0 16px; color: var(--muted); }
-.event-summary { display: flex; flex-wrap: wrap; gap: 12px 32px; margin: 12px 0 0; }
-.event-summary div { display: flex; flex-direction: column; gap: 4px; }
-.event-summary dt { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
-.event-summary dd { margin: 0; }
-.category-list { display: flex; flex-direction: column; gap: 6px; margin: 0 0 18px; padding: 0; list-style: none; }
-.category-list li { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-weight: 650; }
-.empty-note { margin: 0 0 18px; color: var(--muted); }
+   1. Work surfaces (.portal-shell) — opaque white, hard borders, gray-50 header
+      rows. The old app's admin-layout.tsx and nfc-scanner.tsx did exactly this.
+      Dense rosters have to stay legible on a phone in daylight, so no glass.
+   2. Auth surfaces (.center-state) — the campus photograph under a black mask
+      with a white translucent card floating on top, per the old login screen.
+
+   The backdrop is painted once, behind everything; .portal-shell is opaque and
+   simply covers it. */
+
+/* ---------------------------------------------------------------- backdrop */
+
+.app-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -10;
+  pointer-events: none;
+}
+
+.app-backdrop__image {
+  position: absolute;
+  inset: 0;
+  background-image: var(--backdrop-image);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  opacity: var(--backdrop-opacity);
+}
+
+.app-backdrop__mask {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: var(--backdrop-mask-opacity);
+}
+
+/* The old app's 5%-opacity dot lattice over the mask. */
+.app-backdrop__pattern {
+  position: absolute;
+  inset: 0;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='0.4'%3E%3Ccircle cx='30' cy='30' r='1'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+:root {
+  --backdrop-image: url('/brand/campus-mobile.jpg');
+}
+
+@media (min-width: 768px) {
+  :root {
+    --backdrop-image: url('/brand/campus-desktop.jpg');
+  }
+}
+
+/* ------------------------------------------------------------------- shell */
+
+/* #root is the flex column both modes live in. The auth card centres itself in
+   it with `margin: auto` rather than large vertical margins, which would push
+   the document past the viewport and leave a band of blank page below the
+   fixed backdrop. */
+#root {
+  display: flex;
+  flex-direction: column;
+}
+
+.portal-shell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  /* Opaque: this is what hides the backdrop on the work surfaces. */
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  z-index: 60;
+  padding: 12px 18px;
+  border-radius: var(--radius-md);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  left: 12px;
+  top: 12px;
+}
+
+/* ------------------------------------------------------------------ topbar */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 68px;
+  padding: 0 clamp(16px, 4vw, 36px);
+  padding-top: env(safe-area-inset-top);
+  background: var(--background);
+  border-bottom: 2px solid var(--foreground);
+}
+
+.topbar > div,
+.account-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.brand {
+  gap: 10px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.brand-mark {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-md);
+  background-image: url('/brand/amrita-seal.png');
+  background-size: cover;
+  background-position: center;
+  /* The text stays for assistive tech and for the case where the image 404s. */
+  color: transparent;
+  font-size: 0;
+}
+
+.brand-name {
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.brand-name small {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.portal-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.portal-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  color: var(--gray-600);
+  font-weight: 650;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.portal-nav a:hover {
+  background: var(--gray-100);
+  color: var(--foreground);
+}
+
+.portal-nav a[aria-current='page'] {
+  background: var(--crimson-50);
+  color: var(--crimson);
+  box-shadow: inset 0 0 0 1px var(--crimson-200);
+}
+
+.account-actions {
+  color: var(--gray-600);
+  font-size: 14px;
+}
+
+.account-actions > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 22ch;
+}
+
+/* --------------------------------------------------------------- workspace */
+
+.workspace {
+  flex: 1;
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  padding: clamp(28px, 5vw, 56px) clamp(16px, 4vw, 24px) 72px;
+}
+
+.page-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 28px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.page-heading h1 {
+  margin: 6px 0 8px;
+  font-size: clamp(28px, 5vw, 42px);
+  letter-spacing: -0.035em;
+}
+
+.page-heading p:last-child {
+  margin: 0;
+  color: var(--gray-600);
+  max-width: 620px;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--crimson);
+  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+}
+
+/* ----------------------------------------------------------------- buttons */
+
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--tap);
+  padding: 10px 16px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+button:hover:not(:disabled) {
+  background: var(--gray-50);
+  border-color: var(--gray-400);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+a:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* The old app's filled action: solid near-black, white label. */
+.primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--gray-800);
+  border-color: var(--gray-800);
+}
+
+.secondary {
+  min-height: 38px;
+  padding: 8px 12px;
+  font-size: 14px;
+}
+
+.danger {
+  background: var(--destructive);
+  border-color: var(--destructive);
+  color: #fff;
+}
+
+.danger:hover:not(:disabled) {
+  background: var(--red-700);
+  border-color: var(--red-700);
+}
+
+.text-button {
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--crimson);
+}
+
+.text-button:hover:not(:disabled) {
+  background: var(--crimson-50);
+  border-color: transparent;
+}
+
+/* ------------------------------------------------------------------ tables */
+
+.table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  background: var(--card);
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+th, td {
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: var(--gray-600);
+  background: var(--gray-50);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border-bottom: 2px solid var(--gray-300);
+}
+
+tbody th {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+tbody td {
+  color: var(--gray-600);
+  font-size: 14px;
+}
+
+tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+tbody tr:hover {
+  background: var(--gray-50);
+}
+
+.archived-row {
+  background: var(--gray-50);
+}
+
+.archived-row > * {
+  color: var(--gray-500);
+}
+
+.row-action {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.pagination {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  color: var(--gray-600);
+  font-size: 14px;
+}
+
+/* ------------------------------------------------------- chips and badges */
+
+.branch-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.branch-chip {
+  padding: 4px 9px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-sm);
+  color: var(--gray-700);
+  background: var(--gray-50);
+  font-weight: 650;
+  font-size: 11px;
+}
+
+.branch-chip small {
+  margin-left: 4px;
+  color: var(--gray-500);
+  font-weight: 800;
+}
+
+/* Semantic colour only — the -600 weight, as the old app used it. */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* The markup already carries its own ●/✓ glyph, so there is no ::before dot
+   here — adding one renders the status twice. */
+.status-badge.active { color: var(--green-600); }
+.status-badge.archived { color: var(--gray-500); }
+
+/* --------------------------------------------------------------- surfaces */
+
+.detail-section {
+  background: var(--card);
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-lg);
+  padding: clamp(18px, 4vw, 24px);
+  box-shadow: var(--shadow-card);
+}
+
+.detail-section > h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+
+.detail-section > p {
+  margin: 0 0 16px;
+  color: var(--gray-600);
+}
+
+.empty-state,
+.center-state {
+  border: 1px dashed var(--gray-300);
+  border-radius: var(--radius-lg);
+  padding: clamp(36px, 8vw, 56px) 24px;
+  text-align: center;
+  background: var(--card);
+}
+
+.empty-state h2 {
+  margin: 0 0 10px;
+}
+
+.empty-state p {
+  margin: 0;
+  color: var(--gray-600);
+}
+
+/* ------------------------------------------------- auth surfaces (glass) */
+
+/* These sit directly on the backdrop with no opaque shell above it, so the
+   card is translucent and the surrounding text is white. */
+.center-state {
+  width: min(560px, calc(100% - 32px));
+  /* auto on all four sides centres it in the #root flex column. */
+  margin: auto;
+  padding: clamp(32px, 7vw, 48px) clamp(24px, 5vw, 40px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  background: var(--glass-card-strong);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--shadow-glass);
+}
+
+.center-state h1 {
+  margin: 0 0 10px;
+  font-size: clamp(24px, 6vw, 32px);
+}
+
+.center-state p {
+  color: var(--gray-600);
+}
+
+.center-state button {
+  margin-top: 24px;
+}
+
+/* The signed-out screen carries the full lockup above the card. */
+.auth-brand {
+  display: block;
+  width: min(300px, 72%);
+  margin: 0 auto 28px;
+}
+
+.sign-in {
+  border-style: solid;
+}
+
+.sign-in .primary {
+  width: 100%;
+  min-height: 48px;
+  font-size: 16px;
+}
+
+.auth-hint {
+  margin: 20px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--blue-200);
+  border-radius: var(--radius-md);
+  background: var(--blue-50);
+  color: var(--blue-700);
+  font-size: 13px;
+  text-align: left;
+}
+
+/* A roll-number address is longer than a 360px card is wide and has no spaces
+   to break on, so it must be allowed to break mid-token. */
+.auth-hint code {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+/* --------------------------------------------------------------- notices */
+
+.notice {
+  margin-top: 18px;
+  padding: 13px 15px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.notice.error {
+  color: var(--red-700);
+  background: var(--red-50);
+  border: 1px solid var(--red-200);
+}
+
+.field-error {
+  margin: -2px 0 5px;
+  color: var(--red-600) !important;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* --------------------------------------------------------------- dialogs */
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(0 0 0 / 0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.dialog {
+  width: min(520px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: clamp(20px, 5vw, 28px);
+  border-radius: var(--radius-xl);
+  background: var(--card);
+  box-shadow: var(--shadow-lifted);
+}
+
+.dialog h2 {
+  margin: 0 0 18px;
+  font-size: 22px;
+}
+
+.dialog p {
+  color: var(--gray-600);
+}
+
+.dialog form {
+  display: grid;
+  gap: 8px;
+}
+
+.dialog label,
+.dialog legend {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.dialog input[type='text'],
+.dialog input:not([type]),
+.dialog input[type='date'],
+.dialog input[type='email'] {
+  width: 100%;
+  min-height: var(--tap);
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  color: var(--foreground);
+  background: #fff;
+}
+
+.dialog input:focus {
+  border-color: var(--crimson);
+}
+
+.dialog input[aria-invalid='true'] {
+  border-color: var(--destructive);
+}
+
+.dialog fieldset {
+  margin: 10px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.branch-options {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.branch-options label {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-height: var(--tap);
+  padding: 10px 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.branch-options label:hover {
+  background: var(--gray-50);
+}
+
+.branch-options input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--crimson);
+}
+
+.branch-options span {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.branch-options small {
+  color: var(--gray-500);
+}
+
+/* ---------------------------------------------------------- event detail */
+
+.event-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 32px;
+  margin: 12px 0 0;
+}
+
+.event-summary div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.event-summary dt {
+  color: var(--gray-500);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.event-summary dd {
+  margin: 0;
+  font-weight: 650;
+}
+
+.category-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+}
+
+.category-list li {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--gray-50);
+  font-weight: 650;
+}
+
+.empty-note {
+  margin: 0 0 18px;
+  color: var(--gray-500);
+}
+
 /* Wraps rather than clipping the submit button on a narrow viewport. */
-.category-form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.category-form label { margin: 0; }
-.category-form input { flex: 1 1 220px; min-width: 0; margin: 0; }
-.category-form .field-error { flex-basis: 100%; margin: 0; }
-.roster-import { margin-bottom: 20px; }
-.roster-form { display: grid; grid-template-columns: minmax(220px, 1fr) auto; align-items: end; gap: 10px 14px; }
-.roster-form label, .roster-form .field-error { grid-column: 1 / -1; }
-.roster-form input[type='file'] { min-width: 0; border: 1px solid var(--line-strong); border-radius: 8px; padding: 9px; background: white; }
-.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 18px 0; }
-.summary-grid div { padding: 13px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-subtle); }
-.summary-grid dt { color: var(--muted); font-size: 12px; font-weight: 750; text-transform: uppercase; letter-spacing: .05em; }
-.summary-grid dd { margin: 5px 0 0; font-size: 24px; font-weight: 760; color: var(--ink); }
-.import-errors { margin-top: 16px; box-shadow: none; }
+.category-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
 
-/* Card populator. The operator works one card at a time on a phone held in one
-   hand, so actions are large targets and the status column is fixed-width —
-   a status that changes width would shift the buttons under a moving thumb. */
-.populator-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)) auto; align-items: end; gap: 10px 14px; }
-.populator-filters > div { display: grid; gap: 6px; min-width: 0; }
-.populator-filters label { font-weight: 700; font-size: 14px; }
-.populator-filters select, .populator-filters input[type='text'] { width: 100%; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: 8px; padding: 10px 11px; color: var(--ink); background: white; }
+.category-form label { margin: 0; }
+
+.category-form input {
+  flex: 1 1 220px;
+  min-width: 0;
+  min-height: var(--tap);
+  margin: 0;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+}
+
+.category-form .field-error {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+/* -------------------------------------------------------- roster import */
+
+.roster-import { margin-bottom: 20px; }
+
+.roster-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 10px 14px;
+}
+
+.roster-form label,
+.roster-form .field-error {
+  grid-column: 1 / -1;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.roster-form input[type='file'] {
+  min-width: 0;
+  border: 1px dashed var(--gray-300);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: var(--gray-50);
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.summary-grid div {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--gray-50);
+}
+
+.summary-grid dt {
+  color: var(--gray-500);
+  font-size: 12px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.summary-grid dd {
+  margin: 5px 0 0;
+  font-size: 26px;
+  font-weight: 760;
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.import-errors {
+  margin-top: 16px;
+  box-shadow: none;
+}
+
+/* --------------------------------------------------------- card populator */
+
+/* The operator works one card at a time on a phone held in one hand, so actions
+   are large targets and the status column is fixed-width — a status that
+   changes width would shift the buttons under a moving thumb. */
+.populator-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)) auto;
+  align-items: end;
+  gap: 12px 14px;
+}
+
+.populator-filters > div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.populator-filters label {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.populator-filters select,
+.populator-filters input[type='text'] {
+  width: 100%;
+  min-height: var(--tap);
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  color: var(--foreground);
+  background: #fff;
+}
+
 .populator-roster td { vertical-align: top; }
-.populator-counts { margin: 0 0 16px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.populator-note { display: block; margin-top: 4px; color: var(--muted); font-size: 13px; font-weight: 500; }
-.populator-actions { display: flex; flex-direction: column; align-items: stretch; gap: 8px; min-width: 220px; }
-.populator-actions button { white-space: normal; text-align: center; }
+
+.populator-counts {
+  margin: 0 0 16px;
+  color: var(--gray-600);
+  font-variant-numeric: tabular-nums;
+}
+
+.populator-note {
+  display: block;
+  margin-top: 4px;
+  color: var(--gray-500);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.populator-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 220px;
+}
+
+.populator-actions button {
+  min-height: 48px;
+  white-space: normal;
+  text-align: center;
+}
+
 /* A failed row must stay visible in the list rather than being filtered away —
    the off-by-one failure mode is worse than a long list. */
-.populator-row-failed { background: #fff7f6; }
-.status-badge.populator-verified { color: #176342; }
-.status-badge.populator-written { color: #7a5b13; }
-.status-badge.populator-failed { color: var(--danger); }
-.status-badge.populator-pending { color: var(--muted); }
-.status-badge.populator-writing, .status-badge.populator-verifying { color: var(--blue); }
+.populator-row-failed { background: var(--red-50); }
+.populator-row-failed:hover { background: var(--red-50); }
+
+.status-badge.populator-verified { color: var(--green-600); }
+.status-badge.populator-written { color: var(--amber-700); }
+.status-badge.populator-failed { color: var(--destructive); }
+.status-badge.populator-pending { color: var(--gray-500); }
+.status-badge.populator-writing,
+.status-badge.populator-verifying { color: var(--blue-600); }
+
+/* ------------------------------------------------------------------ footer */
+
+.app-footer {
+  margin-top: auto;
+  background: var(--background);
+  border-top: 1px solid var(--gray-300);
+}
+
+.app-footer__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  padding: 18px clamp(16px, 4vw, 24px);
+  padding-bottom: calc(18px + env(safe-area-inset-bottom));
+}
+
+.app-footer__logo {
+  height: 42px;
+  width: auto;
+  flex-shrink: 0;
+}
+
+.app-footer__credit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--gray-500);
+  font-size: 13px;
+}
+
+.app-footer__credit a {
+  color: var(--foreground);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.app-footer__credit a:hover {
+  text-decoration: underline;
+}
+
+/* ----------------------------------------------------------------- utility */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ------------------------------------------------------------- narrow view */
+
+@media (max-width: 860px) {
+  /* The topbar becomes two rows: identity and account on the first, the
+     section links on a snap-scrolling strip below. No hamburger — every
+     destination stays reachable in one tap and visible to assistive tech. */
+  .topbar {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas: 'brand account' 'nav nav';
+    gap: 0 12px;
+    padding-bottom: 0;
+  }
+
+  .topbar > div:first-child { grid-area: brand; min-height: 60px; }
+  .account-actions { grid-area: account; }
+  .portal-nav {
+    grid-area: nav;
+    margin: 0 calc(-1 * clamp(16px, 4vw, 36px));
+    padding: 0 clamp(16px, 4vw, 36px) 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    scroll-snap-type: x proximity;
+  }
+
+  .portal-nav::-webkit-scrollbar { display: none; }
+  .portal-nav a { scroll-snap-align: start; }
+
+  /* The address is the least useful thing in a 360px-wide bar. */
+  .account-actions > span { display: none; }
+
+  .brand-name small { display: none; }
+
+  .workspace { padding-bottom: 56px; }
+
+  .page-heading {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .page-heading > button { align-self: flex-start; }
+
+  .category-form { align-items: stretch; flex-direction: column; }
+  .category-form input { width: 100%; }
+
+  .roster-form { grid-template-columns: 1fr; align-items: stretch; }
+
+  th, td { padding: 13px 14px; }
+
+  /* A five-column roster cannot fit 390px, so it scrolls — but the identifying
+     column (event name, roll number, email) stays pinned, so a row being read
+     at the far right is never anonymous. */
+  table { min-width: 560px; }
+
+  tbody th:first-child,
+  tbody td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--background);
+    box-shadow: 1px 0 0 var(--border);
+  }
+
+  thead th:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--gray-50);
+    box-shadow: 1px 0 0 var(--gray-300);
+  }
+
+  /* The pinned cell paints over the row, so it has to repeat the row's fill. */
+  .archived-row th:first-child,
+  .archived-row td:first-child { background: var(--gray-50); }
+  .populator-row-failed th:first-child,
+  .populator-row-failed td:first-child { background: var(--red-50); }
+
+  /* Short values (dates, counts, statuses) read worse broken across three lines
+     than scrolled to, so only the branch chips are allowed to wrap. */
+  tbody td { white-space: nowrap; }
+  .branch-list, .branch-chip, .populator-actions button { white-space: normal; }
+
+  .branch-chip { font-size: 10px; }
+
+  .dialog-actions { flex-direction: column-reverse; }
+  .dialog-actions button { width: 100%; }
+
+  .app-footer__inner { justify-content: center; text-align: center; }
+}
 
 @media (max-width: 720px) {
-  .topbar { padding: 0 18px; }
-  .account-actions span { display: none; }
-  .workspace { width: min(100% - 28px, 1180px); padding-top: 34px; }
-  .page-heading { align-items: stretch; flex-direction: column; }
-  .page-heading > button { align-self: flex-start; }
-  .category-form { align-items: stretch; flex-direction: column; }
-  .roster-form { grid-template-columns: 1fr; align-items: stretch; }
   /* The populator is used on a phone, which is the ONLY surface Web NFC runs
      on — the narrow layout is the primary one here, not a fallback. */
   .populator-filters { grid-template-columns: 1fr; align-items: stretch; }
   .populator-actions { min-width: 0; }
+  .summary-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+  .summary-grid dd { font-size: 22px; }
 }

@@ -34,20 +34,17 @@ export async function installFakeWebNfc(
 
       async scan() {
         queueMicrotask(() => {
-          const body =
-            injected.readPayload === null
-              ? null
-              : injected.readPayload
-                ? JSON.stringify(injected.readPayload)
-                : state.lastWritten
-          if (body === null) return
-          const records = [
-            {
-              recordType: 'mime',
-              mediaType,
-              data: new DataView(new TextEncoder().encode(body).buffer),
-            },
-          ]
+          const body = injected.readPayload ? JSON.stringify(injected.readPayload) : state.lastWritten
+          const records =
+            injected.readPayload === null || body === null
+              ? []
+              : [
+                  {
+                    recordType: 'mime',
+                    mediaType,
+                    data: new DataView(new TextEncoder().encode(body).buffer),
+                  },
+                ]
           for (const listener of [...this.readers]) listener({ message: { records } })
         })
       }

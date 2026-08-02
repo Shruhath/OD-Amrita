@@ -118,9 +118,8 @@ test.describe('Card populator journey', () => {
     await loadSection(page)
     await page.getByRole('button', { name: /Verify card for Ananya Rao/i }).click()
 
-    // The read never settles for a blank card, so the operator keeps a live
-    // retry rather than a spinner that silently claims success.
-    await expect(page.getByText(/Verifying…/)).toBeVisible()
+    await expect(page.getByText(/no OD-Amrita card payload/i)).toBeVisible()
+    await expect(page.getByRole('button', { name: /Verify card for Ananya Rao/i })).toBeEnabled()
     await expect(page.getByText(/0 verified/i)).toBeVisible()
   })
 

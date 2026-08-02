@@ -30,6 +30,7 @@ type NfcHarness = {
   /** Payload the next simulated tap will present. */
   nextRead: { version: string; token: string } | null
   writeError: Error | null
+  settleRead: boolean
 }
 
 /**
@@ -40,7 +41,7 @@ type NfcHarness = {
  * detection path the phone will take.
  */
 function installNfc(overrides: Partial<NfcHarness> = {}): NfcHarness {
-  const harness: NfcHarness = { writes: [], nextRead: cardPayload(), writeError: null, ...overrides }
+  const harness: NfcHarness = { writes: [], nextRead: cardPayload(), writeError: null, settleRead: true, ...overrides }
   type ReadingListener = (event: { message: { records: unknown[] } }) => void
 
   class FakeNDEFReader {
@@ -55,11 +56,16 @@ function installNfc(overrides: Partial<NfcHarness> = {}): NfcHarness {
       // Deliver the tap on a microtask so the component observes its
       // "Verifying…" state before the read settles.
       queueMicrotask(() => {
-        if (!harness.nextRead) return
-        const body = JSON.stringify(harness.nextRead)
-        const records = [
-          { recordType: 'mime', mediaType: CARD_MEDIA_TYPE, data: new DataView(new TextEncoder().encode(body).buffer) },
-        ]
+        if (!harness.settleRead) return
+        const records = harness.nextRead
+          ? [
+              {
+                recordType: 'mime',
+                mediaType: CARD_MEDIA_TYPE,
+                data: new DataView(new TextEncoder().encode(JSON.stringify(harness.nextRead)).buffer),
+              },
+            ]
+          : []
         for (const listener of [...this.readers]) listener({ message: { records } })
       })
     }
@@ -147,6 +153,79 @@ describe('Card populator portal', () => {
     ])
     expect(screen.getByText(/0 written/i)).toBeInTheDocument()
     expect(screen.getByText(/0 verified/i)).toBeInTheDocument()
+  })
+
+  test('[P0] loads every server page for a section before reporting progress', async () => {
+    installNfc()
+    const user = userEvent.setup()
+    const students = Array.from({ length: 101 }, (_item, index) =>
+      cardPopulatorStudent(index + 1, {
+        display_name: `Student ${String(index + 1).padStart(3, '0')}`,
+        roll_no: `CB.SC.U4CSE24${String(index + 1).padStart(3, '0')}`,
+      }),
+    )
+    server.use(
+      http.get('*/api/v1/auth/me', () =>
+        HttpResponse.json({ subject: 'admin', email: 'admin@amrita.edu', name: 'Admin', role: 'admin' }),
+      ),
+      http.get('*/api/v1/admin/branches', () => HttpResponse.json({ data: [cardPopulatorBranch] })),
+      http.get('*/api/v1/admin/students', ({ request }) => {
+        const page = Number(new URL(request.url).searchParams.get('page') ?? '1')
+        const start = (page - 1) * 100
+        return HttpResponse.json({
+          ...studentCollection(students.slice(start, start + 100)),
+          page,
+          total: students.length,
+        })
+      }),
+    )
+    render(<Application session={sessionPort()} router={createPortalMemoryRouter(['/portal/card-populator'])} />)
+
+    const table = await loadRoster(user)
+
+    expect(await within(table).findByRole('row', { name: /Student 101/ })).toBeInTheDocument()
+    expect(screen.getByText(/101 in section/i)).toBeInTheDocument()
+  })
+
+  test('[P0] requires a complete section before loading the roster', async () => {
+    installNfc()
+    const user = userEvent.setup()
+    renderPopulator('admin')
+
+    await screen.findByRole('heading', { name: 'Card populator' })
+    await screen.findByRole('option', { name: new RegExp(cardPopulatorBranch.code) })
+    await user.selectOptions(screen.getByLabelText('Branch'), cardPopulatorBranch.id)
+    await user.click(screen.getByRole('button', { name: 'Load roster' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/branch, batch and section/i)
+    expect(screen.queryByRole('table', { name: 'Students to write' })).not.toBeInTheDocument()
+  })
+
+  test('[P0] normalizes the section filter before requesting the roster', async () => {
+    installNfc()
+    const user = userEvent.setup()
+    const requestedSections: string[] = []
+    server.use(
+      http.get('*/api/v1/auth/me', () =>
+        HttpResponse.json({ subject: 'admin', email: 'admin@amrita.edu', name: 'Admin', role: 'admin' }),
+      ),
+      http.get('*/api/v1/admin/branches', () => HttpResponse.json({ data: [cardPopulatorBranch] })),
+      http.get('*/api/v1/admin/students', ({ request }) => {
+        requestedSections.push(new URL(request.url).searchParams.get('section') ?? '')
+        return HttpResponse.json(studentCollection([]))
+      }),
+    )
+    render(<Application session={sessionPort()} router={createPortalMemoryRouter(['/portal/card-populator'])} />)
+
+    await screen.findByRole('heading', { name: 'Card populator' })
+    await screen.findByRole('option', { name: new RegExp(cardPopulatorBranch.code) })
+    await user.selectOptions(screen.getByLabelText('Branch'), cardPopulatorBranch.id)
+    await user.type(screen.getByLabelText('Batch'), '2024')
+    await user.type(screen.getByLabelText('Section'), 'a')
+    await user.click(screen.getByRole('button', { name: 'Load roster' }))
+
+    await screen.findByText(/No students match/i)
+    expect(requestedSections).toEqual(['A'])
   })
 
   test('[P0] writes exactly the sealed payload and verifies only the matching student', async () => {
@@ -238,6 +317,51 @@ describe('Card populator portal', () => {
     expect(screen.getByText(/1 failed/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Verify card for Ananya Rao/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /Write card for Ananya Rao/i })).toBeEnabled()
+  })
+
+  test('[P0] does not persist token-like API error text in progress notes', async () => {
+    installNfc()
+    const user = userEvent.setup()
+    renderPopulator('admin')
+    const leakedToken = cardPayload().token
+    server.use(
+      http.post('*/api/v1/admin/card-tokens/resolve', () =>
+        HttpResponse.json({ code: 'CARD_NOT_RECOGNIZED', message: `token ${leakedToken} was not recognized` }, { status: 422 }),
+      ),
+    )
+
+    await loadRoster(user)
+    await user.click(await screen.findByRole('button', { name: /Verify card for Ananya Rao/i }))
+
+    expect(await screen.findByText(/operation failed/i)).toBeInTheDocument()
+    expect(window.sessionStorage.getItem('od-amrita.card-populator.progress.v1') ?? '').not.toContain(leakedToken)
+  })
+
+  test('[P0] surfaces a blank card as a failure with a retry path', async () => {
+    installNfc({ nextRead: null })
+    const user = userEvent.setup()
+    renderPopulator('admin')
+
+    await loadRoster(user)
+    await user.click(await screen.findByRole('button', { name: /Verify card for Ananya Rao/i }))
+
+    expect(await screen.findByText(/no OD-Amrita card payload/i)).toBeInTheDocument()
+    expect(screen.getByText(/1 failed/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Verify card for Ananya Rao/i })).toBeEnabled()
+  })
+
+  test('[P0] lets the operator cancel a scan that has not produced a card event', async () => {
+    installNfc({ settleRead: false })
+    const user = userEvent.setup()
+    renderPopulator('admin')
+
+    await loadRoster(user)
+    await user.click(await screen.findByRole('button', { name: /Verify card for Ananya Rao/i }))
+    await user.click(await screen.findByRole('button', { name: /Cancel card operation for Ananya Rao/i }))
+
+    expect(await screen.findByText(/Card read cancelled/i)).toBeInTheDocument()
+    expect(screen.getByText(/1 failed/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Verify card for Ananya Rao/i })).toBeEnabled()
   })
 
   test('[P0] surfaces a write failure without advancing the student', async () => {

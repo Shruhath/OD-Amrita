@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import type { ResolvedCardStudent } from '../../../api/client'
+import type { EventApi, ResolvedCardStudent, StudentCollection } from '../../../api/client'
+import { PortalShell } from '../../../components/PortalShell'
 import { useAuth } from '../../../features/auth/context'
 import { CardNfcError, createWebNfcAdapter, type WebNfcStatus } from '../../../features/cardPopulator/webNfc'
 import { messageOf } from '../events/format'
@@ -40,6 +40,7 @@ const STATUS_LABEL: Record<CardStatus, string> = {
  * keep across a reload. Raw tokens and payloads never reach storage (AC 6).
  */
 const PROGRESS_STORAGE_KEY = 'od-amrita.card-populator.progress.v1'
+const ROSTER_PAGE_SIZE = 100
 
 function readStoredProgress(): Record<string, CardProgress> {
   try {
@@ -71,7 +72,7 @@ function readStoredProgress(): Record<string, CardProgress> {
 }
 
 export default function CardPopulatorPortal() {
-  const { api, identity, signOut } = useAuth()
+  const { api } = useAuth()
 
   const nfc = useMemo(() => createWebNfcAdapter(window), [])
   const [nfcStatus, setNfcStatus] = useState<WebNfcStatus>(() => nfc.status())
@@ -105,11 +106,7 @@ export default function CardPopulatorPortal() {
 
   const roster = useQuery({
     queryKey: ['card-populator-students', applied],
-    queryFn: () => api.students({
-      branchID: applied?.branchID || undefined,
-      batch: applied?.batch || undefined,
-      section: applied?.section || undefined,
-    }),
+    queryFn: () => loadCompleteRoster(api, applied as Filters),
     enabled: applied !== null,
   })
 
@@ -144,17 +141,23 @@ export default function CardPopulatorPortal() {
         failed += 1
       }
     }
-    return { written, verified, failed, total: students.length }
-  }, [students, statusOf])
+    return { written, verified, failed, total: roster.data?.total ?? students.length }
+  }, [roster.data?.total, students, statusOf])
 
   const loadRoster = (event: FormEvent) => {
     event.preventDefault()
     setFormError(null)
-    if (!draft.branchID) {
-      setFormError('Choose a branch before loading the roster.')
+    const next = {
+      branchID: draft.branchID,
+      batch: draft.batch.trim(),
+      section: draft.section.trim().toUpperCase(),
+    }
+    if (!next.branchID || !next.batch || !next.section) {
+      setFormError('Choose a branch, batch and section before loading the roster.')
       return
     }
-    setApplied({ ...draft })
+    abortRef.current?.abort()
+    setApplied(next)
   }
 
   const beginOperation = (studentID: string) => {
@@ -165,8 +168,19 @@ export default function CardPopulatorPortal() {
     return controller
   }
 
+  const finishOperation = (controller: AbortController) => {
+    if (abortRef.current === controller) {
+      abortRef.current = null
+      setActiveStudentID(null)
+    }
+  }
+
+  const cancelOperation = () => {
+    abortRef.current?.abort()
+  }
+
   const failWith = (student: ResolvedCardStudent, cause: unknown, fallback: string) => {
-    const message = cause instanceof CardNfcError ? cause.message : messageOf(cause, fallback)
+    const message = safeProgressNote(cause instanceof CardNfcError ? cause.message : messageOf(cause, fallback))
     setStudentProgress(student.student_id, { status: 'failed', note: message })
   }
 
@@ -186,6 +200,8 @@ export default function CardPopulatorPortal() {
       setStudentProgress(student.student_id, { status: 'written' })
     } catch (cause) {
       failWith(student, cause, 'The card could not be written')
+    } finally {
+      finishOperation(controller)
     }
   }
 
@@ -213,160 +229,178 @@ export default function CardPopulatorPortal() {
       })
     } catch (cause) {
       failWith(student, cause, 'The card could not be verified')
+    } finally {
+      finishOperation(controller)
     }
   }
 
   const cardsUsable = nfcStatus === 'available'
 
   return (
-    <div className="portal-shell">
-      <header className="topbar">
+    <PortalShell>
+      <div className="page-heading">
         <div>
-          <span className="brand-mark" aria-hidden="true">OD</span>
-          <span className="brand-name">OD-Amrita</span>
+          <p className="eyebrow">Administration · Cards</p>
+          <h1>Card populator</h1>
+          <p>Write each student's sealed token to their NFC card, then read it back to verify it.</p>
         </div>
-        <nav className="portal-nav" aria-label="Administration sections">
-          <Link to="/portal/events">Events</Link>
-          <Link to="/portal/teachers">Teachers</Link>
-          <Link to="/portal/students">Students</Link>
-          <Link to="/portal/card-populator" aria-current="page">Card populator</Link>
-        </nav>
-        <div className="account-actions">
-          <span>{identity?.name ?? identity?.email}</span>
-          <button className="text-button" type="button" onClick={() => void signOut()}>Sign out</button>
-        </div>
-      </header>
+      </div>
 
-      <main className="workspace">
-        <div className="page-heading">
+      {nfcStatus !== 'available' && (
+        <p className="notice error" role="alert">
+          {nfcStatus === 'insecure'
+            ? 'NFC needs an HTTPS page. Open the populator over HTTPS to write cards.'
+            : 'This browser cannot use NFC. Use Chrome on Android to write cards.'}
+        </p>
+      )}
+
+      <section className="detail-section roster-import">
+        <h2>Choose a section</h2>
+        <form className="populator-filters" onSubmit={loadRoster} noValidate>
           <div>
-            <p className="eyebrow">Administration · Cards</p>
-            <h1>Card populator</h1>
-            <p>Write each student's sealed token to their NFC card, then read it back to verify it.</p>
+            <label htmlFor="populator-branch">Branch</label>
+            <select
+              id="populator-branch"
+              value={draft.branchID}
+              onChange={(event) => setDraft((current) => ({ ...current, branchID: event.target.value }))}
+            >
+              <option value="">Select a branch</option>
+              {(branches.data?.data ?? []).map((branch) => (
+                <option key={branch.id} value={branch.id}>{branch.code} — {branch.name}</option>
+              ))}
+            </select>
           </div>
-        </div>
-
-        {nfcStatus !== 'available' && (
-          <p className="notice error" role="alert">
-            {nfcStatus === 'insecure'
-              ? 'NFC needs an HTTPS page. Open the populator over HTTPS to write cards.'
-              : 'This browser cannot use NFC. Use Chrome on Android to write cards.'}
-          </p>
+          <div>
+            <label htmlFor="populator-batch">Batch</label>
+            <input
+              id="populator-batch"
+              type="text"
+              value={draft.batch}
+              onChange={(event) => setDraft((current) => ({ ...current, batch: event.target.value }))}
+            />
+          </div>
+          <div>
+            <label htmlFor="populator-section">Section</label>
+            <input
+              id="populator-section"
+              type="text"
+              value={draft.section}
+              onChange={(event) => setDraft((current) => ({ ...current, section: event.target.value }))}
+            />
+          </div>
+          <button className="primary" type="submit" disabled={roster.isFetching}>
+            {roster.isFetching ? 'Loading…' : 'Load roster'}
+          </button>
+        </form>
+        {formError && <p className="notice error" role="alert">{formError}</p>}
+        {roster.isError && (
+          <p className="notice error" role="alert">{messageOf(roster.error, 'The roster could not be loaded')}</p>
         )}
+      </section>
 
-        <section className="detail-section roster-import">
-          <h2>Choose a section</h2>
-          <form className="populator-filters" onSubmit={loadRoster} noValidate>
-            <div>
-              <label htmlFor="populator-branch">Branch</label>
-              <select
-                id="populator-branch"
-                value={draft.branchID}
-                onChange={(event) => setDraft((current) => ({ ...current, branchID: event.target.value }))}
-              >
-                <option value="">Select a branch</option>
-                {(branches.data?.data ?? []).map((branch) => (
-                  <option key={branch.id} value={branch.id}>{branch.code} — {branch.name}</option>
-                ))}
-              </select>
+      {applied !== null && !roster.isError && (
+        <section className="detail-section populator-roster">
+          <h2>Section progress</h2>
+          {/* aria-live so the operator hears progress without watching the counts. */}
+          <p className="populator-counts" role="status">
+            {counts.written} written · {counts.verified} verified · {counts.failed} failed · {counts.total} in section
+          </p>
+
+          {students.length === 0 && !roster.isFetching ? (
+            <p className="empty-note">No students match this branch, batch and section.</p>
+          ) : (
+            <div className="table-wrap">
+              <table aria-label="Students to write">
+                <thead>
+                  <tr>
+                    <th>Roll number</th>
+                    <th>Name</th>
+                    <th>Section</th>
+                    <th>Status</th>
+                    <th className="row-action">Card</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {students.map((student) => {
+                    const status = statusOf(student.student_id)
+                    const note = progress[student.student_id]?.note
+                    const busy = status === 'writing' || status === 'verifying'
+                    const otherBusy =
+                      activeStudentID !== null &&
+                      activeStudentID !== student.student_id &&
+                      (statusOf(activeStudentID) === 'writing' || statusOf(activeStudentID) === 'verifying')
+
+                    return (
+                      <tr key={student.student_id} className={status === 'failed' ? 'populator-row-failed' : undefined}>
+                        <td>{student.roll_no}</td>
+                        <td>{student.display_name}</td>
+                        <td>{student.section}</td>
+                        <td>
+                          <span className={`status-badge populator-${status}`}>{STATUS_LABEL[status]}</span>
+                          {note && <span className="populator-note">{note}</span>}
+                        </td>
+                        <td className="row-action populator-actions">
+                          <button
+                            className="secondary"
+                            type="button"
+                            disabled={!cardsUsable || busy || otherBusy}
+                            onClick={() => void writeCard(student)}
+                          >
+                            {status === 'pending' ? 'Write card for' : 'Rewrite card for'} {student.display_name}
+                          </button>
+                          <button
+                            className="secondary"
+                            type="button"
+                            disabled={!cardsUsable || busy || otherBusy}
+                            onClick={() => void verifyCard(student)}
+                          >
+                            Verify card for {student.display_name}
+                          </button>
+                          {busy && activeStudentID === student.student_id && (
+                            <button className="secondary" type="button" onClick={cancelOperation}>
+                              Cancel card operation for {student.display_name}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
-            <div>
-              <label htmlFor="populator-batch">Batch</label>
-              <input
-                id="populator-batch"
-                type="text"
-                value={draft.batch}
-                onChange={(event) => setDraft((current) => ({ ...current, batch: event.target.value }))}
-              />
-            </div>
-            <div>
-              <label htmlFor="populator-section">Section</label>
-              <input
-                id="populator-section"
-                type="text"
-                value={draft.section}
-                onChange={(event) => setDraft((current) => ({ ...current, section: event.target.value }))}
-              />
-            </div>
-            <button className="primary" type="submit" disabled={roster.isFetching}>
-              {roster.isFetching ? 'Loading…' : 'Load roster'}
-            </button>
-          </form>
-          {formError && <p className="notice error" role="alert">{formError}</p>}
-          {roster.isError && (
-            <p className="notice error" role="alert">{messageOf(roster.error, 'The roster could not be loaded')}</p>
           )}
         </section>
-
-        {applied !== null && !roster.isError && (
-          <section className="detail-section populator-roster">
-            <h2>Section progress</h2>
-            {/* aria-live so the operator hears progress without watching the counts. */}
-            <p className="populator-counts" role="status">
-              {counts.written} written · {counts.verified} verified · {counts.failed} failed · {counts.total} in section
-            </p>
-
-            {students.length === 0 && !roster.isFetching ? (
-              <p className="empty-note">No students match this branch, batch and section.</p>
-            ) : (
-              <div className="table-wrap">
-                <table aria-label="Students to write">
-                  <thead>
-                    <tr>
-                      <th>Roll number</th>
-                      <th>Name</th>
-                      <th>Section</th>
-                      <th>Status</th>
-                      <th className="row-action">Card</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {students.map((student) => {
-                      const status = statusOf(student.student_id)
-                      const note = progress[student.student_id]?.note
-                      const busy = status === 'writing' || status === 'verifying'
-                      const otherBusy =
-                        activeStudentID !== null &&
-                        activeStudentID !== student.student_id &&
-                        (statusOf(activeStudentID) === 'writing' || statusOf(activeStudentID) === 'verifying')
-
-                      return (
-                        <tr key={student.student_id} className={status === 'failed' ? 'populator-row-failed' : undefined}>
-                          <td>{student.roll_no}</td>
-                          <td>{student.display_name}</td>
-                          <td>{student.section}</td>
-                          <td>
-                            <span className={`status-badge populator-${status}`}>{STATUS_LABEL[status]}</span>
-                            {note && <span className="populator-note">{note}</span>}
-                          </td>
-                          <td className="row-action populator-actions">
-                            <button
-                              className="secondary"
-                              type="button"
-                              disabled={!cardsUsable || busy || otherBusy}
-                              onClick={() => void writeCard(student)}
-                            >
-                              {status === 'pending' ? 'Write card for' : 'Rewrite card for'} {student.display_name}
-                            </button>
-                            <button
-                              className="secondary"
-                              type="button"
-                              disabled={!cardsUsable || busy || otherBusy}
-                              onClick={() => void verifyCard(student)}
-                            >
-                              Verify card for {student.display_name}
-                            </button>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        )}
-      </main>
-    </div>
+      )}
+    </PortalShell>
   )
+}
+
+async function loadCompleteRoster(api: EventApi, filters: Filters): Promise<StudentCollection> {
+  const first = await api.students({
+    branchID: filters.branchID,
+    batch: filters.batch,
+    section: filters.section,
+    page: 1,
+    pageSize: ROSTER_PAGE_SIZE,
+  })
+  const data = [...first.data]
+  for (let page = 2; data.length < first.total; page += 1) {
+    const next = await api.students({
+      branchID: filters.branchID,
+      batch: filters.batch,
+      section: filters.section,
+      page,
+      pageSize: ROSTER_PAGE_SIZE,
+    })
+    if (next.data.length === 0) break
+    data.push(...next.data)
+  }
+  return { ...first, data, page: 1, page_size: ROSTER_PAGE_SIZE }
+}
+
+function safeProgressNote(message: string) {
+  if (/\b(token|hmac|secret|key)\b/i.test(message)) {
+    return 'The card operation failed. Retry this student/card.'
+  }
+  return message
 }

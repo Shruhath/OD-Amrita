@@ -57,6 +57,8 @@ export type WebNfcAdapter = {
   read(signal?: AbortSignal): Promise<CardPayload>
 }
 
+const READ_TIMEOUT_MS = 30_000
+
 // ---------------------------------------------------------------------------
 // Minimal ambient shape for Web NFC.
 //
@@ -158,7 +160,8 @@ export function createWebNfcAdapter(windowRef: Window): WebNfcAdapter {
 
         const onReading = (event: NdefReadingEventLike) => {
           try {
-            finish(() => resolve(parseCardMessage(event.message.records)))
+            const payload = parseCardMessage(event.message.records)
+            finish(() => resolve(payload))
           } catch (error) {
             finish(() => reject(error))
           }
@@ -172,17 +175,22 @@ export function createWebNfcAdapter(windowRef: Window): WebNfcAdapter {
           finish(() => reject(new CardNfcError('cancelled', 'Card read cancelled.')))
         }
 
-        const cleanup = () => {
-          reader.removeEventListener('reading', onReading as (event: never) => void)
-          reader.removeEventListener('readingerror', onReadingError as (event: never) => void)
-          signal?.removeEventListener('abort', onAbort)
-        }
-
         if (signal?.aborted) {
           settled = true
           reject(new CardNfcError('cancelled', 'Card read cancelled.'))
           return
         }
+
+        let timeoutID: ReturnType<typeof setTimeout> | undefined
+        const cleanup = () => {
+          reader.removeEventListener('reading', onReading as (event: never) => void)
+          reader.removeEventListener('readingerror', onReadingError as (event: never) => void)
+          signal?.removeEventListener('abort', onAbort)
+          if (timeoutID !== undefined) clearTimeout(timeoutID)
+        }
+        timeoutID = setTimeout(() => {
+          finish(() => reject(new CardNfcError('read-failed', 'Card read timed out. Tap the card again and retry.')))
+        }, READ_TIMEOUT_MS)
 
         reader.addEventListener('reading', onReading)
         reader.addEventListener('readingerror', onReadingError)

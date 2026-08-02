@@ -2,6 +2,7 @@ import { useRef, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CategoryRecord, EventRecord, ValidationError } from '../../../api/client'
+import { PortalShell } from '../../../components/PortalShell'
 import { ApiFailure } from '../../../api/client'
 import { useAuth } from '../../../features/auth/context'
 import { formatDate, messageOf, titleCase } from './format'
@@ -17,7 +18,7 @@ const categoryKey = (eventID: string) => ['admin', 'events', eventID, 'categorie
 
 export default function EventDetailPortal() {
   const { event_id: eventID = '' } = useParams()
-  const { api, identity, signOut } = useAuth()
+  const { api } = useAuth()
   const queryClient = useQueryClient()
   const nameInput = useRef<HTMLInputElement>(null)
   const [name, setName] = useState('')
@@ -117,94 +118,81 @@ export default function EventDetailPortal() {
   }
 
   return (
-    <div className="portal-shell">
-      <header className="topbar">
-        <div>
-          <span className="brand-mark" aria-hidden="true">OD</span>
-          <span className="brand-name">OD-Amrita</span>
-        </div>
-        <div className="account-actions">
-          <span>{identity?.name ?? identity?.email}</span>
-          <button className="text-button" type="button" onClick={() => void signOut()}>Sign out</button>
-        </div>
-      </header>
+    <PortalShell>
+      <nav aria-label="Breadcrumb">
+        <Link className="text-button" to="/portal/events">← All events</Link>
+      </nav>
 
-      <main className="workspace">
-        <nav aria-label="Breadcrumb">
-          <Link className="text-button" to="/portal/events">← All events</Link>
-        </nav>
+      {events.isPending && <p role="status" aria-label="Loading event">Loading event…</p>}
+      {/* A 404 is the server SAYING the event does not exist, which is a
+          different claim from "the request failed" and must not offer a retry
+          that can never succeed. Every other failure keeps the retry. */}
+      {notFound && (
+        <section className="empty-state">
+          <h1>Event not found</h1>
+          <p>This event does not exist. Return to the events list to continue.</p>
+        </section>
+      )}
+      {events.isError && !notFound && (
+        <ErrorState message={messageOf(events.error, 'The event could not be loaded')} retry={() => void events.refetch()} />
+      )}
 
-        {events.isPending && <p role="status" aria-label="Loading event">Loading event…</p>}
-        {/* A 404 is the server SAYING the event does not exist, which is a
-            different claim from "the request failed" and must not offer a retry
-            that can never succeed. Every other failure keeps the retry. */}
-        {notFound && (
-          <section className="empty-state">
-            <h1>Event not found</h1>
-            <p>This event does not exist. Return to the events list to continue.</p>
-          </section>
-        )}
-        {events.isError && !notFound && (
-          <ErrorState message={messageOf(events.error, 'The event could not be loaded')} retry={() => void events.refetch()} />
-        )}
-
-        {event && (
-          <>
-            <div className="page-heading">
-              <div>
-                <p className="eyebrow">Administration · Events</p>
-                <h1>{event.name}</h1>
-                <EventSummary event={event} />
-              </div>
+      {event && (
+        <>
+          <div className="page-heading">
+            <div>
+              <p className="eyebrow">Administration · Events</p>
+              <h1>{event.name}</h1>
+              <EventSummary event={event} />
             </div>
+          </div>
 
-            <section className="detail-section">
-              <h2>Categories</h2>
-              <p>Categories scope coordinators and OD records to a specific activity within this event.</p>
+          <section className="detail-section">
+            <h2>Categories</h2>
+            <p>Categories scope coordinators and OD records to a specific activity within this event.</p>
 
-              {categories.isPending && <p role="status" aria-label="Loading categories">Loading categories…</p>}
-              {categories.isError && (
-                <ErrorState
-                  message={messageOf(categories.error, 'Categories could not be loaded')}
-                  retry={() => void categories.refetch()}
+            {categories.isPending && <p role="status" aria-label="Loading categories">Loading categories…</p>}
+            {categories.isError && (
+              <ErrorState
+                message={messageOf(categories.error, 'Categories could not be loaded')}
+                retry={() => void categories.refetch()}
+              />
+            )}
+
+            {categories.isSuccess && categoryData.length === 0 && (
+              <p className="empty-note">No categories yet</p>
+            )}
+            {categoryData.length > 0 && (
+              <ul className="category-list" aria-label="Categories">
+                {categoryData.map((category) => <li key={category.id}>{category.name}</li>)}
+              </ul>
+            )}
+
+            {/* Absent, not disabled: an archived aggregate can never accept
+                this write again, so advertising the action would be a lie. */}
+            {event.status === 'active' && (
+              <form className="category-form" onSubmit={submit} noValidate>
+                <label htmlFor="category-name">Category name</label>
+                <input
+                  id="category-name"
+                  ref={nameInput}
+                  value={name}
+                  onChange={(changeEvent) => changeName(changeEvent.target.value)}
+                  aria-invalid={fieldError ? 'true' : undefined}
+                  aria-describedby={fieldError ? 'category-name-error' : undefined}
                 />
-              )}
-
-              {categories.isSuccess && categoryData.length === 0 && (
-                <p className="empty-note">No categories yet</p>
-              )}
-              {categoryData.length > 0 && (
-                <ul className="category-list" aria-label="Categories">
-                  {categoryData.map((category) => <li key={category.id}>{category.name}</li>)}
-                </ul>
-              )}
-
-              {/* Absent, not disabled: an archived aggregate can never accept
-                  this write again, so advertising the action would be a lie. */}
-              {event.status === 'active' && (
-                <form className="category-form" onSubmit={submit} noValidate>
-                  <label htmlFor="category-name">Category name</label>
-                  <input
-                    id="category-name"
-                    ref={nameInput}
-                    value={name}
-                    onChange={(changeEvent) => changeName(changeEvent.target.value)}
-                    aria-invalid={fieldError ? 'true' : undefined}
-                    aria-describedby={fieldError ? 'category-name-error' : undefined}
-                  />
-                  {fieldError && <p className="field-error" id="category-name-error">{fieldError}</p>}
-                  <button className="primary" type="submit" disabled={!canSubmit}>Add category</button>
-                </form>
-              )}
-              {event.status === 'archived' && (
-                <p className="empty-note">This event is archived. Its categories are read-only.</p>
-              )}
-              {formError && <p className="notice error" role="alert">{formError}</p>}
-            </section>
-          </>
-        )}
-      </main>
-    </div>
+                {fieldError && <p className="field-error" id="category-name-error">{fieldError}</p>}
+                <button className="primary" type="submit" disabled={!canSubmit}>Add category</button>
+              </form>
+            )}
+            {event.status === 'archived' && (
+              <p className="empty-note">This event is archived. Its categories are read-only.</p>
+            )}
+            {formError && <p className="notice error" role="alert">{formError}</p>}
+          </section>
+        </>
+      )}
+    </PortalShell>
   )
 }
 

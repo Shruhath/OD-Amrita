@@ -63,6 +63,19 @@ export function AuthProvider({ children, session }: { children: ReactNode; sessi
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
+/** The university lockup that heads every signed-out surface. */
+function AuthBrand() {
+  return (
+    <img
+      className="auth-brand"
+      src="/brand/amrita-logo.png"
+      alt="Amrita Vishwa Vidyapeetham"
+      width={600}
+      height={155}
+    />
+  )
+}
+
 export function SessionBoundary({ children }: { children: ReactNode }) {
   const auth = useAuth()
   if (auth.loading) {
@@ -71,6 +84,7 @@ export function SessionBoundary({ children }: { children: ReactNode }) {
   if (auth.error) {
     return (
       <main className="center-state">
+        <AuthBrand />
         <h1>Sign in to OD-Amrita</h1>
         <p role="alert">{auth.error}</p>
         <button type="button" onClick={() => void auth.reload()}>Try again</button>
@@ -80,18 +94,24 @@ export function SessionBoundary({ children }: { children: ReactNode }) {
   if (!auth.identity) {
     return (
       <main className="center-state sign-in">
+        <AuthBrand />
         <p className="eyebrow">Event administration</p>
         <h1>Sign in to OD-Amrita</h1>
         <p>Use your university Microsoft account to continue.</p>
         <button className="primary" type="button" onClick={() => void auth.signIn()}>
           Sign in with Microsoft
         </button>
+        <p className="auth-hint">
+          Use your university address — for example
+          {' '}<code>cb.sc.u4cse24124@cb.students.amrita.edu</code>.
+        </p>
       </main>
     )
   }
   if (auth.identity.role !== 'admin') {
     return (
       <main className="center-state">
+        <AuthBrand />
         <p className="eyebrow">OD-Amrita portal</p>
         <h1>Access denied</h1>
         <p>Administrator access is required for event administration.</p>

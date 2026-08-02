@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Branch, CreateTeacherProfileInput, TeacherProfile, ValidationError } from '../../../api/client'
+import { PortalShell } from '../../../components/PortalShell'
 import { ApiFailure } from '../../../api/client'
 import { useAuth } from '../../../features/auth/context'
 import { messageOf } from '../events/format'
@@ -12,7 +12,7 @@ const pageSize = 20
 const teacherKey = (page: number) => [...teacherKeyRoot, page, pageSize] as const
 
 export default function TeachersPortal() {
-  const { api, identity, signOut } = useAuth()
+  const { api } = useAuth()
   const queryClient = useQueryClient()
   const [creating, setCreating] = useState(false)
   const [page, setPage] = useState(1)
@@ -27,85 +27,66 @@ export default function TeachersPortal() {
   const totalPages = Math.max(1, Math.ceil((teachers.data?.total ?? 0) / (teachers.data?.page_size ?? pageSize)))
 
   return (
-    <div className="portal-shell">
-      <header className="topbar">
+    <PortalShell>
+      <div className="page-heading">
         <div>
-          <span className="brand-mark" aria-hidden="true">OD</span>
-          <span className="brand-name">OD-Amrita</span>
+          <p className="eyebrow">Administration · Teachers</p>
+          <h1>Teachers</h1>
+          <p>Elevate an already signed-in user to teacher and scope them to their branches.</p>
         </div>
-        <nav className="portal-nav" aria-label="Administration sections">
-          <Link to="/portal/events">Events</Link>
-          <Link to="/portal/teachers" aria-current="page">Teachers</Link>
-          <Link to="/portal/students">Students</Link>
-          <Link to="/portal/card-populator">Card populator</Link>
-        </nav>
-        <div className="account-actions">
-          <span>{identity?.name ?? identity?.email}</span>
-          <button className="text-button" type="button" onClick={() => void signOut()}>Sign out</button>
-        </div>
-      </header>
+        <button className="primary" type="button" disabled={!canCreate} onClick={() => setCreating(true)}>
+          New teacher
+        </button>
+      </div>
 
-      <main className="workspace">
-        <div className="page-heading">
-          <div>
-            <p className="eyebrow">Administration · Teachers</p>
-            <h1>Teachers</h1>
-            <p>Elevate an already signed-in user to teacher and scope them to their branches.</p>
+      {branches.isPending && <p role="status" aria-label="Loading branches">Loading branches…</p>}
+      {teachers.isPending && <p role="status" aria-label="Loading teachers">Loading teachers…</p>}
+
+      {branches.isError && (
+        <ErrorState message={messageOf(branches.error, 'Branches could not be loaded')} retry={() => void branches.refetch()} />
+      )}
+      {teachers.isError && (
+        <ErrorState message={messageOf(teachers.error, 'Teachers could not be loaded')} retry={() => void teachers.refetch()} />
+      )}
+
+      {branches.isSuccess && branchData.length === 0 && (
+        <section className="empty-state">
+          <h2>No branches available</h2>
+          <p>Branches must be configured before a teacher profile can be created.</p>
+        </section>
+      )}
+
+      {branches.isSuccess && teachers.isSuccess && branchData.length > 0 && teacherData.length === 0 && (
+        <section className="empty-state">
+          <h2>No teachers yet</h2>
+          <p>Create the first teacher profile to begin the roster.</p>
+        </section>
+      )}
+
+      {teachers.isSuccess && teacherData.length > 0 && (
+        <>
+          <div className="table-wrap">
+            <table>
+              <caption className="sr-only">Every teacher profile, ordered by email</caption>
+              <thead><tr><th>Email</th><th>Name</th><th>Branches</th></tr></thead>
+              <tbody>
+                {teacherData.map((teacher) => (
+                  <tr key={teacher.user_id}>
+                    <th scope="row">{teacher.email}</th>
+                    <td>{teacher.name ?? '—'}</td>
+                    <td><div className="branch-list">{teacher.branches.map((branch) => <span className="branch-chip" key={branch.id}>{branch.name} <small>{branch.code}</small></span>)}</div></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <button className="primary" type="button" disabled={!canCreate} onClick={() => setCreating(true)}>
-            New teacher
-          </button>
-        </div>
-
-        {branches.isPending && <p role="status" aria-label="Loading branches">Loading branches…</p>}
-        {teachers.isPending && <p role="status" aria-label="Loading teachers">Loading teachers…</p>}
-
-        {branches.isError && (
-          <ErrorState message={messageOf(branches.error, 'Branches could not be loaded')} retry={() => void branches.refetch()} />
-        )}
-        {teachers.isError && (
-          <ErrorState message={messageOf(teachers.error, 'Teachers could not be loaded')} retry={() => void teachers.refetch()} />
-        )}
-
-        {branches.isSuccess && branchData.length === 0 && (
-          <section className="empty-state">
-            <h2>No branches available</h2>
-            <p>Branches must be configured before a teacher profile can be created.</p>
-          </section>
-        )}
-
-        {branches.isSuccess && teachers.isSuccess && branchData.length > 0 && teacherData.length === 0 && (
-          <section className="empty-state">
-            <h2>No teachers yet</h2>
-            <p>Create the first teacher profile to begin the roster.</p>
-          </section>
-        )}
-
-        {teachers.isSuccess && teacherData.length > 0 && (
-          <>
-            <div className="table-wrap">
-              <table>
-                <caption className="sr-only">Every teacher profile, ordered by email</caption>
-                <thead><tr><th>Email</th><th>Name</th><th>Branches</th></tr></thead>
-                <tbody>
-                  {teacherData.map((teacher) => (
-                    <tr key={teacher.user_id}>
-                      <th scope="row">{teacher.email}</th>
-                      <td>{teacher.name ?? '—'}</td>
-                      <td><div className="branch-list">{teacher.branches.map((branch) => <span className="branch-chip" key={branch.id}>{branch.name} <small>{branch.code}</small></span>)}</div></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <nav className="pagination" aria-label="Teachers pages">
-              <button type="button" disabled={page === 1 || teachers.isFetching} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
-              <span aria-live="polite">Page {page} of {totalPages}</span>
-              <button type="button" disabled={page >= totalPages || teachers.isFetching} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>Next</button>
-            </nav>
-          </>
-        )}
-      </main>
+          <nav className="pagination" aria-label="Teachers pages">
+            <button type="button" disabled={page === 1 || teachers.isFetching} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
+            <span aria-live="polite">Page {page} of {totalPages}</span>
+            <button type="button" disabled={page >= totalPages || teachers.isFetching} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>Next</button>
+          </nav>
+        </>
+      )}
 
       {creating && (
         <CreateDialog
@@ -118,7 +99,7 @@ export default function TeachersPortal() {
           }}
         />
       )}
-    </div>
+    </PortalShell>
   )
 }
 

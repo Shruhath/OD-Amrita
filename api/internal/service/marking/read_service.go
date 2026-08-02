@@ -14,10 +14,29 @@ import (
 
 // ReadService is the coordinator marking surface's read façade.
 //
-// It exists so the four read handlers depend on ONE thing, and so every one of
-// them passes through the scope seam on the way in. A handler that talked to the
-// event reader or the student service directly could serve a scope the mark path
-// would refuse, which is precisely the disagreement this story exists to prevent.
+// It exists so the four read handlers depend on ONE thing, and so no handler can
+// reach the event reader or the student service directly and serve a scope the
+// mark path would refuse.
+//
+// THE FOUR READS DO NOT ALL USE THE SAME HALF OF THE SEAM, and the difference is
+// deliberate rather than an oversight:
+//
+//   - VisibleEvents, Categories and MarkStatus go through the FULL policy —
+//     role, event, and (for MarkStatus) category ownership. They describe a
+//     scope, so they must agree exactly with what the write would accept.
+//   - SearchStudents goes through the ROLE half only (assertCoordinator, which
+//     lives in scope.go beside the policy — not a second copy of it). The roster
+//     is not scoped to an event: a coordinator must be able to find a student
+//     before knowing which category they belong in, and the camera path resolves
+//     a roll number to an id before any scope is asserted. The mark itself is
+//     still gated by AssertCanMark, so a search result confers no ability to
+//     mark. Roster READ access is separately bounded by student.assertMaySearch.
+//
+// A NOTE FOR THE ASSIGNMENT STORY: replacing the policy body with an
+// event_coordinators lookup will narrow the other three reads automatically. It
+// will NOT narrow this one. Decide there, explicitly, whether an unassigned
+// coordinator may still search the roster — do not assume this function inherits
+// the new policy, because it does not.
 type ReadService struct {
 	policy   *Policy
 	events   svcevent.Reader
@@ -113,6 +132,8 @@ func (s *ReadService) Categories(ctx context.Context, actor Actor, eventID strin
 	return categories, nil
 }
 
+// SearchStudents is the ROLE-gated read. See the type doc above for why it is
+// not event-scoped, and what the assignment story has to decide about it.
 func (s *ReadService) SearchStudents(ctx context.Context, actor Actor, query string, limit int) ([]Student, error) {
 	if err := assertCoordinator(actor); err != nil {
 		return nil, AsDomainError(err)

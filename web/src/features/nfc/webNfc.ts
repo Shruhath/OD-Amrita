@@ -63,6 +63,11 @@ export type WebNfcAdapter = {
    * must not press "start" between them — so this starts `NDEFReader.scan()` once
    * from the user gesture rather than re-arming per tap. A bad tag is reported
    * and the session continues; the coordinator still has the rest of the queue.
+   *
+   * RESOLVES ONCE SCANNING HAS STARTED, not once the session has ended:
+   * `NDEFReader.scan()` settles when the radio is armed, and taps arrive through
+   * `onPayload` afterwards. Only `signal` ends the session. Do not `await` this
+   * expecting it to mean the session is over.
    */
   scanSession(
     onPayload: (payload: CardPayload) => void,

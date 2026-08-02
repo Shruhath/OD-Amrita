@@ -13,7 +13,7 @@ import { CardNfcError, createWebNfcAdapter, type WebNfcStatus } from '../../feat
  * phone at arm's length, marks ~90 students, and has exactly one signal to act
  * on: the banner. Everything here protects that signal.
  *
- * FOUR RULES THIS SCREEN HOLDS:
+ * FIVE RULES THIS SCREEN HOLDS:
  *
  *  1. GREEN MEANS THE SERVER RETURNED 201, and nothing earlier. The long-term
  *     architecture fires green on a durable LOCAL write because the phone is
@@ -23,20 +23,21 @@ import { CardNfcError, createWebNfcAdapter, type WebNfcStatus } from '../../feat
  *  2. A TIMEOUT IS RED. There is no queue here. Amber "queued" is the one state
  *     this screen must never have: it tells a coordinator a student is marked
  *     when nothing will ever send it.
- *  3. NOTHING IS CACHED. No card list, token, fingerprint set or roster reaches
+ *  3. A FAILURE IS STICKY. A red state survives until the coordinator dismisses
+ *     or retries it, and a later success can never quietly replace it. An
+ *     unnoticed failure is the worst outcome on this screen, so "the last
+ *     response wins" is exactly the wrong rule when two taps overlap.
+ *  4. NOTHING IS CACHED. No card list, token, fingerprint set or roster reaches
  *     localStorage, sessionStorage or IndexedDB (AR20 no-list). The selected
  *     event and category may persist — an event id is public, not identity data.
- *  4. THE CLIENT COMPUTES NO TRUTH. Slots, counters and authorization are all
+ *  5. THE CLIENT COMPUTES NO TRUTH. Slots, counters and authorization are all
  *     server-owned; this screen only renders what the server said.
  */
 
 type CaptureMode = 'nfc' | 'camera' | 'search'
 
-/** The banner's state. There is deliberately no amber: see rule 2. */
-type Banner =
-  | { tone: 'success'; result: MarkAttendanceResult }
-  | { tone: 'error'; message: string; retryable: boolean }
-  | null
+/** The scope a capture was taken under. Carried with the capture, never assumed. */
+type Scope = { eventID: string; categoryID: string }
 
 /** Injected in tests. Production uses the real window-bound adapters. */
 export type MarkScreenPorts = {
@@ -45,6 +46,10 @@ export type MarkScreenPorts = {
 }
 
 const STATUS_POLL_MS = 5_000
+const SEARCH_DEBOUNCE_MS = 250
+/** Matches the server's bounds exactly — see student.MinSearchRunes/MaxSearchRunes. */
+const MIN_SEARCH_RUNES = 3
+const MAX_SEARCH_RUNES = 64
 
 export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) {
   const { api, identity } = useAuth()
@@ -57,9 +62,25 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
   )
 
   const [mode, setMode] = useState<CaptureMode>('nfc')
-  const [banner, setBanner] = useState<Banner>(null)
   const [eventID, setEventID] = useState('')
   const [categoryID, setCategoryID] = useState('')
+
+  // ---------------------------------------------------------------------
+  // The banner, split in two on purpose.
+  //
+  // `failure` is STICKY and outranks `success`. Two cards tapped inside one
+  // round trip produce two concurrent requests whose responses can land in
+  // either order; with a single banner the later response won, so a refusal
+  // could be erased by the next student's green before the coordinator looked
+  // up. Keeping them apart means a failure is never lost to a race.
+  // ---------------------------------------------------------------------
+  const [failure, setFailure] = useState<string | null>(null)
+  const [success, setSuccess] = useState<MarkAttendanceResult | null>(null)
+
+  const reportFailure = useCallback((message: string) => {
+    setFailure(message)
+    setSuccess(null)
+  }, [])
 
   // ---------------------------------------------------------------------
   // Scoped reads. Both come from the server's own view of what this
@@ -76,8 +97,17 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
   // array every render would re-run them on every render.
   const eventOptions = useMemo(() => events.data?.data ?? [], [events.data])
 
+  // Reconciles the selection against the server's list, rather than only filling
+  // an empty one. If an event is archived mid-session it disappears from this
+  // list, and a stale id left selected would keep the status poll and every tap
+  // pointed at a scope the server now refuses — while the <select> rendered a
+  // value with no matching option. The category effect below always did this;
+  // the event effect was the asymmetric one.
   useEffect(() => {
-    if (!eventID && eventOptions.length > 0) setEventID(eventOptions[0].id)
+    if (eventOptions.length === 0) return
+    if (!eventOptions.some((event) => event.id === eventID)) {
+      setEventID(eventOptions[0].id)
+    }
   }, [eventID, eventOptions])
 
   const categories = useQuery({
@@ -113,32 +143,69 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
   // ---------------------------------------------------------------------
 
   const mark = useMutation({
-    mutationFn: (input: { identity: MarkIdentity; capture: CaptureMethod }) =>
+    mutationFn: (input: { identity: MarkIdentity; capture: CaptureMethod; scope: Scope }) =>
       api.mark({
-        event_id: eventID,
-        category_id: categoryID,
+        // The scope travels WITH the capture rather than being read from state
+        // at request time. A camera decode resolves through the search endpoint
+        // first, so the coordinator can change event or category while that
+        // round trip is in flight — and the student decoded under one scope
+        // would otherwise be POSTed against another. The server would accept it,
+        // because the new scope is genuinely markable: a silent mis-mark that no
+        // server-side check can catch.
+        event_id: input.scope.eventID,
+        category_id: input.scope.categoryID,
         capture_method: input.capture,
         ...('card' in input.identity
           ? { card: input.identity.card }
           : { student_id: input.identity.studentID }),
       }),
-    onSuccess(result) {
+    onSuccess(result, variables) {
       // Green fires HERE — on the server's 201 — and nowhere earlier.
-      setBanner({ tone: 'success', result })
+      setSuccess(result)
       // Refetched rather than incremented: a rejected mark must never be able to
       // inflate the number, and the server's count is the only true one.
-      void queryClient.invalidateQueries({ queryKey: ['mark-status', eventID, categoryID] })
+      void queryClient.invalidateQueries({
+        queryKey: ['mark-status', variables.scope.eventID, variables.scope.categoryID],
+      })
     },
     onError(error) {
-      setBanner({ tone: 'error', message: markFailureMessage(error), retryable: true })
+      reportFailure(markFailureMessage(error))
     },
   })
 
   const markRef = useRef(mark.mutate)
   markRef.current = mark.mutate
 
-  const submit = useCallback((identity: MarkIdentity, capture: CaptureMethod) => {
-    markRef.current({ identity, capture })
+  // The live scope, for the async capture paths to compare against.
+  const scopeRef = useRef<Scope>({ eventID, categoryID })
+  scopeRef.current = { eventID, categoryID }
+
+  const submit = useCallback((identity: MarkIdentity, capture: CaptureMethod, scope: Scope) => {
+    // A capture taken with no scope selected would POST an empty event_id and
+    // come back as a validation error naming controls the coordinator cannot
+    // fix. Refuse it here, and say which selection is missing.
+    if (!scope.eventID || !scope.categoryID) {
+      reportFailure('Choose an event and a category before marking.')
+      return
+    }
+    markRef.current({ identity, capture, scope })
+  }, [reportFailure])
+
+  // ---------------------------------------------------------------------
+  // Retry. This re-ARMS the capture session; it does not merely hide the red.
+  //
+  // A refused NFC permission or a switched-off radio tears the session down.
+  // Clearing the banner alone left every subsequent tap doing nothing at all,
+  // with no indication — the mode was silently dead until the coordinator
+  // switched modes and back, or reloaded. `captureEpoch` is in both capture
+  // effects' dependencies, so bumping it starts a fresh session.
+  // ---------------------------------------------------------------------
+  const [captureEpoch, setCaptureEpoch] = useState(0)
+
+  const retryCapture = useCallback(() => {
+    setFailure(null)
+    setSuccess(null)
+    setCaptureEpoch((epoch) => epoch + 1)
   }, [])
 
   // ---------------------------------------------------------------------
@@ -152,18 +219,24 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
   useEffect(() => {
     if (mode !== 'nfc' || !scopeReady || nfc.status() !== 'available') return
 
+    // Captured for this session. The debounce map inside scanSession is
+    // session-scoped, so a session that outlived a scope change would also
+    // swallow a re-tap of the same card in the NEW category — silently, with a
+    // stale green still on screen reading "Marked present".
+    const scope: Scope = { eventID, categoryID }
     const controller = new AbortController()
     void nfc.scanSession(
       // The raw tag payload goes to the server exactly as presented. It is never
       // resolved, hashed, validated or stored on the device (AR20/NFR16).
-      (payload: CardPayload) => submit({ card: payload }, 'nfc'),
-      (error: CardNfcError) => setBanner({ tone: 'error', message: error.message, retryable: true }),
+      (payload: CardPayload) => submit({ card: payload }, 'nfc', scope),
+      (error: CardNfcError) => reportFailure(error.message),
       controller.signal,
     )
-    // Aborted on unmount, on a scope change and on a mode change, so no radio
-    // outlives the screen it belongs to.
+    // Aborted on unmount, on a mode change, on a retry, and — via the ids in the
+    // dependency list rather than a `scopeReady` boolean — on any event or
+    // category change. No radio outlives the scope it was armed for.
     return () => controller.abort()
-  }, [mode, scopeReady, nfc, submit])
+  }, [mode, scopeReady, eventID, categoryID, captureEpoch, nfc, submit, reportFailure])
 
   // ---------------------------------------------------------------------
   // Capture: camera. The barcode printed on the ID card carries a ROLL
@@ -173,38 +246,59 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
   const [cameraStatus, setCameraStatus] = useState<BarcodeScannerStatus | 'checking'>('checking')
   useEffect(() => {
     let live = true
+    // Re-queried on retry: a coordinator who granted camera permission after a
+    // refusal must be able to reach 'available' without reloading.
     void camera.status().then((value) => {
       if (live) setCameraStatus(value)
     })
     return () => {
       live = false
     }
-  }, [camera])
+  }, [camera, captureEpoch])
 
-  const resolveRoll = useCallback(async (decoded: string) => {
+  // The live preview. Aiming a phone at a barcode with nothing on screen is not
+  // a usable capture mode, so the element the detector reads frames from is the
+  // element the coordinator sees.
+  const [preview, setPreview] = useState<HTMLVideoElement | null>(null)
+  const previewHost = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const host = previewHost.current
+    if (!host || !preview) return
+    preview.className = 'mark-preview-video'
+    host.appendChild(preview)
+    return () => {
+      if (preview.parentNode === host) host.removeChild(preview)
+    }
+  }, [preview])
+
+  const resolveRoll = useCallback(async (decoded: string, scope: Scope) => {
     const roll = decoded.trim().toUpperCase()
     try {
       const results = await api.searchStudents(roll)
+      // The scope may have moved while the search was in flight. Marking the
+      // resolved student against the NEW scope would be a silent mis-mark the
+      // server cannot detect, because that scope is legitimately markable.
+      if (scope.eventID !== scopeRef.current.eventID || scope.categoryID !== scopeRef.current.categoryID) {
+        return
+      }
       // Exactly one, and its roll must equal the decoded value. A fuzzy match
       // would mark the wrong student, which is worse than not marking at all.
       const exact = results.data.filter((student) => student.roll_no.toUpperCase() === roll)
       if (exact.length !== 1) {
-        setBanner({
-          tone: 'error',
-          message: `Code not recognised: no single student matches ${roll}. Try again or use search.`,
-          retryable: true,
-        })
+        reportFailure(`Code not recognised: no single student matches ${roll}. Try again or use search.`)
         return
       }
-      submit({ studentID: exact[0].student_id }, 'camera')
+      submit({ studentID: exact[0].student_id }, 'camera', scope)
     } catch (error) {
-      setBanner({ tone: 'error', message: markFailureMessage(error), retryable: true })
+      reportFailure(markFailureMessage(error))
     }
-  }, [api, submit])
+  }, [api, submit, reportFailure])
 
   useEffect(() => {
     if (mode !== 'camera' || !scopeReady || cameraStatus !== 'available') return
 
+    const scope: Scope = { eventID, categoryID }
     const controller = new AbortController()
     // Decodes repeat many times per second while the card is in frame; only the
     // first of a run is acted on.
@@ -216,15 +310,19 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
         if (text === lastDecoded && now - lastAt < 2_000) return
         lastDecoded = text
         lastAt = now
-        void resolveRoll(text)
+        void resolveRoll(text, scope)
       },
-      (error) => setBanner({ tone: 'error', message: error.message, retryable: true }),
+      (error) => reportFailure(error.message),
       controller.signal,
+      setPreview,
     )
     // Stops every MediaStreamTrack: a camera light left on after the coordinator
     // switches modes is both a battery cost and an obvious trust problem.
-    return () => controller.abort()
-  }, [mode, scopeReady, camera, cameraStatus, resolveRoll])
+    return () => {
+      controller.abort()
+      setPreview(null)
+    }
+  }, [mode, scopeReady, eventID, categoryID, captureEpoch, camera, cameraStatus, resolveRoll, reportFailure])
 
   // ---------------------------------------------------------------------
   // Capture: search.
@@ -232,11 +330,28 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
 
   const [searchTerm, setSearchTerm] = useState('')
   const trimmedSearch = searchTerm.trim()
+  // Runes, not UTF-16 units, because that is what the server counts. `.length`
+  // let a 2-character astral query through to a guaranteed 400, and imposed no
+  // maximum at all, so an over-long paste was always a round trip to a refusal.
+  const searchRunes = useMemo(() => [...trimmedSearch].length, [trimmedSearch])
+
+  // Debounced so a typed roll number is one query, not one per keystroke. The
+  // prefix search is documented to plan as a sequential scan under a non-C
+  // collation, and a 16-character roll fired 14 of them.
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(trimmedSearch), SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [trimmedSearch])
+
+  const debouncedRunes = useMemo(() => [...debouncedSearch].length, [debouncedSearch])
+
   const search = useQuery({
-    queryKey: ['student-search', trimmedSearch],
-    queryFn: () => api.searchStudents(trimmedSearch),
-    // The server's minimum. Below it there is nothing worth asking for.
-    enabled: mode === 'search' && trimmedSearch.length >= 3,
+    queryKey: ['student-search', debouncedSearch],
+    queryFn: () => api.searchStudents(debouncedSearch),
+    // The server's bounds, mirrored exactly. Below or above them there is
+    // nothing worth asking for.
+    enabled: mode === 'search' && debouncedRunes >= MIN_SEARCH_RUNES && debouncedRunes <= MAX_SEARCH_RUNES,
     // Results are never persisted and never reused across renders of a
     // different query: a resolved roster on the device is the cached list AR20
     // forbids, however it arrived.
@@ -299,6 +414,30 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
         </label>
       </section>
 
+      {/*
+        A failed read is stated, never rendered as emptiness. "No markable
+        events" and "the server refused your event list" look identical
+        otherwise, and only one of them means the coordinator should stop
+        tapping and find an administrator.
+      */}
+      {events.isError && (
+        <p role="alert" className="mark-read-error">
+          Your events could not be loaded. {markFailureMessage(events.error)}
+          {' '}<button type="button" onClick={() => void events.refetch()}>Retry</button>
+        </p>
+      )}
+      {categories.isError && (
+        <p role="alert" className="mark-read-error">
+          The categories could not be loaded. {markFailureMessage(categories.error)}
+          {' '}<button type="button" onClick={() => void categories.refetch()}>Retry</button>
+        </p>
+      )}
+      {status.isError && (
+        <p role="alert" className="mark-read-error">
+          Counters and the slot clock are unavailable. {markFailureMessage(status.error)}
+        </p>
+      )}
+
       <section className="mark-meters" aria-label="Progress">
         <div className="mark-meter">
           <span className="mark-meter-value">{status.data?.counters.mine ?? '—'}</span>
@@ -314,7 +453,26 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
         </div>
       </section>
 
-      <MarkBanner banner={banner} pending={mark.isPending} onDismiss={() => setBanner(null)} />
+      <MarkBanner
+        failure={failure}
+        success={success}
+        onDismiss={() => {
+          setFailure(null)
+          setSuccess(null)
+        }}
+        onRetry={retryCapture}
+      />
+
+      {/*
+        Progress sits OUTSIDE the banner. Rendering "Marking…" in the banner's
+        place would hide an unacknowledged red every time the next card was
+        tapped, which is the one thing rule 3 exists to stop.
+
+        `aria-live` rather than `role="status"`: the green banner owns that role,
+        and a second status node would make "the confirmation" ambiguous both to
+        a screen reader and to every test that selects the banner by role.
+      */}
+      <p className="mark-activity" aria-live="polite">{mark.isPending ? 'Marking…' : ''}</p>
 
       <nav className="mark-modes" aria-label="Capture mode">
         {(['nfc', 'camera', 'search'] as const).map((candidate) => (
@@ -325,7 +483,8 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
             aria-pressed={candidate === mode}
             onClick={() => {
               setMode(candidate)
-              setBanner(null)
+              setFailure(null)
+              setSuccess(null)
             }}
           >
             {candidate === 'nfc' ? 'Tap card' : candidate === 'camera' ? 'Scan camera' : 'Search'}
@@ -334,12 +493,18 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
       </nav>
 
       <section className="mark-capture" aria-label="Capture">
+        {!scopeReady && !events.isError && (
+          <p className="mark-hint">Choose an event and a category to start marking.</p>
+        )}
         {modeDisabledReason(mode) ? (
           <p role="alert" className="mark-unavailable">{modeDisabledReason(mode)}</p>
         ) : mode === 'nfc' ? (
           <p className="mark-hint">Hold each student's card against the back of the phone.</p>
         ) : mode === 'camera' ? (
-          <p className="mark-hint">Point the camera at the barcode printed on the ID card.</p>
+          <>
+            <p className="mark-hint">Point the camera at the barcode printed on the ID card.</p>
+            <div className="mark-preview" ref={previewHost} aria-label="Camera preview" />
+          </>
         ) : (
           <div className="mark-search">
             <label className="mark-field">
@@ -351,15 +516,24 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
                 onChange={(changed) => setSearchTerm(changed.target.value)}
               />
             </label>
-            {trimmedSearch.length > 0 && trimmedSearch.length < 3 && (
-              <p className="mark-hint">Type at least 3 characters.</p>
+            {searchRunes > 0 && searchRunes < MIN_SEARCH_RUNES && (
+              <p className="mark-hint">Type at least {MIN_SEARCH_RUNES} characters.</p>
+            )}
+            {searchRunes > MAX_SEARCH_RUNES && (
+              <p className="mark-hint">That is too long — {MAX_SEARCH_RUNES} characters at most.</p>
+            )}
+            {search.isError && (
+              <p role="alert" className="mark-read-error">
+                The search failed. {markFailureMessage(search.error)}
+              </p>
             )}
             <ul className="mark-results">
               {(search.data?.data ?? []).map((student: ResolvedCardStudent) => (
                 <li key={student.student_id}>
                   <button
                     type="button"
-                    onClick={() => submit({ studentID: student.student_id }, 'search')}
+                    disabled={!scopeReady}
+                    onClick={() => submit({ studentID: student.student_id }, 'search', scopeRef.current)}
                   >
                     <strong>{student.display_name}</strong>
                     <span>{student.roll_no}</span>
@@ -383,24 +557,38 @@ type MarkIdentity = { card: CardPayload } | { studentID: string }
  * red so a screen reader announces each appropriately — and so both double as
  * stable test selectors. It never auto-dismisses: a confirmation that vanishes
  * after a second is one the coordinator can miss while looking at the student.
+ *
+ * A failure OUTRANKS a success. When two taps overlap, the responses can land in
+ * either order, and letting the later one win meant a refusal could be replaced
+ * by the next student's green before it was ever read.
  */
 function MarkBanner({
-  banner,
-  pending,
+  failure,
+  success,
   onDismiss,
+  onRetry,
 }: {
-  banner: Banner
-  pending: boolean
+  failure: string | null
+  success: MarkAttendanceResult | null
   onDismiss: () => void
+  onRetry: () => void
 }) {
-  if (pending) {
-    return <p className="mark-banner is-pending">Marking…</p>
+  if (failure) {
+    return (
+      <p role="alert" className="mark-banner is-red">
+        <strong>Not recorded</strong>
+        <span>{failure}</span>
+        {/*
+          This RE-ARMS the capture session rather than only clearing the banner.
+          After a refused permission or a switched-off radio the session is torn
+          down, and a button that merely hid the message left the mode dead.
+        */}
+        <button type="button" onClick={onRetry}>Try again</button>
+      </p>
+    )
   }
-  if (!banner) {
-    return <p className="mark-banner is-idle">Ready to mark.</p>
-  }
-  if (banner.tone === 'success') {
-    const { student, slot } = banner.result
+  if (success) {
+    const { student, slot } = success
     return (
       <p role="status" className="mark-banner is-green">
         <strong>{student.display_name}</strong>
@@ -410,13 +598,7 @@ function MarkBanner({
       </p>
     )
   }
-  return (
-    <p role="alert" className="mark-banner is-red">
-      <strong>Not recorded</strong>
-      <span>{banner.message}</span>
-      <button type="button" onClick={onDismiss}>Try again</button>
-    </p>
-  )
+  return <p className="mark-banner is-idle">Ready to mark.</p>
 }
 
 /**
@@ -428,9 +610,9 @@ function MarkBanner({
  * is ten minutes fast would otherwise show a countdown the server disagrees with.
  */
 function useSlotClock(
-  // `slot` is optional AND nullable in the generated type: the contract requires
-  // only server_time and counters, and `slot: null` is the explicit no-slot
-  // state. Both absences mean the same thing here.
+  // `slot` is required AND nullable in the contract, so the key is always on the
+  // wire and `slot: null` is the explicit no-slot state. It is typed optional
+  // here only to tolerate a response from an older server.
   status: { server_time: string; slot?: { ends_at: string } | null } | null,
   receivedAt: number,
 ) {
@@ -449,6 +631,10 @@ function useSlotClock(
 
   const offset = Date.parse(status.server_time) - receivedAt
   const remaining = Date.parse(status.slot.ends_at) - (now + offset)
+  // An unparseable timestamp makes `remaining` NaN, and `NaN <= 0` is FALSE — so
+  // without this the "Slot closing" guard below is skipped and the meter renders
+  // `NaN:NaN`, which at arm's length reads as a broken phone.
+  if (!Number.isFinite(remaining)) return { value: '—', label: 'Slot' }
   if (remaining <= 0) {
     // The window has run out between polls. The next poll settles it; until then
     // a negative countdown would be worse than an honest "closing".
@@ -486,6 +672,10 @@ const FAILURE_REASON: Record<string, string> = {
 /** Turns any failure into the specific reason the coordinator needs to act on. */
 function markFailureMessage(error: unknown): string {
   if (error instanceof ApiFailure) {
+    // `body` is normalised into a real envelope by the API client, so `code` and
+    // `message` are always present even when the server answered with plain text
+    // or an HTML error page. Without that, both were `undefined` here and the red
+    // banner rendered with no reason in it at all.
     return FAILURE_REASON[error.body.code] ?? error.body.message
   }
   if (error instanceof CardNfcError) return error.message

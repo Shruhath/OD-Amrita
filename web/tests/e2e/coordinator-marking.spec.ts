@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { fulfilPreflight, installPortalSession, json, portalOrigin } from './support/portal-session'
+import { fulfilPreflight, installPortalSession, json } from './support/portal-session'
 import { installFakeWebNfc } from './support/web-nfc'
 import {
   collection,
@@ -181,9 +181,8 @@ test.describe('coordinator marking', () => {
     // either would pass for the wrong reason.
     const mine = page.getByRole('region', { name: /progress/i }).locator('.mark-meter', { hasText: 'Marked by you' })
     await expect(mine).toContainText('1')
-    // FR13: both counters refresh on their own. `portalOrigin` is imported so the
-    // CORS helpers above resolve against the same origin the app runs on.
-    expect(portalOrigin).toContain('4173')
+    // FR13: the counter reaches 2 with no interaction at all — the poll, not a
+    // click, is what moves it.
     await expect(mine).toContainText('2', { timeout: 15_000 })
   })
 })

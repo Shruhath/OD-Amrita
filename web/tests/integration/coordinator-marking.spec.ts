@@ -27,6 +27,9 @@ import { installFakeWebNfc } from '../e2e/support/web-nfc'
 
 const portalAPI = 'http://127.0.0.1:8081'
 
+/** The harness's marking event — the one seeded dated TODAY in Asia/Kolkata. */
+const MARKING_EVENT_ID = '93000000-0000-4000-8000-000000000001'
+
 /**
  * Reads the scope the screen actually settled on.
  *
@@ -99,9 +102,17 @@ test.describe('real stack coordinator marking', () => {
     expect(short.status()).toBe(400)
   })
 
-  test('[P0] a real mark moves the real counters, and a closed slot moves neither', async ({ page, request }) => {
+  test('[P0] a real mark moves the real counters, and a closed slot moves neither', async ({ page, request }, testInfo) => {
     await installFakeWebNfc(page)
     await openMarkingScreen(page)
+
+    // A DIFFERENT student per attempt. The harness clears this event's
+    // od_records once at boot, not per test, and CI runs with `retries: 2` — so
+    // re-marking the same student in the same slot returns SCAN_DUPLICATE and
+    // the retry could only ever fail, turning any flake into a hard red. Three
+    // roster students are seeded, which covers the two retries.
+    const rolls = ['CB.SC.U4CSE24001', 'CB.SC.U4CSE24002', 'CB.SC.U4CSE24003']
+    const roll = rolls[testInfo.retry % rolls.length]
 
     const { eventID, categoryID } = await selectedScope(page)
 
@@ -115,8 +126,8 @@ test.describe('real stack coordinator marking', () => {
     // Mark one student through the search path — it needs no card to have been
     // written, so it does not depend on a physically written card.
     await page.getByRole('button', { name: /search/i }).click()
-    await page.getByRole('searchbox').fill('CB.SC.U4CSE24001')
-    await page.getByRole('button', { name: /CB\.SC\.U4CSE24001/ }).click()
+    await page.getByRole('searchbox').fill(roll)
+    await page.getByRole('button', { name: new RegExp(roll.replace(/\./g, '\\.')) }).click()
 
     const after = async () => {
       const response = await request.get(
@@ -155,7 +166,19 @@ test.describe('real stack coordinator marking', () => {
     const events = await request.get(`${portalAPI}/api/v1/events`, {
       headers: { Authorization: 'Bearer portal-coordinator-token' },
     })
-    const [event] = (await events.json()).data
+    // Pinned to the harness's own marking event rather than taking data[0].
+    // /api/v1/events is unscoped and ordered event_date DESC, and other specs
+    // create active events dated later through the same harness — with
+    // fullyParallel they can interleave and take first place, so data[0] would
+    // assert against a row this test knows nothing about.
+    const all = (await events.json()).data as { id: string; event_date: string }[]
+    const event = all.find((candidate) => candidate.id === MARKING_EVENT_ID)
+    if (!event) {
+      throw new Error(
+        `the harness marking event ${MARKING_EVENT_ID} is not in the coordinator's list ` +
+        `(got ${all.map((candidate) => candidate.id).join(', ') || 'nothing'}): see api/test/portal/main.go`,
+      )
+    }
     const categories = await request.get(`${portalAPI}/api/v1/events/${event.id}/categories`, {
       headers: { Authorization: 'Bearer portal-coordinator-token' },
     })
@@ -176,9 +199,15 @@ test.describe('real stack coordinator marking', () => {
     // event dated anything but today can NEVER have an open slot, which would
     // make every assertion below vacuous. Checked directly, so it holds at any
     // hour rather than only during the 08:00-18:15 IST slot window.
-    const todayIST = new Date(
-      new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }),
-    ).toISOString().slice(0, 10)
+    // `en-CA` yields YYYY-MM-DD directly, in the requested zone.
+    //
+    // The obvious-looking `new Date(d.toLocaleString('en-US', { timeZone }))`
+    // followed by `.toISOString().slice(0, 10)` is WRONG and was a time bomb:
+    // the locale string is re-parsed as LOCAL time and `toISOString` then
+    // converts it back to UTC, cancelling the shift. It agrees with IST only
+    // while the IST and UTC dates happen to match, so it passed all day and
+    // failed between 00:00 and 05:30 IST — which is exactly when it was caught.
+    const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
     expect(
       event.event_date,
       'the harness event must be dated TODAY (Asia/Kolkata) or no slot can ever open: see api/test/portal/main.go',

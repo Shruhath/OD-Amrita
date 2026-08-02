@@ -127,12 +127,19 @@ type ScopeGuard interface {
 	AssertCanMark(ctx context.Context, actor Actor, eventID, categoryID string) error
 }
 
-// allowAnyScope is the guard used when none is wired. It exists so a nil guard
-// fails loudly at composition time rather than silently disabling scope: the
-// only place it is legitimate is a test that is not about scope at all.
-type allowAnyScope struct{}
+// AllowAnyScope admits every scope. It is the EXPLICIT opt-out for tests that
+// are not about scope at all, and it is exported precisely so choosing it has to
+// be written down at the call site.
+//
+// It is deliberately NOT a fallback for a nil guard. It used to be: NewService
+// mapped a nil ScopeGuard onto it, under a comment claiming that made a nil
+// guard "fail loudly". It did the exact opposite — a composition root that
+// forgot the argument got a mark endpoint with no scope enforcement at all,
+// silently, which is the precise NFR11 property the seam exists to hold. A
+// missing guard now panics; a deliberately absent one says so in source.
+type AllowAnyScope struct{}
 
-func (allowAnyScope) AssertCanMark(context.Context, Actor, string, string) error { return nil }
+func (AllowAnyScope) AssertCanMark(context.Context, Actor, string, string) error { return nil }
 
 type systemClock struct{}
 
@@ -151,8 +158,11 @@ func NewService(reader Reader, cardResolver CardResolver, writer Writer, audited
 	if clock == nil {
 		clock = systemClock{}
 	}
+	// Fail at composition time, not at the first mark of the event. A nil guard
+	// is never a legitimate production state, and silently substituting an
+	// allow-everything policy would defeat the seam without any signal.
 	if scope == nil {
-		scope = allowAnyScope{}
+		panic("od_record: NewService requires a ScopeGuard — pass AllowAnyScope{} to opt out explicitly in a test that is not about scope")
 	}
 	return &Service{reader: reader, cardResolver: cardResolver, writer: writer, audited: audited, clock: clock, scope: scope}
 }

@@ -11,6 +11,7 @@ package odrecord
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -374,3 +375,35 @@ func (passthroughAudit) WithAudit(ctx context.Context, _ store.AuditEvent, fn fu
 }
 
 func stubAuditStore() AuditStore { return passthroughAudit{} }
+
+// 0.6-SCOPE-002 — a missing scope guard is refused at COMPOSITION time.
+//
+// NewService used to map a nil guard onto an unexported allow-everything policy,
+// under a comment claiming that made a nil guard "fail loudly". It did the
+// opposite: a composition root that forgot the argument got a mark endpoint with
+// no scope enforcement at all, silently, and no test noticed. This pins the
+// corrected behaviour so the fallback cannot quietly come back.
+func TestNewService_RefusesANilScopeGuard(t *testing.T) {
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("[P0] NewService accepted a nil ScopeGuard — a mark path with no scope enforcement " +
+				"must never be constructible by omission (C4/NFR11)")
+		}
+		message, ok := recovered.(string)
+		if !ok || !strings.Contains(message, "ScopeGuard") {
+			t.Errorf("[P0] panic = %v, want a message naming the missing ScopeGuard so the fix is obvious", recovered)
+		}
+	}()
+
+	NewService(stubReader(), stubCardResolver(), &countingWriter{}, stubAuditStore(), scaffoldClock{}, nil)
+}
+
+// 0.6-SCOPE-002b — the explicit opt-out still works, so tests that are genuinely
+// not about scope have a supported way to say so IN SOURCE.
+func TestNewService_AcceptsTheExplicitAllowAnyScopeOptOut(t *testing.T) {
+	svc := NewService(stubReader(), stubCardResolver(), &countingWriter{}, stubAuditStore(), scaffoldClock{}, AllowAnyScope{})
+	if svc == nil {
+		t.Fatal("[P0] NewService returned nil for an explicit AllowAnyScope")
+	}
+}

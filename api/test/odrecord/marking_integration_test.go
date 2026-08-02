@@ -196,7 +196,7 @@ func TestCameraMarkWritesTruthfulRecordAndConservesAudit(t *testing.T) {
 		odsvc.NewSQLCWriter(),
 		store.New(runtime),
 		fixedClock{now: fixture.slotOneTime},
-		allowAllScope{},
+		odsvc.AllowAnyScope{},
 	)
 
 	studentID := fixture.studentID
@@ -280,13 +280,6 @@ func TestStudentSearchUsesCanonicalRollAndStaysBounded(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Scaffold helpers — real bodies, no logic of their own.
 // ---------------------------------------------------------------------------
-
-// allowAllScope satisfies the mark service's new scope-guard dependency without
-// re-testing the policy: scope refusal is proven in the marking package's unit
-// scaffold, and these tests are about what the DATABASE ends up holding.
-type allowAllScope struct{}
-
-func (allowAllScope) AssertCanMark(context.Context, odsvc.Actor, string, string) error { return nil }
 
 func seedSecondCoordinator(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
 	t.Helper()

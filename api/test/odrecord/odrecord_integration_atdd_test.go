@@ -122,7 +122,7 @@ func TestODRecordServiceDuplicateRaceAuditAndBlockedSlot(t *testing.T) {
 		odsvc.NewSQLCWriter(),
 		store.New(runtime),
 		fixedClock{now: fixture.slotOneTime},
-		nil,
+		odsvc.AllowAnyScope{},
 	)
 	actor := odsvc.Actor{UserID: fixture.coordinatorID, Email: "coordinator@amrita.edu", Role: "coordinator"}
 
@@ -184,7 +184,7 @@ func TestODRecordServiceDuplicateRaceAuditAndBlockedSlot(t *testing.T) {
 		odsvc.NewSQLCWriter(),
 		store.New(runtime),
 		fixedClock{now: fixture.breakTime},
-		nil,
+		odsvc.AllowAnyScope{},
 	)
 	_, err := closedSvc.Mark(ctx, actor, odsvc.MarkInput{
 		EventID:       fixture.eventID,

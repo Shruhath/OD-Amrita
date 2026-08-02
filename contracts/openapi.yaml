@@ -175,6 +175,251 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/mark/status:
+    get:
+      operationId: getMarkStatus
+      summary: Server-computed marking counters and the active slot window
+      description: >-
+        The single source of truth behind the coordinator marking screen's two
+        counters and its slot countdown. `server_time` is read from the same
+        clock read that decided the slot, so the client's countdown and the
+        server's slot decision can never disagree by a poll interval. The client
+        never computes a slot boundary and never counts a mark itself.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: event_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: category_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Server time, the active slot window (or null), and both counters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarkStatus"
+        "400":
+          description: Missing or malformed scope parameters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller may not mark for this event and category.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Event or category was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Event is archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/events:
+    get:
+      operationId: listMarkableEvents
+      summary: List the active events the caller may mark for
+      description: >-
+        The coordinator marking surface's scoped event read. A sibling of
+        `/api/v1/admin/events`, never a replacement: this one is authenticated
+        rather than admin-gated and returns ACTIVE events only, so the marking
+        selector can never offer an event the mark path would refuse.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Deterministically ordered page of markable active events.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventCollection"
+        "400":
+          description: Invalid pagination value.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller holds no role that may mark.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/events/{event_id}/categories:
+    parameters:
+      - name: event_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listMarkableEventCategories
+      summary: List the categories of an event the caller may mark for
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Every category belonging to the event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategoryCollection"
+        "400":
+          description: Malformed event id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller may not mark for this event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Event was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Event is archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/students/search:
+    get:
+      operationId: searchStudents
+      summary: Prefix-search the roster by roll number or name
+      description: >-
+        The coordinator's fallback when a card will not tap, and the resolution
+        step for the camera path (the printed barcode carries a ROLL NUMBER).
+        Matching is PREFIX-ONLY so `students_roll_no_idx` and
+        `students_name_lower_idx` stay usable, `q` is bounded at both ends so an
+        empty query cannot become a roster dump, and the result item carries no
+        email, card token or token fingerprint.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Roll-number or name prefix, trimmed before length is judged.
+          schema:
+            type: string
+            minLength: 3
+            maxLength: 64
+        - name: limit
+          in: query
+          description: Server-bounded result cap.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        "200":
+          description: Matching students, exact roll match first. An empty list is a valid answer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StudentSearchResults"
+        "400":
+          description: Query below the minimum length or otherwise invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller holds no role that may search the roster.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/auth/me:
     get:
       operationId: getAuthenticatedIdentity
@@ -1349,8 +1594,83 @@ components:
       enum: [nfc, camera, search]
       x-enum-varnames: [Nfc, Camera, Search]
 
+    StudentSearchResults:
+      type: object
+      description: >-
+        The authenticated roster search read. Deliberately unpaginated — the
+        server caps the result count instead — and bounded to display fields
+        only: `students` has no email column and card tokens are stored as
+        fingerprints, so neither can appear here.
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ResolvedCardStudent"
+
+    MarkStatus:
+      type: object
+      description: >-
+        Everything the marking screen needs that the client must not compute for
+        itself. `slot: null` is the explicit "no slot is open" state — never
+        slot 0 — and `server_time` shares one clock read with the slot decision.
+      # `slot` is REQUIRED as well as nullable: it is always present, and it is
+      # null when no slot is open. Leaving it merely optional lets the generator
+      # emit `omitempty`, which omits the key entirely — and a client then cannot
+      # tell "no slot is open" from "this server is too old to report slots".
+      required: [server_time, slot, counters]
+      properties:
+        server_time:
+          type: string
+          format: date-time
+        slot:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/MarkSlotWindow"
+        counters:
+          $ref: "#/components/schemas/MarkCounters"
+
+    MarkSlotWindow:
+      type: object
+      description: The bounds of the currently active slot, in server time.
+      required: [slot, started_at, ends_at]
+      properties:
+        slot:
+          type: integer
+          minimum: 1
+          maximum: 12
+        started_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+
+    MarkCounters:
+      type: object
+      description: >-
+        Both figures are server-computed live counts over od_records (FR13).
+        `mine` is the calling coordinator's marks for this event and category;
+        `category_total` is every coordinator's, and is identical for all callers.
+      required: [mine, category_total]
+      properties:
+        mine:
+          type: integer
+          minimum: 0
+        category_total:
+          type: integer
+          minimum: 0
+
     MarkAttendanceRequest:
       type: object
+      description: >-
+        Exactly one identity, paired with the capture method that produced it.
+        `card` is valid for `nfc` and `camera`; `student_id` is valid for
+        `camera` and `search`. The camera pairs with BOTH because the barcode
+        printed on the physical university ID card carries a ROLL NUMBER, not a
+        sealed token — the client resolves that roll to a student_id through
+        `GET /api/v1/students/search` and marks with `capture_method: camera`.
+        `capture_method` is persisted truthfully on the record and its audit row.
       required: [event_id, category_id, capture_method]
       oneOf:
         - type: object

@@ -67,6 +67,85 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mark/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Server-computed marking counters and the active slot window
+         * @description The single source of truth behind the coordinator marking screen's two counters and its slot countdown. `server_time` is read from the same clock read that decided the slot, so the client's countdown and the server's slot decision can never disagree by a poll interval. The client never computes a slot boundary and never counts a mark itself.
+         */
+        get: operations["getMarkStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the active events the caller may mark for
+         * @description The coordinator marking surface's scoped event read. A sibling of `/api/v1/admin/events`, never a replacement: this one is authenticated rather than admin-gated and returns ACTIVE events only, so the marking selector can never offer an event the mark path would refuse.
+         */
+        get: operations["listMarkableEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/events/{event_id}/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        /** List the categories of an event the caller may mark for */
+        get: operations["listMarkableEventCategories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/students/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Prefix-search the roster by roll number or name
+         * @description The coordinator's fallback when a card will not tap, and the resolution step for the camera path (the printed barcode carries a ROLL NUMBER). Matching is PREFIX-ONLY so `students_roll_no_idx` and `students_name_lower_idx` stay usable, `q` is bounded at both ends so an empty query cannot become a roster dump, and the result item carries no email, card token or token fingerprint.
+         */
+        get: operations["searchStudents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/me": {
         parameters: {
             query?: never;
@@ -445,6 +524,31 @@ export interface components {
         };
         /** @enum {string} */
         CaptureMethod: "nfc" | "camera" | "search";
+        /** @description The authenticated roster search read. Deliberately unpaginated — the server caps the result count instead — and bounded to display fields only: `students` has no email column and card tokens are stored as fingerprints, so neither can appear here. */
+        StudentSearchResults: {
+            data: components["schemas"]["ResolvedCardStudent"][];
+        };
+        /** @description Everything the marking screen needs that the client must not compute for itself. `slot: null` is the explicit "no slot is open" state — never slot 0 — and `server_time` shares one clock read with the slot decision. */
+        MarkStatus: {
+            /** Format: date-time */
+            server_time: string;
+            slot: components["schemas"]["MarkSlotWindow"] | null;
+            counters: components["schemas"]["MarkCounters"];
+        };
+        /** @description The bounds of the currently active slot, in server time. */
+        MarkSlotWindow: {
+            slot: number;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            ends_at: string;
+        };
+        /** @description Both figures are server-computed live counts over od_records (FR13). `mine` is the calling coordinator's marks for this event and category; `category_total` is every coordinator's, and is identical for all callers. */
+        MarkCounters: {
+            mine: number;
+            category_total: number;
+        };
+        /** @description Exactly one identity, paired with the capture method that produced it. `card` is valid for `nfc` and `camera`; `student_id` is valid for `camera` and `search`. The camera pairs with BOTH because the barcode printed on the physical university ID card carries a ROLL NUMBER, not a sealed token — the client resolves that roll to a student_id through `GET /api/v1/students/search` and marks with `capture_method: camera`. `capture_method` is persisted truthfully on the record and its audit row. */
         MarkAttendanceRequest: {
             /** Format: uuid */
             event_id: string;
@@ -788,6 +892,279 @@ export interface operations {
             };
             /** @description Card token was not recognized. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getMarkStatus: {
+        parameters: {
+            query: {
+                event_id: string;
+                category_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Server time, the active slot window (or null), and both counters. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarkStatus"];
+                };
+            };
+            /** @description Missing or malformed scope parameters. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller may not mark for this event and category. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event or category was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event is archived. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listMarkableEvents: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deterministically ordered page of markable active events. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventCollection"];
+                };
+            };
+            /** @description Invalid pagination value. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller holds no role that may mark. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listMarkableEventCategories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every category belonging to the event. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CategoryCollection"];
+                };
+            };
+            /** @description Malformed event id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller may not mark for this event. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event is archived. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    searchStudents: {
+        parameters: {
+            query: {
+                /** @description Roll-number or name prefix, trimmed before length is judged. */
+                q: string;
+                /** @description Server-bounded result cap. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching students, exact roll match first. An empty list is a valid answer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentSearchResults"];
+                };
+            };
+            /** @description Query below the minimum length or otherwise invalid. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller holds no role that may search the roster. */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

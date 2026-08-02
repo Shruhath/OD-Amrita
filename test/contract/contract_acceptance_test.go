@@ -140,6 +140,27 @@ func getStr(m map[string]any, key string) string {
 	return s
 }
 
+// getFloat reads a numeric schema keyword. YAML decodes `1` as int and `1.0` as
+// float64, and the spec uses both forms, so a float-only assertion silently
+// reads 0 for every plain integer bound — a numeric constraint that looks
+// asserted but is not.
+func getFloat(m map[string]any, key string) float64 {
+	switch v := m[key].(type) {
+	case float64:
+		return v
+	case float32:
+		return float64(v)
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case uint64:
+		return float64(v)
+	default:
+		return 0
+	}
+}
+
 // resolveSchema follows a single-level `$ref` into components.schemas; if the
 // node is already inline, it is returned as-is.
 func resolveSchema(doc, node map[string]any) map[string]any {

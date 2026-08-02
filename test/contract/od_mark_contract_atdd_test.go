@@ -128,7 +128,5 @@ func TestODMarkContract_ResponseShapeAndErrors(t *testing.T) {
 	}
 }
 
-func getFloat(m map[string]any, key string) float64 {
-	v, _ := m[key].(float64)
-	return v
-}
+// getFloat now lives in contract_acceptance_test.go, which carries no build tag,
+// so the untagged marking-surface gate can use it too.

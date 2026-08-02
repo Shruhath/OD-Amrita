@@ -433,7 +433,7 @@ type HealthStatusDb string
 // HealthStatusStatus Overall service status. "ok" when every dependency is reachable; "degraded" (served with HTTP 503) when the database is not.
 type HealthStatusStatus string
 
-// MarkAttendanceRequest defines model for MarkAttendanceRequest.
+// MarkAttendanceRequest Exactly one identity, paired with the capture method that produced it. `card` is valid for `nfc` and `camera`; `student_id` is valid for `camera` and `search`. The camera pairs with BOTH because the barcode printed on the physical university ID card carries a ROLL NUMBER, not a sealed token — the client resolves that roll to a student_id through `GET /api/v1/students/search` and marks with `capture_method: camera`. `capture_method` is persisted truthfully on the record and its audit row.
 type MarkAttendanceRequest struct {
 	CaptureMethod MarkAttendanceRequestCaptureMethod `json:"capture_method"`
 	Card          *CardTokenResolveRequest           `json:"card,omitempty"`
@@ -466,6 +466,27 @@ type MarkAttendanceResult struct {
 	ServerReceivedAt time.Time          `json:"server_received_at"`
 	Slot             int                `json:"slot"`
 	Student          MarkedStudent      `json:"student"`
+}
+
+// MarkCounters Both figures are server-computed live counts over od_records (FR13). `mine` is the calling coordinator's marks for this event and category; `category_total` is every coordinator's, and is identical for all callers.
+type MarkCounters struct {
+	CategoryTotal int `json:"category_total"`
+	Mine          int `json:"mine"`
+}
+
+// MarkSlotWindow The bounds of the currently active slot, in server time.
+type MarkSlotWindow struct {
+	EndsAt    time.Time `json:"ends_at"`
+	Slot      int       `json:"slot"`
+	StartedAt time.Time `json:"started_at"`
+}
+
+// MarkStatus Everything the marking screen needs that the client must not compute for itself. `slot: null` is the explicit "no slot is open" state — never slot 0 — and `server_time` shares one clock read with the slot decision.
+type MarkStatus struct {
+	// Counters Both figures are server-computed live counts over od_records (FR13). `mine` is the calling coordinator's marks for this event and category; `category_total` is every coordinator's, and is identical for all callers.
+	Counters   MarkCounters    `json:"counters"`
+	ServerTime time.Time       `json:"server_time"`
+	Slot       *MarkSlotWindow `json:"slot"`
 }
 
 // MarkedStudent defines model for MarkedStudent.
@@ -591,6 +612,11 @@ type StudentRosterImportResult struct {
 	UpdatedRows   int                        `json:"updated_rows"`
 }
 
+// StudentSearchResults The authenticated roster search read. Deliberately unpaginated — the server caps the result count instead — and bounded to display fields only: `students` has no email column and card tokens are stored as fingerprints, so neither can appear here.
+type StudentSearchResults struct {
+	Data []ResolvedCardStudent `json:"data"`
+}
+
 // TeacherProfile A teacher's elevated role plus the branches they are associated with. Reuses BranchSummary rather than a parallel branch shape.
 type TeacherProfile struct {
 	Branches  []BranchSummary `json:"branches"`
@@ -669,6 +695,27 @@ type ImportAdminStudentsMultipartBody struct {
 type ListAdminTeachersParams struct {
 	Page     *int `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+}
+
+// ListMarkableEventsParams defines parameters for ListMarkableEvents.
+type ListMarkableEventsParams struct {
+	Page     *int `form:"page,omitempty" json:"page,omitempty"`
+	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+}
+
+// GetMarkStatusParams defines parameters for GetMarkStatus.
+type GetMarkStatusParams struct {
+	EventId    openapi_types.UUID `form:"event_id" json:"event_id"`
+	CategoryId openapi_types.UUID `form:"category_id" json:"category_id"`
+}
+
+// SearchStudentsParams defines parameters for SearchStudents.
+type SearchStudentsParams struct {
+	// Q Roll-number or name prefix, trimmed before length is judged.
+	Q string `form:"q" json:"q"`
+
+	// Limit Server-bounded result cap.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ResolveAdminCardTokenJSONRequestBody defines body for ResolveAdminCardToken for application/json ContentType.

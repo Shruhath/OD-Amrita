@@ -153,6 +153,72 @@ WHERE u.role = 'teacher'
 ORDER BY u.email, b.code;
 ```
 
+## Card populator
+
+Opening `/portal/card-populator` shows a branch/batch/section selector, the
+database-backed roster for that section, and per-student **write** and **verify**
+actions. It is the surface that puts a sealed token on each student's NFC card
+before the event.
+
+**It only works in Chrome on Android, over HTTPS.** Web NFC (`NDEFReader`) exists
+in no other browser and is exposed only in a secure context, so the page reports
+an explicit red state — *insecure origin* or *unsupported browser* — and disables
+both card actions everywhere else. That is deliberate: a populator that silently
+looked idle on a laptop would waste an afternoon. Chrome additionally requires
+NFC switched on in Android settings, granted permission, and a tapped
+NDEF-compatible tag before either operation completes.
+
+Operational rules an administrator will notice:
+
+- **The card carries `{version, token}` and nothing else.** No roll number, no
+  name, no student id, no branch/section/batch, no key material. Identity is
+  resolved server-side from the token, so a lost card discloses nothing about
+  its owner. The HMAC key never reaches the browser.
+- **Write and verify are separate steps, on purpose.** A resolved write only
+  proves the phone believed it wrote. Verification re-reads the tag and asks the
+  server whose token it is; a card is marked verified only when the resolved
+  student matches the selected row. Nothing auto-advances — an off-by-one here
+  means a student arrives with someone else's card.
+- **A mismatch, unknown token, blank tag, or garbled payload is a red row**, kept
+  in the list with its write and verify actions still enabled. Failed rows are
+  never hidden or skipped.
+- **Cards stay rewritable.** `makeReadOnly()` is deliberately not used — locking
+  a tag is a one-way hardware action and would make a correction impossible.
+- **One student at a time.** Starting an operation cancels any in-flight one, so
+  a tap meant for the previous student cannot land on the next.
+- **Progress is recoverable but token-free.** Per-student status is kept in
+  `sessionStorage` under `od-amrita.card-populator.progress.v1` as status, a
+  display note and a timestamp. No token, payload, or key material is ever
+  persisted, logged, or included in an error message.
+- **Sealing is per student.** There is no bulk export of sealed tokens, so the
+  number of raw tokens the browser has ever held is bounded by the cards
+  actually written.
+
+### Physical card smoke check
+
+Automated tests fake the radio; only a real tap proves the hardware path. On a
+real Android phone, in Chrome, against the deployed HTTPS origin:
+
+1. Enable NFC in Android settings and sign in as an administrator.
+2. Open `/portal/card-populator`, pick a branch/batch/section, and load the
+   roster. Confirm the students appear in roll-number order.
+3. Select a student, press **Write card**, and hold a **blank NTAG** to the phone
+   until the row reads *Written, awaiting verify*.
+4. Press **Verify card** and tap the same card. The row must show the student's
+   own name and roll number.
+5. Tap a **different** student's card against the first student's verify action
+   and confirm it is refused as belonging to someone else.
+
+Verify the ledger as the migrator/database owner — the raw token is never stored,
+only its fingerprint:
+
+```sql
+SELECT s.roll_no, s.name, t.version, t.created_at
+FROM student_card_tokens AS t
+JOIN students AS s ON s.id = t.student_id
+ORDER BY s.roll_no;
+```
+
 ## Verification commands
 
 The default local verification does not require a database:
@@ -198,6 +264,14 @@ and confirm `404 USER_NOT_FOUND`. Confirm exactly one `teacher.profile_created`
 audit row exists for the elevated user — every rejected attempt must have
 contributed none.
 
+For the card populator, run the physical card smoke check above. It is the only
+step here that CI cannot stand in for: the browser suites fake the NFC radio, so
+a real Chrome-on-Android tap against a blank NTAG is the sole evidence the
+hardware path works.
+
 This live smoke check has not been run against a deployed environment; the same
-journeys (events, categories, and teacher profiles) are executed against a real
-API and PostgreSQL by the `portal-integration` CI job.
+journeys (events, categories, teacher profiles, and the card populator's roster
+load / seal / resolve path) are executed against a real API and PostgreSQL by the
+`portal-integration` CI job. **The physical NFC tap remains unexercised** — there
+is no deployed HTTPS origin yet (that is gated on the paid hosting steps) and no
+Android device or blank NTAG in the build environment.

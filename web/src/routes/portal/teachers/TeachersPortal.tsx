@@ -37,6 +37,7 @@ export default function TeachersPortal() {
           <Link to="/portal/events">Events</Link>
           <Link to="/portal/teachers" aria-current="page">Teachers</Link>
           <Link to="/portal/students">Students</Link>
+          <Link to="/portal/card-populator">Card populator</Link>
         </nav>
         <div className="account-actions">
           <span>{identity?.name ?? identity?.email}</span>

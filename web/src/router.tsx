@@ -1,4 +1,5 @@
 import { createBrowserRouter, createMemoryRouter, Navigate } from 'react-router-dom'
+import CardPopulatorRoute from './routes/portal/card-populator/CardPopulatorRoute'
 import EventsRoute from './routes/portal/events/EventsRoute'
 import EventDetailRoute from './routes/portal/events/EventDetailRoute'
 import StudentsRoute from './routes/portal/students/StudentsRoute'
@@ -12,6 +13,9 @@ const routes = [
   { path: '/portal/events/:event_id', Component: EventDetailRoute },
   { path: '/portal/teachers', Component: TeachersRoute },
   { path: '/portal/students', Component: StudentsRoute },
+  // The pre-event card-writing surface. Admin-only through SessionBoundary,
+  // and Chrome-on-Android only at runtime because it needs Web NFC.
+  { path: '/portal/card-populator', Component: CardPopulatorRoute },
   { path: '*', element: <Navigate to="/portal/events" replace /> },
 ]
 

@@ -90,6 +90,27 @@ tbody tr:last-child > * { border-bottom: 0; }
 .summary-grid dd { margin: 5px 0 0; font-size: 24px; font-weight: 760; color: var(--ink); }
 .import-errors { margin-top: 16px; box-shadow: none; }
 
+/* Card populator. The operator works one card at a time on a phone held in one
+   hand, so actions are large targets and the status column is fixed-width —
+   a status that changes width would shift the buttons under a moving thumb. */
+.populator-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)) auto; align-items: end; gap: 10px 14px; }
+.populator-filters > div { display: grid; gap: 6px; min-width: 0; }
+.populator-filters label { font-weight: 700; font-size: 14px; }
+.populator-filters select, .populator-filters input[type='text'] { width: 100%; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: 8px; padding: 10px 11px; color: var(--ink); background: white; }
+.populator-roster td { vertical-align: top; }
+.populator-counts { margin: 0 0 16px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.populator-note { display: block; margin-top: 4px; color: var(--muted); font-size: 13px; font-weight: 500; }
+.populator-actions { display: flex; flex-direction: column; align-items: stretch; gap: 8px; min-width: 220px; }
+.populator-actions button { white-space: normal; text-align: center; }
+/* A failed row must stay visible in the list rather than being filtered away —
+   the off-by-one failure mode is worse than a long list. */
+.populator-row-failed { background: #fff7f6; }
+.status-badge.populator-verified { color: #176342; }
+.status-badge.populator-written { color: #7a5b13; }
+.status-badge.populator-failed { color: var(--danger); }
+.status-badge.populator-pending { color: var(--muted); }
+.status-badge.populator-writing, .status-badge.populator-verifying { color: var(--blue); }
+
 @media (max-width: 720px) {
   .topbar { padding: 0 18px; }
   .account-actions span { display: none; }
@@ -98,4 +119,8 @@ tbody tr:last-child > * { border-bottom: 0; }
   .page-heading > button { align-self: flex-start; }
   .category-form { align-items: stretch; flex-direction: column; }
   .roster-form { grid-template-columns: 1fr; align-items: stretch; }
+  /* The populator is used on a phone, which is the ONLY surface Web NFC runs
+     on — the narrow layout is the primary one here, not a fallback. */
+  .populator-filters { grid-template-columns: 1fr; align-items: stretch; }
+  .populator-actions { min-width: 0; }
 }

@@ -52,12 +52,23 @@ export type BarcodeScanner = {
   status(): Promise<BarcodeScannerStatus>
   /**
    * Opens the camera and decodes until `signal` aborts, calling `onDecode` with
-   * each decoded text. Resolves once the session has ended.
+   * each decoded text.
+   *
+   * RESOLVES ONCE THE SESSION HAS STARTED, not once it has ended — the decode
+   * loop keeps running after the returned promise settles, and only `signal`
+   * stops it. (The docstring used to claim the opposite. A caller that awaited
+   * this and then tore down state would be releasing it while the camera was
+   * still streaming.)
+   *
+   * `mount` receives the live preview element. The coordinator has to aim the
+   * phone at a barcode, so the frames being decoded must be on screen; without
+   * it they are pointing a blind camera.
    */
   start(
     onDecode: (text: string) => void,
     onError: (error: BarcodeScannerError) => void,
     signal: AbortSignal,
+    mount?: (video: HTMLVideoElement | null) => void,
   ): Promise<void>
 }
 
@@ -115,7 +126,7 @@ export function createBarcodeScanner(windowRef: Window, navigatorRef: Navigator)
   return {
     status,
 
-    async start(onDecode, onError, signal) {
+    async start(onDecode, onError, signal, mount) {
       const current = await status()
       if (current !== 'available') {
         onError(statusError(current))
@@ -137,24 +148,46 @@ export function createBarcodeScanner(windowRef: Window, navigatorRef: Navigator)
         return
       }
 
-      // The preview element the detector reads frames from. Attaching it is
-      // best-effort: a browser that refuses the stream here should still let the
-      // decode loop run and report its own failures, rather than taking the
-      // whole camera mode down with an exception from a display concern.
+      // The preview element the detector reads frames from — and, via `mount`,
+      // the one the coordinator actually aims with.
       let video: HTMLVideoElement | undefined
       try {
         video = target.document?.createElement('video')
-        if (video) {
-          video.srcObject = stream
-          video.playsInline = true
-          video.muted = true
-          // A play() rejection is not fatal either: some browsers still deliver
-          // frames without an explicit play.
-          void video.play?.().catch(() => {})
-        }
       } catch {
         video = undefined
       }
+
+      // Without a video element there is no frame source, so `detect()` rejects
+      // on EVERY frame — and those rejections are swallowed by design below,
+      // because a single bad frame is normal. The old code carried on anyway:
+      // an rAF-rate loop of rejected promises, camera lit, decoding nothing and
+      // reporting nothing, while the UI showed the ordinary "point the camera"
+      // hint. A missing source is fatal to the mode, so say so and release the
+      // camera instead of pretending to scan.
+      if (!video) {
+        stopTracks(stream)
+        onError(new BarcodeScannerError(
+          'camera-failed',
+          'The camera preview could not be created. Use NFC or search instead.',
+        ))
+        return
+      }
+
+      // Attaching the stream and autoplaying are BEST EFFORT, and deliberately
+      // in their own try: a browser that refuses either still delivers frames to
+      // the detector, and discarding the element over a display concern would
+      // take the whole camera mode down. (jsdom throws from play() for exactly
+      // this reason, which is what caught the earlier version.)
+      try {
+        video.srcObject = stream
+        video.playsInline = true
+        video.muted = true
+        void video.play?.()?.catch(() => {})
+      } catch {
+        // Keep the element; the decode loop and the preview both still work.
+      }
+
+      mount?.(video)
 
       const detector = new (target.BarcodeDetector as BarcodeDetectorConstructor)()
 
@@ -174,10 +207,18 @@ export function createBarcodeScanner(windowRef: Window, navigatorRef: Navigator)
           video.srcObject = null
           video.pause?.()
         }
+        mount?.(null)
         // A camera light left on after the coordinator switches modes is both a
         // battery cost across a long event and an obvious trust problem.
         stopTracks(stream)
       }
+
+      // A single failed frame is normal; an unbroken RUN of them is a dead
+      // detector. Without this ceiling `decode-failed` was a declared error kind
+      // that no code path could ever produce, and a permanently-failing detector
+      // was indistinguishable from a coordinator who had not found the barcode.
+      let consecutiveFailures = 0
+      const failureCeiling = 90 // ~1.5s of frames at 60fps
 
       signal.addEventListener('abort', stop)
 
@@ -192,6 +233,7 @@ export function createBarcodeScanner(windowRef: Window, navigatorRef: Navigator)
           .detect(video as unknown as CanvasImageSource)
           .then((results) => {
             if (stopped) return
+            consecutiveFailures = 0
             for (const result of results) {
               const text = result.rawValue?.trim()
               if (text) onDecode(text)
@@ -200,6 +242,16 @@ export function createBarcodeScanner(windowRef: Window, navigatorRef: Navigator)
           .catch(() => {
             // A single failed frame is normal — the lens is moving, the card is
             // half in view. Reporting each one would bury the coordinator in red.
+            // An unbroken run of them is not normal, and is reported once.
+            if (stopped) return
+            consecutiveFailures += 1
+            if (consecutiveFailures >= failureCeiling) {
+              onError(new BarcodeScannerError(
+                'decode-failed',
+                'The camera is running but cannot decode anything. Use NFC or search instead.',
+              ))
+              stop()
+            }
           })
           .finally(() => {
             decoding = false

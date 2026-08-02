@@ -227,6 +227,23 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 		`); err != nil {
 		return fmt.Errorf("delete student roster imports: %w", err)
 	}
+	// student_card_tokens and od_records both reference students ON DELETE
+	// RESTRICT, so the students delete below fails — and the whole harness
+	// refuses to start — if a previous run's populator journey sealed a card or
+	// a marking journey wrote a record. Clear the dependents first so the
+	// harness is restartable after any journey, not only after a clean one.
+	if _, err := tx.Exec(ctx, `
+			DELETE FROM od_records
+			WHERE student_id IN (SELECT id FROM students WHERE roll_no LIKE 'CB.SC.U4CSE%')
+		`); err != nil {
+		return fmt.Errorf("delete student od record fixtures: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+			DELETE FROM student_card_tokens
+			WHERE student_id IN (SELECT id FROM students WHERE roll_no LIKE 'CB.SC.U4CSE%')
+		`); err != nil {
+		return fmt.Errorf("delete student card token fixtures: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `
 			DELETE FROM students
 			WHERE roll_no LIKE 'CB.SC.U4CSE%'
@@ -270,6 +287,26 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 		ON CONFLICT (id) DO UPDATE SET code = EXCLUDED.code, name = EXCLUDED.name
 	`); err != nil {
 		return fmt.Errorf("upsert branches: %w", err)
+	}
+
+	// Card-populator roster fixtures. Seeded AFTER the CB.SC.U4CSE% delete above
+	// so each harness start gets a known section, and after branches because
+	// students.branch_id is a RESTRICT foreign key.
+	//
+	// Deliberately inserted out of roll order: the populator journey asserts the
+	// DATABASE returns them roll-ordered, which an already-sorted fixture could
+	// not prove.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO students (id, roll_no, name, branch_id, section, batch)
+		VALUES
+			('95000000-0000-4000-8000-000000000002', 'CB.SC.U4CSE24002', 'Madhav Rao', '91000000-0000-4000-8000-000000000001', 'A', '2024'),
+			('95000000-0000-4000-8000-000000000001', 'CB.SC.U4CSE24001', 'Ananya Rao', '91000000-0000-4000-8000-000000000001', 'A', '2024'),
+			('95000000-0000-4000-8000-000000000003', 'CB.SC.U4CSE24003', 'Nikhil Menon', '91000000-0000-4000-8000-000000000001', 'B', '2024')
+		ON CONFLICT (id) DO UPDATE
+		SET roll_no = EXCLUDED.roll_no, name = EXCLUDED.name, branch_id = EXCLUDED.branch_id,
+		    section = EXCLUDED.section, batch = EXCLUDED.batch
+	`); err != nil {
+		return fmt.Errorf("upsert card populator students: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

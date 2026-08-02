@@ -255,6 +255,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/students": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List students for card-populator selection
+         * @description Admin-only, database-backed roster read used to select a student before sealing and writing their NFC card. Results are ordered by branch code, then batch, then canonical roll_no, then id as a tiebreaker. Never exposes email or card-token material.
+         */
+        get: operations["listAdminStudents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/students/{student_id}/card-seal": {
         parameters: {
             query?: never;
@@ -393,6 +413,13 @@ export interface components {
             field: string;
             code: string;
             message: string;
+        };
+        /** @description The card-populator roster read. Paginated like EventCollection, and deliberately bounded to display fields only — no email or card-token material. */
+        StudentCollection: {
+            data: components["schemas"]["ResolvedCardStudent"][];
+            page: number;
+            page_size: number;
+            total: number;
         };
         ResolvedCardStudent: {
             /** Format: uuid */
@@ -1501,6 +1528,68 @@ export interface operations {
                 };
             };
             /** @description Request, CSV, or zero-valid-row validation failed. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listAdminStudents: {
+        parameters: {
+            query?: {
+                branch_id?: string;
+                batch?: string;
+                section?: string;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deterministically ordered page of students. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentCollection"];
+                };
+            };
+            /** @description Invalid filter or pagination value. */
             400: {
                 headers: {
                     [name: string]: unknown;

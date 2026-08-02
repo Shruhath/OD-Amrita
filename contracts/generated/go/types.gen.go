@@ -563,6 +563,14 @@ type SessionRevocationResult struct {
 	RevocationId string `json:"revocation_id"`
 }
 
+// StudentCollection The card-populator roster read. Paginated like EventCollection, and deliberately bounded to display fields only — no email or card-token material.
+type StudentCollection struct {
+	Data     []ResolvedCardStudent `json:"data"`
+	Page     int                   `json:"page"`
+	PageSize int                   `json:"page_size"`
+	Total    int                   `json:"total"`
+}
+
 // StudentRosterImportError defines model for StudentRosterImportError.
 type StudentRosterImportError struct {
 	Code    string `json:"code"`
@@ -642,6 +650,15 @@ type ListAdminEventsParams struct {
 
 // ListAdminEventsParamsStatus defines parameters for ListAdminEvents.
 type ListAdminEventsParamsStatus string
+
+// ListAdminStudentsParams defines parameters for ListAdminStudents.
+type ListAdminStudentsParams struct {
+	BranchId *openapi_types.UUID `form:"branch_id,omitempty" json:"branch_id,omitempty"`
+	Batch    *string             `form:"batch,omitempty" json:"batch,omitempty"`
+	Section  *string             `form:"section,omitempty" json:"section,omitempty"`
+	Page     *int                `form:"page,omitempty" json:"page,omitempty"`
+	PageSize *int                `form:"page_size,omitempty" json:"page_size,omitempty"`
+}
 
 // ImportAdminStudentsMultipartBody defines parameters for ImportAdminStudents.
 type ImportAdminStudentsMultipartBody struct {

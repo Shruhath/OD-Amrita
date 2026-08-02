@@ -810,6 +810,80 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/admin/students:
+    get:
+      operationId: listAdminStudents
+      summary: List students for card-populator selection
+      description: >-
+        Admin-only, database-backed roster read used to select a student before
+        sealing and writing their NFC card. Results are ordered by branch code,
+        then batch, then canonical roll_no, then id as a tiebreaker. Never
+        exposes email or card-token material.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: branch_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: batch
+          in: query
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 32
+        - name: section
+          in: query
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 32
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 100
+      responses:
+        "200":
+          description: Deterministically ordered page of students.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StudentCollection"
+        "400":
+          description: Invalid filter or pagination value.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Missing, malformed, expired, or revoked token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a provisioned Admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/admin/students/{student_id}/card-seal:
     post:
       operationId: sealAdminStudentCard
@@ -1177,6 +1251,29 @@ components:
           type: string
         message:
           type: string
+
+    StudentCollection:
+      type: object
+      description: >-
+        The card-populator roster read. Paginated like EventCollection, and
+        deliberately bounded to display fields only — no email or card-token
+        material.
+      required: [data, page, page_size, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ResolvedCardStudent"
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
 
     ResolvedCardStudent:
       type: object

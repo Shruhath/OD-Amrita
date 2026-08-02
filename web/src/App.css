@@ -1052,3 +1052,212 @@ tbody tr:hover {
   .summary-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
   .summary-grid dd { font-size: 22px; }
 }
+
+/* -------------------------------------------------------------- marking */
+
+/* The coordinator marking surface.
+   A phone screen used at arm's length, one-handed, in daylight — not a desk
+   portal. So: large tap targets, a banner that dominates, and numbers big
+   enough to read without looking closely. Extends the work-surface idiom
+   (opaque, hard borders, no glass) rather than introducing a third mode. */
+
+.mark-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.mark-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mark-header h1 {
+  font-size: 20px;
+  margin: 0;
+}
+
+.mark-who {
+  margin: 0;
+  color: var(--gray-600);
+  font-size: 13px;
+}
+
+.mark-scope {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.mark-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--gray-600);
+}
+
+.mark-field select,
+.mark-field input {
+  min-height: var(--tap);
+  padding: 8px 10px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 15px;
+}
+
+.mark-meters {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.mark-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  background: var(--gray-50);
+}
+
+.mark-meter-value {
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.mark-meter-label {
+  font-size: 11px;
+  color: var(--gray-600);
+}
+
+/* The slot clock's no-slot copy is a sentence, not a number. */
+.mark-clock .mark-meter-value {
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+/* The adoption-critical surface. Full width and a FIXED min-height across every
+   state, so the layout never shifts under the coordinator's thumb between a
+   green and a red — a shifting banner is how a mis-tap happens. */
+.mark-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 104px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 2px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  background: var(--gray-50);
+  color: var(--gray-600);
+  font-size: 15px;
+}
+
+.mark-banner strong {
+  font-size: 20px;
+  color: var(--foreground);
+}
+
+.mark-banner button {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+.mark-banner.is-green {
+  border-color: var(--green-600);
+  background: var(--green-50);
+  color: var(--green-700);
+}
+
+.mark-banner.is-green strong {
+  color: var(--green-700);
+}
+
+.mark-banner.is-red {
+  border-color: var(--crimson);
+  background: var(--crimson-50);
+  color: var(--crimson);
+}
+
+.mark-banner.is-red strong {
+  color: var(--crimson);
+}
+
+.mark-modes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.mark-mode {
+  min-height: 52px;
+  font-size: 15px;
+}
+
+.mark-mode.is-active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.mark-capture {
+  flex: 1;
+}
+
+.mark-hint {
+  margin: 0;
+  color: var(--gray-600);
+  font-size: 14px;
+}
+
+.mark-unavailable {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--crimson);
+  border-radius: var(--radius-md);
+  background: var(--crimson-50);
+  color: var(--crimson);
+  font-size: 14px;
+}
+
+.mark-search {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mark-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* A search hit is a whole-row tap target: picking the wrong student because the
+   target was a few pixels tall is not a recoverable mistake. */
+.mark-results button {
+  width: 100%;
+  min-height: 56px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+}
+
+.mark-results span {
+  font-size: 13px;
+  color: var(--gray-600);
+}

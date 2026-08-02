@@ -24,6 +24,15 @@ export type CardPayload = CardSeal['payload']
 export type ValidationError = components['schemas']['ValidationError']
 export type ErrorEnvelope = components['schemas']['Error']
 
+// Coordinator marking surface.
+export type StudentSearchResults = components['schemas']['StudentSearchResults']
+export type MarkStatus = components['schemas']['MarkStatus']
+export type MarkSlotWindow = components['schemas']['MarkSlotWindow']
+export type MarkCounters = components['schemas']['MarkCounters']
+export type MarkAttendanceInput = components['schemas']['MarkAttendanceRequest']
+export type MarkAttendanceResult = components['schemas']['MarkAttendanceResult']
+export type CaptureMethod = components['schemas']['CaptureMethod']
+
 export class ApiFailure extends Error {
   readonly status: number
   readonly body: ErrorEnvelope | ValidationError
@@ -172,6 +181,61 @@ export function createEventApi(session: SessionPort) {
     /** Resolves a token read back off a card to its student, server-side. */
     async resolveCardToken(input: CardTokenResolveRequest) {
       return unwrap(await client.POST('/api/v1/admin/card-tokens/resolve', { body: input }))
+    },
+
+    // -----------------------------------------------------------------------
+    // Coordinator marking surface.
+    //
+    // These call the SCOPED endpoints, never an `/admin/` one. The admin reads
+    // are admin-gated by design, so calling one from `/mark` produces a 403 that
+    // reads as a bug in the marking screen rather than as the deliberate
+    // boundary it is.
+    // -----------------------------------------------------------------------
+
+    /** The active events this coordinator may mark for. */
+    async markableEvents() {
+      return unwrap(await client.GET('/api/v1/events'))
+    },
+
+    /** The categories of one markable event. */
+    async markableCategories(eventID: string) {
+      return unwrap(await client.GET('/api/v1/events/{event_id}/categories', {
+        params: { path: { event_id: eventID } },
+      }))
+    },
+
+    /**
+     * Prefix-searches the roster.
+     *
+     * The query is trimmed here so the URL carries what the coordinator meant;
+     * the server trims and bounds again, and owns the minimum length.
+     */
+    async searchStudents(query: string, limit?: number) {
+      const search: { q: string; limit?: number } = { q: query.trim() }
+      if (limit !== undefined) search.limit = limit
+      return unwrap(await client.GET('/api/v1/students/search', { params: { query: search } }))
+    },
+
+    /**
+     * The server-computed counters and active slot window.
+     *
+     * `slot: null` is passed through untouched — it is the explicit "no slot is
+     * open" state, and coercing it to 0 would render a countdown for a slot that
+     * does not exist.
+     */
+    async markStatus(eventID: string, categoryID: string) {
+      return unwrap(await client.GET('/api/v1/mark/status', {
+        params: { query: { event_id: eventID, category_id: categoryID } },
+      }))
+    },
+
+    /**
+     * Marks one student present. Synchronous and live: the 201 is the ONLY
+     * evidence a mark exists. There is no queue, so a failure here is red and
+     * retried by the human — never an amber "queued".
+     */
+    async mark(input: MarkAttendanceInput) {
+      return unwrap(await client.POST('/api/v1/mark', { body: input }))
     },
   }
 }

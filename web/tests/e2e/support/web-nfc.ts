@@ -22,6 +22,29 @@ export async function installFakeWebNfc(
 
     type ReadingListener = (event: { message: { records: unknown[] } }) => void
 
+    // Every live listener across every reader instance. The marking screen runs
+    // ONE continuous session and expects taps to arrive on demand rather than
+    // once per scan() call, so a spec drives it through __tapCard below.
+    const liveListeners: ReadingListener[] = []
+
+    const cardRecords = (payload: { version: string; token: string } | null) =>
+      payload === null
+        ? []
+        : [
+            {
+              recordType: 'mime',
+              mediaType,
+              data: new DataView(new TextEncoder().encode(JSON.stringify(payload)).buffer),
+            },
+          ]
+
+    /** Simulates one physical tap presenting `payload`. */
+    ;(window as unknown as { __tapCard: (p: { version: string; token: string } | null) => void }).__tapCard = (
+      payload,
+    ) => {
+      for (const listener of [...liveListeners]) listener({ message: { records: cardRecords(payload) } })
+    }
+
     class FakeNDEFReader {
       private readers: ReadingListener[] = []
 
@@ -50,10 +73,18 @@ export async function installFakeWebNfc(
       }
 
       addEventListener(type: string, listener: ReadingListener) {
-        if (type === 'reading') this.readers.push(listener)
+        if (type !== 'reading') return
+        this.readers.push(listener)
+        liveListeners.push(listener)
       }
 
-      removeEventListener() {}
+      removeEventListener(_type: string, listener?: ReadingListener) {
+        if (!listener) return
+        for (const list of [this.readers, liveListeners]) {
+          const at = list.indexOf(listener)
+          if (at >= 0) list.splice(at, 1)
+        }
+      }
     }
 
     ;(window as unknown as { NDEFReader: unknown }).NDEFReader = FakeNDEFReader

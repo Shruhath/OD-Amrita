@@ -88,6 +88,11 @@ type ImportWrite struct {
 
 type Reader interface {
 	ResolveBranch(context.Context, string) (Branch, error)
+	// ListStudents backs the admin card-populator roster page (see list.go).
+	// It lives on the same interface — rather than behind a runtime type
+	// assertion — so a reader that cannot serve the populator fails to compile
+	// instead of failing the request.
+	ListStudents(context.Context, ListInput) ([]Student, int, error)
 }
 
 type Writer interface {

@@ -18,7 +18,7 @@ import (
 )
 
 func TestImport_NormalizesHeadersValuesAndCanonicalRolls(t *testing.T) {
-	reader := fakeReader{branches: map[string]Branch{"CSE": {ID: "91000000-0000-4000-8000-000000000001", Code: "CSE"}}}
+	reader := &fakeReader{branches: map[string]Branch{"CSE": {ID: "91000000-0000-4000-8000-000000000001", Code: "CSE"}}}
 	writer := &fakeWriter{result: Result{ImportID: "77777777-7777-4777-8777-777777777777", InsertedRows: 2, DatabaseCount: 2}}
 	svc := NewService(reader, &fakeAuditStore{}, writer)
 
@@ -48,7 +48,7 @@ func TestImport_NormalizesHeadersValuesAndCanonicalRolls(t *testing.T) {
 }
 
 func TestImport_CommitsValidRowsAndReportsInvalidRows(t *testing.T) {
-	reader := fakeReader{branches: map[string]Branch{"CSE": {ID: "91000000-0000-4000-8000-000000000001", Code: "CSE"}}}
+	reader := &fakeReader{branches: map[string]Branch{"CSE": {ID: "91000000-0000-4000-8000-000000000001", Code: "CSE"}}}
 	writer := &fakeWriter{result: Result{ImportID: "77777777-7777-4777-8777-777777777777", InsertedRows: 1, DatabaseCount: 1}}
 	svc := NewService(reader, &fakeAuditStore{}, writer)
 
@@ -96,7 +96,7 @@ func TestImport_CommitsValidRowsAndReportsInvalidRows(t *testing.T) {
 func TestImport_RejectsInvalidEncodingBeforeWriter(t *testing.T) {
 	writer := &fakeWriter{}
 	svc := NewService(
-		fakeReader{branches: map[string]Branch{"CSE": {ID: "91000000-0000-4000-8000-000000000001", Code: "CSE"}}},
+		&fakeReader{branches: map[string]Branch{"CSE": {ID: "91000000-0000-4000-8000-000000000001", Code: "CSE"}}},
 		&fakeAuditStore{},
 		writer,
 	)
@@ -119,7 +119,7 @@ func TestImport_RejectsInvalidEncodingBeforeWriter(t *testing.T) {
 func TestImport_AcceptsCorrectedRollAfterEarlierInvalidRow(t *testing.T) {
 	writer := &fakeWriter{result: Result{ImportID: "77777777-7777-4777-8777-777777777777", InsertedRows: 1, DatabaseCount: 1}}
 	svc := NewService(
-		fakeReader{branches: map[string]Branch{"CSE": {ID: "91000000-0000-4000-8000-000000000001", Code: "CSE"}}},
+		&fakeReader{branches: map[string]Branch{"CSE": {ID: "91000000-0000-4000-8000-000000000001", Code: "CSE"}}},
 		&fakeAuditStore{},
 		writer,
 	)
@@ -148,7 +148,7 @@ func TestImport_RejectsPathologicalRowCount(t *testing.T) {
 	}
 
 	_, err := NewService(
-		fakeReader{branches: map[string]Branch{"CSE": {ID: "91000000-0000-4000-8000-000000000001", Code: "CSE"}}},
+		&fakeReader{branches: map[string]Branch{"CSE": {ID: "91000000-0000-4000-8000-000000000001", Code: "CSE"}}},
 		&fakeAuditStore{},
 		&fakeWriter{},
 	).Import(context.Background(), adminActor(), ImportInput{
@@ -163,7 +163,7 @@ func TestImport_RejectsPathologicalRowCount(t *testing.T) {
 
 func TestImport_RejectsZeroValidRowsBeforeWriter(t *testing.T) {
 	writer := &fakeWriter{}
-	svc := NewService(fakeReader{}, &fakeAuditStore{}, writer)
+	svc := NewService(&fakeReader{}, &fakeAuditStore{}, writer)
 
 	_, err := svc.Import(context.Background(), adminActor(), ImportInput{
 		FileName: "students.csv",
@@ -191,7 +191,7 @@ func TestImport_AuditPayloadIncludesReconciliationCounts(t *testing.T) {
 		DatabaseCount: 901,
 	}}
 	svc := NewService(
-		fakeReader{branches: map[string]Branch{"CSE": {ID: "91000000-0000-4000-8000-000000000001", Code: "CSE"}}},
+		&fakeReader{branches: map[string]Branch{"CSE": {ID: "91000000-0000-4000-8000-000000000001", Code: "CSE"}}},
 		audit,
 		writer,
 	)
@@ -224,7 +224,7 @@ func TestImport_AuditPayloadIncludesReconciliationCounts(t *testing.T) {
 }
 
 func TestImport_RejectsNonAdminBeforeParsing(t *testing.T) {
-	reader := fakeReader{err: errors.New("reader should not be called")}
+	reader := &fakeReader{err: errors.New("reader should not be called")}
 	_, err := NewService(reader, &fakeAuditStore{}, &fakeWriter{}).Import(context.Background(), Actor{Role: "student"}, ImportInput{
 		FileName: "students.csv",
 		Content:  strings.NewReader("Roll No,Name,Branch,Section,Batch\nCB.SC.U4CSE24001,Name,CSE,A,2024\n"),
@@ -238,6 +238,13 @@ func TestImport_RejectsNonAdminBeforeParsing(t *testing.T) {
 type fakeReader struct {
 	branches map[string]Branch
 	err      error
+
+	// students backs ListStudents. listCalls records how many times the roster
+	// read was reached so a test can prove the RBAC/validation gates ran first.
+	students  []Student
+	listInput *ListInput
+	listCalls int
+	listErr   error
 }
 
 func (f fakeReader) ResolveBranch(ctx context.Context, code string) (Branch, error) {
@@ -249,6 +256,19 @@ func (f fakeReader) ResolveBranch(ctx context.Context, code string) (Branch, err
 		return Branch{}, ErrBranchNotFound
 	}
 	return branch, nil
+}
+
+func (f *fakeReader) ListStudents(ctx context.Context, input ListInput) ([]Student, int, error) {
+	f.listCalls++
+	captured := input
+	f.listInput = &captured
+	if f.listErr != nil {
+		return nil, 0, f.listErr
+	}
+	if f.err != nil {
+		return nil, 0, f.err
+	}
+	return append([]Student(nil), f.students...), len(f.students), nil
 }
 
 type fakeWriter struct {

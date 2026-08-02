@@ -108,6 +108,11 @@ func (s reachingStudentService) Import(context.Context, studentsvc.Actor, studen
 	return studentsvc.Result{}, nil
 }
 
+func (s reachingStudentService) List(context.Context, studentsvc.Actor, studentsvc.ListInput) (studentsvc.ListResult, error) {
+	s.reached.hits++
+	return studentsvc.ListResult{}, nil
+}
+
 type reachingCardTokenService struct{ reached *reachCounter }
 
 func (s reachingCardTokenService) Seal(context.Context, cardtokensvc.Actor, cardtokensvc.SealInput) (cardtokensvc.SealResult, error) {

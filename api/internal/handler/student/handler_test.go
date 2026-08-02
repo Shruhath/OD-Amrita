@@ -66,6 +66,23 @@ type fakeImportService struct {
 	result   studentsvc.Result
 	fileName string
 	content  string
+
+	// listResult/listInput/listCalls back the roster read. listCalls proves the
+	// handler's RBAC gate ran before the service was reached.
+	listResult studentsvc.ListResult
+	listErr    error
+	listInput  *studentsvc.ListInput
+	listCalls  int
+}
+
+func (f *fakeImportService) List(ctx context.Context, actor studentsvc.Actor, input studentsvc.ListInput) (studentsvc.ListResult, error) {
+	f.listCalls++
+	captured := input
+	f.listInput = &captured
+	if f.listErr != nil {
+		return studentsvc.ListResult{}, f.listErr
+	}
+	return f.listResult, nil
 }
 
 func (f *fakeImportService) Import(ctx context.Context, actor studentsvc.Actor, input studentsvc.ImportInput) (studentsvc.Result, error) {

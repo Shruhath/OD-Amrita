@@ -21,10 +21,12 @@ const maxRosterUploadBytes int64 = 2 << 20
 
 type Service interface {
 	Import(context.Context, studentsvc.Actor, studentsvc.ImportInput) (studentsvc.Result, error)
+	List(context.Context, studentsvc.Actor, studentsvc.ListInput) (studentsvc.ListResult, error)
 }
 
 func RegisterAdminRoutes(group gin.IRouter, svc Service) {
 	group.POST("/students/import", ImportStudentsHandler(svc))
+	group.GET("/students", ListStudentsHandler(svc))
 }
 
 func ImportStudentsHandler(svc Service) gin.HandlerFunc {

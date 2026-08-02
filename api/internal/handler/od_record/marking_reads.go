@@ -19,9 +19,10 @@ import (
 
 // MarkingReadService is everything the coordinator marking surface reads.
 //
-// One dependency, deliberately: every method behind it has already passed
-// through the scope seam, so a handler here cannot serve a scope the mark write
-// would refuse.
+// One dependency, deliberately: no handler here reaches a repository directly,
+// so none can serve a scope the mark write would refuse. The scope-describing
+// reads (events, categories, mark status) run the full policy; the roster search
+// runs the role half only, for the reasons set out on marking.ReadService.
 type MarkingReadService interface {
 	VisibleEvents(context.Context, marking.Actor) ([]marking.Event, error)
 	Categories(ctx context.Context, actor marking.Actor, eventID string) ([]marking.Category, error)
@@ -45,6 +46,12 @@ const (
 	defaultEventPage     = 1
 	defaultEventPageSize = 20
 	maxEventPageSize     = 100
+	// maxEventPage is a real ceiling, not decoration. Without one, `page` was
+	// unbounded while `page_size` was capped, and `(page-1)*pageSize` in
+	// pageWindow overflowed int64 and wrapped NEGATIVE — `events[-16:1]` panics.
+	// gin.Recovery turned that into a bare 500 that skipped the typed error
+	// envelope and logged a stack trace per request.
+	maxEventPage = 10_000
 )
 
 func MarkableEventsHandler(svc MarkingReadService) gin.HandlerFunc {
@@ -54,12 +61,16 @@ func MarkableEventsHandler(svc MarkingReadService) gin.HandlerFunc {
 			fail(c, err)
 			return
 		}
-		events, err := svc.VisibleEvents(c.Request.Context(), actor)
+		// Validated BEFORE the read: a malformed page must not cost an event and
+		// branch query first. This is the same rule the search handler states
+		// below, and it runs after markingActor so authorize-before-validate is
+		// preserved.
+		page, pageSize, err := eventPagination(c)
 		if err != nil {
 			fail(c, err)
 			return
 		}
-		page, pageSize, err := eventPagination(c)
+		events, err := svc.VisibleEvents(c.Request.Context(), actor)
 		if err != nil {
 			fail(c, err)
 			return
@@ -237,7 +248,7 @@ func missingScopeDetails(eventID, categoryID string) []contracts.ValidationError
 }
 
 func eventPagination(c *gin.Context) (int, int, error) {
-	page, err := boundedQueryInt(c, "page", defaultEventPage, 1, 0)
+	page, err := boundedQueryInt(c, "page", defaultEventPage, 1, maxEventPage)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -250,12 +261,14 @@ func eventPagination(c *gin.Context) (int, int, error) {
 
 func searchLimit(c *gin.Context) (int, error) {
 	// 0 means "unspecified"; the service applies its own default and cap, so the
-	// bound lives in one place rather than two that can drift apart.
+	// bound lives in one place rather than two that can drift apart. The ceiling
+	// is the SERVICE's exported constant for exactly that reason — a literal here
+	// was a second copy of the number that could be raised independently.
 	raw := strings.TrimSpace(c.Query("limit"))
 	if raw == "" {
 		return 0, nil
 	}
-	return boundedQueryInt(c, "limit", 0, 1, 50)
+	return boundedQueryInt(c, "limit", 0, 1, svcstudent.MaxSearchLimit)
 }
 
 // boundedQueryInt rejects a non-numeric or out-of-range value rather than
@@ -281,7 +294,11 @@ type pageSlice struct{ from, to int }
 
 func pageWindow(total, page, pageSize int) pageSlice {
 	from := (page - 1) * pageSize
-	if from >= total {
+	// `from < 0` is the overflow guard, and it stays even though maxEventPage
+	// now makes the multiplication safe: this function slices a real array, so
+	// it must be total-ordering-safe on its own terms rather than trusting a
+	// caller's bound that a later edit could widen.
+	if from < 0 || from >= total {
 		return pageSlice{from: total, to: total}
 	}
 	to := from + pageSize

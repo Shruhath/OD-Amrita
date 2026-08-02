@@ -21,7 +21,12 @@ const (
 	MaxSearchRunes = 64
 
 	defaultSearchLimit = 20
-	maxSearchLimit     = 50
+	// MaxSearchLimit is exported for the same reason MinSearchRunes is: the HTTP
+	// edge bounds `limit` too, and when the cap lived in two places the two
+	// disagreed in behaviour — the service clamped 10,000 down to 50 while the
+	// handler rejected 51 outright, so raising one silently changed nothing.
+	// There is now ONE number.
+	MaxSearchLimit = 50
 )
 
 // SearchInput is what the caller asked for. What the DATABASE is asked for is
@@ -38,7 +43,7 @@ type SearchQuery struct {
 	Pattern string
 	// ExactRoll is the canonical uppercase roll used to sort an exact match first.
 	ExactRoll string
-	// Limit is already clamped to 1..maxSearchLimit.
+	// Limit is already clamped to 1..MaxSearchLimit.
 	Limit int
 }
 
@@ -124,8 +129,8 @@ func boundSearchLimit(requested int) int {
 	if requested <= 0 {
 		return defaultSearchLimit
 	}
-	if requested > maxSearchLimit {
-		return maxSearchLimit
+	if requested > MaxSearchLimit {
+		return MaxSearchLimit
 	}
 	return requested
 }

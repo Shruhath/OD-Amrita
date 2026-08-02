@@ -33,6 +33,7 @@ import (
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	svccardtoken "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
+	svcmarking "github.com/Shruhath/OD-Amrita/api/internal/service/marking"
 	svcodrecord "github.com/Shruhath/OD-Amrita/api/internal/service/od_record"
 	svcstudent "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 	svcteacher "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
@@ -41,10 +42,24 @@ import (
 )
 
 const (
-	adminToken   = "portal-admin-token"
-	studentToken = "portal-student-token"
-	adminSubject = "portal-admin-subject"
-	studentSub   = "portal-student-subject"
+	adminToken       = "portal-admin-token"
+	studentToken     = "portal-student-token"
+	coordinatorToken = "portal-coordinator-token"
+	adminSubject     = "portal-admin-subject"
+	studentSub       = "portal-student-subject"
+	coordinatorSub   = "portal-coordinator-subject"
+)
+
+// The marking fixtures. The coordinator surface needs a principal that
+// production never creates on its own — every first-time user is provisioned as
+// `student`, and Story 0.7 is the supported way to elevate one — plus an event
+// dated TODAY, because odrecord.ActiveSlot compares against events.event_date in
+// Asia/Kolkata. An event dated any other day makes every slot assertion
+// vacuously "no slot open", which is a suite that passes while proving nothing.
+const (
+	markingEventID    = "93000000-0000-4000-8000-000000000001"
+	markingCategoryID = "94000000-0000-4000-8000-000000000001"
+	markingEventName  = "Browser Marking Event"
 )
 
 // teacherFixtureEmail is the student-role row the teacher-profile browser
@@ -76,6 +91,8 @@ func (fixedVerifier) Verify(_ context.Context, token string) (svcauth.VerifiedId
 		return svcauth.VerifiedIdentity{Subject: adminSubject, Email: "portal-admin@amrita.edu", Name: "Portal Admin", SessionID: uuid.NewString(), IssuedAt: now}, nil
 	case studentToken:
 		return svcauth.VerifiedIdentity{Subject: studentSub, Email: "portal-student@amrita.edu", Name: "Portal Student", SessionID: uuid.NewString(), IssuedAt: now}, nil
+	case coordinatorToken:
+		return svcauth.VerifiedIdentity{Subject: coordinatorSub, Email: "portal-coordinator@amrita.edu", Name: "Portal Coordinator", SessionID: uuid.NewString(), IssuedAt: now}, nil
 	default:
 		return svcauth.VerifiedIdentity{}, domain.DomainError{Code: contracts.ErrorCodeAUTHTOKENINVALID, Message: "Authentication token is invalid."}
 	}
@@ -113,12 +130,22 @@ func main() {
 		log.Fatal(err)
 	}
 	cardTokenService := svccardtoken.NewService(svccardtoken.NewSQLCReader(runtimePool), svccardtoken.NewSQLCLedger(runtimePool), st, cardKeyring)
+	eventReader := svcevent.NewSQLCReader(runtimePool)
+	markingPolicy := svcmarking.NewPolicy(svcmarking.NewEventReader(eventReader))
 	markService := svcodrecord.NewService(
 		svcodrecord.NewSQLCReader(runtimePool),
 		svcodrecord.NewCardTokenResolver(svccardtoken.NewSQLCLedger(runtimePool), cardKeyring),
 		svcodrecord.NewSQLCWriter(),
 		st,
 		nil,
+		svcmarking.NewMarkGuard(markingPolicy),
+	)
+	studentService.WithSearchReader(svcstudent.NewSQLCSearchReader(runtimePool))
+	markingReads := svcmarking.NewReadService(
+		markingPolicy,
+		eventReader,
+		studentService,
+		svcodrecord.NewStatusService(svcodrecord.NewSQLCReader(runtimePool), svcodrecord.NewSQLCCounter(runtimePool), nil),
 	)
 
 	gin.SetMode(gin.ReleaseMode)
@@ -137,6 +164,11 @@ func main() {
 	markAPI := api.Group("")
 	markAPI.Use(rbac.RequirePrincipal(principalLoader))
 	handlerodrecord.RegisterRoutes(markAPI, markService)
+	// Shared with cmd/api, exactly like the admin routes below: a harness that
+	// mounts the marking reads on a different group than production turns a real
+	// route-composition bug into a browser-journey 404 that reads as a frontend
+	// defect.
+	handlerodrecord.RegisterMarkingReadRoutes(markAPI, markingReads)
 
 	admin := api.Group("/admin")
 	admin.Use(rbac.RequireAdmin(principalLoader))
@@ -156,6 +188,18 @@ func main() {
 	if err := http.ListenAndServe(":"+port, router); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// campusLocation resolves the campus timezone the slot table is defined in.
+// Asia/Kolkata is in the standard tzdata set; a machine without it cannot run
+// the marking path correctly at all, so failing loudly beats silently marking in
+// UTC and being 5h30m out.
+func campusLocation() *time.Location {
+	loc, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		log.Fatalf("load campus timezone: %v", err)
+	}
+	return loc
 }
 
 func requiredEnv(name string) string {
@@ -254,10 +298,11 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 			INSERT INTO users (id, supabase_subject, email, name, role)
 			VALUES
 			('90000000-0000-4000-8000-000000000001', $1, 'portal-admin@amrita.edu', 'Portal Admin', 'admin'),
-			('90000000-0000-4000-8000-000000000002', $2, 'portal-student@amrita.edu', 'Portal Student', 'student')
+			('90000000-0000-4000-8000-000000000002', $2, 'portal-student@amrita.edu', 'Portal Student', 'student'),
+			('90000000-0000-4000-8000-000000000003', $3, 'portal-coordinator@amrita.edu', 'Portal Coordinator', 'coordinator')
 		ON CONFLICT (supabase_subject) DO UPDATE
 		SET email = EXCLUDED.email, name = EXCLUDED.name, role = EXCLUDED.role
-	`, adminSubject, studentSub); err != nil {
+	`, adminSubject, studentSub, coordinatorSub); err != nil {
 		return fmt.Errorf("upsert users: %w", err)
 	}
 	// The teacher-profile browser journeys elevate this row (student -> teacher).
@@ -307,6 +352,45 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 		    section = EXCLUDED.section, batch = EXCLUDED.batch
 	`); err != nil {
 		return fmt.Errorf("upsert card populator students: %w", err)
+	}
+
+	// The marking fixtures, seeded LAST so branches and students already exist.
+	//
+	// event_date is TODAY in Asia/Kolkata, recomputed on every harness start. A
+	// hardcoded date would go stale overnight and quietly turn every slot
+	// assertion into "no slot open" — a suite that passes while proving nothing.
+	// Outside 08:00-18:15 IST there is genuinely no open slot, and the real-stack
+	// spec says so explicitly rather than pretending otherwise.
+	campusNow := time.Now().In(campusLocation())
+	today := time.Date(campusNow.Year(), campusNow.Month(), campusNow.Day(), 0, 0, 0, 0, time.UTC)
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO events (id, name, event_date, status)
+		VALUES ($1, $2, $3, 'active')
+		ON CONFLICT (id) DO UPDATE
+		SET name = EXCLUDED.name, event_date = EXCLUDED.event_date, status = 'active', archived_at = NULL
+	`, markingEventID, markingEventName, today); err != nil {
+		return fmt.Errorf("upsert marking event: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO event_branches (event_id, branch_id)
+		VALUES ($1, '91000000-0000-4000-8000-000000000001')
+		ON CONFLICT DO NOTHING
+	`, markingEventID); err != nil {
+		return fmt.Errorf("associate marking event branch: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO categories (id, event_id, name)
+		VALUES ($1, $2, 'Procession')
+		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+	`, markingCategoryID, markingEventID); err != nil {
+		return fmt.Errorf("upsert marking category: %w", err)
+	}
+	// Marks from a previous run would make the counter assertions cumulative, so
+	// the journey starts from a known zero every time.
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM od_records WHERE event_id = $1
+	`, markingEventID); err != nil {
+		return fmt.Errorf("clear marking od records: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

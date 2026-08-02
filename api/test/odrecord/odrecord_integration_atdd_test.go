@@ -122,6 +122,7 @@ func TestODRecordServiceDuplicateRaceAuditAndBlockedSlot(t *testing.T) {
 		odsvc.NewSQLCWriter(),
 		store.New(runtime),
 		fixedClock{now: fixture.slotOneTime},
+		nil,
 	)
 	actor := odsvc.Actor{UserID: fixture.coordinatorID, Email: "coordinator@amrita.edu", Role: "coordinator"}
 
@@ -164,7 +165,13 @@ func TestODRecordServiceDuplicateRaceAuditAndBlockedSlot(t *testing.T) {
 	if err := migrator.QueryRow(ctx, `SELECT count(*) FROM od_records WHERE student_id = $1 AND event_id = $2 AND slot = 1`, fixture.studentID, fixture.eventID).Scan(&odRows); err != nil {
 		t.Fatalf("count od rows: %v", err)
 	}
-	if err := migrator.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE action = $1 AND target_table = 'od_records'`, string(domain.ActionODCreated)).Scan(&auditRows); err != nil {
+	// Scoped to THIS fixture's event. A table-wide count would be contaminated by
+	// every other test in this package that writes an od.created row — which is a
+	// property of the test, not of the code under test.
+	if err := migrator.QueryRow(ctx, `
+		SELECT count(*) FROM audit_log
+		WHERE action = $1 AND target_table = 'od_records' AND payload->>'event_id' = $2
+	`, string(domain.ActionODCreated), fixture.eventID).Scan(&auditRows); err != nil {
 		t.Fatalf("count od.created audit rows: %v", err)
 	}
 	if odRows != 1 || auditRows != 1 {
@@ -177,6 +184,7 @@ func TestODRecordServiceDuplicateRaceAuditAndBlockedSlot(t *testing.T) {
 		odsvc.NewSQLCWriter(),
 		store.New(runtime),
 		fixedClock{now: fixture.breakTime},
+		nil,
 	)
 	_, err := closedSvc.Mark(ctx, actor, odsvc.MarkInput{
 		EventID:       fixture.eventID,
@@ -188,7 +196,10 @@ func TestODRecordServiceDuplicateRaceAuditAndBlockedSlot(t *testing.T) {
 	if !errors.As(err, &de) || de.Code != contracts.ErrorCodeSLOTCLOSED {
 		t.Fatalf("closed slot error = %v, want SLOT_CLOSED", err)
 	}
-	if err := migrator.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE action = $1`, string(domain.ActionScanBlocked)).Scan(&auditRows); err != nil {
+	if err := migrator.QueryRow(ctx, `
+		SELECT count(*) FROM audit_log
+		WHERE action = $1 AND payload->>'event_id' = $2
+	`, string(domain.ActionScanBlocked), fixture.eventID).Scan(&auditRows); err != nil {
 		t.Fatalf("count scan.blocked audit rows: %v", err)
 	}
 	if auditRows == 0 {

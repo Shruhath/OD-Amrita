@@ -104,10 +104,15 @@ type AuditStore interface {
 }
 
 type Service struct {
-	reader Reader
-	store  AuditStore
-	writer Writer
+	reader       Reader
+	store        AuditStore
+	writer       Writer
+	searchReader SearchReader
 }
+
+// errSearchReaderMissing is a composition error, not a request error: it means
+// someone wired the search route without wiring the reader behind it.
+var errSearchReaderMissing = errors.New("student: search reader is not configured")
 
 func NewService(reader Reader, audited AuditStore, writer Writer) *Service {
 	return &Service{reader: reader, store: audited, writer: writer}

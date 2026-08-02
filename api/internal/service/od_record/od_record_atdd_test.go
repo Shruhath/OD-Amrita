@@ -22,7 +22,7 @@ import (
 func TestCoordinatorCardMarkCreatesODRecordAndAuditInSameTransaction(t *testing.T) {
 	ctx := context.Background()
 	fixture := newServiceFixture(t, time.Date(2026, 8, 3, 8, 25, 0, 0, campusLocation(t)))
-	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock)
+	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock, nil)
 
 	result, err := svc.Mark(ctx, coordinatorActor(), MarkInput{
 		EventID:       fixture.eventID,
@@ -54,7 +54,7 @@ func TestCoordinatorCardMarkCreatesODRecordAndAuditInSameTransaction(t *testing.
 func TestDuplicateUniqueIndexViolationMapsToScanDuplicate(t *testing.T) {
 	fixture := newServiceFixture(t, time.Date(2026, 8, 3, 8, 25, 0, 0, campusLocation(t)))
 	fixture.writer.err = ErrDuplicatePresentRecord
-	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock)
+	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock, nil)
 
 	_, err := svc.Mark(context.Background(), coordinatorActor(), MarkInput{
 		EventID:       fixture.eventID,
@@ -71,7 +71,7 @@ func TestDuplicateUniqueIndexViolationMapsToScanDuplicate(t *testing.T) {
 func TestUnknownCardIsRejectedBeforeSlotClosedAudit(t *testing.T) {
 	fixture := newServiceFixture(t, time.Date(2026, 8, 3, 10, 35, 0, 0, campusLocation(t)))
 	fixture.cardResolver.err = ErrCardNotRecognized
-	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock)
+	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock, nil)
 
 	_, err := svc.Mark(context.Background(), coordinatorActor(), MarkInput{
 		EventID:       fixture.eventID,
@@ -90,7 +90,7 @@ func TestUnknownCardIsRejectedBeforeSlotClosedAudit(t *testing.T) {
 
 func TestCoordinatorOutsideSlotWritesBlockedAuditOnly(t *testing.T) {
 	fixture := newServiceFixture(t, time.Date(2026, 8, 3, 10, 35, 0, 0, campusLocation(t)))
-	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock)
+	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock, nil)
 
 	_, err := svc.Mark(context.Background(), coordinatorActor(), MarkInput{
 		EventID:       fixture.eventID,
@@ -117,7 +117,7 @@ func TestTeacherAndAdminUseExplicitSearchSlotOutsideLiveWindow(t *testing.T) {
 	} {
 		t.Run(actor.Role, func(t *testing.T) {
 			fixture := newServiceFixture(t, time.Date(2026, 8, 3, 19, 0, 0, 0, campusLocation(t)))
-			svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock)
+			svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock, nil)
 			result, err := svc.Mark(context.Background(), actor, MarkInput{
 				EventID:       fixture.eventID,
 				CategoryID:    fixture.categoryID,
@@ -137,7 +137,7 @@ func TestTeacherAndAdminUseExplicitSearchSlotOutsideLiveWindow(t *testing.T) {
 
 func TestValidationRejectsAmbiguousIdentityUnsupportedRoleAndRawTokenPersistence(t *testing.T) {
 	fixture := newServiceFixture(t, time.Date(2026, 8, 3, 8, 25, 0, 0, campusLocation(t)))
-	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock)
+	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock, nil)
 	for _, tc := range []struct {
 		name  string
 		actor Actor

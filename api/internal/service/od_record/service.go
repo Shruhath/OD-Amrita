@@ -118,6 +118,22 @@ type Clock interface {
 	Now() time.Time
 }
 
+// ScopeGuard is the marking scope seam, seen from the mark service.
+//
+// It is a dependency rather than a direct call so this package keeps no opinion
+// about who may mark: the whole policy lives in service/marking, and Story 0.7
+// replaces its body without touching a line of the mark path.
+type ScopeGuard interface {
+	AssertCanMark(ctx context.Context, actor Actor, eventID, categoryID string) error
+}
+
+// allowAnyScope is the guard used when none is wired. It exists so a nil guard
+// fails loudly at composition time rather than silently disabling scope: the
+// only place it is legitimate is a test that is not about scope at all.
+type allowAnyScope struct{}
+
+func (allowAnyScope) AssertCanMark(context.Context, Actor, string, string) error { return nil }
+
 type systemClock struct{}
 
 func (systemClock) Now() time.Time { return time.Now() }
@@ -128,13 +144,17 @@ type Service struct {
 	writer       Writer
 	audited      AuditStore
 	clock        Clock
+	scope        ScopeGuard
 }
 
-func NewService(reader Reader, cardResolver CardResolver, writer Writer, audited AuditStore, clock Clock) *Service {
+func NewService(reader Reader, cardResolver CardResolver, writer Writer, audited AuditStore, clock Clock, scope ScopeGuard) *Service {
 	if clock == nil {
 		clock = systemClock{}
 	}
-	return &Service{reader: reader, cardResolver: cardResolver, writer: writer, audited: audited, clock: clock}
+	if scope == nil {
+		scope = allowAnyScope{}
+	}
+	return &Service{reader: reader, cardResolver: cardResolver, writer: writer, audited: audited, clock: clock, scope: scope}
 }
 
 func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkResult, error) {
@@ -155,6 +175,20 @@ func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkR
 	}
 	if _, err := uuid.Parse(strings.TrimSpace(input.CategoryID)); err != nil {
 		return MarkResult{}, validation("category_id", "invalid_format", "category_id must be a UUID.")
+	}
+
+	// The scope gate, in front of every read and every write on this path.
+	// Enforcing scope in the read handlers alone would be worthless: the client
+	// chooses these two ids and could post any pair it liked (NFR11).
+	if err := s.scope.AssertCanMark(ctx, actor, input.EventID, input.CategoryID); err != nil {
+		return MarkResult{}, err
+	}
+
+	// The actor's id is only needed to write the record and its audit row, so it
+	// is checked here rather than with the request shape: a caller refused by the
+	// scope gate above must not be able to learn anything from what comes after it.
+	if err := validateActorID(actor); err != nil {
+		return MarkResult{}, err
 	}
 
 	event, err := s.reader.EventForMark(ctx, input.EventID)
@@ -213,18 +247,25 @@ func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkR
 	return result, nil
 }
 
+// validateActor is the ROLE gate, and it runs before anything else so an
+// unauthorized caller cannot tell a well-formed request from a malformed one.
 func validateActor(actor Actor) error {
 	switch actor.Role {
 	case "coordinator", "teacher", "admin":
-		if _, err := uuid.Parse(strings.TrimSpace(actor.UserID)); err != nil {
-			return validation("actor_user_id", "invalid_format", "authenticated user id must be a UUID.")
-		}
 		return nil
 	case "student":
 		return forbidden("Students cannot mark attendance.")
 	default:
 		return forbidden("Coordinator, teacher, or admin role required.")
 	}
+}
+
+// validateActorID is the separate format check, run after authorization.
+func validateActorID(actor Actor) error {
+	if _, err := uuid.Parse(strings.TrimSpace(actor.UserID)); err != nil {
+		return validation("actor_user_id", "invalid_format", "authenticated user id must be a UUID.")
+	}
+	return nil
 }
 
 func validateIdentity(input MarkInput) error {
@@ -244,6 +285,22 @@ func validateIdentity(input MarkInput) error {
 	return nil
 }
 
+// validateIdentityCapturePair pins which identity may arrive with which capture
+// method.
+//
+// `card` is valid for nfc and camera. `student_id` is valid for camera and
+// search — camera pairs with BOTH because nothing in this MVP ever writes a
+// sealed token to a barcode or QR: the card populator writes the token to the
+// NFC tag, and what the camera actually reads is the barcode already printed on
+// the university ID card, which carries a ROLL NUMBER. The client resolves that
+// roll to a student_id through the search endpoint and marks with
+// capture_method "camera". Without this the three-mode screen has no legal
+// request shape for a camera mark at all.
+//
+// It opens no new fraud surface: camera and search share one credit pool in
+// Story 0.8, and capture_method is still persisted truthfully on the od_records
+// row and on its audit row (FR44), so a camera mark can never be counted or
+// audited as something else.
 func validateIdentityCapturePair(input MarkInput) error {
 	if input.Card != nil {
 		switch input.CaptureMethod {
@@ -254,8 +311,11 @@ func validateIdentityCapturePair(input MarkInput) error {
 		}
 	}
 	if input.StudentID != nil {
-		if input.CaptureMethod != CaptureMethodSearch {
-			return validation("identity", "capture_method_mismatch", "student_id identity is valid only for search marks.")
+		switch input.CaptureMethod {
+		case CaptureMethodCamera, CaptureMethodSearch:
+			return nil
+		default:
+			return validation("identity", "capture_method_mismatch", "student_id identity is valid only for camera or search marks.")
 		}
 	}
 	return nil

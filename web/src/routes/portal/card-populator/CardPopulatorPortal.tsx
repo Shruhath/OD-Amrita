@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { EventApi, ResolvedCardStudent, StudentCollection } from '../../../api/client'
 import { PortalShell } from '../../../components/PortalShell'
 import { useAuth } from '../../../features/auth/context'
-import { CardNfcError, createWebNfcAdapter, type WebNfcStatus } from '../../../features/cardPopulator/webNfc'
+import { CardNfcError, createWebNfcAdapter, type WebNfcStatus } from '../../../features/nfc/webNfc'
 import { messageOf } from '../events/format'
 
 /**

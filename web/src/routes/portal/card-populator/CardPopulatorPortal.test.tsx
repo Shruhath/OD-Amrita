@@ -4,7 +4,7 @@ import { http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { Application } from '../../../Application'
 import type { SessionPort } from '../../../features/auth/session'
-import { CARD_MEDIA_TYPE } from '../../../features/cardPopulator/webNfc'
+import { CARD_MEDIA_TYPE } from '../../../features/nfc/webNfc'
 import { createPortalMemoryRouter } from '../../../router'
 import { server } from '../../../test/server'
 import {

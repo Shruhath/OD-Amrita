@@ -120,6 +120,7 @@ func TestList_RejectsPaginationAndFilterBounds(t *testing.T) {
 		code  string
 	}{
 		{"page below one", ListInput{Page: 0 - 1}, "page", "minimum"},
+		{"page above max", ListInput{Page: maxListPage + 1}, "page", "maximum"},
 		{"page size below one", ListInput{PageSize: -1}, "page_size", "minimum"},
 		{"page size above max", ListInput{PageSize: maxListPageSize + 1}, "page_size", "maximum"},
 		{"branch id not a uuid", ListInput{BranchID: "not-a-uuid"}, "branch_id", "invalid_format"},

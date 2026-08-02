@@ -14,6 +14,7 @@ import (
 const (
 	defaultListPageSize = 100
 	maxListPageSize     = 100
+	maxListPage         = 10000
 )
 
 // ListInput filters the admin roster read. Every filter is optional; an empty
@@ -88,6 +89,9 @@ func validateList(input ListInput) (ListInput, error) {
 	}
 	if input.Page < 1 {
 		return ListInput{}, validation("page", "minimum", "Page must be at least 1.")
+	}
+	if input.Page > maxListPage {
+		return ListInput{}, validation("page", "maximum", "Page must not exceed 10000.")
 	}
 	if input.PageSize < 1 {
 		return ListInput{}, validation("page_size", "minimum", "Page size must be at least 1.")

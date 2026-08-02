@@ -44,6 +44,36 @@ export class ApiFailure extends Error {
   }
 }
 
+/**
+ * Coerces whatever the transport produced into a real error envelope.
+ *
+ * THIS IS NOT DEFENSIVE PROGRAMMING — it fixes an observed failure. Not every
+ * error response is JSON: gin answers an unmatched route with the plain text
+ * `404 page not found`, and a proxy or tunnel in front of the API answers with
+ * an HTML page. `openapi-fetch` handles those by returning the RAW STRING as
+ * `error` (it does `let error = await response.text()` and only then attempts
+ * `JSON.parse`). A non-empty string is truthy, so a `?? fallback` never fires
+ * and `body.code` / `body.message` are both `undefined`.
+ *
+ * Every caller reads `body.code` to choose a message, so the result was a red
+ * banner with NO reason in it — which is exactly the state the banner exists to
+ * prevent, and which was seen for real when the deployed API was briefly serving
+ * a build without these routes. Normalising here fixes every surface at once,
+ * because this is the single choke point they all throw through.
+ */
+function errorEnvelope(raw: unknown, response: Response): ErrorEnvelope | ValidationError {
+  if (raw && typeof raw === 'object' && typeof (raw as ErrorEnvelope).code === 'string') {
+    return raw as ErrorEnvelope | ValidationError
+  }
+  // The body text is deliberately NOT echoed into the message. An error body can
+  // quote the request that produced it, and on the card paths that request
+  // carries a token.
+  return {
+    code: 'INTERNAL',
+    message: `The server returned an unreadable ${response.status} response.`,
+  } as ErrorEnvelope
+}
+
 const apiBaseURL = import.meta.env.VITE_API_BASE_URL ?? window.location.origin
 
 // Pre-production only: true while the API is reached through an ngrok tunnel,
@@ -91,8 +121,7 @@ export function createEventApi(session: SessionPort) {
 
   const unwrap = <T>(result: { data?: T; error?: ErrorEnvelope | ValidationError; response: Response }): T => {
     if (result.data !== undefined) return result.data
-    const body = result.error ?? { code: 'INTERNAL', message: 'The request failed.' }
-    throw new ApiFailure(result.response.status, body)
+    throw new ApiFailure(result.response.status, errorEnvelope(result.error, result.response))
   }
 
   return {

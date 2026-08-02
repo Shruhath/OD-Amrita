@@ -17,6 +17,7 @@ package student
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -167,13 +168,33 @@ func TestSearch_OrdersExactRollMatchFirstAndDeterministically(t *testing.T) {
 
 // 0.6-SEARCH-001f — the result shape carries nothing private. This is a
 // structural guard: the field simply must not exist to be populated.
+//
+// It reflects over the struct rather than naming fields. The earlier version
+// declared `result := SearchResult{}` and then `_ = result` under a comment
+// claiming "if any of these compile, the field exists" — there were no field
+// references, so adding `Email string` left it green. A guard that cannot fail
+// is worse than no guard: it reads as coverage.
 func TestSearchResult_CarriesNoPrivateFields(t *testing.T) {
-	result := SearchResult{}
+	allowed := map[string]bool{
+		"StudentID": true, "RollNo": true, "DisplayName": true,
+		"Branch": true, "Section": true, "Batch": true,
+	}
+	banned := []string{"email", "token", "fingerprint", "secret", "hmac", "seal"}
 
-	// If any of these compile, the field exists and the guarantee is broken.
-	// The dev should keep SearchResult to student_id / roll_no / display_name
-	// (plus branch/section/batch, which are already public roster columns).
-	_ = result
+	shape := reflect.TypeOf(SearchResult{})
+	for i := range shape.NumField() {
+		name := shape.Field(i).Name
+		if !allowed[name] {
+			t.Errorf("[P0] SearchResult gained field %q — this shape is the roster search's wire contract; "+
+				"a new field here is exposed to every coordinator. Add it to `allowed` only if it is public roster data.", name)
+		}
+		for _, forbidden := range banned {
+			if strings.Contains(strings.ToLower(name), forbidden) {
+				t.Errorf("[P0] SearchResult.%s matches the forbidden term %q — students has no email column "+
+					"and card tokens are fingerprint-only; a field that does not exist cannot be populated later.", name, forbidden)
+			}
+		}
+	}
 
 	capture := &searchCapture{results: []SearchResult{{
 		StudentID:   "55555555-5555-4555-8555-555555555555",

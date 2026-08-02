@@ -1,4 +1,3 @@
-
 // Contract gate for the coordinator marking surface.
 //
 // These assert the SHAPE of the four marking read paths and their schemas. They
@@ -7,7 +6,12 @@
 // build tags, so a tagged file is a gate that never fires.
 package contract
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 const (
 	markableEventsPath     = "/api/v1/events"
@@ -159,8 +163,20 @@ func TestMarkingSurfaceContract_MarkStatusShape(t *testing.T) {
 	if markStatus == nil {
 		t.Fatal("[P0] components.schemas.MarkStatus is missing")
 	}
-	if missing := missingRequired(markStatus, "server_time", "counters"); len(missing) > 0 {
-		t.Errorf("[P0] MarkStatus required is missing %v", missing)
+	// `slot` is REQUIRED as well as nullable, and that is load-bearing rather
+	// than pedantic. Merely optional makes the Go generator emit
+	// `json:"slot,omitempty"`, so the key VANISHES from the response whenever no
+	// slot is open — and a client then cannot distinguish "no slot is open" from
+	// "this server does not report slots". Required-and-nullable is the correct
+	// encoding for "always present, may be null", and it is what makes the
+	// explicit no-slot state observable at all.
+	//
+	// This assertion is the gate on that decision. Without `slot` in this list,
+	// dropping it from `required` regenerated the omitempty form and reintroduced
+	// the exact bug the deviation exists to prevent, with nothing failing.
+	if missing := missingRequired(markStatus, "server_time", "slot", "counters"); len(missing) > 0 {
+		t.Errorf("[P0] MarkStatus required is missing %v — `slot` must be required AND nullable, "+
+			"or the generator emits omitempty and the no-slot state becomes indistinguishable from an old server", missing)
 	}
 	statusProps := getMap(markStatus, "properties")
 	slot := getMap(statusProps, "slot")
@@ -318,4 +334,46 @@ func containsFold(hay, needle string) bool {
 		}
 	}
 	return false
+}
+
+// The generated Go struct is where the `slot` decision actually bites, so it is
+// asserted directly rather than only through the spec.
+//
+// The spec assertion above and this one guard the same property from both ends:
+// the YAML says `slot` is required, and the emitted Go tag must therefore be
+// `json:"slot"` with NO omitempty. If a future edit drops `slot` from required,
+// the generator silently emits `json:"slot,omitempty"` and the key disappears
+// from the wire whenever no slot is open — which is precisely the state the
+// countdown has to render as "no slot is open right now".
+func TestGeneratedMarkStatusKeepsSlotOnTheWire(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "..", "contracts", "generated", "go", "types.gen.go"))
+	if err != nil {
+		t.Fatalf("read generated types: %v", err)
+	}
+
+	block := structBlock(string(source), "MarkStatus")
+	if block == "" {
+		t.Fatal("[P0] type MarkStatus not found in the generated Go types")
+	}
+	if !strings.Contains(block, "`json:\"slot\"`") {
+		t.Errorf("[P0] MarkStatus.Slot is not tagged `json:\"slot\"`. Generated block:\n%s\n"+
+			"An omitempty here removes the key entirely when no slot is open, and a client cannot then "+
+			"tell \"no slot\" from \"this server does not report slots\".", block)
+	}
+	if strings.Contains(block, "slot,omitempty") {
+		t.Errorf("[P0] MarkStatus.Slot carries omitempty — `slot` must be required AND nullable in the spec. Block:\n%s", block)
+	}
+}
+
+// structBlock returns the body of `type <name> struct { ... }`, or "".
+func structBlock(source, name string) string {
+	start := strings.Index(source, "type "+name+" struct {")
+	if start < 0 {
+		return ""
+	}
+	end := strings.Index(source[start:], "\n}")
+	if end < 0 {
+		return ""
+	}
+	return source[start : start+end]
 }

@@ -167,7 +167,34 @@ func isMarkingReadPath(path string) bool {
 	return false
 }
 
+// adminEventPaths are admin routes that legitimately share a suffix with a
+// marking read. Event administration owns /api/v1/admin/events and its category
+// sub-path and predates the marking surface entirely, so matching on the suffix
+// alone would flag them forever. They are named here rather than the matcher
+// being narrowed back down, so the exemption is visible and finite.
+var adminEventPaths = map[string]bool{
+	"/api/v1/admin/events":                      true,
+	"/api/v1/admin/events/:event_id/categories": true,
+}
+
+// isMarkingReadName matches a marking read wherever it is mounted, so an
+// admin-prefixed copy is recognised as the SAME read.
+//
+// It derives the suffixes from markingReadPaths rather than naming a couple by
+// hand. The earlier version tested only "/mark/status" and "/students/search",
+// so registering the reads on the admin group would have produced
+// /api/v1/admin/students/search and /api/v1/admin/mark/status and this test
+// would still have passed — while the coordinator's event selector 403'd on the
+// day of the event, which is the exact failure it exists to catch.
 func isMarkingReadName(path string) bool {
-	return strings.Contains(path, "/mark/status") ||
-		strings.Contains(path, "/students/search")
+	if adminEventPaths[path] {
+		return false
+	}
+	for _, candidate := range markingReadPaths {
+		suffix := strings.TrimPrefix(candidate, "/api/v1")
+		if strings.HasSuffix(path, suffix) {
+			return true
+		}
+	}
+	return false
 }

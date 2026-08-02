@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -131,11 +132,18 @@ func TestSearchHandler_ResponseCarriesNoTokenOrEmail(t *testing.T) {
 	}
 	body := recorder.Body.String()
 	for _, banned := range []string{"token", "email", "fingerprint", "token_sha256"} {
+		// Keys, via the decoded map — a nested `email` at any depth is caught.
 		if containsKeyDeep(raw, banned) {
 			t.Errorf("[P0] search response contains a %q key — students has no email column and tokens are fingerprint-only", banned)
 		}
+		// And the raw wire text, which catches the same term appearing as a VALUE
+		// (an email leaked into display_name, a token echoed into a message). The
+		// earlier version assigned `body` and then discarded it with `_ = body`,
+		// so this half was never actually checked.
+		if strings.Contains(strings.ToLower(body), banned) {
+			t.Errorf("[P0] search response body contains %q as text: %s", banned, body)
+		}
 	}
-	_ = body
 }
 
 // ---------------------------------------------------------------------------

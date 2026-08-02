@@ -15,6 +15,7 @@ package marking
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -199,11 +200,33 @@ func TestVisibleEvents_ActiveOnlyForCoordinatorsAndEmptyForOthers(t *testing.T) 
 // Story 0.7 as the ONLY story allowed to change the policy body, and it does so
 // by pinning the call signatures the rest of the system depends on.
 func TestScopeSeam_ExportsExactlyTheTwoAgreedEntryPoints(t *testing.T) {
+	// Signatures first: these fail to COMPILE if either entry point changes shape.
 	var (
 		_ func(context.Context, Actor) ([]Event, error)      = (*Policy)(nil).VisibleEvents
 		_ func(context.Context, Actor, string, string) error = (*Policy)(nil).AssertCanMark
 	)
-	// Story 0.7 replaces the BODY of these two functions with an assignment
-	// lookup against event_coordinators. It must not add a third entry point,
-	// and it must not move the policy into a handler.
+
+	// Then the count, which is the half the earlier version was missing. It had
+	// only the two declarations above and no assertion at all, so a THIRD
+	// exported entry point — the one thing the test's name promises to catch —
+	// would not have failed it.
+	//
+	// The assignment story replaces the BODY of these two methods with a lookup
+	// against the coordinator-assignment table. It must not add a third entry
+	// point, and it must not move any part of the policy into a handler. If this
+	// test fails, that is the decision being made — make it deliberately.
+	want := map[string]bool{"VisibleEvents": true, "AssertCanMark": true}
+
+	shape := reflect.TypeOf(&Policy{})
+	for i := range shape.NumMethod() {
+		name := shape.Method(i).Name
+		if !want[name] {
+			t.Errorf("[P0] Policy exports a third entry point %q — the seam is exactly VisibleEvents and AssertCanMark. "+
+				"Scattering authorization across more entry points is the failure this seam exists to prevent (C4/NFR11).", name)
+		}
+		delete(want, name)
+	}
+	for name := range want {
+		t.Errorf("[P0] Policy no longer exports %q — every marking read and the mark write depend on it", name)
+	}
 }

@@ -1,5 +1,3 @@
-//go:build atdd
-
 package odrecord
 
 import (

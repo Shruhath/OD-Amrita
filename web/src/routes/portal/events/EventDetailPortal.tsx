@@ -33,6 +33,7 @@ export default function EventDetailPortal() {
   const [creditLimit, setCreditLimit] = useState('5')
   const [creditFieldError, setCreditFieldError] = useState<string | null>(null)
   const [creditFormError, setCreditFormError] = useState<string | null>(null)
+  const [resetCandidate, setResetCandidate] = useState<CaptureCreditUsage | null>(null)
 
   const currentEventKey = eventKey(eventID)
   const events = useQuery({
@@ -174,6 +175,7 @@ export default function EventDetailPortal() {
           current ? { ...current, data: current.data.map((row) => (row.user_id === updated.user_id ? updated : row)) } : current
         ))
       }
+      setResetCandidate(null)
       setCreditFormError(null)
       void queryClient.invalidateQueries({ queryKey: currentCreditKey })
       void queryClient.invalidateQueries({ queryKey: ['mark-status'] })
@@ -246,8 +248,9 @@ export default function EventDetailPortal() {
 
   const submitCreditLimit = (submitEvent: FormEvent) => {
     submitEvent.preventDefault()
-    const parsed = Number.parseInt(creditLimit, 10)
-    if (!Number.isInteger(parsed) || parsed < 0) {
+    const trimmed = creditLimit.trim()
+    const parsed = Number(trimmed)
+    if (trimmed === '' || !Number.isInteger(parsed) || parsed < 0) {
       setCreditFieldError('Enter a whole number of 0 or more.')
       setCreditFormError(null)
       return
@@ -398,7 +401,7 @@ export default function EventDetailPortal() {
                         row={row}
                         readOnly={event.status === 'archived'}
                         resetPending={resetCredits.isPending}
-                        onReset={() => resetCredits.mutate(row.user_id)}
+                        onReset={() => setResetCandidate(row)}
                       />
                     ))}
                   </ul>
@@ -425,6 +428,32 @@ export default function EventDetailPortal() {
             )}
             {creditFormError && <p className="notice error" role="alert">{creditFormError}</p>}
           </section>
+          {resetCandidate && (
+            <div className="dialog-backdrop" role="presentation">
+              <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="reset-credit-title">
+                <h2 id="reset-credit-title">Reset fallback credits</h2>
+                <p>Reset {resetCandidate.name ?? resetCandidate.email} to 0 used credits.</p>
+                <div className="dialog-actions">
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={resetCredits.isPending}
+                    onClick={() => resetCredits.mutate(resetCandidate.user_id)}
+                  >
+                    Confirm reset
+                  </button>
+                  <button
+                    type="button"
+                    className="text-button"
+                    disabled={resetCredits.isPending}
+                    onClick={() => setResetCandidate(null)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </PortalShell>

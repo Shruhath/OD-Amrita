@@ -34,6 +34,8 @@ type fakeService struct {
 	getCalls               int
 	coordinatorCreateCalls int
 	coordinatorInput       eventsvc.CreateCoordinatorAssignmentInput
+	creditConfigCalls      int
+	creditConfigInput      eventsvc.CaptureCreditConfigInput
 }
 
 func (f *fakeService) Branches(context.Context) ([]eventsvc.Branch, error) { return f.branches, f.err }
@@ -73,8 +75,14 @@ func (f *fakeService) ListCaptureCredits(context.Context, eventsvc.Actor, string
 	return eventsvc.CaptureCreditSummary{}, f.err
 }
 
-func (f *fakeService) UpdateCaptureCreditConfig(context.Context, eventsvc.Actor, eventsvc.CaptureCreditConfigInput) (eventsvc.CaptureCreditConfig, error) {
-	return eventsvc.CaptureCreditConfig{}, f.err
+func (f *fakeService) UpdateCaptureCreditConfig(_ context.Context, _ eventsvc.Actor, input eventsvc.CaptureCreditConfigInput) (eventsvc.CaptureCreditConfig, error) {
+	f.creditConfigCalls++
+	f.creditConfigInput = input
+	return eventsvc.CaptureCreditConfig{
+		EventID:   input.EventID,
+		Limit:     input.Limit,
+		UpdatedAt: time.Date(2026, 8, 3, 3, 0, 0, 0, time.UTC),
+	}, f.err
 }
 
 func (f *fakeService) ResetCaptureCredits(context.Context, eventsvc.Actor, string, string) (eventsvc.CaptureCreditUsage, error) {
@@ -201,6 +209,50 @@ func TestCreateReturnsFieldSpecificGeneratedTypeValidationBeforeService(t *testi
 	}
 }
 
+func TestUpdateCaptureCreditConfigRejectsMissingAndMalformedLimitBeforeService(t *testing.T) {
+	eventID := uuid.NewString()
+	for _, tc := range []struct {
+		name  string
+		body  string
+		field string
+		code  string
+	}{
+		{name: "missing", body: `{}`, field: "limit", code: "required"},
+		{name: "null", body: `{"limit":null}`, field: "limit", code: "invalid_format"},
+		{name: "fraction", body: `{"limit":1.5}`, field: "limit", code: "invalid_format"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &fakeService{}
+			recorder := request(eventRouter(svc), http.MethodPut, "/events/"+eventID+"/capture-credits/config", tc.body)
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+			var body contracts.ValidationError
+			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decode error: %v", err)
+			}
+			if len(body.Details) != 1 || body.Details[0].Field != tc.field || body.Details[0].Code != tc.code {
+				t.Fatalf("details=%#v", body.Details)
+			}
+			if svc.creditConfigCalls != 0 {
+				t.Fatal("service called for invalid limit")
+			}
+		})
+	}
+}
+
+func TestUpdateCaptureCreditConfigPreservesExplicitZero(t *testing.T) {
+	eventID := uuid.NewString()
+	svc := &fakeService{}
+	recorder := request(eventRouter(svc), http.MethodPut, "/events/"+eventID+"/capture-credits/config", `{"limit":0}`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if svc.creditConfigCalls != 1 || svc.creditConfigInput.Limit != 0 {
+		t.Fatalf("calls/input = %d/%#v, want explicit zero passed to service", svc.creditConfigCalls, svc.creditConfigInput)
+	}
+}
+
 func TestCreateRejectsBodyLargerThanOneMiBBeforeService(t *testing.T) {
 	svc := &fakeService{}
 	body := `{"name":"` + strings.Repeat("x", int(maxCreateRequestBytes)) + `","event_date":"2026-08-15","branch_ids":[]}`
@@ -288,6 +340,9 @@ func eventRouter(svc Service) *gin.Engine {
 	router.POST("/events/:event_id/archive", ArchiveEventHandler(svc))
 	router.GET("/events/:event_id/coordinators", ListCoordinatorAssignmentsHandler(svc))
 	router.POST("/events/:event_id/coordinators", CreateCoordinatorAssignmentHandler(svc))
+	router.GET("/events/:event_id/capture-credits", ListCaptureCreditsHandler(svc))
+	router.PUT("/events/:event_id/capture-credits/config", UpdateCaptureCreditConfigHandler(svc))
+	router.POST("/events/:event_id/capture-credits/coordinators/:user_id/reset", ResetCaptureCreditsHandler(svc))
 	return router
 }
 

@@ -176,6 +176,9 @@ func TestCaptureCreditContract_AdminSchemasAreEventScopedAndBounded(t *testing.T
 		if got := getFloat(resolveSchema(doc, getMap(getMap(update, "properties"), "limit")), "minimum"); got != 0 {
 			t.Errorf("[P0] UpdateCaptureCreditConfigRequest.limit minimum = %v, want 0", got)
 		}
+		if got := getFloat(resolveSchema(doc, getMap(getMap(update, "properties"), "limit")), "maximum"); got != 2147483647 {
+			t.Errorf("[P0] UpdateCaptureCreditConfigRequest.limit maximum = %v, want int32 max to prevent server-side cast overflow", got)
+		}
 	}
 }
 

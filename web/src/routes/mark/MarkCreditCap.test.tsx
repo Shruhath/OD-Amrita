@@ -1,12 +1,16 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test, vi } from 'vitest'
 
+import type { EventApi } from '../../api/client'
 import { Application } from '../../Application'
+import { AuthContext } from '../../features/auth/context'
 import type { SessionPort } from '../../features/auth/session'
 import { createPortalMemoryRouter } from '../../router'
 import { server } from '../../test/server'
+import MarkScreen from './MarkScreen'
 import { captureCreditLimitError, fallbackCreditState } from '../../../tests/support/factories/captureCredits'
 import {
   collection,
@@ -92,6 +96,65 @@ describe('mark fallback credit behavior', () => {
     expect(await screen.findByText(/use nfc or request an admin reset/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /camera|scan/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /search/i })).toBeDisabled()
+  })
+
+  test('[P0] stops an active camera session when fallback credits become exhausted', async () => {
+    const user = userEvent.setup()
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    let credit = fallbackCreditState({ limit: 5, consumed: 4, remaining: 1 })
+    const cameraSignals: AbortSignal[] = []
+    const api = {
+      markableEvents: vi.fn(async () => collection([markableEvent()])),
+      markableCategories: vi.fn(async () => dataOnly([markableCategory()])),
+      markStatus: vi.fn(async () => markStatusOpen({ fallback_credit: credit })),
+      searchStudents: vi.fn(async () => dataOnly([markStudent(1)])),
+      mark: vi.fn(async () => markResult(markStudent(1))),
+    } as unknown as EventApi
+    const camera = {
+      status: vi.fn(async () => 'available' as const),
+      start: vi.fn(async (_decode, _error, signal: AbortSignal) => {
+        cameraSignals.push(signal)
+      }),
+    }
+    const nfc = {
+      status: vi.fn(() => 'unsupported' as const),
+      write: vi.fn(async () => undefined),
+      read: vi.fn(async () => ({ version: 'dev', token: 'token' })),
+      scanSession: vi.fn(async () => undefined),
+    }
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthContext.Provider
+          value={{
+            api,
+            identity: {
+              subject: 'credit-coordinator',
+              email: 'coordinator@amrita.edu',
+              name: 'Credit Coordinator',
+              role: 'coordinator',
+            },
+            loading: false,
+            error: null,
+            signIn: vi.fn(async () => undefined),
+            signOut: vi.fn(async () => undefined),
+            reload: vi.fn(async () => undefined),
+          }}
+        >
+          <MarkScreen ports={{ camera, nfc }} />
+        </AuthContext.Provider>
+      </QueryClientProvider>,
+    )
+
+    await user.click(await screen.findByRole('button', { name: /camera|scan/i }))
+    await waitFor(() => expect(camera.start).toHaveBeenCalledTimes(1))
+    expect(cameraSignals[0].aborted).toBe(false)
+
+    credit = fallbackCreditState({ limit: 5, consumed: 5, remaining: 0, exhausted: true })
+    await queryClient.invalidateQueries({ queryKey: ['mark-status'] })
+
+    await waitFor(() => expect(cameraSignals[0].aborted).toBe(true))
+    expect(screen.getByRole('button', { name: /camera|scan/i })).toBeDisabled()
   })
 
   test('[P0] keeps NFC enabled and capable of a green mark when fallback credits are exhausted', async () => {

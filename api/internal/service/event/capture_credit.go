@@ -49,9 +49,18 @@ type CaptureCreditConfigWrite struct {
 	UpdatedByUserID uuid.UUID
 }
 
+type CaptureCreditConfigWriteResult struct {
+	Config        CaptureCreditConfig
+	PreviousLimit int
+}
+
 type CaptureCreditResetWrite struct {
 	EventID uuid.UUID
 	UserID  uuid.UUID
+}
+
+type CaptureCreditResetWriteResult struct {
+	PreviousConsumed int
 }
 
 type CaptureCreditReader interface {
@@ -61,11 +70,13 @@ type CaptureCreditReader interface {
 }
 
 type CaptureCreditWriter interface {
-	UpsertCaptureCreditConfig(context.Context, pgx.Tx, CaptureCreditConfigWrite) (CaptureCreditConfig, bool, error)
-	ResetCaptureCreditUsage(context.Context, pgx.Tx, CaptureCreditResetWrite) (bool, error)
+	UpsertCaptureCreditConfig(context.Context, pgx.Tx, CaptureCreditConfigWrite) (CaptureCreditConfigWriteResult, bool, error)
+	ResetCaptureCreditUsage(context.Context, pgx.Tx, CaptureCreditResetWrite) (CaptureCreditResetWriteResult, bool, error)
 }
 
 var errCaptureCreditStoreMissing = errors.New("event: capture credit store missing")
+
+const maxCaptureCreditLimit = 1<<31 - 1
 
 func (s *Service) ListCaptureCredits(ctx context.Context, actor Actor, rawEventID string) (CaptureCreditSummary, error) {
 	if s.creditReader == nil {
@@ -103,13 +114,6 @@ func (s *Service) UpdateCaptureCreditConfig(ctx context.Context, actor Actor, in
 	if err != nil {
 		return CaptureCreditConfig{}, err
 	}
-	if input.Limit < 0 {
-		return CaptureCreditConfig{}, coordinatorValidation("limit", "minimum", "Limit must be at least 0.")
-	}
-	actorID, err := uuid.Parse(strings.TrimSpace(actor.UserID))
-	if err != nil {
-		return CaptureCreditConfig{}, fmt.Errorf("event: invalid principal id: %w", err)
-	}
 	status, err := s.eventStatus(ctx, eventID)
 	if err != nil {
 		return CaptureCreditConfig{}, err
@@ -117,9 +121,15 @@ func (s *Service) UpdateCaptureCreditConfig(ctx context.Context, actor Actor, in
 	if status == StatusArchived {
 		return CaptureCreditConfig{}, eventArchived()
 	}
-	previous, err := s.creditReader.GetCaptureCreditConfig(ctx, eventID)
+	if input.Limit < 0 {
+		return CaptureCreditConfig{}, coordinatorValidation("limit", "minimum", "Limit must be at least 0.")
+	}
+	if input.Limit > maxCaptureCreditLimit {
+		return CaptureCreditConfig{}, coordinatorValidation("limit", "maximum", "Limit must not exceed 2147483647.")
+	}
+	actorID, err := uuid.Parse(strings.TrimSpace(actor.UserID))
 	if err != nil {
-		return CaptureCreditConfig{}, err
+		return CaptureCreditConfig{}, fmt.Errorf("event: invalid principal id: %w", err)
 	}
 
 	actorAccount := strings.ToLower(strings.TrimSpace(actor.Email))
@@ -127,6 +137,7 @@ func (s *Service) UpdateCaptureCreditConfig(ctx context.Context, actor Actor, in
 	targetTable := "event_capture_credit_config"
 	targetID := eventID.String()
 	var updated CaptureCreditConfig
+	var previousLimit int
 	evt := store.AuditEvent{
 		Action:       domain.ActionCaptureCreditCapChanged,
 		ActorAccount: &actorAccount,
@@ -137,14 +148,14 @@ func (s *Service) UpdateCaptureCreditConfig(ctx context.Context, actor Actor, in
 			return json.Marshal(map[string]any{
 				"event_id":       targetID,
 				"actor_user_id":  actorID.String(),
-				"previous_limit": previous.Limit,
+				"previous_limit": previousLimit,
 				"new_limit":      updated.Limit,
 			})
 		},
 	}
 
 	err = s.store.WithAudit(ctx, evt, func(ctx context.Context, tx pgx.Tx) (bool, error) {
-		row, changed, writeErr := s.creditWriter.UpsertCaptureCreditConfig(ctx, tx, CaptureCreditConfigWrite{
+		written, changed, writeErr := s.creditWriter.UpsertCaptureCreditConfig(ctx, tx, CaptureCreditConfigWrite{
 			EventID:         eventID,
 			Limit:           input.Limit,
 			UpdatedByUserID: actorID,
@@ -152,7 +163,8 @@ func (s *Service) UpdateCaptureCreditConfig(ctx context.Context, actor Actor, in
 		if writeErr != nil {
 			return false, writeErr
 		}
-		updated = row
+		updated = written.Config
+		previousLimit = written.PreviousLimit
 		return changed, nil
 	})
 	if err != nil {
@@ -172,6 +184,13 @@ func (s *Service) ResetCaptureCredits(ctx context.Context, actor Actor, rawEvent
 	if err != nil {
 		return CaptureCreditUsage{}, err
 	}
+	status, err := s.eventStatus(ctx, eventID)
+	if err != nil {
+		return CaptureCreditUsage{}, err
+	}
+	if status == StatusArchived {
+		return CaptureCreditUsage{}, eventArchived()
+	}
 	userID, err := uuid.Parse(strings.TrimSpace(rawUserID))
 	if err != nil {
 		return CaptureCreditUsage{}, coordinatorValidation("user_id", "invalid_format", "User id must be a UUID.")
@@ -180,25 +199,12 @@ func (s *Service) ResetCaptureCredits(ctx context.Context, actor Actor, rawEvent
 	if err != nil {
 		return CaptureCreditUsage{}, fmt.Errorf("event: invalid principal id: %w", err)
 	}
-	status, err := s.eventStatus(ctx, eventID)
-	if err != nil {
-		return CaptureCreditUsage{}, err
-	}
-	if status == StatusArchived {
-		return CaptureCreditUsage{}, eventArchived()
-	}
-	previous, err := s.creditReader.GetCaptureCreditUsageForCoordinator(ctx, eventID, userID)
-	if err != nil {
-		if errors.Is(err, ErrCoordinatorUserNotFound) {
-			return CaptureCreditUsage{}, coordinatorUserNotFound()
-		}
-		return CaptureCreditUsage{}, err
-	}
 
 	actorAccount := strings.ToLower(strings.TrimSpace(actor.Email))
 	actorRole := actor.Role
 	targetTable := "event_capture_credit_usage"
 	targetID := eventID.String() + ":" + userID.String()
+	var previousConsumed int
 	evt := store.AuditEvent{
 		Action:       domain.ActionCaptureCreditReset,
 		ActorAccount: &actorAccount,
@@ -210,14 +216,19 @@ func (s *Service) ResetCaptureCredits(ctx context.Context, actor Actor, rawEvent
 				"event_id":          eventID.String(),
 				"user_id":           userID.String(),
 				"actor_user_id":     actorID.String(),
-				"previous_consumed": previous.Consumed,
+				"previous_consumed": previousConsumed,
 				"new_consumed":      0,
 			})
 		},
 	}
 
 	err = s.store.WithAudit(ctx, evt, func(ctx context.Context, tx pgx.Tx) (bool, error) {
-		return s.creditWriter.ResetCaptureCreditUsage(ctx, tx, CaptureCreditResetWrite{EventID: eventID, UserID: userID})
+		written, changed, writeErr := s.creditWriter.ResetCaptureCreditUsage(ctx, tx, CaptureCreditResetWrite{EventID: eventID, UserID: userID})
+		if writeErr != nil {
+			return false, writeErr
+		}
+		previousConsumed = written.PreviousConsumed
+		return changed, nil
 	})
 	if err != nil {
 		return CaptureCreditUsage{}, mapCaptureCreditWriteError(err)

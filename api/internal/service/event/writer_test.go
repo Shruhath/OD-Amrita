@@ -68,12 +68,12 @@ func (f *fakeWriteQueries) InsertEventCoordinatorAssignment(context.Context, sql
 	return f.assignment, f.assignmentErr
 }
 
-func (f *fakeWriteQueries) UpsertCaptureCreditConfig(context.Context, sqlc.UpsertCaptureCreditConfigParams) (sqlc.EventCaptureCreditConfig, error) {
-	return sqlc.EventCaptureCreditConfig{}, nil
+func (f *fakeWriteQueries) UpsertCaptureCreditConfig(context.Context, sqlc.UpsertCaptureCreditConfigParams) (sqlc.UpsertCaptureCreditConfigRow, error) {
+	return sqlc.UpsertCaptureCreditConfigRow{}, nil
 }
 
-func (f *fakeWriteQueries) ResetCaptureCreditUsage(context.Context, sqlc.ResetCaptureCreditUsageParams) (sqlc.EventCaptureCreditUsage, error) {
-	return sqlc.EventCaptureCreditUsage{}, nil
+func (f *fakeWriteQueries) ResetCaptureCreditUsage(context.Context, sqlc.ResetCaptureCreditUsageParams) (sqlc.ResetCaptureCreditUsageRow, error) {
+	return sqlc.ResetCaptureCreditUsageRow{}, nil
 }
 
 // TestSQLCWriterCreateCategoryReturnsTheRowTheDatabaseWrote pins that the id and

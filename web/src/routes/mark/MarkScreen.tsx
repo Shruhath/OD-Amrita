@@ -137,6 +137,9 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
     enabled: scopeReady,
     refetchInterval: STATUS_POLL_MS,
   })
+  const fallbackCredit = status.data?.fallback_credit
+  const fallbackExhausted = fallbackCredit?.exhausted ?? false
+  const fallbackWarningThreshold = fallbackCredit?.warning_threshold ?? 1
 
   // ---------------------------------------------------------------------
   // The mark itself.
@@ -301,7 +304,7 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
   }, [api, submit, reportFailure])
 
   useEffect(() => {
-    if (mode !== 'camera' || !scopeReady || cameraStatus !== 'available') return
+    if (mode !== 'camera' || !scopeReady || cameraStatus !== 'available' || fallbackExhausted) return
 
     const scope: Scope = { eventID, categoryID }
     const controller = new AbortController()
@@ -327,7 +330,7 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
       controller.abort()
       setPreview(null)
     }
-  }, [mode, scopeReady, eventID, categoryID, captureEpoch, camera, cameraStatus, resolveRoll, reportFailure])
+  }, [mode, scopeReady, eventID, categoryID, captureEpoch, camera, cameraStatus, fallbackExhausted, resolveRoll, reportFailure])
 
   // ---------------------------------------------------------------------
   // Capture: search.
@@ -366,9 +369,6 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
   // dataUpdatedAt is the DEVICE clock reading at the moment the response landed,
   // which is what makes the server/device offset computable.
   const clockLabel = useSlotClock(status.data ?? null, status.dataUpdatedAt)
-  const fallbackCredit = status.data?.fallback_credit
-  const fallbackExhausted = fallbackCredit?.exhausted ?? false
-  const fallbackWarningThreshold = fallbackCredit?.warning_threshold ?? 1
 
   if (!identity) return null
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -317,8 +318,8 @@ func ListCaptureCreditsHandler(svc Service) gin.HandlerFunc {
 func UpdateCaptureCreditConfigHandler(svc Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body contracts.UpdateCaptureCreditConfigRequest
-		if err := c.ShouldBindJSON(&body); err != nil {
-			fail(c, requestValidation("$", "invalid_json", "Request body must be valid JSON."))
+		if err := bindCaptureCreditConfigRequest(c, &body); err != nil {
+			fail(c, err)
 			return
 		}
 		actor, err := actorFromContext(c)
@@ -341,6 +342,36 @@ func UpdateCaptureCreditConfigHandler(svc Service) gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, response)
 	}
+}
+
+type captureCreditConfigRequestShape struct {
+	Limit json.RawMessage `json:"limit"`
+}
+
+func bindCaptureCreditConfigRequest(c *gin.Context, body *contracts.UpdateCaptureCreditConfigRequest) error {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxCreateRequestBytes)
+	var shape captureCreditConfigRequestShape
+	if err := c.ShouldBindBodyWith(&shape, binding.JSON); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return requestValidation("$", "maximum", "Request body must not exceed 1 MiB.")
+		}
+		return requestValidation("$", "invalid_json", "Request body must be valid JSON.")
+	}
+	if len(shape.Limit) == 0 {
+		return requestValidation("limit", "required", "Fallback credit cap is required.")
+	}
+	if strings.TrimSpace(string(shape.Limit)) == "null" {
+		return requestValidation("limit", "invalid_format", "Fallback credit cap must be a whole number.")
+	}
+	var limit int
+	if err := json.Unmarshal(shape.Limit, &limit); err != nil {
+		return requestValidation("limit", "invalid_format", "Fallback credit cap must be a whole number.")
+	}
+	if err := c.ShouldBindBodyWith(body, binding.JSON); err != nil {
+		return requestValidation("$", "invalid_json", "Request body must be valid JSON.")
+	}
+	return nil
 }
 
 func ResetCaptureCreditsHandler(svc Service) gin.HandlerFunc {

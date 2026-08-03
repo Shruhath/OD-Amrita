@@ -1759,6 +1759,7 @@ components:
         limit:
           type: integer
           minimum: 0
+          maximum: 2147483647
           description: Zero deliberately live-disables camera/search fallback modes.
         updated_by_user_id:
           type: string
@@ -1816,6 +1817,7 @@ components:
         limit:
           type: integer
           minimum: 0
+          maximum: 2147483647
           description: Zero deliberately live-disables camera/search fallback modes.
 
     TeacherProfile:

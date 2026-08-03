@@ -115,11 +115,26 @@ describe('event detail fallback credits', () => {
     expect(await screen.findByText(/cap: 8/i)).toBeInTheDocument()
   })
 
+  test('[P1] rejects fractional cap input before sending the request', async () => {
+    const user = userEvent.setup()
+    const { calls } = renderEventDetail()
+
+    const input = await screen.findByLabelText(/fallback credit cap/i)
+    await user.clear(input)
+    await user.type(input, '1.5')
+    await user.click(screen.getByRole('button', { name: /save cap/i }))
+
+    expect(await screen.findByText(/whole number/i)).toBeInTheDocument()
+    expect(calls).not.toContain('config')
+  })
+
   test('[P0] resets one coordinator without a page reload', async () => {
     const user = userEvent.setup()
     const { calls } = renderEventDetail()
 
     await user.click(await screen.findByRole('button', { name: /reset coordinator-a@amrita.edu/i }))
+    expect(calls).not.toContain('reset')
+    await user.click(await screen.findByRole('button', { name: /confirm reset/i }))
 
     expect(calls).toContain('reset')
     const section = await screen.findByRole('region', { name: /fallback credits/i })

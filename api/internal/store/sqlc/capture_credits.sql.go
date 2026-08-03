@@ -12,16 +12,22 @@ import (
 )
 
 const debitCaptureCredit = `-- name: DebitCaptureCredit :one
-WITH effective AS (
+WITH assignment AS (
+    SELECT eca.event_id, eca.user_id
+    FROM event_coordinator_assignments eca
+    WHERE eca.event_id = $1 AND eca.user_id = $2
+    FOR UPDATE
+),
+effective AS (
     SELECT COALESCE(cfg.credit_limit, 5)::integer AS credit_limit
     FROM events e
+    JOIN assignment ON assignment.event_id = e.id
     LEFT JOIN event_capture_credit_config cfg ON cfg.event_id = e.id
-    WHERE e.id = $1
 ),
 debited AS (
     INSERT INTO event_capture_credit_usage (event_id, user_id, consumed, updated_at)
-    SELECT $1, $2, 1, now()
-    FROM effective
+    SELECT assignment.event_id, assignment.user_id, 1, now()
+    FROM effective, assignment
     WHERE effective.credit_limit > 0
     ON CONFLICT (event_id, user_id) DO UPDATE
     SET consumed = event_capture_credit_usage.consumed + 1,
@@ -258,17 +264,34 @@ func (q *Queries) ListCaptureCreditUsageByEvent(ctx context.Context, eventID pgt
 }
 
 const resetCaptureCreditUsage = `-- name: ResetCaptureCreditUsage :one
-INSERT INTO event_capture_credit_usage (event_id, user_id, consumed, updated_at)
-SELECT $1, $2, 0, now()
-WHERE EXISTS (
-    SELECT 1
-    FROM event_coordinator_assignments
-    WHERE event_id = $1 AND user_id = $2
+WITH assignment AS (
+    SELECT eca.event_id, eca.user_id
+    FROM event_coordinator_assignments eca
+    WHERE eca.event_id = $1 AND eca.user_id = $2
+    FOR UPDATE
+),
+previous AS (
+    SELECT COALESCE(usage.consumed, 0)::integer AS previous_consumed
+    FROM assignment
+    LEFT JOIN event_capture_credit_usage usage
+        ON usage.event_id = assignment.event_id AND usage.user_id = assignment.user_id
+),
+reset AS (
+    INSERT INTO event_capture_credit_usage (event_id, user_id, consumed, updated_at)
+    SELECT assignment.event_id, assignment.user_id, 0, now()
+    FROM assignment
+    ON CONFLICT (event_id, user_id) DO UPDATE
+    SET consumed = 0,
+        updated_at = now()
+    RETURNING event_id, user_id, consumed, updated_at
 )
-ON CONFLICT (event_id, user_id) DO UPDATE
-SET consumed = 0,
-    updated_at = now()
-RETURNING event_id, user_id, consumed, updated_at
+SELECT
+    reset.event_id,
+    reset.user_id,
+    reset.consumed,
+    reset.updated_at,
+    previous.previous_consumed
+FROM reset, previous
 `
 
 type ResetCaptureCreditUsageParams struct {
@@ -276,26 +299,56 @@ type ResetCaptureCreditUsageParams struct {
 	UserID  pgtype.UUID `json:"user_id"`
 }
 
-func (q *Queries) ResetCaptureCreditUsage(ctx context.Context, arg ResetCaptureCreditUsageParams) (EventCaptureCreditUsage, error) {
+type ResetCaptureCreditUsageRow struct {
+	EventID          pgtype.UUID        `json:"event_id"`
+	UserID           pgtype.UUID        `json:"user_id"`
+	Consumed         int32              `json:"consumed"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	PreviousConsumed int32              `json:"previous_consumed"`
+}
+
+func (q *Queries) ResetCaptureCreditUsage(ctx context.Context, arg ResetCaptureCreditUsageParams) (ResetCaptureCreditUsageRow, error) {
 	row := q.db.QueryRow(ctx, resetCaptureCreditUsage, arg.EventID, arg.UserID)
-	var i EventCaptureCreditUsage
+	var i ResetCaptureCreditUsageRow
 	err := row.Scan(
 		&i.EventID,
 		&i.UserID,
 		&i.Consumed,
 		&i.UpdatedAt,
+		&i.PreviousConsumed,
 	)
 	return i, err
 }
 
 const upsertCaptureCreditConfig = `-- name: UpsertCaptureCreditConfig :one
-INSERT INTO event_capture_credit_config (event_id, credit_limit, updated_by_user_id, updated_at)
-VALUES ($1, $2, $3, now())
-ON CONFLICT (event_id) DO UPDATE
-SET credit_limit = EXCLUDED.credit_limit,
-    updated_by_user_id = EXCLUDED.updated_by_user_id,
-    updated_at = now()
-RETURNING event_id, credit_limit, updated_by_user_id, updated_at
+WITH locked_event AS (
+    SELECT id
+    FROM events
+    WHERE id = $1
+    FOR UPDATE
+),
+previous AS (
+    SELECT COALESCE(cfg.credit_limit, 5)::integer AS previous_limit
+    FROM locked_event
+    LEFT JOIN event_capture_credit_config cfg ON cfg.event_id = locked_event.id
+),
+updated AS (
+    INSERT INTO event_capture_credit_config (event_id, credit_limit, updated_by_user_id, updated_at)
+    SELECT locked_event.id, $2, $3, now()
+    FROM locked_event
+    ON CONFLICT (event_id) DO UPDATE
+    SET credit_limit = EXCLUDED.credit_limit,
+        updated_by_user_id = EXCLUDED.updated_by_user_id,
+        updated_at = now()
+    RETURNING event_id, credit_limit, updated_by_user_id, updated_at
+)
+SELECT
+    updated.event_id,
+    updated.credit_limit,
+    updated.updated_by_user_id,
+    updated.updated_at,
+    previous.previous_limit
+FROM updated, previous
 `
 
 type UpsertCaptureCreditConfigParams struct {
@@ -304,14 +357,23 @@ type UpsertCaptureCreditConfigParams struct {
 	UpdatedByUserID pgtype.UUID `json:"updated_by_user_id"`
 }
 
-func (q *Queries) UpsertCaptureCreditConfig(ctx context.Context, arg UpsertCaptureCreditConfigParams) (EventCaptureCreditConfig, error) {
+type UpsertCaptureCreditConfigRow struct {
+	EventID         pgtype.UUID        `json:"event_id"`
+	CreditLimit     int32              `json:"credit_limit"`
+	UpdatedByUserID pgtype.UUID        `json:"updated_by_user_id"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	PreviousLimit   int32              `json:"previous_limit"`
+}
+
+func (q *Queries) UpsertCaptureCreditConfig(ctx context.Context, arg UpsertCaptureCreditConfigParams) (UpsertCaptureCreditConfigRow, error) {
 	row := q.db.QueryRow(ctx, upsertCaptureCreditConfig, arg.EventID, arg.CreditLimit, arg.UpdatedByUserID)
-	var i EventCaptureCreditConfig
+	var i UpsertCaptureCreditConfigRow
 	err := row.Scan(
 		&i.EventID,
 		&i.CreditLimit,
 		&i.UpdatedByUserID,
 		&i.UpdatedAt,
+		&i.PreviousLimit,
 	)
 	return i, err
 }

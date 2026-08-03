@@ -1,14 +1,27 @@
 /* Component layer.
-   Two visual modes, as the previous OD Manager app shipped:
 
-   1. Work surfaces (.portal-shell) — opaque white, hard borders, gray-50 header
-      rows. The old app's admin-layout.tsx and nfc-scanner.tsx did exactly this.
-      Dense rosters have to stay legible on a phone in daylight, so no glass.
-   2. Auth surfaces (.center-state) — the campus photograph under a black mask
-      with a white translucent card floating on top, per the old login screen.
+   One visual system across every panel — administration, teacher, coordinator
+   and the signed-out surfaces alike. Before this, only the auth card used the
+   backdrop: `.portal-shell` painted an opaque white over it, so the photograph
+   and the glass existed on exactly one screen out of seven.
 
-   The backdrop is painted once, behind everything; .portal-shell is opaque and
-   simply covers it. */
+   The system:
+
+     backdrop   a blurred campus photograph under a dark mask and a dot lattice,
+                painted once at the app root, fixed, behind everything.
+     chrome     translucent frosted bars — topbar, footer, marking header.
+     panel      translucent frosted cards holding all content. Light fill, dark
+                text, lit top edge, wide soft shadow.
+     backdrop   whatever sits between panels (page headings, status lines,
+       type     pagination) is white type on the photograph.
+
+   ONE STRUCTURAL RULE, and breaking it breaks the dialogs: nothing that is an
+   ancestor of `.dialog-backdrop` may carry `backdrop-filter`, `filter` or
+   `transform`. Each of those makes the element a containing block for
+   `position: fixed` descendants, which would trap the modal inside the
+   workspace column instead of covering the viewport. `.portal-shell` and
+   `.workspace` are therefore plain transparent boxes; the frosting lives on the
+   leaf surfaces. */
 
 /* ---------------------------------------------------------------- backdrop */
 
@@ -17,23 +30,33 @@
   inset: 0;
   z-index: -10;
   pointer-events: none;
+  /* The layers are painted with their own filters and never move; isolating
+     them keeps the compositor from re-rasterising on every scroll. */
+  overflow: hidden;
 }
 
 .app-backdrop__image {
   position: absolute;
-  inset: 0;
+  /* The blur samples past the element's edge, which would otherwise leave a
+     feathered transparent margin around the viewport. Oversizing and scaling
+     pushes that artefact off-screen. */
+  inset: -8%;
   background-image: var(--backdrop-image);
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
   opacity: var(--backdrop-opacity);
+  filter: blur(var(--backdrop-blur)) saturate(1.15);
+  transform: scale(var(--backdrop-scale));
 }
 
+/* Mask and brand glow. A flat black at 0.7 (what the old app shipped) is what
+   made the photograph read as grey sludge; a slight blue-to-plum gradient with a
+   crimson bloom in the top corner keeps it a photograph. */
 .app-backdrop__mask {
   position: absolute;
   inset: 0;
-  background: #000;
-  opacity: var(--backdrop-mask-opacity);
+  background: var(--backdrop-glow), var(--backdrop-mask);
 }
 
 /* The old app's 5%-opacity dot lattice over the mask. */
@@ -44,36 +67,39 @@
   background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='0.4'%3E%3Ccircle cx='30' cy='30' r='1'/%3E%3C/g%3E%3C/svg%3E");
 }
 
+/* The *-bg crops, not the full photographs: the supplied campus crops have
+   "FOR ON DUTY" burned across the middle of the frame, which no amount of blur
+   turns into anything but a bright smear behind the content. These are the band
+   above it — sky, the ridge line and the rooflines — which is clean, is the
+   calmest thing to sit behind a UI, and is a fifth of the file size. The
+   untouched originals are still in /brand next to them. */
 :root {
-  --backdrop-image: url('/brand/campus-mobile.jpg');
+  --backdrop-image: url('/brand/campus-mobile-bg.jpg');
 }
 
 @media (min-width: 768px) {
   :root {
-    --backdrop-image: url('/brand/campus-desktop.jpg');
+    --backdrop-image: url('/brand/campus-desktop-bg.jpg');
   }
 }
 
 /* ------------------------------------------------------------------- shell */
 
-/* #root is the flex column both modes live in. The auth card centres itself in
-   it with `margin: auto` rather than large vertical margins, which would push
-   the document past the viewport and leave a band of blank page below the
-   fixed backdrop. */
 #root {
   display: flex;
   flex-direction: column;
 }
 
+/* Transparent, so the backdrop reads through the whole app. See the structural
+   rule at the top of this file: no filter may be introduced here. */
 .portal-shell {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 100vh;
   min-height: 100dvh;
-  /* Opaque: this is what hides the backdrop on the work surfaces. */
-  background: var(--background);
-  color: var(--foreground);
+  background: transparent;
+  color: var(--on-backdrop);
 }
 
 .skip-link {
@@ -103,11 +129,15 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  min-height: 68px;
+  min-height: 72px;
   padding: 0 clamp(16px, 4vw, 36px);
   padding-top: env(safe-area-inset-top);
-  background: var(--background);
-  border-bottom: 2px solid var(--foreground);
+  color: var(--foreground);
+  background: var(--chrome);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border-bottom: 1px solid var(--chrome-border);
+  box-shadow: 0 1px 24px rgb(0 0 0 / 0.28);
 }
 
 .topbar > div,
@@ -118,71 +148,75 @@
   min-width: 0;
 }
 
-.brand {
-  gap: 10px;
-  text-decoration: none;
-  color: inherit;
-}
-
 .brand-mark {
   display: inline-grid;
   place-items: center;
   flex-shrink: 0;
-  width: 38px;
-  height: 38px;
-  border-radius: var(--radius-md);
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
   background-image: url('/brand/amrita-seal.png');
   background-size: cover;
   background-position: center;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.18);
   /* The text stays for assistive tech and for the case where the image 404s. */
   color: transparent;
   font-size: 0;
 }
 
 .brand-name {
+  min-width: 0;
   font-weight: 750;
+  font-size: 17px;
   letter-spacing: -0.02em;
   white-space: nowrap;
 }
 
 .brand-name small {
   display: block;
-  color: var(--muted-foreground);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  color: var(--gray-500);
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
+/* A pill rail rather than loose links: the active section reads as a solid
+   object, which is what makes the bar look built rather than assembled. */
 .portal-nav {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgb(17 24 39 / 0.05);
+  box-shadow: inset 0 0 0 1px rgb(17 24 39 / 0.05);
 }
 
 .portal-nav a {
   display: inline-flex;
   align-items: center;
   min-height: 38px;
-  padding: 8px 12px;
-  border-radius: var(--radius-md);
+  padding: 8px 15px;
+  border-radius: 999px;
   color: var(--gray-600);
   font-weight: 650;
+  font-size: 14.5px;
   text-decoration: none;
   white-space: nowrap;
-  transition: background-color 0.15s, color 0.15s;
+  transition: background-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .portal-nav a:hover {
-  background: var(--gray-100);
+  background: rgb(255 255 255 / 0.7);
   color: var(--foreground);
 }
 
 .portal-nav a[aria-current='page'] {
-  background: var(--crimson-50);
+  background: #fff;
   color: var(--crimson);
-  box-shadow: inset 0 0 0 1px var(--crimson-200);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.12), 0 0 0 1px rgb(181 2 70 / 0.14);
 }
 
 .account-actions {
@@ -199,11 +233,53 @@
 
 /* --------------------------------------------------------------- workspace */
 
+/* Plain block flow — see the structural rule at the top of the file. The
+   vertical rhythm between panels is set here once rather than by each screen
+   remembering a margin, which is why the event detail page used to stack three
+   cards flush against one another. */
 .workspace {
   flex: 1;
   width: min(1180px, 100%);
   margin: 0 auto;
-  padding: clamp(28px, 5vw, 56px) clamp(16px, 4vw, 24px) 72px;
+  padding: clamp(24px, 4vw, 40px) clamp(16px, 4vw, 24px) 72px;
+  color: var(--on-backdrop);
+}
+
+.workspace > * + * {
+  margin-top: var(--stack);
+}
+
+/* Loose loading/status lines are direct children of the workspace, so they sit
+   on the photograph. Given a pill they read as a deliberate state rather than
+   as text that lost its card. */
+.workspace > p[role='status'],
+.workspace > p[aria-live] {
+  /* flex + fit-content, never inline-flex: two loading lines can be on screen
+     at once, and as atomic inline boxes their vertical margins would overlap
+     instead of stacking. */
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 0;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--on-backdrop-fill);
+  border: 1px solid var(--on-backdrop-line);
+  backdrop-filter: blur(var(--glass-blur-sm));
+  -webkit-backdrop-filter: blur(var(--glass-blur-sm));
+  color: var(--on-backdrop-muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.workspace > p[role='status']::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.7;
 }
 
 .page-heading {
@@ -211,30 +287,59 @@
   align-items: end;
   justify-content: space-between;
   gap: 24px;
-  margin-bottom: 28px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid var(--border);
+  margin: 0;
+  padding-bottom: clamp(18px, 3vw, 24px);
+  border-bottom: 1px solid var(--on-backdrop-line);
+}
+
+.page-heading > div {
+  min-width: 0;
 }
 
 .page-heading h1 {
-  margin: 6px 0 8px;
-  font-size: clamp(28px, 5vw, 42px);
-  letter-spacing: -0.035em;
+  margin: 8px 0 10px;
+  color: var(--on-backdrop);
+  font-size: clamp(28px, 5vw, 44px);
+  font-weight: 780;
+  letter-spacing: -0.04em;
+  text-shadow: var(--on-backdrop-shadow);
 }
 
 .page-heading p:last-child {
   margin: 0;
-  color: var(--gray-600);
+  color: var(--on-backdrop-muted);
+  font-size: 15px;
+  line-height: 1.55;
   max-width: 620px;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
 }
 
 .eyebrow {
   margin: 0;
-  color: var(--crimson);
+  color: var(--crimson-light);
   text-transform: uppercase;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 750;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+}
+
+/* Inside a light panel the accent goes back to the ink crimson. */
+.center-state .eyebrow,
+.detail-section .eyebrow {
+  color: var(--crimson);
+  text-shadow: none;
+}
+
+/* Breadcrumbs sit on the photograph, where the ink crimson of `.text-button`
+   is unreadable. */
+.workspace > nav[aria-label='Breadcrumb'] .text-button {
+  color: var(--on-backdrop-muted);
+}
+
+.workspace > nav[aria-label='Breadcrumb'] .text-button:hover:not(:disabled) {
+  background: var(--on-backdrop-fill-hover);
+  color: var(--on-backdrop);
 }
 
 /* ----------------------------------------------------------------- buttons */
@@ -245,16 +350,16 @@ button {
   justify-content: center;
   gap: 8px;
   min-height: var(--tap);
-  padding: 10px 16px;
+  padding: 10px 18px;
   border: 1px solid var(--gray-300);
   border-radius: var(--radius-md);
-  background: var(--background);
+  background: #fff;
   color: var(--foreground);
   font-size: 15px;
   font-weight: 650;
   line-height: 1.2;
   cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s, box-shadow 0.15s;
+  transition: background-color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, transform 0.1s ease;
 }
 
 button:hover:not(:disabled) {
@@ -262,6 +367,12 @@ button:hover:not(:disabled) {
   border-color: var(--gray-400);
 }
 
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* The ring is white so it stays visible against the photograph; inside a light
+   panel it would vanish, so there it flips to the brand ink. */
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
@@ -270,9 +381,19 @@ a:focus-visible {
   outline-offset: 2px;
 }
 
+.detail-section :focus-visible,
+.dialog :focus-visible,
+.center-state :focus-visible,
+.table-wrap :focus-visible,
+.topbar :focus-visible,
+.mark-scope :focus-visible,
+.mark-capture :focus-visible {
+  outline-color: var(--focus-ring-dark);
+}
+
 button:disabled {
   cursor: not-allowed;
-  opacity: 0.5;
+  opacity: 0.45;
 }
 
 /* The old app's filled action: solid near-black, white label. */
@@ -280,7 +401,7 @@ button:disabled {
   background: var(--primary);
   border-color: var(--primary);
   color: var(--primary-foreground);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2), 0 6px 16px -8px rgb(0 0 0 / 0.6);
 }
 
 .primary:hover:not(:disabled) {
@@ -290,7 +411,7 @@ button:disabled {
 
 .secondary {
   min-height: 38px;
-  padding: 8px 12px;
+  padding: 8px 14px;
   font-size: 14px;
 }
 
@@ -305,17 +426,95 @@ button:disabled {
   border-color: var(--red-700);
 }
 
+/* Applied to both <button> and the breadcrumb <a>, so it sets its own display
+   rather than relying on the button reset — on an anchor, min-height does
+   nothing until the box stops being inline. */
 .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-height: 38px;
-  padding: 8px 10px;
+  padding: 8px 12px;
   border: 0;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--crimson);
+  font-size: 14.5px;
+  font-weight: 650;
+  text-decoration: none;
+  box-shadow: none;
+  transition: background-color 0.16s ease, color 0.16s ease;
 }
 
 .text-button:hover:not(:disabled) {
   background: var(--crimson-50);
   border-color: transparent;
+}
+
+/* Sign-out lives in the frosted topbar, not on a panel. */
+.account-actions .text-button {
+  color: var(--gray-700);
+}
+
+.account-actions .text-button:hover:not(:disabled) {
+  background: rgb(17 24 39 / 0.06);
+  color: var(--foreground);
+}
+
+/* ------------------------------------------------------------------ panels */
+
+/* Every content surface in the app is one of these three, and they differ only
+   in fill weight. Shared here so a panel can never drift from a table. */
+.detail-section,
+.table-wrap,
+.empty-state {
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-2xl);
+  background: var(--surface);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: var(--shadow-panel);
+  color: var(--foreground);
+}
+
+.detail-section {
+  padding: clamp(20px, 4vw, 28px);
+}
+
+.detail-section > h2 {
+  margin: 0 0 6px;
+  font-size: 19px;
+  font-weight: 730;
+  letter-spacing: -0.025em;
+}
+
+.detail-section > p {
+  margin: 0 0 18px;
+  color: var(--gray-600);
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+
+.empty-state {
+  padding: clamp(36px, 8vw, 56px) 24px;
+  text-align: center;
+  /* Dashed on a translucent fill turns to mush, so emptiness is signalled by a
+     quieter fill and a lighter border instead. */
+  background: var(--surface-quiet);
+  border-color: rgb(255 255 255 / 0.35);
+}
+
+.empty-state h1,
+.empty-state h2 {
+  margin: 0 0 10px;
+  font-size: 21px;
+}
+
+.empty-state p {
+  margin: 0;
+  color: var(--gray-600);
+  max-width: 46ch;
+  margin-inline: auto;
 }
 
 /* ------------------------------------------------------------------ tables */
@@ -324,10 +523,6 @@ button:disabled {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
-  background: var(--card);
-  border: 1px solid var(--gray-300);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card);
 }
 
 table {
@@ -339,7 +534,7 @@ table {
 
 th, td {
   padding: 15px 18px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--surface-line);
   vertical-align: middle;
 }
 
@@ -348,18 +543,38 @@ thead th {
   top: 0;
   z-index: 1;
   color: var(--gray-600);
-  background: var(--gray-50);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
+  /* Near-opaque: rows scroll under this, and a translucent header ghosts them. */
+  background: rgb(248 249 251 / 0.94);
+  font-size: 11.5px;
+  font-weight: 720;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   white-space: nowrap;
-  border-bottom: 2px solid var(--gray-300);
+  border-bottom: 1px solid var(--surface-line-strong);
 }
 
+thead th:first-child { border-top-left-radius: var(--radius-2xl); }
+thead th:last-child { border-top-right-radius: var(--radius-2xl); }
+
 tbody th {
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 650;
+  /* break-word, NOT anywhere: `anywhere` lets the browser count a mid-word break
+     as free, so it shrinks the column to its narrowest possible width and
+     "Amritotsavam 2026" comes out as "Amrito / tsava / m 2026". This breaks a
+     long token only when it genuinely cannot fit. */
+  overflow-wrap: break-word;
+}
+
+tbody th a {
+  color: var(--foreground);
+  text-decoration-color: rgb(17 24 39 / 0.25);
+  text-underline-offset: 3px;
+}
+
+tbody th a:hover {
+  color: var(--crimson);
+  text-decoration-color: currentColor;
 }
 
 tbody td {
@@ -371,12 +586,16 @@ tbody tr:last-child > * {
   border-bottom: 0;
 }
 
+tbody tr {
+  transition: background-color 0.14s ease;
+}
+
 tbody tr:hover {
-  background: var(--gray-50);
+  background: rgb(255 255 255 / 0.55);
 }
 
 .archived-row {
-  background: var(--gray-50);
+  background: rgb(17 24 39 / 0.035);
 }
 
 .archived-row > * {
@@ -388,14 +607,31 @@ tbody tr:hover {
   white-space: nowrap;
 }
 
+/* On the photograph, not on a panel. */
 .pagination {
   display: flex;
   justify-content: flex-end;
   align-items: center;
   gap: 12px;
-  margin-top: 16px;
-  color: var(--gray-600);
+  color: var(--on-backdrop-muted);
   font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pagination button {
+  min-height: 38px;
+  padding: 8px 16px;
+  border-color: var(--on-backdrop-line);
+  background: var(--on-backdrop-fill);
+  backdrop-filter: blur(var(--glass-blur-sm));
+  -webkit-backdrop-filter: blur(var(--glass-blur-sm));
+  color: var(--on-backdrop);
+  font-size: 14px;
+}
+
+.pagination button:hover:not(:disabled) {
+  background: var(--on-backdrop-fill-hover);
+  border-color: rgb(255 255 255 / 0.3);
 }
 
 /* ------------------------------------------------------- chips and badges */
@@ -407,17 +643,18 @@ tbody tr:hover {
 }
 
 .branch-chip {
-  padding: 4px 9px;
-  border: 1px solid var(--gray-300);
-  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  border-radius: 999px;
   color: var(--gray-700);
-  background: var(--gray-50);
+  background: rgb(17 24 39 / 0.055);
+  box-shadow: inset 0 0 0 1px rgb(17 24 39 / 0.06);
   font-weight: 650;
-  font-size: 11px;
+  font-size: 11.5px;
+  white-space: nowrap;
 }
 
 .branch-chip small {
-  margin-left: 4px;
+  margin-left: 5px;
   color: var(--gray-500);
   font-weight: 800;
 }
@@ -437,99 +674,65 @@ tbody tr:hover {
 .status-badge.active { color: var(--green-600); }
 .status-badge.archived { color: var(--gray-500); }
 
-/* --------------------------------------------------------------- surfaces */
-
-.detail-section {
-  background: var(--card);
-  border: 1px solid var(--gray-300);
-  border-radius: var(--radius-lg);
-  padding: clamp(18px, 4vw, 24px);
-  box-shadow: var(--shadow-card);
-}
-
-.detail-section > h2 {
-  margin: 0 0 6px;
-  font-size: 20px;
-}
-
-.detail-section > p {
-  margin: 0 0 16px;
-  color: var(--gray-600);
-}
-
-.empty-state,
-.center-state {
-  border: 1px dashed var(--gray-300);
-  border-radius: var(--radius-lg);
-  padding: clamp(36px, 8vw, 56px) 24px;
-  text-align: center;
-  background: var(--card);
-}
-
-.empty-state h2 {
-  margin: 0 0 10px;
-}
-
-.empty-state p {
-  margin: 0;
-  color: var(--gray-600);
-}
-
 /* ------------------------------------------------- auth surfaces (glass) */
 
-/* These sit directly on the backdrop with no opaque shell above it, so the
-   card is translucent and the surrounding text is white. */
+/* These sit alone on the backdrop with no chrome around them, so the card is
+   the brightest, most opaque surface in the app. */
 .center-state {
   width: min(560px, calc(100% - 32px));
   /* auto on all four sides centres it in the #root flex column. */
   margin: auto;
   padding: clamp(32px, 7vw, 48px) clamp(24px, 5vw, 40px);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-xl);
-  background: var(--glass-card-strong);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  box-shadow: var(--shadow-glass);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-2xl);
+  background: var(--surface-strong);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: var(--shadow-raised);
+  color: var(--foreground);
+  text-align: center;
 }
 
 .center-state h1 {
   margin: 0 0 10px;
   font-size: clamp(24px, 6vw, 32px);
+  font-weight: 760;
+  letter-spacing: -0.03em;
 }
 
 .center-state p {
   color: var(--gray-600);
+  line-height: 1.6;
 }
 
-.center-state button {
+.center-state > button {
   margin-top: 24px;
 }
 
 /* The signed-out screen carries the full lockup above the card. */
 .auth-brand {
   display: block;
-  width: min(300px, 72%);
-  margin: 0 auto 28px;
-}
-
-.sign-in {
-  border-style: solid;
+  width: min(280px, 70%);
+  height: auto;
+  margin: 0 auto 26px;
 }
 
 .sign-in .primary {
   width: 100%;
-  min-height: 48px;
+  min-height: 50px;
+  margin-top: 26px;
   font-size: 16px;
 }
 
 .auth-hint {
-  margin: 20px 0 0;
-  padding: 12px 14px;
-  border: 1px solid var(--blue-200);
+  margin: 22px 0 0;
+  padding: 13px 15px;
   border-radius: var(--radius-md);
-  background: var(--blue-50);
+  background: rgb(37 99 235 / 0.07);
+  box-shadow: inset 0 0 0 1px rgb(37 99 235 / 0.16);
   color: var(--blue-700);
   font-size: 13px;
+  line-height: 1.55;
   text-align: left;
 }
 
@@ -542,20 +745,36 @@ tbody tr:hover {
 
 /* --------------------------------------------------------------- notices */
 
+/* A notice can appear on the photograph or inside a panel, so it carries its
+   own frosting and works in both. */
 .notice {
-  margin-top: 18px;
-  padding: 13px 15px;
-  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(var(--glass-blur-sm));
+  -webkit-backdrop-filter: blur(var(--glass-blur-sm));
+  font-size: 14.5px;
 }
 
 .notice.error {
   color: var(--red-700);
-  background: var(--red-50);
-  border: 1px solid var(--red-200);
+  background: rgb(254 242 242 / 0.92);
+  box-shadow: inset 0 0 0 1px rgb(220 38 38 / 0.22), 0 12px 30px -18px rgb(0 0 0 / 0.6);
+}
+
+.notice.error > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Inside a panel a notice is a nested element, so it needs its own top gap;
+   the workspace rhythm does not reach it. */
+.detail-section .notice,
+.dialog .notice {
+  margin-top: 16px;
 }
 
 .field-error {
@@ -574,9 +793,9 @@ tbody tr:hover {
   display: grid;
   place-items: center;
   padding: 16px;
-  background: rgb(0 0 0 / 0.55);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+  background: rgb(6 8 13 / 0.5);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 
 .dialog {
@@ -584,19 +803,26 @@ tbody tr:hover {
   max-height: calc(100dvh - 32px);
   overflow: auto;
   -webkit-overflow-scrolling: touch;
-  padding: clamp(20px, 5vw, 28px);
-  border-radius: var(--radius-xl);
-  background: var(--card);
-  box-shadow: var(--shadow-lifted);
+  padding: clamp(22px, 5vw, 30px);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-2xl);
+  background: var(--surface-strong);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: var(--shadow-raised);
+  color: var(--foreground);
 }
 
 .dialog h2 {
   margin: 0 0 18px;
-  font-size: 22px;
+  font-size: 21px;
+  font-weight: 740;
+  letter-spacing: -0.025em;
 }
 
 .dialog p {
   color: var(--gray-600);
+  line-height: 1.6;
 }
 
 .dialog form {
@@ -615,16 +841,19 @@ tbody tr:hover {
 .dialog input[type='date'],
 .dialog input[type='email'] {
   width: 100%;
+  min-width: 0;
   min-height: var(--tap);
   border: 1px solid var(--gray-300);
   border-radius: var(--radius-md);
-  padding: 10px 12px;
+  padding: 11px 13px;
   color: var(--foreground);
   background: #fff;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
 .dialog input:focus {
   border-color: var(--crimson);
+  box-shadow: 0 0 0 3px rgb(181 2 70 / 0.1);
 }
 
 .dialog input[aria-invalid='true'] {
@@ -635,13 +864,14 @@ tbody tr:hover {
   margin: 10px 0 0;
   padding: 0;
   border: 0;
+  min-width: 0;
 }
 
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 24px;
+  margin-top: 26px;
 }
 
 .branch-options {
@@ -655,19 +885,23 @@ tbody tr:hover {
   gap: 10px;
   align-items: center;
   min-height: var(--tap);
-  padding: 10px 12px;
+  padding: 10px 13px;
   border: 1px solid var(--gray-300);
   border-radius: var(--radius-md);
+  background: rgb(255 255 255 / 0.6);
   cursor: pointer;
+  transition: background-color 0.14s ease, border-color 0.14s ease;
 }
 
 .branch-options label:hover {
-  background: var(--gray-50);
+  background: #fff;
+  border-color: var(--gray-400);
 }
 
 .branch-options input {
   width: 20px;
   height: 20px;
+  flex-shrink: 0;
   accent-color: var(--crimson);
 }
 
@@ -677,10 +911,17 @@ tbody tr:hover {
   align-items: center;
   gap: 12px;
   width: 100%;
+  min-width: 0;
+}
+
+.branch-options span strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .branch-options small {
   color: var(--gray-500);
+  flex-shrink: 0;
 }
 
 /* ---------------------------------------------------------- event detail */
@@ -688,49 +929,97 @@ tbody tr:hover {
 .event-summary {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px 32px;
-  margin: 12px 0 0;
+  gap: 14px 36px;
+  margin: 14px 0 0;
 }
 
 .event-summary div {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
+  min-width: 0;
 }
 
 .event-summary dt {
-  color: var(--gray-500);
-  font-size: 12px;
-  font-weight: 700;
+  color: var(--on-backdrop-faint);
+  font-size: 11px;
+  font-weight: 720;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.1em;
 }
 
 .event-summary dd {
   margin: 0;
+  color: var(--on-backdrop);
   font-weight: 650;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+}
+
+/* The status badge and branch chips in the summary sit on the photograph, so
+   they cannot use the on-panel palette. */
+.event-summary .status-badge.active { color: #4ade80; }
+.event-summary .status-badge.archived { color: var(--on-backdrop-muted); }
+
+.event-summary .branch-chip {
+  color: var(--on-backdrop);
+  background: var(--on-backdrop-fill);
+  box-shadow: inset 0 0 0 1px var(--on-backdrop-line);
+}
+
+.event-summary .branch-chip small {
+  color: var(--on-backdrop-faint);
 }
 
 .category-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
   margin: 0 0 18px;
   padding: 0;
   list-style: none;
 }
 
 .category-list li {
-  padding: 12px 14px;
-  border: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 13px 15px;
   border-radius: var(--radius-md);
-  background: var(--gray-50);
+  background: rgb(17 24 39 / 0.04);
+  box-shadow: inset 0 0 0 1px rgb(17 24 39 / 0.05);
   font-weight: 650;
+  font-size: 14.5px;
+  overflow-wrap: anywhere;
+}
+
+/* A coordinator row is name · email · assigned-at. Only the name carries the
+   row's weight; the other two are supporting detail, and the timestamp is
+   pushed to the far edge so the column of dates lines up down the list. */
+.category-list li > span:first-child {
+  min-width: 0;
+}
+
+.category-list li small {
+  color: var(--gray-500);
+  font-weight: 600;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.category-list li time {
+  margin-left: auto;
+  color: var(--gray-500);
+  font-weight: 600;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .empty-note {
   margin: 0 0 18px;
   color: var(--gray-500);
+  font-size: 14px;
 }
 
 /* Wraps rather than clipping the submit button on a narrow viewport. */
@@ -741,7 +1030,7 @@ tbody tr:hover {
   gap: 10px;
 }
 
-.category-form label { margin: 0; }
+.category-form label { margin: 0; font-weight: 700; font-size: 14px; }
 
 .category-form input {
   flex: 1 1 220px;
@@ -750,7 +1039,14 @@ tbody tr:hover {
   margin: 0;
   border: 1px solid var(--gray-300);
   border-radius: var(--radius-md);
-  padding: 10px 12px;
+  padding: 11px 13px;
+  background: #fff;
+  color: var(--foreground);
+}
+
+.category-form input:focus {
+  border-color: var(--crimson);
+  box-shadow: 0 0 0 3px rgb(181 2 70 / 0.1);
 }
 
 .category-form .field-error {
@@ -759,8 +1055,6 @@ tbody tr:hover {
 }
 
 /* -------------------------------------------------------- roster import */
-
-.roster-import { margin-bottom: 20px; }
 
 .roster-form {
   display: grid;
@@ -778,45 +1072,67 @@ tbody tr:hover {
 
 .roster-form input[type='file'] {
   min-width: 0;
-  border: 1px dashed var(--gray-300);
+  border: 1px dashed var(--gray-400);
   border-radius: var(--radius-md);
-  padding: 12px;
-  background: var(--gray-50);
+  padding: 14px;
+  background: rgb(17 24 39 / 0.03);
+  font-size: 14px;
 }
 
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 10px;
-  margin: 18px 0;
+  margin: 18px 0 0;
 }
 
 .summary-grid div {
-  padding: 14px 16px;
-  border: 1px solid var(--border);
+  padding: 15px 17px;
   border-radius: var(--radius-md);
-  background: var(--gray-50);
+  background: rgb(17 24 39 / 0.04);
+  box-shadow: inset 0 0 0 1px rgb(17 24 39 / 0.05);
+  min-width: 0;
 }
 
 .summary-grid dt {
   color: var(--gray-500);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 750;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
 }
 
 .summary-grid dd {
-  margin: 5px 0 0;
-  font-size: 26px;
+  margin: 6px 0 0;
+  font-size: 27px;
   font-weight: 760;
   color: var(--foreground);
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
 }
 
-.import-errors {
-  margin-top: 16px;
+/* A table inside a panel — the roster, the import errors — is NOT a second pane
+   of glass. Frosting it again would blur an already-blurred backdrop and ring
+   the result with a second border and shadow, which is what makes a layout look
+   assembled rather than designed. Inside a panel it is a flat tinted inset. */
+.detail-section .table-wrap {
+  border-radius: var(--radius-lg);
+  background: rgb(17 24 39 / 0.03);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-color: rgb(17 24 39 / 0.08);
   box-shadow: none;
+}
+
+.detail-section .table-wrap thead th {
+  background: #f2f3f5;
+}
+
+.detail-section .table-wrap thead th:first-child { border-top-left-radius: var(--radius-lg); }
+.detail-section .table-wrap thead th:last-child { border-top-right-radius: var(--radius-lg); }
+
+.import-errors {
+  margin-top: 18px;
 }
 
 /* --------------------------------------------------------- card populator */
@@ -824,17 +1140,26 @@ tbody tr:hover {
 /* The operator works one card at a time on a phone held in one hand, so actions
    are large targets and the status column is fixed-width — a status that
    changes width would shift the buttons under a moving thumb. */
+/* Flex, not grid. This was `repeat(auto-fit, minmax(170px, 1fr)) auto`, which
+   is invalid — an auto-fit repeat is only allowed when every other track is
+   definite, and `auto` is not — so the browser dropped the whole declaration
+   and the filters fell into a single column with a full-bleed submit button. */
 .populator-filters {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)) auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: end;
   gap: 12px 14px;
 }
 
 .populator-filters > div {
   display: grid;
+  flex: 1 1 170px;
   gap: 6px;
   min-width: 0;
+}
+
+.populator-filters > button {
+  flex: 0 0 auto;
 }
 
 .populator-filters label {
@@ -845,12 +1170,19 @@ tbody tr:hover {
 .populator-filters select,
 .populator-filters input[type='text'] {
   width: 100%;
+  min-width: 0;
   min-height: var(--tap);
   border: 1px solid var(--gray-300);
   border-radius: var(--radius-md);
-  padding: 10px 12px;
+  padding: 11px 13px;
   color: var(--foreground);
   background: #fff;
+}
+
+.populator-filters select:focus,
+.populator-filters input:focus {
+  border-color: var(--crimson);
+  box-shadow: 0 0 0 3px rgb(181 2 70 / 0.1);
 }
 
 .populator-roster td { vertical-align: top; }
@@ -858,6 +1190,7 @@ tbody tr:hover {
 .populator-counts {
   margin: 0 0 16px;
   color: var(--gray-600);
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -867,6 +1200,8 @@ tbody tr:hover {
   color: var(--gray-500);
   font-size: 13px;
   font-weight: 500;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .populator-actions {
@@ -885,8 +1220,8 @@ tbody tr:hover {
 
 /* A failed row must stay visible in the list rather than being filtered away —
    the off-by-one failure mode is worse than a long list. */
-.populator-row-failed { background: var(--red-50); }
-.populator-row-failed:hover { background: var(--red-50); }
+.populator-row-failed { background: rgb(220 38 38 / 0.07); }
+.populator-row-failed:hover { background: rgb(220 38 38 / 0.1); }
 
 .status-badge.populator-verified { color: var(--green-600); }
 .status-badge.populator-written { color: var(--amber-700); }
@@ -897,10 +1232,15 @@ tbody tr:hover {
 
 /* ------------------------------------------------------------------ footer */
 
+/* Frosted like the topbar. The lockup is crimson artwork on transparency, so
+   the bar behind it has to stay light — a dark footer would swallow it. */
 .app-footer {
   margin-top: auto;
-  background: var(--background);
-  border-top: 1px solid var(--gray-300);
+  background: var(--chrome);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border-top: 1px solid var(--chrome-border);
+  color: var(--foreground);
 }
 
 .app-footer__inner {
@@ -916,7 +1256,7 @@ tbody tr:hover {
 }
 
 .app-footer__logo {
-  height: 42px;
+  height: 40px;
   width: auto;
   flex-shrink: 0;
 }
@@ -925,6 +1265,7 @@ tbody tr:hover {
   display: flex;
   align-items: center;
   gap: 6px;
+  margin: 0;
   color: var(--gray-500);
   font-size: 13px;
 }
@@ -936,6 +1277,7 @@ tbody tr:hover {
 }
 
 .app-footer__credit a:hover {
+  color: var(--crimson);
   text-decoration: underline;
 }
 
@@ -953,6 +1295,418 @@ tbody tr:hover {
   border: 0;
 }
 
+/* -------------------------------------------------------------- marking */
+
+/* The coordinator marking surface.
+   A phone screen used at arm's length, one-handed, in daylight — not a desk
+   portal. So: large tap targets, a banner that dominates, and numbers big
+   enough to read without looking closely. Same glass system as the portal, at
+   phone scale: the screen itself is transparent and every group is a panel. */
+
+.mark-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(560px, 100%);
+  margin: 0 auto;
+  padding: max(14px, env(safe-area-inset-top)) 14px calc(20px + env(safe-area-inset-bottom));
+  background: transparent;
+  color: var(--on-backdrop);
+}
+
+.mark-header {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 2px 2px 6px;
+}
+
+.mark-header .brand-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+
+/* Pushes the account name to the far edge without `space-between`, which would
+   have stranded the seal away from the title it belongs to. */
+.mark-header h1 {
+  margin: 0 auto 0 0;
+  font-size: 21px;
+  font-weight: 760;
+  letter-spacing: -0.03em;
+  color: var(--on-backdrop);
+  text-shadow: var(--on-backdrop-shadow);
+}
+
+.mark-who {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--on-backdrop-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Shared panel treatment for the marking groups. */
+.mark-scope,
+.mark-capture,
+.mark-meters {
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: var(--shadow-panel);
+  color: var(--foreground);
+}
+
+.mark-scope {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 14px;
+}
+
+.mark-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--gray-500);
+}
+
+.mark-field select,
+.mark-field input {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 10px 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  background: #fff;
+  color: var(--foreground);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.mark-field select:focus,
+.mark-field input:focus {
+  border-color: var(--crimson);
+  box-shadow: 0 0 0 3px rgb(181 2 70 / 0.1);
+}
+
+/* Four meters, so a fixed three-column grid left the fourth stranded on a row
+   of its own. auto-fit keeps them even at every width. */
+.mark-meters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));
+  gap: 1px;
+  padding: 0;
+  overflow: hidden;
+  /* The hairlines between tiles are the grid gap showing the panel through. */
+  background: var(--surface);
+}
+
+.mark-meter {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 12px 10px;
+  background: rgb(255 255 255 / 0.35);
+  box-shadow: 0 0 0 1px rgb(17 24 39 / 0.05);
+}
+
+.mark-meter-value {
+  font-size: 25px;
+  font-weight: 760;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+
+.mark-meter-label {
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  color: var(--gray-500);
+}
+
+/* The last fallback credits are the one number that must interrupt. */
+.mark-meter.is-warning {
+  background: rgb(220 38 38 / 0.1);
+  box-shadow: 0 0 0 1px rgb(220 38 38 / 0.2);
+}
+
+.mark-meter.is-warning .mark-meter-value,
+.mark-meter.is-warning .mark-meter-label {
+  color: var(--red-700);
+}
+
+/* The slot clock's no-slot copy is a sentence, not a number. */
+.mark-clock .mark-meter-value {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+/* The adoption-critical surface. Full width and a FIXED min-height across every
+   state, so the layout never shifts under the coordinator's thumb between a
+   green and a red — a shifting banner is how a mis-tap happens. */
+.mark-banner {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  min-height: 104px;
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: inset 0 0 0 2px rgb(17 24 39 / 0.1), var(--shadow-panel);
+  color: var(--gray-600);
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.mark-banner strong {
+  font-size: 21px;
+  font-weight: 750;
+  letter-spacing: -0.025em;
+  color: var(--foreground);
+}
+
+.mark-banner button {
+  align-self: flex-start;
+  min-height: 38px;
+  margin-top: 6px;
+  padding: 8px 14px;
+  font-size: 14px;
+}
+
+.mark-banner.is-green {
+  background: rgb(240 253 244 / 0.92);
+  box-shadow: inset 0 0 0 2px rgb(22 163 74 / 0.45), var(--shadow-panel);
+  color: var(--green-700);
+}
+
+.mark-banner.is-green strong {
+  color: var(--green-700);
+}
+
+.mark-banner.is-red {
+  background: rgb(253 242 246 / 0.94);
+  box-shadow: inset 0 0 0 2px rgb(181 2 70 / 0.5), var(--shadow-panel);
+  color: var(--crimson);
+}
+
+.mark-banner.is-red strong {
+  color: var(--crimson);
+}
+
+/* A segmented control, not three loose buttons. */
+.mark-modes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--radius-xl);
+  background: var(--chrome);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: var(--shadow-panel);
+}
+
+.mark-mode {
+  min-height: 50px;
+  padding: 10px 8px;
+  border: 0;
+  border-radius: calc(var(--radius-xl) - 5px);
+  background: transparent;
+  color: var(--gray-600);
+  font-size: 14.5px;
+  font-weight: 680;
+  box-shadow: none;
+}
+
+.mark-mode:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.7);
+  border-color: transparent;
+  color: var(--foreground);
+}
+
+.mark-mode.is-active {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  box-shadow: 0 2px 8px -2px rgb(0 0 0 / 0.5);
+}
+
+.mark-mode.is-active:hover:not(:disabled) {
+  background: var(--gray-800);
+  color: var(--primary-foreground);
+}
+
+.mark-capture {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+}
+
+.mark-hint {
+  margin: 0;
+  color: var(--gray-600);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.mark-unavailable {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: rgb(181 2 70 / 0.08);
+  box-shadow: inset 0 0 0 1px rgb(181 2 70 / 0.25);
+  color: var(--crimson);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+/* A failed READ, stated rather than rendered as emptiness. Distinct from the
+   mark banner: this is "the screen could not load", not "your mark failed".
+   Carries its own frosting because it appears both on the backdrop and inside
+   the capture panel. */
+.mark-read-error {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: rgb(254 242 242 / 0.92);
+  backdrop-filter: blur(var(--glass-blur-sm));
+  -webkit-backdrop-filter: blur(var(--glass-blur-sm));
+  box-shadow: inset 0 0 0 1px rgb(220 38 38 / 0.25);
+  color: var(--red-700);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.mark-read-error button {
+  min-height: 32px;
+  margin-left: 6px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+/* Standing information about the credit pool — not a failure. Red is reserved
+   for the exhausted state, which still uses .mark-read-error. */
+.mark-note {
+  margin: 0;
+  padding: 11px 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface-quiet);
+  backdrop-filter: blur(var(--glass-blur-sm));
+  -webkit-backdrop-filter: blur(var(--glass-blur-sm));
+  box-shadow: inset 0 0 0 1px rgb(17 24 39 / 0.08);
+  color: var(--gray-600);
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.mark-note.is-caution {
+  background: rgb(254 252 232 / 0.92);
+  box-shadow: inset 0 0 0 1px rgb(202 138 4 / 0.35);
+  color: var(--amber-700);
+}
+
+/* Progress lives outside the banner so it can never hide an unacknowledged red.
+   The height is reserved whether or not it has text, so the banner below it does
+   not jump between marks. */
+.mark-activity {
+  min-height: 20px;
+  margin: 0;
+  padding: 0 2px;
+  color: var(--on-backdrop-muted);
+  font-size: 14px;
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+}
+
+/* The viewfinder. The coordinator has to aim at a barcode, so the frames being
+   decoded are the frames on screen. The aspect ratio is fixed so the layout does
+   not jump when the stream attaches. */
+.mark-preview {
+  overflow: hidden;
+  width: 100%;
+  border-radius: var(--radius-md);
+  background: var(--gray-900);
+  box-shadow: inset 0 0 0 1px rgb(17 24 39 / 0.15);
+  aspect-ratio: 4 / 3;
+}
+
+.mark-preview-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mark-search {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mark-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* A search hit is a whole-row tap target: picking the wrong student because the
+   target was a few pixels tall is not a recoverable mistake. */
+.mark-results button {
+  width: 100%;
+  min-height: 58px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  padding: 10px 14px;
+  text-align: left;
+  background: rgb(255 255 255 / 0.7);
+}
+
+.mark-results button strong {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.mark-results span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-500);
+}
+
 /* ------------------------------------------------------------- narrow view */
 
 @media (max-width: 860px) {
@@ -964,22 +1718,36 @@ tbody tr:hover {
     grid-template-columns: 1fr auto;
     grid-template-areas: 'brand account' 'nav nav';
     gap: 0 12px;
-    padding-bottom: 0;
+    padding-bottom: 8px;
   }
 
   .topbar > div:first-child { grid-area: brand; min-height: 60px; }
   .account-actions { grid-area: account; }
+
   .portal-nav {
     grid-area: nav;
+    /* Bleeds to both edges so the rail can scroll edge to edge, but keeps its
+       pill padding inside. */
     margin: 0 calc(-1 * clamp(16px, 4vw, 36px));
-    padding: 0 clamp(16px, 4vw, 36px) 8px;
+    padding: 4px clamp(16px, 4vw, 36px);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
     overflow-x: auto;
     scrollbar-width: none;
     scroll-snap-type: x proximity;
   }
 
   .portal-nav::-webkit-scrollbar { display: none; }
-  .portal-nav a { scroll-snap-align: start; }
+
+  .portal-nav a {
+    scroll-snap-align: start;
+    background: rgb(17 24 39 / 0.05);
+  }
+
+  .portal-nav a[aria-current='page'] {
+    background: #fff;
+  }
 
   /* The address is the least useful thing in a 360px-wide bar. */
   .account-actions > span { display: none; }
@@ -997,7 +1765,14 @@ tbody tr:hover {
   .page-heading > button { align-self: flex-start; }
 
   .category-form { align-items: stretch; flex-direction: column; }
-  .category-form input { width: 100%; }
+
+  /* The flex SHORTHAND has to be reset, not just the width. `flex: 1 1 220px`
+     sizes the main axis, and the main axis here is now vertical — so the basis
+     became a 220px HEIGHT and grow stretched every input into a giant box. */
+  .category-form input {
+    flex: 0 0 auto;
+    width: 100%;
+  }
 
   .roster-form { grid-template-columns: 1fr; align-items: stretch; }
 
@@ -1008,35 +1783,48 @@ tbody tr:hover {
      at the far right is never anonymous. */
   table { min-width: 560px; }
 
+  /* The pinned cells are OPAQUE, not glass: the rest of the row scrolls
+     underneath them, and a translucent fill would show it through.
+
+     The min-width is what keeps an event name or an email readable: the pinned
+     column is the one the layout squeezes first, and a 90px identifying column
+     is worse than no pinning at all. */
+  tbody th:first-child,
+  tbody td:first-child,
+  thead th:first-child {
+    min-width: 152px;
+  }
+
   tbody th:first-child,
   tbody td:first-child {
     position: sticky;
     left: 0;
     z-index: 1;
-    background: var(--background);
-    box-shadow: 1px 0 0 var(--border);
+    background: var(--surface-solid);
+    box-shadow: 1px 0 0 var(--surface-line);
   }
 
   thead th:first-child {
     position: sticky;
     left: 0;
     z-index: 2;
-    background: var(--gray-50);
-    box-shadow: 1px 0 0 var(--gray-300);
+    background: #f4f6f8;
+    box-shadow: 1px 0 0 var(--surface-line-strong);
   }
 
-  /* The pinned cell paints over the row, so it has to repeat the row's fill. */
+  /* The pinned cell paints over the row, so it has to repeat the row's fill —
+     also opaque, for the same reason. */
   .archived-row th:first-child,
-  .archived-row td:first-child { background: var(--gray-50); }
+  .archived-row td:first-child { background: #f2f3f5; }
   .populator-row-failed th:first-child,
-  .populator-row-failed td:first-child { background: var(--red-50); }
+  .populator-row-failed td:first-child { background: #fdf0f1; }
 
   /* Short values (dates, counts, statuses) read worse broken across three lines
      than scrolled to, so only the branch chips are allowed to wrap. */
   tbody td { white-space: nowrap; }
-  .branch-list, .branch-chip, .populator-actions button { white-space: normal; }
+  .branch-list, .branch-chip, .populator-actions button, .populator-note { white-space: normal; }
 
-  .branch-chip { font-size: 10px; }
+  .branch-chip { font-size: 10.5px; }
 
   .dialog-actions { flex-direction: column-reverse; }
   .dialog-actions button { width: 100%; }
@@ -1047,266 +1835,17 @@ tbody tr:hover {
 @media (max-width: 720px) {
   /* The populator is used on a phone, which is the ONLY surface Web NFC runs
      on — the narrow layout is the primary one here, not a fallback. */
-  .populator-filters { grid-template-columns: 1fr; align-items: stretch; }
+  .populator-filters { align-items: stretch; }
+  .populator-filters > div,
+  .populator-filters > button { flex: 0 0 100%; }
   .populator-actions { min-width: 0; }
   .summary-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
-  .summary-grid dd { font-size: 22px; }
+  .summary-grid dd { font-size: 23px; }
 }
 
-/* -------------------------------------------------------------- marking */
-
-/* The coordinator marking surface.
-   A phone screen used at arm's length, one-handed, in daylight — not a desk
-   portal. So: large tap targets, a banner that dominates, and numbers big
-   enough to read without looking closely. Extends the work-surface idiom
-   (opaque, hard borders, no glass) rather than introducing a third mode. */
-
-.mark-screen {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 12px;
-  background: var(--background);
-  color: var(--foreground);
-}
-
-.mark-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.mark-header h1 {
-  font-size: 20px;
-  margin: 0;
-}
-
-.mark-who {
-  margin: 0;
-  color: var(--gray-600);
-  font-size: 13px;
-}
-
-.mark-scope {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.mark-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 13px;
-  color: var(--gray-600);
-}
-
-.mark-field select,
-.mark-field input {
-  min-height: var(--tap);
-  padding: 8px 10px;
-  border: 1px solid var(--gray-300);
-  border-radius: var(--radius-md);
-  background: var(--background);
-  color: var(--foreground);
-  font-size: 15px;
-}
-
-.mark-meters {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-}
-
-.mark-meter {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px;
-  border: 1px solid var(--gray-300);
-  border-radius: var(--radius-md);
-  background: var(--gray-50);
-}
-
-.mark-meter-value {
-  font-size: 24px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.mark-meter-label {
-  font-size: 11px;
-  color: var(--gray-600);
-}
-
-/* The slot clock's no-slot copy is a sentence, not a number. */
-.mark-clock .mark-meter-value {
-  font-size: 15px;
-  line-height: 1.25;
-}
-
-/* The adoption-critical surface. Full width and a FIXED min-height across every
-   state, so the layout never shifts under the coordinator's thumb between a
-   green and a red — a shifting banner is how a mis-tap happens. */
-.mark-banner {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-height: 104px;
-  margin: 0;
-  padding: 12px 14px;
-  border: 2px solid var(--gray-300);
-  border-radius: var(--radius-md);
-  background: var(--gray-50);
-  color: var(--gray-600);
-  font-size: 15px;
-}
-
-.mark-banner strong {
-  font-size: 20px;
-  color: var(--foreground);
-}
-
-.mark-banner button {
-  align-self: flex-start;
-  margin-top: 4px;
-}
-
-.mark-banner.is-green {
-  border-color: var(--green-600);
-  background: var(--green-50);
-  color: var(--green-700);
-}
-
-.mark-banner.is-green strong {
-  color: var(--green-700);
-}
-
-.mark-banner.is-red {
-  border-color: var(--crimson);
-  background: var(--crimson-50);
-  color: var(--crimson);
-}
-
-.mark-banner.is-red strong {
-  color: var(--crimson);
-}
-
-.mark-modes {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-}
-
-.mark-mode {
-  min-height: 52px;
-  font-size: 15px;
-}
-
-.mark-mode.is-active {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--primary-foreground);
-}
-
-.mark-capture {
-  flex: 1;
-}
-
-.mark-hint {
-  margin: 0;
-  color: var(--gray-600);
-  font-size: 14px;
-}
-
-.mark-unavailable {
-  margin: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--crimson);
-  border-radius: var(--radius-md);
-  background: var(--crimson-50);
-  color: var(--crimson);
-  font-size: 14px;
-}
-
-/* A failed READ, stated rather than rendered as emptiness. Distinct from the
-   mark banner: this is "the screen could not load", not "your mark failed". */
-.mark-read-error {
-  margin: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--crimson);
-  border-radius: var(--radius-md);
-  background: var(--crimson-50);
-  color: var(--crimson);
-  font-size: 14px;
-}
-
-.mark-read-error button {
-  min-height: 32px;
-  margin-left: 6px;
-  padding: 0 10px;
-  font-size: 13px;
-}
-
-/* Progress lives outside the banner so it can never hide an unacknowledged red.
-   The height is reserved whether or not it has text, so the banner below it does
-   not jump between marks. */
-.mark-activity {
-  min-height: 20px;
-  margin: 0;
-  color: var(--gray-600);
-  font-size: 14px;
-}
-
-/* The viewfinder. The coordinator has to aim at a barcode, so the frames being
-   decoded are the frames on screen. The aspect ratio is fixed so the layout does
-   not jump when the stream attaches. */
-.mark-preview {
-  overflow: hidden;
-  width: 100%;
-  margin-top: 10px;
-  border: 1px solid var(--gray-300);
-  border-radius: var(--radius-md);
-  background: var(--gray-900);
-  aspect-ratio: 4 / 3;
-}
-
-.mark-preview-video {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.mark-search {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.mark-results {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-/* A search hit is a whole-row tap target: picking the wrong student because the
-   target was a few pixels tall is not a recoverable mistake. */
-.mark-results button {
-  width: 100%;
-  min-height: 56px;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  text-align: left;
-}
-
-.mark-results span {
-  font-size: 13px;
-  color: var(--gray-600);
+/* At the narrowest supported width four meters across become unreadable, so
+   they fold to two rows of two. */
+@media (max-width: 380px) {
+  .mark-meters { grid-template-columns: 1fr 1fr; }
+  .mark-scope { grid-template-columns: 1fr; }
 }

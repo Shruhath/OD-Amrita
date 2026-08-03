@@ -13,8 +13,8 @@ export function Application({ session, router }: { session: SessionPort; router:
   }))
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Painted once, behind everything. The portal shell is opaque and covers
-          it; only the auth surfaces let it through. */}
+      {/* Painted once, behind everything. Every shell above it is transparent,
+          so it is the ground for all seven surfaces, not just sign-in. */}
       <AppBackdrop />
       <AuthProvider session={session}>
         <RouterProvider router={router} />

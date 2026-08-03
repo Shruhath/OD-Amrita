@@ -392,6 +392,9 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
   return (
     <main className="mark-screen">
       <header className="mark-header">
+        {/* Presentational only — aria-hidden, so the heading below is still the
+            first thing announced on this screen. */}
+        <span className="brand-mark" aria-hidden="true">OD</span>
         <h1>Mark attendance</h1>
         <p className="mark-who">{identity.name}</p>
       </header>
@@ -470,13 +473,19 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
         </div>
       </section>
 
+      {/*
+        Three states, three weights. All three used to render in the red
+        read-error panel, so "18 fallback credits remaining" — a completely
+        healthy state — looked exactly like a failure. Only the wording and the
+        class differ here; the roles and the copy are unchanged.
+      */}
       {fallbackCredit && fallbackCredit.remaining <= fallbackWarningThreshold && !fallbackCredit.exhausted && (
-        <p className="mark-read-error" aria-live="polite">
+        <p className="mark-note is-caution" aria-live="polite">
           {fallbackCredit.remaining} fallback credit{fallbackCredit.remaining === 1 ? '' : 's'} left. Fallback marks are almost exhausted.
         </p>
       )}
       {fallbackCredit && fallbackCredit.remaining > fallbackWarningThreshold && !fallbackCredit.exhausted && (
-        <p className="mark-read-error" aria-live="polite">
+        <p className="mark-note" aria-live="polite">
           {fallbackCredit.remaining} fallback credits remaining.
         </p>
       )}

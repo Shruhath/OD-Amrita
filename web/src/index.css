@@ -1,7 +1,19 @@
 /* Design tokens.
-   Ported from the previous OD Manager app's globals.css. Every base token there
-   was oklch(L 0 0) — chroma zero. The palette is deliberately achromatic: there
-   is no brand hue, and colour carries state only. */
+
+   The visual language is the previous OD Manager app's, taken further: a campus
+   photograph behind everything, a dark mask over it, and translucent frosted
+   panels floating on top. The old app expressed that with two Tailwind utility
+   clusters (`glass-card`, `enhanced-card`); here it is a token set, so every
+   surface in the app derives from the same handful of values.
+
+   Two rules hold the system together:
+
+   1. Panels are LIGHT and text inside them is dark. The backdrop is dark, so a
+      light panel is both the readable choice for a dense roster in daylight and
+      the one that matches the old app's near-white cards.
+   2. Anything sitting directly on the backdrop uses the --on-backdrop colours.
+      Inheriting --foreground out there is near-black on near-black.
+*/
 
 :root {
   /* Achromatic base — the old app's values, unchanged. */
@@ -22,9 +34,14 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  /* Panels are larger and softer than the old app's 10px corners; at this size
+     a tighter radius reads as a box rather than as a pane of glass. */
+  --radius-2xl: 20px;
 
   /* Neutral ramp. The old app reached for Tailwind's gray-* utilities directly;
-     these are those exact values, named so the plain-CSS layer can use them. */
+     these are those exact values, named so the plain-CSS layer can use them.
+     --gray-900 was referenced by the camera viewfinder but never defined, which
+     left that panel with no fill at all. */
   --gray-50: #f9fafb;
   --gray-100: #f3f4f6;
   --gray-200: #e5e7eb;
@@ -34,6 +51,7 @@
   --gray-600: #4b5563;
   --gray-700: #374151;
   --gray-800: #1f2937;
+  --gray-900: #111827;
 
   /* Semantic accents. The old app used the -600 weight for text and borders and
      the -50 weight for fills, and nothing else. Kept to that discipline. */
@@ -56,31 +74,103 @@
 
   /* Amrita crimson, sampled from the official lockup in the brand identity
      sheet (the solid reverse block and the footer bar both read rgb(181,2,70)).
-     The old app's CSS had no brand hue at all — the identity lived only in the
-     logo. This is that hue, promoted to the accent so the UI matches the mark. */
+     --crimson-light is the same hue lifted until it clears 4.5:1 against the
+     masked backdrop: the base crimson is a dark ink and disappears out there. */
   --crimson: #b50246;
   --crimson-700: #8d0136;
   --crimson-200: #f4b9cf;
   --crimson-50: #fdf2f6;
-  --focus-ring: rgb(181 2 70 / 0.32);
+  --crimson-light: #ff8db5;
+  --focus-ring: rgb(255 255 255 / 0.85);
+  --focus-ring-dark: rgb(181 2 70 / 0.45);
 
-  /* Glass. The auth surfaces float white translucent cards over the dark
-     backdrop; the dense work surfaces do not use these at all. */
-  --glass-card: rgb(255 255 255 / 0.62);
-  --glass-card-strong: rgb(255 255 255 / 0.95);
-  --glass-border: rgb(255 255 255 / 0.3);
-  --glass-blur: 12px;
+  /* ------------------------------------------------------------------ glass */
 
-  /* Backdrop. --backdrop-image is overridden per breakpoint in App.css with the
-     supplied photographs; this gradient is the fallback if an image 404s. The
-     0.7 black mask over it is what the old app shipped. */
+  /* One blur value, three fills. The fill is what changes with density: the
+     more a surface has to be read, the more opaque it gets. Anything below
+     ~0.72 stops being legible for body copy over a photograph. */
+  --glass-blur: 22px;
+  --glass-blur-sm: 14px;
+  --glass-saturate: 1.4;
+
+  /* Dense work panels: tables, sections, the marking surface. */
+  --surface: rgb(255 255 255 / 0.86);
+  /* Nested rows and chips inside a panel — reads as a tint, not a second pane. */
+  --surface-quiet: rgb(255 255 255 / 0.55);
+  /* Dialogs and the auth card, which sit alone over the backdrop. */
+  --surface-strong: rgb(255 255 255 / 0.94);
+  /* Sticky cells must fully hide the content scrolling under them, so this one
+     is opaque by design — a translucent pinned column ghosts. */
+  --surface-solid: #fbfbfc;
+
+  /* The lit top edge is what makes a translucent panel read as glass rather
+     than as a washed-out box. It is applied as an inset highlight, never a
+     border, so it survives on the top edge only. */
+  --surface-border: rgb(255 255 255 / 0.5);
+  --surface-highlight: rgb(255 255 255 / 0.65);
+  /* Dividers INSIDE a panel: a grey line over a translucent fill turns muddy,
+     so internal rules are a low-alpha ink instead. */
+  --surface-line: rgb(17 24 39 / 0.1);
+  --surface-line-strong: rgb(17 24 39 / 0.16);
+
+  /* Chrome (topbar, footer, the marking header) is the same glass one step
+     quieter, so the panels below it stay the brightest thing on screen. */
+  --chrome: rgb(255 255 255 / 0.72);
+  --chrome-border: rgb(255 255 255 / 0.4);
+
+  /* Text sitting directly on the backdrop. */
+  --on-backdrop: #ffffff;
+  --on-backdrop-muted: rgb(255 255 255 / 0.74);
+  --on-backdrop-faint: rgb(255 255 255 / 0.55);
+  --on-backdrop-line: rgb(255 255 255 / 0.16);
+  --on-backdrop-fill: rgb(255 255 255 / 0.1);
+  --on-backdrop-fill-hover: rgb(255 255 255 / 0.18);
+  /* White type over a photograph needs its own shadow; the mask alone does not
+     guarantee a dark pixel under every glyph. */
+  --on-backdrop-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 28px rgb(0 0 0 / 0.35);
+
+  /* --------------------------------------------------------------- backdrop */
+
+  /* The photograph, per breakpoint (set in App.css so the phone never downloads
+     the wide crop), then a mask, then a faint dot lattice.
+
+     The supplied crops have "FOR ON DUTY" burned into the middle of the frame,
+     so the image layer is blurred hard: at this radius the lettering resolves to
+     a soft bloom instead of a word competing with the UI. Replace the crops with
+     clean ones and --backdrop-blur can drop to ~8px. */
   --backdrop-image: linear-gradient(140deg, #2b2b2b 0%, #0f0f0f 55%, #242424 100%);
-  --backdrop-opacity: 0.38;
-  --backdrop-mask-opacity: 0.7;
+  /* The blur is now depth-of-field, not censorship: the asset it is applied to
+     has no lettering in it, so this only has to keep the ridge from competing
+     with the content. The scale hides the transparent margin the blur samples
+     past the element's edge. */
+  --backdrop-blur: 22px;
+  --backdrop-scale: 1.14;
+  --backdrop-opacity: 1;
+  /* The mask is the one value to touch if the photograph reads too strongly or
+     too faintly. It multiplies with --backdrop-opacity, so the old app's flat
+     0.7 black on top of a 0.38 image left ~11% of the photograph on screen —
+     which is why it looked like a grey void rather than a campus. */
+  --backdrop-mask: linear-gradient(155deg, rgb(9 12 20 / 0.48) 0%, rgb(6 8 13 / 0.58) 45%, rgb(16 9 18 / 0.5) 100%);
+  --backdrop-glow: radial-gradient(120% 90% at 88% -10%, rgb(181 2 70 / 0.32) 0%, rgb(181 2 70 / 0) 55%);
 
+  /* -------------------------------------------------------------- elevation */
+
+  /* Glass casts a wide, soft, low-alpha shadow — a tight dark one reads as
+     paper. The inset line in --shadow-panel is the lit top edge. */
+  --shadow-panel:
+    inset 0 1px 0 var(--surface-highlight),
+    0 1px 2px rgb(0 0 0 / 0.16),
+    0 18px 40px -18px rgb(0 0 0 / 0.5);
+  --shadow-raised:
+    inset 0 1px 0 var(--surface-highlight),
+    0 2px 6px rgb(0 0 0 / 0.14),
+    0 32px 64px -24px rgb(0 0 0 / 0.6);
   --shadow-card: 0 10px 32px rgb(0 0 0 / 0.06);
   --shadow-lifted: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
   --shadow-glass: 0 24px 70px rgb(0 0 0 / 0.35);
+
+  /* Vertical rhythm between panels in a workspace. */
+  --stack: clamp(16px, 2.4vw, 22px);
 
   /* A target below this is not reliably hittable with a thumb. Every
      interactive control in the app is sized against it. */
@@ -94,6 +184,19 @@
   background: var(--background);
 }
 
+/* Safari before 18 and every Firefox build without the pref support neither
+   backdrop-filter nor its -webkit- alias. There the translucency would simply
+   show unreadable photograph through body copy, so the panels go near-opaque
+   and the design degrades to the old app's white cards. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --surface: rgb(255 255 255 / 0.96);
+    --surface-quiet: rgb(248 249 251 / 0.96);
+    --surface-strong: rgb(255 255 255 / 0.99);
+    --chrome: rgb(255 255 255 / 0.96);
+  }
+}
+
 *,
 *::before,
 *::after {
@@ -102,8 +205,9 @@
 
 html {
   min-width: 320px;
-  background: var(--background);
-  /* Stops mobile Safari inflating type in landscape. */
+  /* The backdrop is fixed and the shell is transparent, so an overscroll past
+     either end would otherwise expose white paper behind the design. */
+  background: #090c14;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
@@ -113,6 +217,12 @@ body {
   min-width: 320px;
   min-height: 100vh;
   min-height: 100dvh;
+  /* MUST stay transparent. `.app-backdrop` sits at z-index -10 inside #root, and
+     the negative-z-index layer is painted before the backgrounds of in-flow
+     descendants — so an opaque fill here covers the photograph completely
+     rather than sitting behind it. The dark base belongs on `html`, whose
+     background paints the canvas underneath the whole stacking context. */
+  background: transparent;
   /* No rubber-band past the app shell — this is a tool, not a document. */
   overscroll-behavior-y: none;
   -webkit-tap-highlight-color: transparent;
@@ -126,6 +236,8 @@ body {
 h1, h2, h3, h4 {
   line-height: 1.25;
   letter-spacing: -0.02em;
+  /* An event name is user-supplied and can be one long token. */
+  overflow-wrap: break-word;
 }
 
 /* 16px is the threshold below which iOS zooms the viewport on focus. Every
@@ -150,22 +262,42 @@ img, svg {
   }
 }
 
-/* The old app's 8px custom scrollbar. */
+/* The old app's 8px scrollbar, re-tuned for a dark page. */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgb(0 0 0 / 0.04);
-  border-radius: 4px;
+  background: rgb(255 255 255 / 0.06);
+  border-radius: 5px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgb(0 0 0 / 0.3);
-  border-radius: 4px;
+  background: rgb(255 255 255 / 0.24);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(0 0 0 / 0.5);
+  background: rgb(255 255 255 / 0.4);
+  background-clip: content-box;
+}
+
+/* Scrollbars inside a light panel need the inverse treatment. */
+.table-wrap::-webkit-scrollbar-track,
+.dialog::-webkit-scrollbar-track {
+  background: rgb(17 24 39 / 0.05);
+}
+
+.table-wrap::-webkit-scrollbar-thumb,
+.dialog::-webkit-scrollbar-thumb {
+  background: rgb(17 24 39 / 0.24);
+  background-clip: content-box;
+}
+
+::selection {
+  background: var(--crimson);
+  color: #fff;
 }

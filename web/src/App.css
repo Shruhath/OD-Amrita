@@ -710,21 +710,28 @@ tbody tr:hover {
   gap: 6px;
 }
 
+/* A code, not a sentence. A fixed minimum width and wider tracking make a row
+   of them read as a set of tags rather than as ragged text.
+
+   `text-decoration: none` is load-bearing: the chip is an <abbr title>, which
+   every browser underlines by default. */
 .branch-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 46px;
   padding: 5px 10px;
   border-radius: 999px;
   color: var(--gray-700);
   background: var(--tint-medium);
   box-shadow: inset 0 0 0 1px var(--tint-medium);
-  font-weight: 650;
+  font-weight: 700;
   font-size: 11.5px;
+  letter-spacing: 0.06em;
   white-space: nowrap;
-}
-
-.branch-chip small {
-  margin-left: 5px;
-  color: var(--gray-500);
-  font-weight: 800;
+  text-decoration: none;
+  text-decoration-line: none;
+  cursor: help;
 }
 
 /* Semantic colour only — the -600 weight, as the old app used it. */
@@ -1032,10 +1039,6 @@ tbody tr:hover {
   color: var(--on-backdrop);
   background: var(--on-backdrop-fill);
   box-shadow: inset 0 0 0 1px var(--on-backdrop-line);
-}
-
-.event-summary .branch-chip small {
-  color: var(--on-backdrop-faint);
 }
 
 .category-list {

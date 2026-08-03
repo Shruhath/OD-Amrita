@@ -294,8 +294,11 @@ test.describe('Admin event administration E2E journeys (ATDD red phase)', () => 
     const api = await openAsAdmin(page)
 
     await expect(page.getByRole('heading', { name: 'Events' })).toBeVisible()
-    await expect(page.getByText('Computer Science and Engineering').first()).toBeVisible()
-    await expect(page.getByText('Electronics and Communication Engineering')).toBeVisible()
+    // Branches render as their CODE, so the server-owned NAME is asserted
+    // through the abbreviation's expansion. Still a real check that the name
+    // came from the server rather than being invented by the client.
+    await expect(page.getByTitle('Computer Science and Engineering').first()).toBeVisible()
+    await expect(page.getByTitle('Electronics and Communication Engineering').first()).toBeVisible()
 
     const activeRow = eventRow(page, 'Innovation Day')
     await expect(activeRow).toContainText('15 Aug 2026')

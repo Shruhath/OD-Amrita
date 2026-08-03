@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type R
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Branch, CreateEventInput, EventRecord, ValidationError } from '../../../api/client'
+import { BranchChip } from '../../../components/BranchChip'
 import { PortalShell } from '../../../components/PortalShell'
 import { ApiFailure } from '../../../api/client'
 import { useAuth } from '../../../features/auth/context'
@@ -87,7 +88,7 @@ export default function EventsPortal() {
                   <tr key={event.id} className={event.status === 'archived' ? 'archived-row' : undefined}>
                     <th scope="row"><Link to={`/portal/events/${event.id}`}>{event.name}</Link></th>
                     <td>{formatDate(event.event_date)}</td>
-                    <td><div className="branch-list">{event.branches.map((branch) => <span className="branch-chip" key={branch.id}>{branch.name} <small>{branch.code}</small></span>)}</div></td>
+                    <td><div className="branch-list">{event.branches.map((branch) => <BranchChip branch={branch} key={branch.id} />)}</div></td>
                     <td><span className={`status-badge ${event.status}`}><span aria-hidden="true">{event.status === 'active' ? '●' : '✓'}</span><span>{titleCase(event.status)}</span></span></td>
                     <td className="row-action">
                       {event.status === 'active' && (
@@ -186,7 +187,7 @@ function CreateDialog({ branches, onClose, onCreated }: { branches: Branch[]; on
           <legend>Branches</legend>
           <div className="branch-options">
             {branches.map((branch) => (
-              <label key={branch.id}>
+              <label key={branch.id} title={branch.name}>
                 <input
                   type="checkbox"
                   checked={selected.includes(branch.id)}
@@ -195,7 +196,10 @@ function CreateDialog({ branches, onClose, onCreated }: { branches: Branch[]; on
                     if (event.key === ' ') { event.preventDefault(); toggle(branch.id) }
                   }}
                 />
-                <span><strong>{branch.name}</strong><small>{branch.code}</small></span>
+                {/* The code is what is shown; the name stays in the accessible
+                    name (and in the tooltip on the label) so a checkbox is
+                    never just three unexplained letters. */}
+                <span><strong>{branch.code}</strong><span className="sr-only">{branch.name}</span></span>
               </label>
             ))}
           </div>

@@ -266,7 +266,7 @@ export default function CardPopulatorPortal() {
             >
               <option value="">Select a branch</option>
               {(branches.data?.data ?? []).map((branch) => (
-                <option key={branch.id} value={branch.id}>{branch.code} — {branch.name}</option>
+                <option key={branch.id} value={branch.id}>{branch.code}</option>
               ))}
             </select>
           </div>

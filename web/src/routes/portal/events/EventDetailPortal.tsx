@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CaptureCreditUsage, CategoryRecord, CoordinatorAssignment, EventRecord, ValidationError } from '../../../api/client'
+import { BranchChip } from '../../../components/BranchChip'
 import { PortalShell } from '../../../components/PortalShell'
 import { ApiFailure } from '../../../api/client'
 import { useAuth } from '../../../features/auth/context'
@@ -504,7 +505,7 @@ function EventSummary({ event }: { event: EventRecord }) {
         <dd>
           <div className="branch-list">
             {event.branches.map((branch) => (
-              <span className="branch-chip" key={branch.id}>{branch.name} <small>{branch.code}</small></span>
+              <BranchChip branch={branch} key={branch.id} />
             ))}
           </div>
         </dd>

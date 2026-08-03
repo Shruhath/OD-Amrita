@@ -91,7 +91,11 @@ describe('Admin teachers portal composition (ATDD red phase)', () => {
     renderTeachersPortal({ teachers: [createTeacherProfileFixture({ email: 'priya@amrita.edu' })] })
     expect(await screen.findByRole('heading', { name: 'Teachers' })).toBeInTheDocument()
     const row = await screen.findByRole('row', { name: /priya@amrita.edu/ })
-    expect(row).toHaveTextContent('Computer Science Test Fixture')
+    // Branches are shown as their CODE: one profile can carry nine of them, and
+    // nine full names turn a table cell into a paragraph. The full name is not
+    // lost — it stays the abbreviation's expansion.
+    expect(row).toHaveTextContent('ATDD-CSE')
+    expect(within(row).getByTitle('Computer Science Test Fixture')).toBeInTheDocument()
   })
 
   test('[P0] denies a non-Admin without issuing an Admin teacher request', async () => {

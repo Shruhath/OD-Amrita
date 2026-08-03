@@ -190,8 +190,8 @@
   min-width: 0;
   padding: 4px;
   border-radius: 999px;
-  background: rgb(17 24 39 / 0.05);
-  box-shadow: inset 0 0 0 1px rgb(17 24 39 / 0.05);
+  background: var(--tint-line);
+  box-shadow: inset 0 0 0 1px var(--tint-line);
 }
 
 .portal-nav a {
@@ -209,14 +209,14 @@
 }
 
 .portal-nav a:hover {
-  background: rgb(255 255 255 / 0.7);
+  background: var(--panel-raise);
   color: var(--foreground);
 }
 
 .portal-nav a[aria-current='page'] {
-  background: #fff;
+  background: var(--control-bg);
   color: var(--crimson);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.12), 0 0 0 1px rgb(181 2 70 / 0.14);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.12), 0 0 0 1px var(--ring-brand-soft);
 }
 
 .account-actions {
@@ -353,7 +353,7 @@ button {
   padding: 10px 18px;
   border: 1px solid var(--gray-300);
   border-radius: var(--radius-md);
-  background: #fff;
+  background: var(--control-bg);
   color: var(--foreground);
   font-size: 15px;
   font-weight: 650;
@@ -418,7 +418,7 @@ button:disabled {
 .danger {
   background: var(--destructive);
   border-color: var(--destructive);
-  color: #fff;
+  color: var(--control-bg);
 }
 
 .danger:hover:not(:disabled) {
@@ -457,8 +457,76 @@ button:disabled {
 }
 
 .account-actions .text-button:hover:not(:disabled) {
-  background: rgb(17 24 39 / 0.06);
+  background: var(--tint-medium);
   color: var(--foreground);
+}
+
+/* ------------------------------------------------------- brand on dark */
+
+/* The university lockup is fixed artwork drawn for white paper: crimson type
+   over a dark-grey accreditation line. On a dark surface that grey line drops
+   to about 1.5:1 and the seal's motto disappears entirely.
+
+   A filter is not an option — brightness/invert would either wash the line out
+   anyway or shift the brand crimson, and the crimson is the one colour in this
+   app that is not ours to change. So on dark the mark keeps its original
+   colours and is given the light ground it was drawn for. */
+:root[data-theme='dark'] .auth-brand,
+:root[data-theme='dark'] .app-footer__logo {
+  background: rgb(255 255 255 / 0.93);
+  border-radius: 12px;
+}
+
+:root[data-theme='dark'] .auth-brand {
+  padding: 14px 18px;
+}
+
+:root[data-theme='dark'] .app-footer__logo {
+  box-sizing: content-box;
+  padding: 8px 12px;
+}
+
+/* ------------------------------------------------------------ theme toggle */
+
+/* A square icon button sized to the 38px controls beside it rather than to the
+   44px tap floor: it sits inside chrome next to "Sign out", and a 44px circle
+   there unbalances the bar. The hit area is padded back out below. */
+.theme-toggle {
+  position: relative;
+  flex-shrink: 0;
+  min-height: 38px;
+  width: 38px;
+  padding: 0;
+  border-radius: 50%;
+  border-color: transparent;
+  background: var(--tint-medium);
+  color: var(--gray-600);
+  box-shadow: none;
+}
+
+/* Restores a full 44px target without changing the painted circle. */
+.theme-toggle::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+}
+
+.theme-toggle:hover:not(:disabled) {
+  background: var(--tint-strong);
+  border-color: transparent;
+  color: var(--foreground);
+}
+
+.theme-toggle svg {
+  display: block;
+}
+
+/* On the auth cards the toggle has no bar to sit in, so it is pinned to the top
+   corner of the card itself. */
+.auth-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin: calc(-1 * clamp(12px, 3vw, 20px)) calc(-1 * clamp(4px, 1vw, 10px)) 4px 0;
 }
 
 /* ------------------------------------------------------------------ panels */
@@ -501,7 +569,7 @@ button:disabled {
   /* Dashed on a translucent fill turns to mush, so emptiness is signalled by a
      quieter fill and a lighter border instead. */
   background: var(--surface-quiet);
-  border-color: rgb(255 255 255 / 0.35);
+  border-color: var(--surface-border);
 }
 
 .empty-state h1,
@@ -544,7 +612,7 @@ thead th {
   z-index: 1;
   color: var(--gray-600);
   /* Near-opaque: rows scroll under this, and a translucent header ghosts them. */
-  background: rgb(248 249 251 / 0.94);
+  background: var(--thead-bg);
   font-size: 11.5px;
   font-weight: 720;
   letter-spacing: 0.08em;
@@ -568,7 +636,7 @@ tbody th {
 
 tbody th a {
   color: var(--foreground);
-  text-decoration-color: rgb(17 24 39 / 0.25);
+  text-decoration-color: var(--gray-400);
   text-underline-offset: 3px;
 }
 
@@ -591,11 +659,11 @@ tbody tr {
 }
 
 tbody tr:hover {
-  background: rgb(255 255 255 / 0.55);
+  background: var(--row-hover);
 }
 
 .archived-row {
-  background: rgb(17 24 39 / 0.035);
+  background: var(--archived-row-bg);
 }
 
 .archived-row > * {
@@ -631,7 +699,7 @@ tbody tr:hover {
 
 .pagination button:hover:not(:disabled) {
   background: var(--on-backdrop-fill-hover);
-  border-color: rgb(255 255 255 / 0.3);
+  border-color: var(--on-backdrop-line);
 }
 
 /* ------------------------------------------------------- chips and badges */
@@ -646,8 +714,8 @@ tbody tr:hover {
   padding: 5px 10px;
   border-radius: 999px;
   color: var(--gray-700);
-  background: rgb(17 24 39 / 0.055);
-  box-shadow: inset 0 0 0 1px rgb(17 24 39 / 0.06);
+  background: var(--tint-medium);
+  box-shadow: inset 0 0 0 1px var(--tint-medium);
   font-weight: 650;
   font-size: 11.5px;
   white-space: nowrap;
@@ -728,8 +796,8 @@ tbody tr:hover {
   margin: 22px 0 0;
   padding: 13px 15px;
   border-radius: var(--radius-md);
-  background: rgb(37 99 235 / 0.07);
-  box-shadow: inset 0 0 0 1px rgb(37 99 235 / 0.16);
+  background: var(--fill-info);
+  box-shadow: inset 0 0 0 1px var(--ring-info);
   color: var(--blue-700);
   font-size: 13px;
   line-height: 1.55;
@@ -761,8 +829,8 @@ tbody tr:hover {
 
 .notice.error {
   color: var(--red-700);
-  background: rgb(254 242 242 / 0.92);
-  box-shadow: inset 0 0 0 1px rgb(220 38 38 / 0.22), 0 12px 30px -18px rgb(0 0 0 / 0.6);
+  background: var(--fill-error);
+  box-shadow: inset 0 0 0 1px var(--ring-error), 0 12px 30px -18px rgb(0 0 0 / 0.6);
 }
 
 .notice.error > span {
@@ -847,13 +915,13 @@ tbody tr:hover {
   border-radius: var(--radius-md);
   padding: 11px 13px;
   color: var(--foreground);
-  background: #fff;
+  background: var(--control-bg);
   transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
 .dialog input:focus {
   border-color: var(--crimson);
-  box-shadow: 0 0 0 3px rgb(181 2 70 / 0.1);
+  box-shadow: 0 0 0 3px var(--focus-glow);
 }
 
 .dialog input[aria-invalid='true'] {
@@ -888,13 +956,13 @@ tbody tr:hover {
   padding: 10px 13px;
   border: 1px solid var(--gray-300);
   border-radius: var(--radius-md);
-  background: rgb(255 255 255 / 0.6);
+  background: var(--panel-raise);
   cursor: pointer;
   transition: background-color 0.14s ease, border-color 0.14s ease;
 }
 
 .branch-options label:hover {
-  background: #fff;
+  background: var(--control-bg);
   border-color: var(--gray-400);
 }
 
@@ -957,7 +1025,7 @@ tbody tr:hover {
 
 /* The status badge and branch chips in the summary sit on the photograph, so
    they cannot use the on-panel palette. */
-.event-summary .status-badge.active { color: #4ade80; }
+.event-summary .status-badge.active { color: var(--on-backdrop-success); }
 .event-summary .status-badge.archived { color: var(--on-backdrop-muted); }
 
 .event-summary .branch-chip {
@@ -986,8 +1054,8 @@ tbody tr:hover {
   gap: 8px 14px;
   padding: 13px 15px;
   border-radius: var(--radius-md);
-  background: rgb(17 24 39 / 0.04);
-  box-shadow: inset 0 0 0 1px rgb(17 24 39 / 0.05);
+  background: var(--tint-soft);
+  box-shadow: inset 0 0 0 1px var(--tint-line);
   font-weight: 650;
   font-size: 14.5px;
   overflow-wrap: anywhere;
@@ -1040,13 +1108,13 @@ tbody tr:hover {
   border: 1px solid var(--gray-300);
   border-radius: var(--radius-md);
   padding: 11px 13px;
-  background: #fff;
+  background: var(--control-bg);
   color: var(--foreground);
 }
 
 .category-form input:focus {
   border-color: var(--crimson);
-  box-shadow: 0 0 0 3px rgb(181 2 70 / 0.1);
+  box-shadow: 0 0 0 3px var(--focus-glow);
 }
 
 .category-form .field-error {
@@ -1075,7 +1143,7 @@ tbody tr:hover {
   border: 1px dashed var(--gray-400);
   border-radius: var(--radius-md);
   padding: 14px;
-  background: rgb(17 24 39 / 0.03);
+  background: var(--tint-weak);
   font-size: 14px;
 }
 
@@ -1089,8 +1157,8 @@ tbody tr:hover {
 .summary-grid div {
   padding: 15px 17px;
   border-radius: var(--radius-md);
-  background: rgb(17 24 39 / 0.04);
-  box-shadow: inset 0 0 0 1px rgb(17 24 39 / 0.05);
+  background: var(--tint-soft);
+  box-shadow: inset 0 0 0 1px var(--tint-line);
   min-width: 0;
 }
 
@@ -1117,15 +1185,15 @@ tbody tr:hover {
    assembled rather than designed. Inside a panel it is a flat tinted inset. */
 .detail-section .table-wrap {
   border-radius: var(--radius-lg);
-  background: rgb(17 24 39 / 0.03);
+  background: var(--tint-weak);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  border-color: rgb(17 24 39 / 0.08);
+  border-color: var(--tint-border);
   box-shadow: none;
 }
 
 .detail-section .table-wrap thead th {
-  background: #f2f3f5;
+  background: var(--nested-head-bg);
 }
 
 .detail-section .table-wrap thead th:first-child { border-top-left-radius: var(--radius-lg); }
@@ -1176,13 +1244,13 @@ tbody tr:hover {
   border-radius: var(--radius-md);
   padding: 11px 13px;
   color: var(--foreground);
-  background: #fff;
+  background: var(--control-bg);
 }
 
 .populator-filters select:focus,
 .populator-filters input:focus {
   border-color: var(--crimson);
-  box-shadow: 0 0 0 3px rgb(181 2 70 / 0.1);
+  box-shadow: 0 0 0 3px var(--focus-glow);
 }
 
 .populator-roster td { vertical-align: top; }
@@ -1220,8 +1288,8 @@ tbody tr:hover {
 
 /* A failed row must stay visible in the list rather than being filtered away —
    the off-by-one failure mode is worse than a long list. */
-.populator-row-failed { background: rgb(220 38 38 / 0.07); }
-.populator-row-failed:hover { background: rgb(220 38 38 / 0.1); }
+.populator-row-failed { background: var(--fill-danger-row); }
+.populator-row-failed:hover { background: var(--fill-danger-row-hover); }
 
 .status-badge.populator-verified { color: var(--green-600); }
 .status-badge.populator-written { color: var(--amber-700); }
@@ -1339,6 +1407,18 @@ tbody tr:hover {
   text-shadow: var(--on-backdrop-shadow);
 }
 
+/* The marking header sits on the backdrop, not on a panel, so the toggle takes
+   the on-backdrop palette rather than the panel tints. */
+.mark-header .theme-toggle {
+  background: var(--on-backdrop-fill);
+  color: var(--on-backdrop-muted);
+}
+
+.mark-header .theme-toggle:hover:not(:disabled) {
+  background: var(--on-backdrop-fill-hover);
+  color: var(--on-backdrop);
+}
+
 .mark-who {
   margin: 0;
   min-width: 0;
@@ -1390,7 +1470,7 @@ tbody tr:hover {
   padding: 10px 12px;
   border: 1px solid var(--gray-300);
   border-radius: var(--radius-md);
-  background: #fff;
+  background: var(--control-bg);
   color: var(--foreground);
   font-size: 15px;
   font-weight: 600;
@@ -1401,7 +1481,7 @@ tbody tr:hover {
 .mark-field select:focus,
 .mark-field input:focus {
   border-color: var(--crimson);
-  box-shadow: 0 0 0 3px rgb(181 2 70 / 0.1);
+  box-shadow: 0 0 0 3px var(--focus-glow);
 }
 
 /* Four meters, so a fixed three-column grid left the fourth stranded on a row
@@ -1423,8 +1503,8 @@ tbody tr:hover {
   gap: 3px;
   min-width: 0;
   padding: 12px 10px;
-  background: rgb(255 255 255 / 0.35);
-  box-shadow: 0 0 0 1px rgb(17 24 39 / 0.05);
+  background: var(--surface-border);
+  box-shadow: 0 0 0 1px var(--tint-line);
 }
 
 .mark-meter-value {
@@ -1445,8 +1525,8 @@ tbody tr:hover {
 
 /* The last fallback credits are the one number that must interrupt. */
 .mark-meter.is-warning {
-  background: rgb(220 38 38 / 0.1);
-  box-shadow: 0 0 0 1px rgb(220 38 38 / 0.2);
+  background: var(--fill-danger-row-hover);
+  box-shadow: 0 0 0 1px var(--ring-error);
 }
 
 .mark-meter.is-warning .mark-meter-value,
@@ -1477,7 +1557,7 @@ tbody tr:hover {
   background: var(--surface);
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  box-shadow: inset 0 0 0 2px rgb(17 24 39 / 0.1), var(--shadow-panel);
+  box-shadow: inset 0 0 0 2px var(--tint-strong), var(--shadow-panel);
   color: var(--gray-600);
   font-size: 15px;
   overflow-wrap: anywhere;
@@ -1499,8 +1579,8 @@ tbody tr:hover {
 }
 
 .mark-banner.is-green {
-  background: rgb(240 253 244 / 0.92);
-  box-shadow: inset 0 0 0 2px rgb(22 163 74 / 0.45), var(--shadow-panel);
+  background: var(--fill-success);
+  box-shadow: inset 0 0 0 2px var(--ring-success), var(--shadow-panel);
   color: var(--green-700);
 }
 
@@ -1509,8 +1589,8 @@ tbody tr:hover {
 }
 
 .mark-banner.is-red {
-  background: rgb(253 242 246 / 0.94);
-  box-shadow: inset 0 0 0 2px rgb(181 2 70 / 0.5), var(--shadow-panel);
+  background: var(--fill-brand);
+  box-shadow: inset 0 0 0 2px var(--ring-brand), var(--shadow-panel);
   color: var(--crimson);
 }
 
@@ -1545,7 +1625,7 @@ tbody tr:hover {
 }
 
 .mark-mode:hover:not(:disabled) {
-  background: rgb(255 255 255 / 0.7);
+  background: var(--panel-raise);
   border-color: transparent;
   color: var(--foreground);
 }
@@ -1580,8 +1660,8 @@ tbody tr:hover {
   margin: 0;
   padding: 12px 14px;
   border-radius: var(--radius-md);
-  background: rgb(181 2 70 / 0.08);
-  box-shadow: inset 0 0 0 1px rgb(181 2 70 / 0.25);
+  background: var(--crimson-50);
+  box-shadow: inset 0 0 0 1px var(--ring-brand);
   color: var(--crimson);
   font-size: 14px;
   font-weight: 600;
@@ -1596,10 +1676,10 @@ tbody tr:hover {
   margin: 0;
   padding: 12px 14px;
   border-radius: var(--radius-md);
-  background: rgb(254 242 242 / 0.92);
+  background: var(--fill-error);
   backdrop-filter: blur(var(--glass-blur-sm));
   -webkit-backdrop-filter: blur(var(--glass-blur-sm));
-  box-shadow: inset 0 0 0 1px rgb(220 38 38 / 0.25);
+  box-shadow: inset 0 0 0 1px var(--ring-error);
   color: var(--red-700);
   font-size: 14px;
   line-height: 1.5;
@@ -1622,7 +1702,7 @@ tbody tr:hover {
   background: var(--surface-quiet);
   backdrop-filter: blur(var(--glass-blur-sm));
   -webkit-backdrop-filter: blur(var(--glass-blur-sm));
-  box-shadow: inset 0 0 0 1px rgb(17 24 39 / 0.08);
+  box-shadow: inset 0 0 0 1px var(--tint-border);
   color: var(--gray-600);
   font-size: 13.5px;
   font-weight: 600;
@@ -1630,8 +1710,8 @@ tbody tr:hover {
 }
 
 .mark-note.is-caution {
-  background: rgb(254 252 232 / 0.92);
-  box-shadow: inset 0 0 0 1px rgb(202 138 4 / 0.35);
+  background: var(--fill-caution);
+  box-shadow: inset 0 0 0 1px var(--ring-caution);
   color: var(--amber-700);
 }
 
@@ -1655,8 +1735,8 @@ tbody tr:hover {
   overflow: hidden;
   width: 100%;
   border-radius: var(--radius-md);
-  background: var(--gray-900);
-  box-shadow: inset 0 0 0 1px rgb(17 24 39 / 0.15);
+  background: var(--viewfinder-bg);
+  box-shadow: inset 0 0 0 1px var(--tint-strong);
   aspect-ratio: 4 / 3;
 }
 
@@ -1693,7 +1773,7 @@ tbody tr:hover {
   gap: 2px;
   padding: 10px 14px;
   text-align: left;
-  background: rgb(255 255 255 / 0.7);
+  background: var(--panel-raise);
 }
 
 .mark-results button strong {
@@ -1742,11 +1822,11 @@ tbody tr:hover {
 
   .portal-nav a {
     scroll-snap-align: start;
-    background: rgb(17 24 39 / 0.05);
+    background: var(--tint-line);
   }
 
   .portal-nav a[aria-current='page'] {
-    background: #fff;
+    background: var(--control-bg);
   }
 
   /* The address is the least useful thing in a 360px-wide bar. */
@@ -1808,16 +1888,16 @@ tbody tr:hover {
     position: sticky;
     left: 0;
     z-index: 2;
-    background: #f4f6f8;
+    background: var(--sticky-head-bg);
     box-shadow: 1px 0 0 var(--surface-line-strong);
   }
 
   /* The pinned cell paints over the row, so it has to repeat the row's fill —
      also opaque, for the same reason. */
   .archived-row th:first-child,
-  .archived-row td:first-child { background: #f2f3f5; }
+  .archived-row td:first-child { background: var(--nested-head-bg); }
   .populator-row-failed th:first-child,
-  .populator-row-failed td:first-child { background: #fdf0f1; }
+  .populator-row-failed td:first-child { background: var(--sticky-failed-bg); }
 
   /* Short values (dates, counts, statuses) read worse broken across three lines
      than scrolled to, so only the branch chips are allowed to wrap. */
@@ -1841,6 +1921,15 @@ tbody tr:hover {
   .populator-actions { min-width: 0; }
   .summary-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
   .summary-grid dd { font-size: 23px; }
+}
+
+/* The theme toggle costs the marking header ~44px, which is enough to wrap
+   "Mark attendance" onto two lines on a 390px phone. The account name goes
+   instead — exactly what the portal topbar does with the address at the same
+   width. The coordinator knows who they are; they need the title and the
+   control. */
+@media (max-width: 440px) {
+  .mark-who { display: none; }
 }
 
 /* At the narrowest supported width four meters across become unreadable, so

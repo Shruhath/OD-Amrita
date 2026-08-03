@@ -10,6 +10,30 @@
     <meta name="theme-color" content="#b50246" />
     <meta name="description" content="On-duty event administration for Amrita Vishwa Vidyapeetham." />
     <title>OD-Amrita</title>
+    <!--
+      Resolves the theme BEFORE first paint. React cannot do this: the bundle
+      parses and mounts after the first frame, so a light default would flash
+      white at every dark-mode user on every load.
+
+      The storage key is duplicated from src/features/theme/theme.ts because an
+      inline script cannot import. A unit test asserts the two agree.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('od-amrita-theme')
+          var preference = stored === 'light' || stored === 'dark' ? stored : 'system'
+          var dark =
+            preference === 'dark' ||
+            (preference === 'system' &&
+              typeof window.matchMedia === 'function' &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches)
+          document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
+        } catch (error) {
+          document.documentElement.setAttribute('data-theme', 'light')
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

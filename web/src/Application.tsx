@@ -13,6 +13,8 @@ export function Application({ session, router }: { session: SessionPort; router:
   }))
   return (
     <QueryClientProvider client={queryClient}>
+      {/* No theme provider: the theme is an external store (features/theme/store),
+          so every toggle shares it without one. */}
       {/* Painted once, behind everything. Every shell above it is transparent,
           so it is the ground for all seven surfaces, not just sign-in. */}
       <AppBackdrop />

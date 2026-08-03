@@ -1,6 +1,10 @@
 import { test, type Browser, type Page } from '@playwright/test'
 import { fulfilPreflight, installPortalSession, json, type PortalRole } from './support/portal-session'
 
+/** Both themes, because a glass panel is only as good as its worst ground. */
+const themes = ['light', 'dark'] as const
+type Theme = typeof themes[number]
+
 /**
  * Not an assertion suite — a capture harness. It renders each surface at a phone
  * and a desktop viewport and writes a PNG, so the restyle can be reviewed as
@@ -166,10 +170,25 @@ const surfaces: Surface[] = [
   },
 ]
 
-async function capture(browser: Browser, viewport: typeof viewports[number], surface: Surface) {
-  const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } })
+async function capture(
+  browser: Browser,
+  viewport: typeof viewports[number],
+  surface: Surface,
+  theme: Theme,
+) {
+  const context = await browser.newContext({
+    viewport: { width: viewport.width, height: viewport.height },
+    colorScheme: theme,
+  })
   const page = await context.newPage()
   await installPortalSession(page, surface.role)
+  // Registered AFTER installPortalSession, whose init script clears storage —
+  // otherwise the preference is wiped before the app ever reads it. Pinned
+  // explicitly rather than left to colorScheme so the capture also exercises
+  // the stored-preference path the boot script takes.
+  await page.addInitScript((value) => {
+    localStorage.setItem('od-amrita-theme', value)
+  }, theme)
   if (surface.role) await mockApi(page, surface.role)
   await page.goto(surface.path)
   await page.waitForLoadState('networkidle')
@@ -179,13 +198,13 @@ async function capture(browser: Browser, viewport: typeof viewports[number], sur
     try {
       await surface.prepare(page)
     } catch (cause) {
-      console.error(`prepare failed for ${viewport.tag}-${surface.name}:`, cause)
+      console.error(`prepare failed for ${viewport.tag}-${theme}-${surface.name}:`, cause)
     }
   }
   // The backdrop image and the panel blurs land a frame after load; without this
   // the capture can catch an unfrosted panel.
   await page.waitForTimeout(400)
-  await page.screenshot({ path: `.review/${viewport.tag}-${surface.name}.png`, fullPage: true })
+  await page.screenshot({ path: `.review/${viewport.tag}-${theme}-${surface.name}.png`, fullPage: true })
   await context.close()
 }
 
@@ -195,7 +214,9 @@ for (const viewport of viewports) {
     // private repo are capped. It asserts nothing, so there is nothing to gain
     // from running it on every push — set VISUAL_REVIEW=1 to capture locally.
     test.skip(!process.env.VISUAL_REVIEW, 'Set VISUAL_REVIEW=1 to capture screenshots')
-    test.setTimeout(180_000)
-    for (const surface of surfaces) await capture(browser, viewport, surface)
+    test.setTimeout(360_000)
+    for (const theme of themes) {
+      for (const surface of surfaces) await capture(browser, viewport, surface, theme)
+    }
   })
 }

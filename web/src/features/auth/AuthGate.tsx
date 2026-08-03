@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Identity } from '../../api/client'
+import { ThemeToggle } from '../../components/ThemeToggle'
 import { ApiFailure, createEventApi } from '../../api/client'
 import type { SessionPort } from './session'
 import { AuthContext, useAuth, type AuthState } from './context'
@@ -63,16 +64,25 @@ export function AuthProvider({ children, session }: { children: ReactNode; sessi
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
-/** The university lockup that heads every signed-out surface. */
+/**
+ * The university lockup that heads every signed-out surface, plus the theme
+ * control — these cards have no chrome of their own, so without it the toggle
+ * would be unreachable for anyone who is not signed in.
+ */
 function AuthBrand() {
   return (
-    <img
-      className="auth-brand"
-      src="/brand/amrita-logo.png"
-      alt="Amrita Vishwa Vidyapeetham"
-      width={600}
-      height={155}
-    />
+    <>
+      <div className="auth-toolbar">
+        <ThemeToggle />
+      </div>
+      <img
+        className="auth-brand"
+        src="/brand/amrita-logo.png"
+        alt="Amrita Vishwa Vidyapeetham"
+        width={600}
+        height={155}
+      />
+    </>
   )
 }
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CaptureMethod, CardPayload, MarkAttendanceResult, ResolvedCardStudent } from '../../api/client'
 import { ApiFailure } from '../../api/client'
+import { ThemeToggle } from '../../components/ThemeToggle'
 import { useAuth } from '../../features/auth/context'
 import { createBarcodeScanner, type BarcodeScannerStatus } from '../../features/marking/barcodeScanner'
 import { CardNfcError, createWebNfcAdapter, type WebNfcStatus } from '../../features/nfc/webNfc'
@@ -397,6 +398,7 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
         <span className="brand-mark" aria-hidden="true">OD</span>
         <h1>Mark attendance</h1>
         <p className="mark-who">{identity.name}</p>
+        <ThemeToggle />
       </header>
 
       <section className="mark-scope" aria-label="Event and category">

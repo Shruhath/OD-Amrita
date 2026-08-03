@@ -118,6 +118,64 @@
   --chrome: rgb(255 255 255 / 0.72);
   --chrome-border: rgb(255 255 255 / 0.4);
 
+  /* ------------------------------------------------- inside a panel */
+
+  /* Everything from here down describes the INSIDE of a panel, and every one of
+     these flips wholesale in dark mode. They exist because the component layer
+     used to spell these out as literal rgb() values, and a literal cannot be
+     re-themed. Nothing below may be a bare colour in App.css. */
+
+  /* Tints: a wash of the text colour over the panel fill, used for nested rows,
+     chips, inset tables and dividers. Ink over light, light over ink. */
+  --tint-weak: rgb(17 24 39 / 0.03);
+  --tint-soft: rgb(17 24 39 / 0.045);
+  --tint-medium: rgb(17 24 39 / 0.06);
+  --tint-strong: rgb(17 24 39 / 0.1);
+  --tint-line: rgb(17 24 39 / 0.05);
+  --tint-border: rgb(17 24 39 / 0.08);
+
+  /* Controls that sit ON a panel: inputs, selects, raised list rows. */
+  --control-bg: #fff;
+  --panel-raise: rgb(255 255 255 / 0.7);
+  --row-hover: rgb(255 255 255 / 0.55);
+
+  /* Table cells that scroll under a sticky neighbour. Opaque by necessity. */
+  --thead-bg: rgb(248 249 251 / 0.94);
+  --nested-head-bg: #f2f3f5;
+  --sticky-bg: #fbfbfc;
+  --sticky-head-bg: #f4f6f8;
+  --sticky-archived-bg: #f2f3f5;
+  --sticky-failed-bg: #fdf0f1;
+  --archived-row-bg: rgb(17 24 39 / 0.035);
+
+  /* Status surfaces. Each is a fill plus the hairline ring around it; the text
+     colour comes from the matching semantic accent above. */
+  --fill-error: rgb(254 242 242 / 0.92);
+  --ring-error: rgb(220 38 38 / 0.22);
+  --fill-success: rgb(240 253 244 / 0.92);
+  --ring-success: rgb(22 163 74 / 0.45);
+  --fill-caution: rgb(254 252 232 / 0.92);
+  --ring-caution: rgb(202 138 4 / 0.35);
+  --fill-info: rgb(37 99 235 / 0.07);
+  --ring-info: rgb(37 99 235 / 0.16);
+  --fill-brand: rgb(253 242 246 / 0.94);
+  --ring-brand: rgb(181 2 70 / 0.5);
+  --ring-brand-soft: rgb(181 2 70 / 0.14);
+  /* The halo on a focused input — softer than the focus outline, which is for
+     keyboard traversal; this one just says "typing happens here". */
+  --focus-glow: rgb(181 2 70 / 0.1);
+  --fill-danger-row: rgb(220 38 38 / 0.07);
+  --fill-danger-row-hover: rgb(220 38 38 / 0.1);
+
+  /* The one accent that lives on the BACKDROP rather than on a panel: the
+     status badge in the event summary. It never themes, because the backdrop
+     never themes. */
+  --on-backdrop-success: #4ade80;
+
+  /* The camera viewfinder is a lens, not a surface: it stays near-black in both
+     themes, so it is deliberately NOT part of the neutral ramp. */
+  --viewfinder-bg: #111827;
+
   /* Text sitting directly on the backdrop. */
   --on-backdrop: #ffffff;
   --on-backdrop-muted: rgb(255 255 255 / 0.74);
@@ -182,6 +240,146 @@
   -webkit-font-smoothing: antialiased;
   color: var(--foreground);
   background: var(--background);
+
+  /* Tells the browser to render its OWN widgets to match — the date picker
+     dropdown, the select popup, the caret, autofill, and the default
+     scrollbars. Without it those stay light on a dark page, and the calendar
+     icon in the event-date field is the first thing to give it away. */
+  color-scheme: light;
+}
+
+/* ---------------------------------------------------------------- dark theme
+
+   `data-theme` is written to <html> before first paint by the boot script in
+   index.html, so this is a plain attribute selector rather than a media query:
+   the preference may be an explicit choice OR the system setting, and resolving
+   that in one place beats duplicating this block behind a media query.
+
+   The BACKDROP is deliberately not overridden. It is a dark photograph in both
+   themes — that is the constant the whole design hangs on. What flips is the
+   glass on top of it: light panels with dark text become dark panels with light
+   text, and everything on the backdrop itself (headings, the campus, the mask)
+   stays exactly as it was. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --background: oklch(0.16 0 0);
+  --foreground: oklch(0.97 0 0);
+  --card: oklch(0.19 0 0);
+  /* The filled action inverts: a near-black button is invisible on a dark
+     panel, so in dark mode it is near-white with dark type. */
+  --primary: oklch(0.97 0 0);
+  --primary-foreground: oklch(0.18 0 0);
+  --secondary: oklch(0.26 0 0);
+  --muted-surface: oklch(0.26 0 0);
+  --muted-foreground: oklch(0.72 0 0);
+  --destructive: #f87171;
+  --border: rgb(255 255 255 / 0.14);
+  --ring: oklch(0.55 0 0);
+
+  /* The neutral ramp is INVERTED rather than re-pointed. Every use of it in the
+     component layer is inside a panel — muted body text, hairline borders, a
+     quiet fill — so flipping the ramp flips all of them correctly at once, and
+     no rule has to know which theme it is in. */
+  --gray-50: #14171e;
+  --gray-100: #191d25;
+  --gray-200: #21262f;
+  --gray-300: #363c48;
+  --gray-400: #525a68;
+  --gray-500: #9aa2af;
+  --gray-600: #b8bec9;
+  --gray-700: #d5d9e0;
+  --gray-800: #e9ebef;
+  --gray-900: #f6f7f9;
+
+  /* Accents lifted until they clear 4.5:1 on a dark panel. The -600/-700 pairs
+     keep their roles: -600 is the mark, -700 the text weight. */
+  --red-600: #f87171;
+  --red-700: #fca5a5;
+  --red-200: rgb(248 113 113 / 0.35);
+  --red-50: rgb(248 113 113 / 0.1);
+  --green-600: #4ade80;
+  --green-700: #86efac;
+  --green-200: rgb(74 222 128 / 0.35);
+  --green-50: rgb(74 222 128 / 0.1);
+  --blue-600: #60a5fa;
+  --blue-700: #93c5fd;
+  --blue-200: rgb(96 165 250 / 0.35);
+  --blue-50: rgb(96 165 250 / 0.1);
+  --amber-600: #fbbf24;
+  --amber-700: #fcd34d;
+  --amber-200: rgb(251 191 36 / 0.35);
+  --amber-50: rgb(251 191 36 / 0.1);
+
+  /* The ink crimson is a dark colour; on a dark panel it reads as a smudge. In
+     dark mode the accent IS the light tint that the backdrop already uses. */
+  --crimson: #ff8db5;
+  --crimson-700: #ffb3cd;
+  --crimson-200: rgb(255 141 181 / 0.4);
+  --crimson-50: rgb(255 141 181 / 0.12);
+  --focus-ring-dark: rgb(255 255 255 / 0.55);
+
+  /* Glass, inverted. The fills are darker than the masked backdrop rather than
+     lighter, so a panel still reads as an object sitting on the photograph. */
+  --surface: rgb(18 21 29 / 0.76);
+  --surface-quiet: rgb(255 255 255 / 0.05);
+  --surface-strong: rgb(20 23 32 / 0.92);
+  --surface-solid: #161922;
+  --surface-border: rgb(255 255 255 / 0.13);
+  /* Much fainter than in light mode: a bright top edge on a dark panel reads as
+     a seam rather than as a lit rim. */
+  --surface-highlight: rgb(255 255 255 / 0.09);
+  --surface-line: rgb(255 255 255 / 0.09);
+  --surface-line-strong: rgb(255 255 255 / 0.16);
+  --chrome: rgb(14 17 24 / 0.72);
+  --chrome-border: rgb(255 255 255 / 0.11);
+
+  --tint-weak: rgb(255 255 255 / 0.035);
+  --tint-soft: rgb(255 255 255 / 0.05);
+  --tint-medium: rgb(255 255 255 / 0.07);
+  --tint-strong: rgb(255 255 255 / 0.12);
+  --tint-line: rgb(255 255 255 / 0.07);
+  --tint-border: rgb(255 255 255 / 0.1);
+
+  --control-bg: #1b1f29;
+  --panel-raise: rgb(255 255 255 / 0.06);
+  --row-hover: rgb(255 255 255 / 0.05);
+
+  --thead-bg: rgb(26 30 39 / 0.94);
+  --nested-head-bg: #1b1f29;
+  --sticky-bg: #161922;
+  --sticky-head-bg: #1b1f29;
+  --sticky-archived-bg: #13161d;
+  --sticky-failed-bg: #2b161a;
+  --archived-row-bg: rgb(255 255 255 / 0.03);
+
+  --fill-error: rgb(48 20 24 / 0.88);
+  --ring-error: rgb(248 113 113 / 0.34);
+  --fill-success: rgb(18 42 28 / 0.88);
+  --ring-success: rgb(74 222 128 / 0.4);
+  --fill-caution: rgb(48 36 12 / 0.88);
+  --ring-caution: rgb(251 191 36 / 0.38);
+  --fill-info: rgb(24 38 64 / 0.8);
+  --ring-info: rgb(96 165 250 / 0.3);
+  --fill-brand: rgb(52 16 32 / 0.9);
+  --ring-brand: rgb(255 141 181 / 0.5);
+  --ring-brand-soft: rgb(255 141 181 / 0.3);
+  --focus-glow: rgb(255 141 181 / 0.18);
+  --fill-danger-row: rgb(248 113 113 / 0.09);
+  --fill-danger-row-hover: rgb(248 113 113 / 0.14);
+
+  --viewfinder-bg: #05070b;
+
+  /* A dark panel needs a deeper, tighter shadow to separate from a dark ground;
+     the light-mode values disappear entirely. */
+  --shadow-panel:
+    inset 0 1px 0 var(--surface-highlight),
+    0 1px 2px rgb(0 0 0 / 0.4),
+    0 20px 44px -20px rgb(0 0 0 / 0.85);
+  --shadow-raised:
+    inset 0 1px 0 var(--surface-highlight),
+    0 2px 8px rgb(0 0 0 / 0.45),
+    0 36px 70px -26px rgb(0 0 0 / 0.9);
 }
 
 /* Safari before 18 and every Firefox build without the pref support neither
@@ -194,6 +392,13 @@
     --surface-quiet: rgb(248 249 251 / 0.96);
     --surface-strong: rgb(255 255 255 / 0.99);
     --chrome: rgb(255 255 255 / 0.96);
+  }
+
+  :root[data-theme='dark'] {
+    --surface: rgb(18 21 29 / 0.97);
+    --surface-quiet: rgb(26 30 39 / 0.97);
+    --surface-strong: rgb(20 23 32 / 0.99);
+    --chrome: rgb(14 17 24 / 0.97);
   }
 }
 
@@ -285,15 +490,16 @@ img, svg {
   background-clip: content-box;
 }
 
-/* Scrollbars inside a light panel need the inverse treatment. */
+/* Scrollbars inside a panel run against the panel's own fill, not the backdrop,
+   so they use the panel tints and flip with the theme. */
 .table-wrap::-webkit-scrollbar-track,
 .dialog::-webkit-scrollbar-track {
-  background: rgb(17 24 39 / 0.05);
+  background: var(--tint-line);
 }
 
 .table-wrap::-webkit-scrollbar-thumb,
 .dialog::-webkit-scrollbar-thumb {
-  background: rgb(17 24 39 / 0.24);
+  background: var(--gray-400);
   background-clip: content-box;
 }
 

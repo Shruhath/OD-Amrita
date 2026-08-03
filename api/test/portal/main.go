@@ -136,6 +136,7 @@ func main() {
 	}
 	cardTokenService := svccardtoken.NewService(svccardtoken.NewSQLCReader(runtimePool), svccardtoken.NewSQLCLedger(runtimePool), st, cardKeyring)
 	eventReader := svcevent.NewSQLCReader(runtimePool)
+	creditLedger := svcodrecord.NewSQLCCreditLedger(runtimePool)
 	markingPolicy := svcmarking.NewPolicy(svcmarking.NewEventReader(eventReader))
 	markService := svcodrecord.NewService(
 		svcodrecord.NewSQLCReader(runtimePool),
@@ -144,13 +145,14 @@ func main() {
 		st,
 		nil,
 		svcmarking.NewMarkGuard(markingPolicy),
+		creditLedger,
 	)
 	studentService.WithSearchReader(svcstudent.NewSQLCSearchReader(runtimePool))
 	markingReads := svcmarking.NewReadService(
 		markingPolicy,
 		eventReader,
 		studentService,
-		svcodrecord.NewStatusService(svcodrecord.NewSQLCReader(runtimePool), svcodrecord.NewSQLCCounter(runtimePool), nil),
+		svcodrecord.NewStatusService(svcodrecord.NewSQLCReader(runtimePool), svcodrecord.NewSQLCCounter(runtimePool), creditLedger, nil),
 	)
 
 	gin.SetMode(gin.ReleaseMode)
@@ -237,6 +239,24 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 	// run's uniquely-suffixed fixtures are cleared too. Each spec owns a DISTINCT
 	// prefix: two specs sharing one would make the row locators ambiguous and
 	// double the audit-row counts the CI assertions check.
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM event_capture_credit_usage
+		WHERE event_id IN (
+			SELECT id FROM events
+			WHERE name LIKE ANY (SELECT prefix || '%' FROM unnest($1::text[]) AS prefix)
+		)
+	`, fixtureEventPrefixes); err != nil {
+		return fmt.Errorf("delete event capture credit usage: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM event_capture_credit_config
+		WHERE event_id IN (
+			SELECT id FROM events
+			WHERE name LIKE ANY (SELECT prefix || '%' FROM unnest($1::text[]) AS prefix)
+		)
+	`, fixtureEventPrefixes); err != nil {
+		return fmt.Errorf("delete event capture credit config: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `
 		DELETE FROM event_coordinator_assignments
 		WHERE event_id IN (
@@ -368,7 +388,9 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 		VALUES
 			('95000000-0000-4000-8000-000000000002', 'CB.SC.U4CSE24002', 'Madhav Rao', '91000000-0000-4000-8000-000000000001', 'A', '2024'),
 			('95000000-0000-4000-8000-000000000001', 'CB.SC.U4CSE24001', 'Ananya Rao', '91000000-0000-4000-8000-000000000001', 'A', '2024'),
-			('95000000-0000-4000-8000-000000000003', 'CB.SC.U4CSE24003', 'Nikhil Menon', '91000000-0000-4000-8000-000000000001', 'B', '2024')
+			('95000000-0000-4000-8000-000000000003', 'CB.SC.U4CSE24003', 'Nikhil Menon', '91000000-0000-4000-8000-000000000001', 'B', '2024'),
+			('95000000-0000-4000-8000-000000000004', 'CB.SC.U4CSE24004', 'Isha Nair', '91000000-0000-4000-8000-000000000001', 'A', '2024'),
+			('95000000-0000-4000-8000-000000000005', 'CB.SC.U4CSE24005', 'Rahul Iyer', '91000000-0000-4000-8000-000000000001', 'A', '2024')
 		ON CONFLICT (id) DO UPDATE
 		SET roll_no = EXCLUDED.roll_no, name = EXCLUDED.name, branch_id = EXCLUDED.branch_id,
 		    section = EXCLUDED.section, batch = EXCLUDED.batch
@@ -417,9 +439,19 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 	// Marks from a previous run would make the counter assertions cumulative, so
 	// the journey starts from a known zero every time.
 	if _, err := tx.Exec(ctx, `
-		DELETE FROM od_records WHERE event_id = $1
+			DELETE FROM od_records WHERE event_id = $1
 	`, markingEventID); err != nil {
 		return fmt.Errorf("clear marking od records: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+			DELETE FROM event_capture_credit_usage WHERE event_id = $1
+	`, markingEventID); err != nil {
+		return fmt.Errorf("clear marking capture credit usage: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+			DELETE FROM event_capture_credit_config WHERE event_id = $1
+	`, markingEventID); err != nil {
+		return fmt.Errorf("clear marking capture credit config: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

@@ -59,6 +59,7 @@ func TestMarkStatusCountersSeparateOwnMarksFromTheCategoryTotal(t *testing.T) {
 	svc := odsvc.NewStatusService(
 		odsvc.NewSQLCReader(runtime),
 		odsvc.NewSQLCCounter(runtime),
+		odsvc.NewSQLCCreditLedger(runtime),
 		fixedClock{now: fixture.slotOneTime},
 	)
 
@@ -111,6 +112,7 @@ func TestMarkStatusCountersAreScopedToTheEventAndCategory(t *testing.T) {
 	svc := odsvc.NewStatusService(
 		odsvc.NewSQLCReader(runtime),
 		odsvc.NewSQLCCounter(runtime),
+		odsvc.NewSQLCCreditLedger(runtime),
 		fixedClock{now: fixture.slotOneTime},
 	)
 	status, err := svc.MarkStatus(ctx,
@@ -138,6 +140,7 @@ func TestMarkStatusReturnsRealSlotBoundsOnTheEventDateAndNoneOffIt(t *testing.T)
 	open := odsvc.NewStatusService(
 		odsvc.NewSQLCReader(runtime),
 		odsvc.NewSQLCCounter(runtime),
+		odsvc.NewSQLCCreditLedger(runtime),
 		fixedClock{now: fixture.slotOneTime}, // 08:25 IST — inside slot 1 (08:00-08:50)
 	)
 	status, err := open.MarkStatus(ctx,
@@ -161,6 +164,7 @@ func TestMarkStatusReturnsRealSlotBoundsOnTheEventDateAndNoneOffIt(t *testing.T)
 	closed := odsvc.NewStatusService(
 		odsvc.NewSQLCReader(runtime),
 		odsvc.NewSQLCCounter(runtime),
+		odsvc.NewSQLCCreditLedger(runtime),
 		fixedClock{now: fixture.breakTime},
 	)
 	breakStatus, err := closed.MarkStatus(ctx,
@@ -197,6 +201,7 @@ func TestCameraMarkWritesTruthfulRecordAndConservesAudit(t *testing.T) {
 		store.New(runtime),
 		fixedClock{now: fixture.slotOneTime},
 		odsvc.AllowAnyScope{},
+		odsvc.NewSQLCCreditLedger(runtime),
 	)
 
 	studentID := fixture.studentID

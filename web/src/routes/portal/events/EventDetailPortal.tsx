@@ -1,7 +1,7 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { CategoryRecord, CoordinatorAssignment, EventRecord, ValidationError } from '../../../api/client'
+import type { CaptureCreditUsage, CategoryRecord, CoordinatorAssignment, EventRecord, ValidationError } from '../../../api/client'
 import { PortalShell } from '../../../components/PortalShell'
 import { ApiFailure } from '../../../api/client'
 import { useAuth } from '../../../features/auth/context'
@@ -16,6 +16,7 @@ import { formatDate, messageOf, titleCase } from './format'
 const eventKey = (eventID: string) => ['admin', 'events', eventID] as const
 const categoryKey = (eventID: string) => ['admin', 'events', eventID, 'categories'] as const
 const coordinatorKey = (eventID: string) => ['admin', 'events', eventID, 'coordinators'] as const
+const creditKey = (eventID: string) => ['admin', 'events', eventID, 'capture-credits'] as const
 
 export default function EventDetailPortal() {
   const { event_id: eventID = '' } = useParams()
@@ -29,6 +30,10 @@ export default function EventDetailPortal() {
   const [coordinatorEmail, setCoordinatorEmail] = useState('')
   const [coordinatorFieldError, setCoordinatorFieldError] = useState<string | null>(null)
   const [coordinatorFormError, setCoordinatorFormError] = useState<string | null>(null)
+  const [creditLimit, setCreditLimit] = useState('5')
+  const [creditFieldError, setCreditFieldError] = useState<string | null>(null)
+  const [creditFormError, setCreditFormError] = useState<string | null>(null)
+  const [resetCandidate, setResetCandidate] = useState<CaptureCreditUsage | null>(null)
 
   const currentEventKey = eventKey(eventID)
   const events = useQuery({
@@ -46,6 +51,12 @@ export default function EventDetailPortal() {
   const coordinators = useQuery({
     queryKey: currentCoordinatorKey,
     queryFn: () => api.coordinators(eventID),
+    enabled: Boolean(eventID),
+  })
+  const currentCreditKey = creditKey(eventID)
+  const credits = useQuery({
+    queryKey: currentCreditKey,
+    queryFn: () => api.captureCredits(eventID),
     enabled: Boolean(eventID),
   })
 
@@ -132,13 +143,66 @@ export default function EventDetailPortal() {
     },
   })
 
+  const updateCreditConfig = useMutation({
+    mutationFn: (limit: number) => api.updateCaptureCreditConfig(eventID, { limit }),
+    onSuccess: () => {
+      setCreditFieldError(null)
+      setCreditFormError(null)
+      void queryClient.invalidateQueries({ queryKey: currentCreditKey })
+      void queryClient.invalidateQueries({ queryKey: ['mark-status'] })
+    },
+    onError: (cause) => {
+      const detail = fieldDetail(cause, 'limit')
+      if (detail) {
+        setCreditFieldError(detail)
+        setCreditFormError(null)
+        return
+      }
+      setCreditFieldError(null)
+      setCreditFormError(messageOf(cause, 'The fallback credit cap could not be saved'))
+      if (cause instanceof ApiFailure && cause.body.code === 'EVENT_ARCHIVED') {
+        markEventArchived(queryClient, currentEventKey)
+        void queryClient.invalidateQueries({ queryKey: currentEventKey })
+      }
+    },
+  })
+
+  const resetCredits = useMutation({
+    mutationFn: (userID: string) => api.resetCaptureCredits(eventID, userID),
+    onSuccess: (updated) => {
+      if (credits.isSuccess) {
+        queryClient.setQueryData(currentCreditKey, (current: typeof credits.data | undefined) => (
+          current ? { ...current, data: current.data.map((row) => (row.user_id === updated.user_id ? updated : row)) } : current
+        ))
+      }
+      setResetCandidate(null)
+      setCreditFormError(null)
+      void queryClient.invalidateQueries({ queryKey: currentCreditKey })
+      void queryClient.invalidateQueries({ queryKey: ['mark-status'] })
+    },
+    onError: (cause) => {
+      setCreditFormError(messageOf(cause, 'Fallback credits could not be reset'))
+      if (cause instanceof ApiFailure && cause.body.code === 'EVENT_ARCHIVED') {
+        markEventArchived(queryClient, currentEventKey)
+        void queryClient.invalidateQueries({ queryKey: currentEventKey })
+      }
+    },
+  })
+
   const event = events.data
   const categoryData = categories.data?.data ?? []
   const coordinatorData = coordinators.data?.data ?? []
+  const creditData = credits.data?.data ?? []
   const canSubmit = name.trim().length > 0 && !create.isPending
   const canSubmitCoordinator = coordinatorEmail.trim().length > 0 && !createCoordinator.isPending
   const notFound = events.isError && events.error instanceof ApiFailure
     && events.error.body.code === 'EVENT_NOT_FOUND'
+
+  useEffect(() => {
+    if (credits.isSuccess && !updateCreditConfig.isPending) {
+      setCreditLimit(String(credits.data.config.limit))
+    }
+  }, [credits.isSuccess, credits.data?.config.limit, updateCreditConfig.isPending])
 
   // Editing the field retracts the rejection that described its PREVIOUS value.
   // Leaving it in place keeps aria-invalid="true" and the old message wired to
@@ -154,6 +218,12 @@ export default function EventDetailPortal() {
     setCoordinatorEmail(value)
     if (coordinatorFieldError) setCoordinatorFieldError(null)
     if (coordinatorFormError) setCoordinatorFormError(null)
+  }
+
+  const changeCreditLimit = (value: string) => {
+    setCreditLimit(value)
+    if (creditFieldError) setCreditFieldError(null)
+    if (creditFormError) setCreditFormError(null)
   }
 
   const submit = (submitEvent: FormEvent) => {
@@ -174,6 +244,18 @@ export default function EventDetailPortal() {
     setCoordinatorFieldError(null)
     setCoordinatorFormError(null)
     createCoordinator.mutate(trimmed)
+  }
+
+  const submitCreditLimit = (submitEvent: FormEvent) => {
+    submitEvent.preventDefault()
+    const trimmed = creditLimit.trim()
+    const parsed = Number(trimmed)
+    if (trimmed === '' || !Number.isInteger(parsed) || parsed < 0) {
+      setCreditFieldError('Enter a whole number of 0 or more.')
+      setCreditFormError(null)
+      return
+    }
+    updateCreditConfig.mutate(parsed)
   }
 
   return (
@@ -295,9 +377,112 @@ export default function EventDetailPortal() {
             )}
             {coordinatorFormError && <p className="notice error" role="alert">{coordinatorFormError}</p>}
           </section>
+
+          <section className="detail-section" aria-label="Fallback credits">
+            <h2>Fallback credits</h2>
+            {credits.isPending && <p role="status" aria-label="Loading fallback credits">Loading fallback credits…</p>}
+            {credits.isError && (
+              <ErrorState
+                message={messageOf(credits.error, 'Fallback credits could not be loaded')}
+                retry={() => void credits.refetch()}
+              />
+            )}
+
+            {credits.isSuccess && (
+              <>
+                <p className="empty-note">Cap: {credits.data.config.limit}</p>
+                {creditData.length === 0 ? (
+                  <p className="empty-note">No assigned coordinator credit rows</p>
+                ) : (
+                  <ul className="category-list" aria-label="Fallback credit usage">
+                    {creditData.map((row) => (
+                      <CreditUsageRow
+                        key={row.user_id}
+                        row={row}
+                        readOnly={event.status === 'archived'}
+                        resetPending={resetCredits.isPending}
+                        onReset={() => setResetCandidate(row)}
+                      />
+                    ))}
+                  </ul>
+                )}
+                {event.status === 'active' ? (
+                  <form className="category-form" onSubmit={submitCreditLimit} noValidate>
+                    <label htmlFor="fallback-credit-limit">Fallback credit cap</label>
+                    <input
+                      id="fallback-credit-limit"
+                      type="number"
+                      min="0"
+                      value={creditLimit}
+                      onChange={(changeEvent) => changeCreditLimit(changeEvent.target.value)}
+                      aria-invalid={creditFieldError ? 'true' : undefined}
+                      aria-describedby={creditFieldError ? 'fallback-credit-limit-error' : undefined}
+                    />
+                    {creditFieldError && <p className="field-error" id="fallback-credit-limit-error">{creditFieldError}</p>}
+                    <button className="primary" type="submit" disabled={updateCreditConfig.isPending}>Save cap</button>
+                  </form>
+                ) : (
+                  <p className="empty-note">This event is archived. Fallback credits are read-only.</p>
+                )}
+              </>
+            )}
+            {creditFormError && <p className="notice error" role="alert">{creditFormError}</p>}
+          </section>
+          {resetCandidate && (
+            <div className="dialog-backdrop" role="presentation">
+              <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="reset-credit-title">
+                <h2 id="reset-credit-title">Reset fallback credits</h2>
+                <p>Reset {resetCandidate.name ?? resetCandidate.email} to 0 used credits.</p>
+                <div className="dialog-actions">
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={resetCredits.isPending}
+                    onClick={() => resetCredits.mutate(resetCandidate.user_id)}
+                  >
+                    Confirm reset
+                  </button>
+                  <button
+                    type="button"
+                    className="text-button"
+                    disabled={resetCredits.isPending}
+                    onClick={() => setResetCandidate(null)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </PortalShell>
+  )
+}
+
+function CreditUsageRow({
+  row,
+  readOnly,
+  resetPending,
+  onReset,
+}: {
+  row: CaptureCreditUsage
+  readOnly: boolean
+  resetPending: boolean
+  onReset(): void
+}) {
+  return (
+    <li>
+      <span>{row.name ?? row.email}</span>
+      {row.name && <small>{row.email}</small>}
+      <small>{row.consumed} used · {row.remaining} remaining</small>
+      {row.exhausted && <small>Exhausted</small>}
+      {!readOnly && (
+        <button type="button" className="text-button" disabled={resetPending} onClick={onReset}>
+          Reset {row.email}
+        </button>
+      )}
+    </li>
   )
 }
 

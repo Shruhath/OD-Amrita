@@ -22,7 +22,7 @@ import (
 func TestCoordinatorCardMarkCreatesODRecordAndAuditInSameTransaction(t *testing.T) {
 	ctx := context.Background()
 	fixture := newServiceFixture(t, time.Date(2026, 8, 3, 8, 25, 0, 0, campusLocation(t)))
-	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock, AllowAnyScope{})
+	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock, AllowAnyScope{}, fixture.creditLedger)
 
 	result, err := svc.Mark(ctx, coordinatorActor(), MarkInput{
 		EventID:       fixture.eventID,
@@ -54,7 +54,7 @@ func TestCoordinatorCardMarkCreatesODRecordAndAuditInSameTransaction(t *testing.
 func TestDuplicateUniqueIndexViolationMapsToScanDuplicate(t *testing.T) {
 	fixture := newServiceFixture(t, time.Date(2026, 8, 3, 8, 25, 0, 0, campusLocation(t)))
 	fixture.writer.err = ErrDuplicatePresentRecord
-	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock, AllowAnyScope{})
+	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock, AllowAnyScope{}, fixture.creditLedger)
 
 	_, err := svc.Mark(context.Background(), coordinatorActor(), MarkInput{
 		EventID:       fixture.eventID,
@@ -71,7 +71,7 @@ func TestDuplicateUniqueIndexViolationMapsToScanDuplicate(t *testing.T) {
 func TestUnknownCardIsRejectedBeforeSlotClosedAudit(t *testing.T) {
 	fixture := newServiceFixture(t, time.Date(2026, 8, 3, 10, 35, 0, 0, campusLocation(t)))
 	fixture.cardResolver.err = ErrCardNotRecognized
-	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock, AllowAnyScope{})
+	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock, AllowAnyScope{}, fixture.creditLedger)
 
 	_, err := svc.Mark(context.Background(), coordinatorActor(), MarkInput{
 		EventID:       fixture.eventID,
@@ -90,7 +90,7 @@ func TestUnknownCardIsRejectedBeforeSlotClosedAudit(t *testing.T) {
 
 func TestCoordinatorOutsideSlotWritesBlockedAuditOnly(t *testing.T) {
 	fixture := newServiceFixture(t, time.Date(2026, 8, 3, 10, 35, 0, 0, campusLocation(t)))
-	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock, AllowAnyScope{})
+	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock, AllowAnyScope{}, fixture.creditLedger)
 
 	_, err := svc.Mark(context.Background(), coordinatorActor(), MarkInput{
 		EventID:       fixture.eventID,
@@ -117,7 +117,7 @@ func TestTeacherAndAdminUseExplicitSearchSlotOutsideLiveWindow(t *testing.T) {
 	} {
 		t.Run(actor.Role, func(t *testing.T) {
 			fixture := newServiceFixture(t, time.Date(2026, 8, 3, 19, 0, 0, 0, campusLocation(t)))
-			svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock, AllowAnyScope{})
+			svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock, AllowAnyScope{}, fixture.creditLedger)
 			result, err := svc.Mark(context.Background(), actor, MarkInput{
 				EventID:       fixture.eventID,
 				CategoryID:    fixture.categoryID,
@@ -137,7 +137,7 @@ func TestTeacherAndAdminUseExplicitSearchSlotOutsideLiveWindow(t *testing.T) {
 
 func TestValidationRejectsAmbiguousIdentityUnsupportedRoleAndRawTokenPersistence(t *testing.T) {
 	fixture := newServiceFixture(t, time.Date(2026, 8, 3, 8, 25, 0, 0, campusLocation(t)))
-	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock, AllowAnyScope{})
+	svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock, AllowAnyScope{}, fixture.creditLedger)
 	for _, tc := range []struct {
 		name  string
 		actor Actor
@@ -219,6 +219,7 @@ type serviceFixture struct {
 	writer       *fakeWriter
 	auditStore   *fakeAuditStore
 	clock        fixedClock
+	creditLedger *atddCreditLedger
 }
 
 func newServiceFixture(t *testing.T, now time.Time) serviceFixture {
@@ -240,6 +241,7 @@ func newServiceFixture(t *testing.T, now time.Time) serviceFixture {
 		writer:       &fakeWriter{},
 		auditStore:   &fakeAuditStore{},
 		clock:        fixedClock{now: now},
+		creditLedger: &atddCreditLedger{state: FallbackCreditState{Limit: 5, Consumed: 0, Remaining: 5, WarningThreshold: 1}},
 	}
 }
 
@@ -319,6 +321,27 @@ func (s *fakeAuditStore) WithAudit(ctx context.Context, evt store.AuditEvent, wr
 		}
 	}
 	return err
+}
+
+type atddCreditLedger struct {
+	state  FallbackCreditState
+	debits int
+	err    error
+}
+
+func (l *atddCreditLedger) Debit(context.Context, pgx.Tx, string, string) (FallbackCreditState, error) {
+	l.debits++
+	if l.err != nil {
+		return FallbackCreditState{}, l.err
+	}
+	return l.state, nil
+}
+
+func (l *atddCreditLedger) State(context.Context, string, string) (FallbackCreditState, error) {
+	if l.err != nil {
+		return FallbackCreditState{}, l.err
+	}
+	return l.state, nil
 }
 
 func coordinatorActor() Actor {

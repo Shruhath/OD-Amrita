@@ -194,6 +194,13 @@ func MarkStatusHandler(svc MarkingReadService) gin.HandlerFunc {
 				Mine:          status.Counters.Mine,
 				CategoryTotal: status.Counters.CategoryTotal,
 			},
+			FallbackCredit: contracts.FallbackCreditState{
+				Limit:            status.FallbackCredit.Limit,
+				Consumed:         status.FallbackCredit.Consumed,
+				Remaining:        status.FallbackCredit.Remaining,
+				Exhausted:        status.FallbackCredit.Exhausted,
+				WarningThreshold: &status.FallbackCredit.WarningThreshold,
+			},
 		}
 		if status.Slot != nil {
 			body.Slot = &contracts.MarkSlotWindow{

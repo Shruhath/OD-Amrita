@@ -65,6 +65,7 @@ func (e CaptureMethod) Valid() bool {
 const (
 	ErrorCodeAUTHDOMAINREJECTED          ErrorCode = "AUTH_DOMAIN_REJECTED"
 	ErrorCodeAUTHTOKENINVALID            ErrorCode = "AUTH_TOKEN_INVALID"
+	ErrorCodeCAPTURECREDITLIMITREACHED   ErrorCode = "CAPTURE_CREDIT_LIMIT_REACHED"
 	ErrorCodeCARDNOTRECOGNIZED           ErrorCode = "CARD_NOT_RECOGNIZED"
 	ErrorCodeCATEGORYNOTFOUND            ErrorCode = "CATEGORY_NOT_FOUND"
 	ErrorCodeCOORDINATORASSIGNMENTEXISTS ErrorCode = "COORDINATOR_ASSIGNMENT_EXISTS"
@@ -89,6 +90,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeAUTHDOMAINREJECTED:
 		return true
 	case ErrorCodeAUTHTOKENINVALID:
+		return true
+	case ErrorCodeCAPTURECREDITLIMITREACHED:
 		return true
 	case ErrorCodeCARDNOTRECOGNIZED:
 		return true
@@ -328,6 +331,37 @@ type BranchSummary struct {
 	Name string             `json:"name"`
 }
 
+// CaptureCreditConfig Event-wide fallback-credit cap for camera/search marks.
+type CaptureCreditConfig struct {
+	EventId openapi_types.UUID `json:"event_id"`
+
+	// Limit Zero deliberately live-disables camera/search fallback modes.
+	Limit     int       `json:"limit"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// UpdatedByUserId Null until an admin explicitly saves the event cap.
+	UpdatedByUserId *openapi_types.UUID `json:"updated_by_user_id"`
+}
+
+// CaptureCreditSummary Event credit config plus bounded coordinator usage rows.
+type CaptureCreditSummary struct {
+	// Config Event-wide fallback-credit cap for camera/search marks.
+	Config CaptureCreditConfig  `json:"config"`
+	Data   []CaptureCreditUsage `json:"data"`
+}
+
+// CaptureCreditUsage One assigned coordinator's event-wide camera/search credit usage.
+type CaptureCreditUsage struct {
+	Consumed  int                `json:"consumed"`
+	Email     string             `json:"email"`
+	EventId   openapi_types.UUID `json:"event_id"`
+	Exhausted bool               `json:"exhausted"`
+	Limit     int                `json:"limit"`
+	Name      *string            `json:"name"`
+	Remaining int                `json:"remaining"`
+	UserId    openapi_types.UUID `json:"user_id"`
+}
+
 // CaptureMethod defines model for CaptureMethod.
 type CaptureMethod string
 
@@ -442,6 +476,15 @@ type EventCollection struct {
 // EventStatus defines model for EventStatus.
 type EventStatus string
 
+// FallbackCreditState Server-derived camera/search fallback-credit state for the selected event and coordinator. NFC never consumes this pool.
+type FallbackCreditState struct {
+	Consumed         int  `json:"consumed"`
+	Exhausted        bool `json:"exhausted"`
+	Limit            int  `json:"limit"`
+	Remaining        int  `json:"remaining"`
+	WarningThreshold *int `json:"warning_threshold,omitempty"`
+}
+
 // HealthStatus Health probe shape — overall service status plus database connectivity.
 type HealthStatus struct {
 	// Db Database connectivity as observed by a live ping from the runtime pool. "down" is reported with HTTP 503.
@@ -508,9 +551,12 @@ type MarkSlotWindow struct {
 // MarkStatus Everything the marking screen needs that the client must not compute for itself. `slot: null` is the explicit "no slot is open" state — never slot 0 — and `server_time` shares one clock read with the slot decision.
 type MarkStatus struct {
 	// Counters Both figures are server-computed live counts over od_records (FR13). `mine` is the calling coordinator's marks for this event and category; `category_total` is every coordinator's, and is identical for all callers.
-	Counters   MarkCounters    `json:"counters"`
-	ServerTime time.Time       `json:"server_time"`
-	Slot       *MarkSlotWindow `json:"slot"`
+	Counters MarkCounters `json:"counters"`
+
+	// FallbackCredit Server-derived camera/search fallback-credit state for the selected event and coordinator. NFC never consumes this pool.
+	FallbackCredit FallbackCreditState `json:"fallback_credit"`
+	ServerTime     time.Time           `json:"server_time"`
+	Slot           *MarkSlotWindow     `json:"slot"`
 }
 
 // MarkedStudent defines model for MarkedStudent.
@@ -660,6 +706,12 @@ type TeacherProfileCollection struct {
 	Total    int              `json:"total"`
 }
 
+// UpdateCaptureCreditConfigRequest defines model for UpdateCaptureCreditConfigRequest.
+type UpdateCaptureCreditConfigRequest struct {
+	// Limit Zero deliberately live-disables camera/search fallback modes.
+	Limit int `json:"limit"`
+}
+
 // ValidationError 400 validation error — the error envelope whose `details` is a TYPED array of field-level failures (AC3), not a freeform object.
 type ValidationError struct {
 	// Code Always VALIDATION_FAILED for validation (400) responses.
@@ -747,6 +799,9 @@ type ResolveAdminCardTokenJSONRequestBody = CardTokenResolveRequest
 
 // CreateAdminEventJSONRequestBody defines body for CreateAdminEvent for application/json ContentType.
 type CreateAdminEventJSONRequestBody = CreateEventRequest
+
+// UpdateAdminEventCaptureCreditConfigJSONRequestBody defines body for UpdateAdminEventCaptureCreditConfig for application/json ContentType.
+type UpdateAdminEventCaptureCreditConfigJSONRequestBody = UpdateCaptureCreditConfigRequest
 
 // CreateAdminEventCategoryJSONRequestBody defines body for CreateAdminEventCategory for application/json ContentType.
 type CreateAdminEventCategoryJSONRequestBody = CreateCategoryRequest

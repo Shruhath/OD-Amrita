@@ -152,9 +152,10 @@ type Service struct {
 	audited      AuditStore
 	clock        Clock
 	scope        ScopeGuard
+	credits      CreditLedger
 }
 
-func NewService(reader Reader, cardResolver CardResolver, writer Writer, audited AuditStore, clock Clock, scope ScopeGuard) *Service {
+func NewService(reader Reader, cardResolver CardResolver, writer Writer, audited AuditStore, clock Clock, scope ScopeGuard, credits CreditLedger) *Service {
 	if clock == nil {
 		clock = systemClock{}
 	}
@@ -164,7 +165,10 @@ func NewService(reader Reader, cardResolver CardResolver, writer Writer, audited
 	if scope == nil {
 		panic("od_record: NewService requires a ScopeGuard — pass AllowAnyScope{} to opt out explicitly in a test that is not about scope")
 	}
-	return &Service{reader: reader, cardResolver: cardResolver, writer: writer, audited: audited, clock: clock, scope: scope}
+	if credits == nil {
+		panic("od_record: NewService requires a CreditLedger")
+	}
+	return &Service{reader: reader, cardResolver: cardResolver, writer: writer, audited: audited, clock: clock, scope: scope, credits: credits}
 }
 
 func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkResult, error) {
@@ -252,6 +256,13 @@ func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkR
 	}
 	result, err := s.writePresent(ctx, actor, record)
 	if err != nil {
+		var exhausted CaptureCreditExhaustedError
+		if errors.As(err, &exhausted) {
+			if auditErr := s.writeCaptureCreditBlockedAudit(ctx, actor, input, serverReceivedAt, exhausted.State); auditErr != nil {
+				return MarkResult{}, auditErr
+			}
+			return MarkResult{}, captureCreditLimitReached()
+		}
 		return MarkResult{}, mapWriteError(err)
 	}
 	return result, nil
@@ -395,6 +406,11 @@ func (s *Service) writePresent(ctx context.Context, actor Actor, record RecordIn
 		})
 	}
 	err := s.audited.WithAudit(ctx, evt, func(ctx context.Context, tx pgx.Tx) (bool, error) {
+		if consumesFallbackCredit(actor, record.CaptureMethod) {
+			if _, err := s.credits.Debit(ctx, tx, record.EventID, actor.UserID); err != nil {
+				return false, err
+			}
+		}
 		written, err := s.writer.InsertPresent(ctx, tx, record)
 		if err != nil {
 			return false, err
@@ -432,6 +448,41 @@ func (s *Service) writeBlockedAudit(ctx context.Context, actor Actor, input Mark
 	return s.audited.WithAudit(ctx, evt, func(context.Context, pgx.Tx) (bool, error) {
 		return true, nil
 	})
+}
+
+func (s *Service) writeCaptureCreditBlockedAudit(ctx context.Context, actor Actor, input MarkInput, serverReceivedAt time.Time, state FallbackCreditState) error {
+	actorAccount := strings.ToLower(strings.TrimSpace(actor.Email))
+	actorRole := actor.Role
+	targetTable := "od_records"
+	evt := store.AuditEvent{
+		Action:       domain.ActionScanBlocked,
+		ActorAccount: stringPtr(actorAccount),
+		ActorRole:    stringPtr(actorRole),
+		TargetTable:  &targetTable,
+	}
+	evt.PayloadFunc = func() ([]byte, error) {
+		return json.Marshal(map[string]any{
+			"actor_user_id":      actor.UserID,
+			"actor_email":        actorAccount,
+			"actor_role":         actor.Role,
+			"event_id":           input.EventID,
+			"category_id":        input.CategoryID,
+			"capture_method":     string(input.CaptureMethod),
+			"server_received_at": serverReceivedAt.Format(time.RFC3339Nano),
+			"limit":              state.Limit,
+			"consumed":           state.Consumed,
+			"remaining":          0,
+			"reason":             "capture_credit_exhausted",
+			"context":            "online_live",
+		})
+	}
+	return s.audited.WithAudit(ctx, evt, func(context.Context, pgx.Tx) (bool, error) {
+		return true, nil
+	})
+}
+
+func consumesFallbackCredit(actor Actor, method CaptureMethod) bool {
+	return actor.Role == "coordinator" && (method == CaptureMethodCamera || method == CaptureMethodSearch)
 }
 
 func validCaptureMethod(method CaptureMethod) bool {

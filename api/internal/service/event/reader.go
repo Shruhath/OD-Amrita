@@ -126,6 +126,47 @@ func (r *SQLCReader) ListCoordinatorAssignments(ctx context.Context, eventID uui
 	return assignments, nil
 }
 
+func (r *SQLCReader) GetCaptureCreditConfig(ctx context.Context, eventID uuid.UUID) (CaptureCreditConfig, error) {
+	row, err := r.queries.GetCaptureCreditConfig(ctx, dbUUID(eventID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return CaptureCreditConfig{}, ErrEventNotFound
+		}
+		return CaptureCreditConfig{}, err
+	}
+	return mapCaptureCreditConfig(row.EventID, row.CreditLimit, row.UpdatedByUserID, row.UpdatedAt)
+}
+
+func (r *SQLCReader) ListCaptureCreditUsageByEvent(ctx context.Context, eventID uuid.UUID) ([]CaptureCreditUsage, error) {
+	rows, err := r.queries.ListCaptureCreditUsageByEvent(ctx, dbUUID(eventID))
+	if err != nil {
+		return nil, err
+	}
+	usage := make([]CaptureCreditUsage, 0, len(rows))
+	for _, row := range rows {
+		item, mapErr := mapCaptureCreditUsage(row.EventID, row.UserID, row.Email, row.Name, row.CreditLimit, row.Consumed, row.Remaining, row.Exhausted)
+		if mapErr != nil {
+			return nil, mapErr
+		}
+		usage = append(usage, item)
+	}
+	return usage, nil
+}
+
+func (r *SQLCReader) GetCaptureCreditUsageForCoordinator(ctx context.Context, eventID, userID uuid.UUID) (CaptureCreditUsage, error) {
+	row, err := r.queries.GetCaptureCreditUsageForCoordinator(ctx, sqlc.GetCaptureCreditUsageForCoordinatorParams{
+		EventID: dbUUID(eventID),
+		UserID:  dbUUID(userID),
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return CaptureCreditUsage{}, ErrCoordinatorUserNotFound
+		}
+		return CaptureCreditUsage{}, err
+	}
+	return mapCaptureCreditUsage(row.EventID, row.UserID, row.Email, row.Name, row.CreditLimit, row.Consumed, row.Remaining, row.Exhausted)
+}
+
 func (r *SQLCReader) GetCoordinatorCandidateByEmail(ctx context.Context, email string) (CoordinatorCandidate, error) {
 	row, err := r.queries.GetCoordinatorCandidateByEmail(ctx, email)
 	if err != nil {
@@ -201,6 +242,50 @@ func mapCoordinatorAssignment(
 		Name:      displayName,
 		EventID:   uuid.UUID(eventID.Bytes).String(),
 		CreatedAt: createdAt.Time,
+	}, nil
+}
+
+func mapCaptureCreditConfig(id pgtype.UUID, limit int32, updatedBy pgtype.UUID, updatedAt pgtype.Timestamptz) (CaptureCreditConfig, error) {
+	if !id.Valid || !updatedAt.Valid {
+		return CaptureCreditConfig{}, errors.New("event: capture credit config row contains invalid required values")
+	}
+	var updatedByUserID *string
+	if updatedBy.Valid {
+		value := uuid.UUID(updatedBy.Bytes).String()
+		updatedByUserID = &value
+	}
+	return CaptureCreditConfig{
+		EventID:         uuid.UUID(id.Bytes).String(),
+		Limit:           int(limit),
+		UpdatedByUserID: updatedByUserID,
+		UpdatedAt:       updatedAt.Time,
+	}, nil
+}
+
+func mapCaptureCreditUsage(
+	eventID, userID pgtype.UUID,
+	email string,
+	name pgtype.Text,
+	limit, consumed, remaining int32,
+	exhausted bool,
+) (CaptureCreditUsage, error) {
+	if !eventID.Valid || !userID.Valid {
+		return CaptureCreditUsage{}, errors.New("event: capture credit usage row contains invalid required values")
+	}
+	var displayName *string
+	if name.Valid {
+		value := name.String
+		displayName = &value
+	}
+	return CaptureCreditUsage{
+		EventID:   uuid.UUID(eventID.Bytes).String(),
+		UserID:    uuid.UUID(userID.Bytes).String(),
+		Email:     email,
+		Name:      displayName,
+		Limit:     int(limit),
+		Consumed:  int(consumed),
+		Remaining: int(remaining),
+		Exhausted: exhausted,
 	}, nil
 }
 

@@ -137,6 +137,9 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
     enabled: scopeReady,
     refetchInterval: STATUS_POLL_MS,
   })
+  const fallbackCredit = status.data?.fallback_credit
+  const fallbackExhausted = fallbackCredit?.exhausted ?? false
+  const fallbackWarningThreshold = fallbackCredit?.warning_threshold ?? 1
 
   // ---------------------------------------------------------------------
   // The mark itself.
@@ -168,8 +171,13 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
         queryKey: ['mark-status', variables.scope.eventID, variables.scope.categoryID],
       })
     },
-    onError(error) {
+    onError(error, variables) {
       reportFailure(markFailureMessage(error))
+      if (error instanceof ApiFailure && error.body.code === 'CAPTURE_CREDIT_LIMIT_REACHED') {
+        void queryClient.invalidateQueries({
+          queryKey: ['mark-status', variables.scope.eventID, variables.scope.categoryID],
+        })
+      }
     },
   })
 
@@ -296,7 +304,7 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
   }, [api, submit, reportFailure])
 
   useEffect(() => {
-    if (mode !== 'camera' || !scopeReady || cameraStatus !== 'available') return
+    if (mode !== 'camera' || !scopeReady || cameraStatus !== 'available' || fallbackExhausted) return
 
     const scope: Scope = { eventID, categoryID }
     const controller = new AbortController()
@@ -322,7 +330,7 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
       controller.abort()
       setPreview(null)
     }
-  }, [mode, scopeReady, eventID, categoryID, captureEpoch, camera, cameraStatus, resolveRoll, reportFailure])
+  }, [mode, scopeReady, eventID, categoryID, captureEpoch, camera, cameraStatus, fallbackExhausted, resolveRoll, reportFailure])
 
   // ---------------------------------------------------------------------
   // Capture: search.
@@ -365,6 +373,9 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
   if (!identity) return null
 
   const modeDisabledReason = (candidate: CaptureMode): string | null => {
+    if ((candidate === 'camera' || candidate === 'search') && fallbackExhausted) {
+      return 'Fallback credits are exhausted. Use NFC or request an admin reset or raise.'
+    }
     if (candidate === 'nfc' && nfcStatus !== 'available') {
       return nfcStatus === 'insecure'
         ? 'NFC needs an HTTPS page.'
@@ -451,7 +462,29 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
           <span className="mark-meter-value">{clockLabel.value}</span>
           <span className="mark-meter-label">{clockLabel.label}</span>
         </div>
+        <div className={fallbackExhausted ? 'mark-meter is-warning' : 'mark-meter'}>
+          <span className="mark-meter-value">
+            {fallbackCredit ? `${fallbackCredit.remaining}/${fallbackCredit.limit}` : '—'}
+          </span>
+          <span className="mark-meter-label">Fallback credits</span>
+        </div>
       </section>
+
+      {fallbackCredit && fallbackCredit.remaining <= fallbackWarningThreshold && !fallbackCredit.exhausted && (
+        <p className="mark-read-error" aria-live="polite">
+          {fallbackCredit.remaining} fallback credit{fallbackCredit.remaining === 1 ? '' : 's'} left. Fallback marks are almost exhausted.
+        </p>
+      )}
+      {fallbackCredit && fallbackCredit.remaining > fallbackWarningThreshold && !fallbackCredit.exhausted && (
+        <p className="mark-read-error" aria-live="polite">
+          {fallbackCredit.remaining} fallback credits remaining.
+        </p>
+      )}
+      {fallbackCredit?.exhausted && (
+        <p className="mark-read-error" aria-live="polite">
+          Fallback credits are exhausted. Camera and search are disabled; use NFC or request an admin reset or raise.
+        </p>
+      )}
 
       <MarkBanner
         failure={failure}
@@ -481,6 +514,7 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
             type="button"
             className={candidate === mode ? 'mark-mode is-active' : 'mark-mode'}
             aria-pressed={candidate === mode}
+            disabled={Boolean(modeDisabledReason(candidate))}
             onClick={() => {
               setMode(candidate)
               setFailure(null)
@@ -532,7 +566,7 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
                 <li key={student.student_id}>
                   <button
                     type="button"
-                    disabled={!scopeReady}
+                    disabled={!scopeReady || fallbackExhausted}
                     onClick={() => submit({ studentID: student.student_id }, 'search', scopeRef.current)}
                   >
                     <strong>{student.display_name}</strong>
@@ -665,6 +699,7 @@ const FAILURE_REASON: Record<string, string> = {
   EVENT_NOT_FOUND: 'This event is no longer available. Pick another event.',
   CATEGORY_NOT_FOUND: 'This category is no longer available. Pick another category.',
   STUDENT_NOT_FOUND: 'That student is not on the roster.',
+  CAPTURE_CREDIT_LIMIT_REACHED: 'Fallback credits are exhausted. Use NFC or ask an admin to reset or raise the cap.',
   RBAC_FORBIDDEN: 'You do not have permission to mark for this event and category.',
   VALIDATION_FAILED: 'The request was invalid — check the event and category and try again.',
 }

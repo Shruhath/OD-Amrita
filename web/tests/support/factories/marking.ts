@@ -53,6 +53,13 @@ export type MarkStatus = {
   server_time: string
   slot: MarkSlotWindow | null
   counters: { mine: number; category_total: number }
+  fallback_credit: {
+    limit: number
+    consumed: number
+    remaining: number
+    exhausted: boolean
+    warning_threshold?: number
+  }
 }
 
 /** Today in ISO date form. ActiveSlot compares against events.event_date, so a
@@ -115,6 +122,7 @@ export function markStatusOpen(overrides: Partial<MarkStatus> = {}, minutesLeft 
     server_time: now.toISOString(),
     slot: { slot: 2, started_at: started.toISOString(), ends_at: ends.toISOString() },
     counters: { mine: 4, category_total: 17 },
+    fallback_credit: { limit: 5, consumed: 1, remaining: 4, exhausted: false, warning_threshold: 1 },
     ...overrides,
   }
 }
@@ -125,6 +133,7 @@ export function markStatusClosed(overrides: Partial<MarkStatus> = {}): MarkStatu
     server_time: new Date().toISOString(),
     slot: null,
     counters: { mine: 0, category_total: 0 },
+    fallback_credit: { limit: 5, consumed: 0, remaining: 5, exhausted: false, warning_threshold: 1 },
     ...overrides,
   }
 }

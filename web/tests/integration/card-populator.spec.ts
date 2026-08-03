@@ -22,8 +22,8 @@ test('[P0] lists real roster rows, seals one card, and resolves it back through 
   await installFakeWebNfc(page)
   await openPopulator(page)
 
-  // The database decides the order. Both seeded section-A rows are present, and
-  // the roll-ordered first row is the one the harness inserted second.
+  // The database decides the order. The primary seeded section-A rows are present,
+  // and the roll-ordered first row is the one the harness inserted second.
   const roster = page.getByRole('table', { name: 'Students to write' })
   await expect(roster.getByRole('row', { name: new RegExp(firstStudent.rollNo) })).toBeVisible()
   await expect(roster.getByRole('row', { name: new RegExp(secondStudent.rollNo) })).toBeVisible()

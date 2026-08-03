@@ -99,6 +99,21 @@ func (s reachingService) CreateCoordinatorAssignment(context.Context, eventsvc.A
 	return eventsvc.CoordinatorAssignment{}, nil
 }
 
+func (s reachingService) ListCaptureCredits(context.Context, eventsvc.Actor, string) (eventsvc.CaptureCreditSummary, error) {
+	s.reached.hits++
+	return eventsvc.CaptureCreditSummary{}, nil
+}
+
+func (s reachingService) UpdateCaptureCreditConfig(context.Context, eventsvc.Actor, eventsvc.CaptureCreditConfigInput) (eventsvc.CaptureCreditConfig, error) {
+	s.reached.hits++
+	return eventsvc.CaptureCreditConfig{}, nil
+}
+
+func (s reachingService) ResetCaptureCredits(context.Context, eventsvc.Actor, string, string) (eventsvc.CaptureCreditUsage, error) {
+	s.reached.hits++
+	return eventsvc.CaptureCreditUsage{}, nil
+}
+
 type reachingTeacherService struct{ reached *reachCounter }
 
 func (s reachingTeacherService) List(context.Context, teachersvc.Actor, teachersvc.ListInput) (teachersvc.Page, error) {

@@ -68,6 +68,14 @@ func (f *fakeWriteQueries) InsertEventCoordinatorAssignment(context.Context, sql
 	return f.assignment, f.assignmentErr
 }
 
+func (f *fakeWriteQueries) UpsertCaptureCreditConfig(context.Context, sqlc.UpsertCaptureCreditConfigParams) (sqlc.UpsertCaptureCreditConfigRow, error) {
+	return sqlc.UpsertCaptureCreditConfigRow{}, nil
+}
+
+func (f *fakeWriteQueries) ResetCaptureCreditUsage(context.Context, sqlc.ResetCaptureCreditUsageParams) (sqlc.ResetCaptureCreditUsageRow, error) {
+	return sqlc.ResetCaptureCreditUsageRow{}, nil
+}
+
 // TestSQLCWriterCreateCategoryReturnsTheRowTheDatabaseWrote pins that the id and
 // timestamp come from RETURNING rather than being synthesized client-side: a
 // synthesized id would name a row the ledger could never be joined to.

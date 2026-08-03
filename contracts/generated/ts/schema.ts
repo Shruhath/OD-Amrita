@@ -316,6 +316,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/events/{event_id}/capture-credits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * List fallback-credit usage for event coordinators
+         * @description Admin-only per-event fallback-credit summary. Rows are bounded by the event coordinator assignments and ordered consistently with the assignment list. NFC is not part of this credit pool.
+         */
+        get: operations["listAdminEventCaptureCredits"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/events/{event_id}/capture-credits/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update an event's fallback-credit cap
+         * @description Persists the event-wide camera/search credit cap. A limit of zero is a deliberate live-disable for fallback modes; NFC remains unlimited.
+         */
+        put: operations["updateAdminEventCaptureCreditConfig"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/events/{event_id}/capture-credits/coordinators/{user_id}/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset one assigned coordinator's fallback-credit usage
+         * @description Resets consumed fallback credits for a coordinator assigned to the event. It never creates an assignment and never resets a non-coordinator row.
+         */
+        post: operations["resetAdminEventCoordinatorCaptureCredits"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/teachers": {
         parameters: {
             query?: never;
@@ -500,6 +567,42 @@ export interface components {
             /** @description Email of an existing, already-provisioned users row. The request does not pre-provision an identity. */
             email: string;
         };
+        /** @description Event-wide fallback-credit cap for camera/search marks. */
+        CaptureCreditConfig: {
+            /** Format: uuid */
+            event_id: string;
+            /** @description Zero deliberately live-disables camera/search fallback modes. */
+            limit: number;
+            /**
+             * Format: uuid
+             * @description Null until an admin explicitly saves the event cap.
+             */
+            updated_by_user_id: string | null;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @description One assigned coordinator's event-wide camera/search credit usage. */
+        CaptureCreditUsage: {
+            /** Format: uuid */
+            event_id: string;
+            /** Format: uuid */
+            user_id: string;
+            email: string;
+            name: string | null;
+            limit: number;
+            consumed: number;
+            remaining: number;
+            exhausted: boolean;
+        };
+        /** @description Event credit config plus bounded coordinator usage rows. */
+        CaptureCreditSummary: {
+            config: components["schemas"]["CaptureCreditConfig"];
+            data: components["schemas"]["CaptureCreditUsage"][];
+        };
+        UpdateCaptureCreditConfigRequest: {
+            /** @description Zero deliberately live-disables camera/search fallback modes. */
+            limit: number;
+        };
         /** @description A teacher's elevated role plus the branches they are associated with. Reuses BranchSummary rather than a parallel branch shape. */
         TeacherProfile: {
             /** Format: uuid */
@@ -581,6 +684,15 @@ export interface components {
             server_time: string;
             slot: components["schemas"]["MarkSlotWindow"] | null;
             counters: components["schemas"]["MarkCounters"];
+            fallback_credit: components["schemas"]["FallbackCreditState"];
+        };
+        /** @description Server-derived camera/search fallback-credit state for the selected event and coordinator. NFC never consumes this pool. */
+        FallbackCreditState: {
+            limit: number;
+            consumed: number;
+            remaining: number;
+            exhausted: boolean;
+            warning_threshold?: number;
         };
         /** @description The bounds of the currently active slot, in server time. */
         MarkSlotWindow: {
@@ -654,7 +766,7 @@ export interface components {
              * @description Canonical SCREAMING_SNAKE error code. This enum is the WIRE source of truth; the Go `errors.go` const registry mirrors it. Do not invent free-text codes.
              * @enum {string}
              */
-            code: "AUTH_DOMAIN_REJECTED" | "AUTH_TOKEN_INVALID" | "RBAC_FORBIDDEN" | "SCAN_DUPLICATE" | "SLOT_CLOSED" | "CARD_NOT_RECOGNIZED" | "QR_LIMIT_REACHED" | "RATE_LIMITED" | "INVALID_SCAN_ID" | "VALIDATION_FAILED" | "EVENT_NOT_FOUND" | "EVENT_ARCHIVED" | "CATEGORY_NOT_FOUND" | "USER_NOT_FOUND" | "STUDENT_NOT_FOUND" | "ROLE_ALREADY_ASSIGNED" | "COORDINATOR_ASSIGNMENT_EXISTS" | "INTERNAL";
+            code: "AUTH_DOMAIN_REJECTED" | "AUTH_TOKEN_INVALID" | "RBAC_FORBIDDEN" | "SCAN_DUPLICATE" | "SLOT_CLOSED" | "CARD_NOT_RECOGNIZED" | "CAPTURE_CREDIT_LIMIT_REACHED" | "QR_LIMIT_REACHED" | "RATE_LIMITED" | "INVALID_SCAN_ID" | "VALIDATION_FAILED" | "EVENT_NOT_FOUND" | "EVENT_ARCHIVED" | "CATEGORY_NOT_FOUND" | "USER_NOT_FOUND" | "STUDENT_NOT_FOUND" | "ROLE_ALREADY_ASSIGNED" | "COORDINATOR_ASSIGNMENT_EXISTS" | "INTERNAL";
             /** @description Human-readable message. For diagnostics/display only — branch on `code`. */
             message: string;
             /** @description Optional, freeform context for generic errors. Typed validation failures use ValidationError.details (a typed array) instead. */
@@ -939,6 +1051,15 @@ export interface operations {
             };
             /** @description Card token was not recognized. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Camera/search fallback credit limit reached. */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1917,6 +2038,239 @@ export interface operations {
                 };
             };
             /** @description Duplicate assignment, archived event, or ineligible role. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listAdminEventCaptureCredits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Event credit config and each assigned coordinator's usage. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureCreditSummary"];
+                };
+            };
+            /** @description The event id is malformed. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No event exists with the supplied id. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event is archived. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateAdminEventCaptureCreditConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCaptureCreditConfigRequest"];
+            };
+        };
+        responses: {
+            /** @description Persisted event credit config. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureCreditConfig"];
+                };
+            };
+            /** @description Malformed event id or invalid limit. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No event exists with the supplied id. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event is archived. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    resetAdminEventCoordinatorCaptureCredits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Updated usage for the assigned coordinator. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureCreditUsage"];
+                };
+            };
+            /** @description Malformed event or user id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event or coordinator assignment was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event is archived. */
             409: {
                 headers: {
                     [name: string]: unknown;

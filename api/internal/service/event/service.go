@@ -97,13 +97,22 @@ type AuditStore interface {
 }
 
 type Service struct {
-	reader Reader
-	store  AuditStore
-	writer Writer
+	reader       Reader
+	store        AuditStore
+	writer       Writer
+	creditReader CaptureCreditReader
+	creditWriter CaptureCreditWriter
 }
 
 func NewService(reader Reader, audited AuditStore, writer Writer) *Service {
-	return &Service{reader: reader, store: audited, writer: writer}
+	s := &Service{reader: reader, store: audited, writer: writer}
+	if creditReader, ok := reader.(CaptureCreditReader); ok {
+		s.creditReader = creditReader
+	}
+	if creditWriter, ok := writer.(CaptureCreditWriter); ok {
+		s.creditWriter = creditWriter
+	}
+	return s
 }
 
 func (s *Service) Branches(ctx context.Context) ([]Branch, error) {

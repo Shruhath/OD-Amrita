@@ -89,9 +89,18 @@ type Counters struct {
 
 // Status is nil-Slot when no slot is open. That absence is the state.
 type Status struct {
-	ServerTime time.Time
-	Slot       *SlotWindow
-	Counters   Counters
+	ServerTime     time.Time
+	Slot           *SlotWindow
+	Counters       Counters
+	FallbackCredit FallbackCreditState
+}
+
+type FallbackCreditState struct {
+	Limit            int
+	Consumed         int
+	Remaining        int
+	Exhausted        bool
+	WarningThreshold int
 }
 
 func (s *ReadService) VisibleEvents(ctx context.Context, actor Actor) ([]Event, error) {
@@ -166,6 +175,13 @@ func (s *ReadService) MarkStatus(ctx context.Context, actor Actor, eventID, cate
 	status := Status{
 		ServerTime: raw.ServerTime,
 		Counters:   Counters{Mine: raw.Counters.Mine, CategoryTotal: raw.Counters.CategoryTotal},
+		FallbackCredit: FallbackCreditState{
+			Limit:            raw.FallbackCredit.Limit,
+			Consumed:         raw.FallbackCredit.Consumed,
+			Remaining:        raw.FallbackCredit.Remaining,
+			Exhausted:        raw.FallbackCredit.Exhausted,
+			WarningThreshold: raw.FallbackCredit.WarningThreshold,
+		},
 	}
 	if raw.Slot != nil {
 		status.Slot = &SlotWindow{Slot: raw.Slot.Slot, StartedAt: raw.Slot.Start, EndsAt: raw.Slot.End}

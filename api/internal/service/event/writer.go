@@ -21,6 +21,8 @@ type eventWriteQueries interface {
 	LockCoordinatorAssignmentUser(context.Context, pgtype.UUID) (sqlc.LockCoordinatorAssignmentUserRow, error)
 	PromoteUserToCoordinator(context.Context, pgtype.UUID) (int64, error)
 	InsertEventCoordinatorAssignment(context.Context, sqlc.InsertEventCoordinatorAssignmentParams) (sqlc.InsertEventCoordinatorAssignmentRow, error)
+	UpsertCaptureCreditConfig(context.Context, sqlc.UpsertCaptureCreditConfigParams) (sqlc.UpsertCaptureCreditConfigRow, error)
+	ResetCaptureCreditUsage(context.Context, sqlc.ResetCaptureCreditUsageParams) (sqlc.ResetCaptureCreditUsageRow, error)
 }
 
 type queryFactory func(pgx.Tx) eventWriteQueries
@@ -140,6 +142,36 @@ func (w *SQLCWriter) CreateCoordinatorAssignment(ctx context.Context, tx pgx.Tx,
 		return CoordinatorAssignment{}, false, mapErr
 	}
 	return assignment, true, nil
+}
+
+func (w *SQLCWriter) UpsertCaptureCreditConfig(ctx context.Context, tx pgx.Tx, input CaptureCreditConfigWrite) (CaptureCreditConfigWriteResult, bool, error) {
+	row, err := w.queries(tx).UpsertCaptureCreditConfig(ctx, sqlc.UpsertCaptureCreditConfigParams{
+		EventID:         dbUUID(input.EventID),
+		CreditLimit:     int32(input.Limit),
+		UpdatedByUserID: dbUUID(input.UpdatedByUserID),
+	})
+	if err != nil {
+		return CaptureCreditConfigWriteResult{}, false, err
+	}
+	config, mapErr := mapCaptureCreditConfig(row.EventID, row.CreditLimit, row.UpdatedByUserID, row.UpdatedAt)
+	if mapErr != nil {
+		return CaptureCreditConfigWriteResult{}, false, mapErr
+	}
+	return CaptureCreditConfigWriteResult{Config: config, PreviousLimit: int(row.PreviousLimit)}, true, nil
+}
+
+func (w *SQLCWriter) ResetCaptureCreditUsage(ctx context.Context, tx pgx.Tx, input CaptureCreditResetWrite) (CaptureCreditResetWriteResult, bool, error) {
+	row, err := w.queries(tx).ResetCaptureCreditUsage(ctx, sqlc.ResetCaptureCreditUsageParams{
+		EventID: dbUUID(input.EventID),
+		UserID:  dbUUID(input.UserID),
+	})
+	if err == nil {
+		return CaptureCreditResetWriteResult{PreviousConsumed: int(row.PreviousConsumed)}, true, nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return CaptureCreditResetWriteResult{}, false, ErrCoordinatorUserNotFound
+	}
+	return CaptureCreditResetWriteResult{}, false, err
 }
 
 func dbUUID(id uuid.UUID) pgtype.UUID {

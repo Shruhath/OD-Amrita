@@ -158,6 +158,54 @@ WHERE event.name = 'YOUR EVENT NAME'
 ORDER BY assignment.created_at, u.email, assignment.id;
 ```
 
+## Fallback credits
+
+The event detail page also shows **Fallback credits** for the same assigned
+coordinators. This is one event-wide cap per coordinator for the fallback mark
+paths: **Scan camera** and **Search** share the same pool. **Tap card/NFC never
+uses this pool** and remains available when fallback credits are exhausted.
+
+Operational rules an administrator will notice:
+
+- **Default cap is 5.** Until an administrator saves a value for the event, each
+  assigned coordinator effectively has 5 fallback credits.
+- **Cap 0 is valid.** Setting the cap to 0 live-disables camera and search for
+  that event without redeploying. Raising the cap takes effect on the next mark
+  status read and the next mark request.
+- **Lowering below usage is allowed.** If a coordinator has consumed 4 credits
+  and the cap is lowered to 3, their remaining value is 0 and camera/search stay
+  disabled until a reset or later raise.
+- **Reset is per coordinator.** Resetting one coordinator sets only that
+  coordinator's consumed count to 0. The UI applies the server response without
+  a page reload.
+- **Archived events are read-only.** Existing credit state remains visible for
+  review, but cap changes and resets are removed from the UI and rejected by the
+  API/database with `409 EVENT_ARCHIVED`.
+- **Rejected writes do not audit.** Unknown events, non-admin callers, invalid
+  caps, unknown users, and users not assigned to the event write no credit audit
+  row.
+- **Successful admin writes are audited.** A cap change writes exactly one
+  `capture_credit.cap_changed` row targeting `event_capture_credit_config`.
+  A reset writes exactly one `capture_credit.reset` row targeting
+  `event_capture_credit_usage`.
+
+Verify fallback credits for an event as the migrator/database owner:
+
+```sql
+SELECT u.email,
+       COALESCE(usage.consumed, 0) AS consumed,
+       COALESCE(config.credit_limit, 5) AS cap,
+       GREATEST(COALESCE(config.credit_limit, 5) - COALESCE(usage.consumed, 0), 0) AS remaining
+FROM event_coordinator_assignments AS assignment
+JOIN users AS u ON u.id = assignment.user_id
+JOIN events AS event ON event.id = assignment.event_id
+LEFT JOIN event_capture_credit_config AS config ON config.event_id = assignment.event_id
+LEFT JOIN event_capture_credit_usage AS usage
+  ON usage.event_id = assignment.event_id AND usage.user_id = assignment.user_id
+WHERE event.name = 'YOUR EVENT NAME'
+ORDER BY assignment.created_at, assignment.id;
+```
+
 ## Teacher profiles
 
 Opening `/portal/teachers` shows the current teacher roster and a form that
@@ -315,6 +363,15 @@ what this coordinator may mark for — then choose a capture mode:
 | **Scan camera** | The barcode **printed on the physical ID card**, which carries the **roll number** — not a sealed token | The roll is resolved to a student through the search endpoint, then `student_id` with `capture_method: camera`. |
 | **Search** | Typed roll number or name prefix, minimum 3 characters | `student_id` with `capture_method: search`. |
 
+Camera and search consume one shared fallback credit after the server has
+accepted the coordinator's event/category scope and before the OD row is written.
+That debit, the OD row, and the `od.created` audit row are one transaction, so a
+duplicate, closed slot, unknown student, archived event, validation failure, or
+downstream write failure does not burn credit. An exhausted camera/search
+attempt returns `CAPTURE_CREDIT_LIMIT_REACHED`, writes no OD row, consumes no
+credit, and writes one `scan.blocked` audit row with
+`reason = capture_credit_exhausted`.
+
 The tap mode runs one continuous scan: several students in a row each get their
 own confirmation with no button press between them, and an identical token
 repeated within about two seconds fires only once.
@@ -333,11 +390,13 @@ The banner is the only signal that matters, and it never auto-dismisses.
   queued, nothing retries in the background, and nothing is saved locally; the
   coordinator retries by hand.
 
-Two counters and the slot clock are all server-computed and refresh about every
-five seconds: the coordinator's own marks, the combined total for the same event
-and category across all coordinators, and the time left in the active slot.
-Outside the slot windows the screen says **"No slot is open right now"** rather
-than showing a countdown, and the server rejects marks attempted in that state.
+Two counters, the fallback credit state, and the slot clock are all
+server-computed and refresh about every five seconds: the coordinator's own
+marks, the combined total for the same event and category across all
+coordinators, remaining fallback credits for camera/search, and the time left in
+the active slot. Outside the slot windows the screen says **"No slot is open
+right now"** rather than showing a countdown, and the server rejects marks
+attempted in that state.
 
 Nothing about a card, token, search result or roster is written to
 `localStorage`, `sessionStorage` or IndexedDB. Only the selected event and
@@ -357,8 +416,12 @@ outside them the server correctly refuses every mark):
 3. Tap the **same** card again. Confirm a **red** already-marked banner and that
    neither counter moves.
 4. Switch to camera mode and scan the barcode printed on a real ID card. Confirm
-   the same green confirmation for the right student.
-5. Turn airplane mode on and tap a card. Confirm a **red** "not recorded" state
+   the same green confirmation for the right student and one fewer fallback
+   credit.
+5. From the event detail page, set the fallback cap to 0. Confirm camera/search
+   are disabled on `/mark`, while NFC remains selectable. Raise the cap or reset
+   the coordinator and confirm camera/search return without redeploying.
+6. Turn airplane mode on and tap a card. Confirm a **red** "not recorded" state
    with a retry — never a queued or amber state.
 
 Verify the marks as the migrator/database owner:
@@ -372,7 +435,8 @@ ORDER BY o.server_received_at;
 ```
 
 `capture_method` is persisted truthfully, so a camera mark reads `camera` and
-never `search` — the later shared camera+search credit cap depends on it.
+never `search`; both camera and search consume the same fallback credit pool,
+while `nfc` consumes none.
 
 ## Verification commands
 

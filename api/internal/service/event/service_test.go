@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -17,12 +18,13 @@ import (
 )
 
 type fakeReader struct {
-	branches []Branch
-	event    Event
-	events   []Event
-	total    int64
-	err      error
-	listIn   ListInput
+	branches    []Branch
+	event       Event
+	events      []Event
+	total       int64
+	err         error
+	listIn      ListInput
+	creditUsage CaptureCreditUsage
 }
 
 func (f *fakeReader) ListBranches(context.Context) ([]Branch, error) { return f.branches, f.err }
@@ -54,14 +56,29 @@ func (f *fakeReader) ListAssignedActiveEvents(context.Context, uuid.UUID) ([]Eve
 func (f *fakeReader) CoordinatorAssignedToEvent(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
 	return false, f.err
 }
+func (f *fakeReader) GetCaptureCreditConfig(context.Context, uuid.UUID) (CaptureCreditConfig, error) {
+	return CaptureCreditConfig{}, f.err
+}
+func (f *fakeReader) ListCaptureCreditUsageByEvent(context.Context, uuid.UUID) ([]CaptureCreditUsage, error) {
+	return nil, f.err
+}
+func (f *fakeReader) GetCaptureCreditUsageForCoordinator(context.Context, uuid.UUID, uuid.UUID) (CaptureCreditUsage, error) {
+	return f.creditUsage, f.err
+}
 
 type fakeWriter struct {
-	createID      uuid.UUID
-	createChanged bool
-	archiveChange bool
-	err           error
-	createInput   CreateWrite
-	archiveCalls  int
+	createID            uuid.UUID
+	createChanged       bool
+	archiveChange       bool
+	err                 error
+	createInput         CreateWrite
+	archiveCalls        int
+	captureConfigResult CaptureCreditConfigWriteResult
+	captureConfigCalls  int
+	captureConfigInput  CaptureCreditConfigWrite
+	captureResetResult  CaptureCreditResetWriteResult
+	captureResetCalls   int
+	captureResetInput   CaptureCreditResetWrite
 }
 
 func (f *fakeWriter) Create(_ context.Context, _ pgx.Tx, input CreateWrite) (uuid.UUID, bool, error) {
@@ -77,6 +94,16 @@ func (f *fakeWriter) CreateCategory(context.Context, pgx.Tx, CreateCategoryWrite
 }
 func (f *fakeWriter) CreateCoordinatorAssignment(context.Context, pgx.Tx, CreateCoordinatorAssignmentWrite) (CoordinatorAssignment, bool, error) {
 	return CoordinatorAssignment{}, false, f.err
+}
+func (f *fakeWriter) UpsertCaptureCreditConfig(_ context.Context, _ pgx.Tx, input CaptureCreditConfigWrite) (CaptureCreditConfigWriteResult, bool, error) {
+	f.captureConfigCalls++
+	f.captureConfigInput = input
+	return f.captureConfigResult, true, f.err
+}
+func (f *fakeWriter) ResetCaptureCreditUsage(_ context.Context, _ pgx.Tx, input CaptureCreditResetWrite) (CaptureCreditResetWriteResult, bool, error) {
+	f.captureResetCalls++
+	f.captureResetInput = input
+	return f.captureResetResult, true, f.err
 }
 
 type fakeAuditStore struct {
@@ -266,6 +293,87 @@ func TestListRejectsEveryInvalidBoundBeforeRead(t *testing.T) {
 				t.Fatalf("error=%#v", err)
 			}
 		})
+	}
+}
+
+func TestUpdateCaptureCreditConfigRejectsOverflowBeforeWrite(t *testing.T) {
+	eventID, actorID := uuid.New(), uuid.New()
+	writer := &fakeWriter{}
+	audit := &fakeAuditStore{}
+	_, err := NewService(&fakeReader{event: Event{Status: StatusActive}}, audit, writer).UpdateCaptureCreditConfig(
+		context.Background(),
+		Actor{UserID: actorID.String(), Email: "admin@amrita.edu", Role: "admin"},
+		CaptureCreditConfigInput{EventID: eventID.String(), Limit: maxCaptureCreditLimit + 1},
+	)
+	var de domain.DomainError
+	if !errors.As(err, &de) || len(de.Details) != 1 || de.Details[0].Field != "limit" || de.Details[0].Code != "maximum" {
+		t.Fatalf("error=%#v, want limit maximum validation", err)
+	}
+	if audit.calls != 0 || writer.captureConfigCalls != 0 {
+		t.Fatalf("audit/write calls = %d/%d, want none", audit.calls, writer.captureConfigCalls)
+	}
+}
+
+func TestUpdateCaptureCreditConfigAuditUsesTransactionPreviousLimit(t *testing.T) {
+	eventID, actorID := uuid.New(), uuid.New()
+	writer := &fakeWriter{captureConfigResult: CaptureCreditConfigWriteResult{
+		Config:        CaptureCreditConfig{EventID: eventID.String(), Limit: 8, UpdatedAt: time.Date(2026, 8, 3, 3, 0, 0, 0, time.UTC)},
+		PreviousLimit: 3,
+	}}
+	audit := &fakeAuditStore{}
+	updated, err := NewService(&fakeReader{event: Event{Status: StatusActive}}, audit, writer).UpdateCaptureCreditConfig(
+		context.Background(),
+		Actor{UserID: actorID.String(), Email: " ADMIN@amrita.edu ", Role: "admin"},
+		CaptureCreditConfigInput{EventID: eventID.String(), Limit: 8},
+	)
+	if err != nil {
+		t.Fatalf("UpdateCaptureCreditConfig: %v", err)
+	}
+	if updated.Limit != 8 || writer.captureConfigInput.Limit != 8 {
+		t.Fatalf("updated/input = %#v/%#v", updated, writer.captureConfigInput)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(audit.event.Payload, &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload["previous_limit"] != float64(3) || payload["new_limit"] != float64(8) {
+		t.Fatalf("payload=%#v, want transaction previous and new limits", payload)
+	}
+}
+
+func TestResetCaptureCreditsAuditUsesTransactionPreviousConsumed(t *testing.T) {
+	eventID, actorID, userID := uuid.New(), uuid.New(), uuid.New()
+	writer := &fakeWriter{captureResetResult: CaptureCreditResetWriteResult{PreviousConsumed: 4}}
+	reader := &fakeReader{
+		event: Event{Status: StatusActive},
+		creditUsage: CaptureCreditUsage{
+			EventID: eventID.String(), UserID: userID.String(), Email: "coord@amrita.edu", Limit: 5,
+		},
+	}
+	audit := &fakeAuditStore{}
+	_, err := NewService(reader, audit, writer).ResetCaptureCredits(
+		context.Background(),
+		Actor{UserID: actorID.String(), Email: "admin@amrita.edu", Role: "admin"},
+		eventID.String(),
+		userID.String(),
+	)
+	if err != nil {
+		t.Fatalf("ResetCaptureCredits: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(audit.event.Payload, &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload["previous_consumed"] != float64(4) || payload["new_consumed"] != float64(0) {
+		t.Fatalf("payload=%#v, want transaction previous consumed", payload)
+	}
+}
+
+func TestCaptureCreditWriteErrorMapsWrappedCoordinatorMissing(t *testing.T) {
+	err := mapCaptureCreditWriteError(fmt.Errorf("store: business write: %w", ErrCoordinatorUserNotFound))
+	var de domain.DomainError
+	if !errors.As(err, &de) || de.Code != contracts.ErrorCodeUSERNOTFOUND {
+		t.Fatalf("error=%v, want %s", err, contracts.ErrorCodeUSERNOTFOUND)
 	}
 }
 

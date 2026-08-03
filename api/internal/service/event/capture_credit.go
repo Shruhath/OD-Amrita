@@ -237,6 +237,9 @@ func (s *Service) ResetCaptureCredits(ctx context.Context, actor Actor, rawEvent
 }
 
 func mapCaptureCreditWriteError(err error) error {
+	if errors.Is(err, ErrCoordinatorUserNotFound) {
+		return coordinatorUserNotFound()
+	}
 	var pgErr interface{ SQLState() string }
 	if errors.As(err, &pgErr) && pgErr.SQLState() == "55000" {
 		return eventArchived()

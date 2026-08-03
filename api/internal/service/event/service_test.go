@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -365,6 +366,14 @@ func TestResetCaptureCreditsAuditUsesTransactionPreviousConsumed(t *testing.T) {
 	}
 	if payload["previous_consumed"] != float64(4) || payload["new_consumed"] != float64(0) {
 		t.Fatalf("payload=%#v, want transaction previous consumed", payload)
+	}
+}
+
+func TestCaptureCreditWriteErrorMapsWrappedCoordinatorMissing(t *testing.T) {
+	err := mapCaptureCreditWriteError(fmt.Errorf("store: business write: %w", ErrCoordinatorUserNotFound))
+	var de domain.DomainError
+	if !errors.As(err, &de) || de.Code != contracts.ErrorCodeUSERNOTFOUND {
+		t.Fatalf("error=%v, want %s", err, contracts.ErrorCodeUSERNOTFOUND)
 	}
 }
 

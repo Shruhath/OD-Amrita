@@ -17,10 +17,15 @@ export function AppFooter() {
           loading="lazy"
           decoding="async"
         />
+        {/*
+          A tel: link, so it dials on the phone this is mostly used from. The
+          number is in E.164 (+91) because that form works from any handset,
+          including one roaming; the label stays the name.
+        */}
         <p className="app-footer__credit">
-          <span>Developed by</span>
-          <a href="https://www.ushodayanetworks.com" target="_blank" rel="noopener noreferrer">
-            UshodayaNetworks
+          <span>POC:</span>
+          <a href="tel:+917995944735" aria-label="Call Shruhath on 7995944735">
+            Shruhath
           </a>
         </p>
       </div>

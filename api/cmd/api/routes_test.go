@@ -89,6 +89,16 @@ func (s reachingService) CreateCategory(context.Context, eventsvc.Actor, eventsv
 	return eventsvc.Category{}, nil
 }
 
+func (s reachingService) ListCoordinatorAssignments(context.Context, eventsvc.Actor, string) ([]eventsvc.CoordinatorAssignment, error) {
+	s.reached.hits++
+	return nil, nil
+}
+
+func (s reachingService) CreateCoordinatorAssignment(context.Context, eventsvc.Actor, eventsvc.CreateCoordinatorAssignmentInput) (eventsvc.CoordinatorAssignment, error) {
+	s.reached.hits++
+	return eventsvc.CoordinatorAssignment{}, nil
+}
+
 type reachingTeacherService struct{ reached *reachCounter }
 
 func (s reachingTeacherService) List(context.Context, teachersvc.Actor, teachersvc.ListInput) (teachersvc.Page, error) {

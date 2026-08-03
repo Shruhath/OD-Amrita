@@ -61,7 +61,8 @@ var codeStatusCases = []struct {
 	{contracts.ErrorCodeUSERNOTFOUND, []int{404}},            // 2.3: no users row matches the supplied email — pinned 404
 	{contracts.ErrorCodeSTUDENTNOTFOUND, []int{404}},         // 0.3: no students row matches the supplied id — pinned 404
 	{contracts.ErrorCodeROLEALREADYASSIGNED, []int{409}},     // 2.3: non-student role is a state conflict — pinned 409
-	{contracts.ErrorCodeINTERNAL, []int{500}},                // arch: 5xx internal
+	{contracts.ErrorCodeCOORDINATORASSIGNMENTEXISTS, []int{409}},
+	{contracts.ErrorCodeINTERNAL, []int{500}}, // arch: 5xx internal
 }
 
 // TestHTTPStatus_MapsEveryCode asserts HTTPStatus returns an acceptable status

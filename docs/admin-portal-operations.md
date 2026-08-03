@@ -1,10 +1,10 @@
 # Admin portal operations
 
 The web portal serves the authenticated event administration routes at
-`/portal/events` (the events list), `/portal/events/:event_id` (one event and
-its categories), and `/portal/teachers` (the teacher roster). It uses Supabase
-only to broker Microsoft sign-in and obtain a session JWT; all authorization
-and event/teacher data decisions remain server-side.
+`/portal/events` (the events list), `/portal/events/:event_id` (one event, its
+categories, and its coordinators), and `/portal/teachers` (the teacher roster).
+It uses Supabase only to broker Microsoft sign-in and obtain a session JWT; all
+authorization and event/teacher data decisions remain server-side.
 
 The same app also serves the **coordinator marking surface** at the root route
 `/mark`, which is coordinator-only and deliberately outside `/portal`. See
@@ -73,8 +73,8 @@ back to free-text or browser-owned branch data.
 
 Opening an event from the events list shows the categories it already has and,
 for an active event, a form that adds one category per submission. Categories
-scope coordinators and OD records to a specific activity within an event
-(Procession, Stage Setup, …).
+group OD records under a specific activity within an event (Procession, Stage
+Setup, ...).
 
 Operational rules an administrator will notice:
 
@@ -114,6 +114,48 @@ FROM categories AS category
 JOIN events AS event ON event.id = category.event_id
 WHERE event.name = 'YOUR EVENT NAME'
 ORDER BY category.name, category.id;
+```
+
+## Event coordinators
+
+The same event detail page lists event-level coordinator assignments and, for an
+active event, accepts a provisioned user's email address as the assignment input.
+One assignment row authorizes that user to mark across all categories in the
+event.
+
+Operational rules an administrator will notice:
+
+- **Existing user only.** The assignee must already have signed in once so a
+  `users` row exists. Unknown email is rejected with `404 USER_NOT_FOUND`.
+- **`student -> coordinator`, or existing coordinator.** Assigning a student
+  atomically promotes the user to `coordinator` and creates the event assignment.
+  A user already holding `coordinator` can be assigned to another event without a
+  role change. `admin` and `teacher` are rejected with `409
+  ROLE_ALREADY_ASSIGNED`.
+- **Event-level scope.** There is no category selector in this MVP workflow. A
+  coordinator assigned to an active event can read that event, its categories,
+  and its mark status, and can submit marks for categories that belong to that
+  event. Direct URL or API attempts against unassigned events are rejected.
+- **Duplicate is a conflict, not idempotent success.** Repeating the same
+  user/event assignment returns `409 COORDINATOR_ASSIGNMENT_EXISTS`; concurrent
+  duplicate requests are also rejected by the database uniqueness constraint.
+- **Archived events are read-only.** Existing assignments remain visible after
+  archive, but the assignment form is removed. The API and database both refuse
+  new assignments for archived events with `409 EVENT_ARCHIVED`.
+- **One successful assignment writes one audit row.** The role elevation if any,
+  the assignment row, and a `coordinator.assigned` audit row targeting
+  `event_coordinator_assignments` commit in the same transaction. Rejected
+  assignment requests write no audit row.
+
+Verify coordinators for an event as the migrator/database owner:
+
+```sql
+SELECT u.email, u.name, assignment.created_at
+FROM event_coordinator_assignments AS assignment
+JOIN users AS u ON u.id = assignment.user_id
+JOIN events AS event ON event.id = assignment.event_id
+WHERE event.name = 'YOUR EVENT NAME'
+ORDER BY assignment.created_at, u.email, assignment.id;
 ```
 
 ## Teacher profiles
@@ -237,12 +279,13 @@ story: it needs an explicit slot picker that this screen deliberately does not
 have, so admitting an admin here would put them on a screen whose every mark the
 server then rejects.
 
-Production provisions every first-time user as `student`. Until the coordinator
-assignment story lands, a coordinator is created by setting `users.role` to
-`coordinator` directly, and **any** user with that role can mark for **any**
-active event — the scope seam is in place but its policy is still role-based.
-That gap is closed by the assignment story, which is a hard prerequisite before
-the live event.
+Production provisions every first-time user as `student`. An administrator must
+assign that provisioned user on an active event detail page before the user can
+mark as a coordinator. The first assignment promotes the user to `coordinator`;
+later assignments add more event scopes. A coordinator can see only assigned
+active events on `/mark`, and mark writes are server-checked against the same
+assignment table. Roster search remains role-gated rather than event-scoped; a
+search hit does not authorize a mark.
 
 ### Device setup
 

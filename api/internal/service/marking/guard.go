@@ -54,6 +54,8 @@ func AsDomainError(err error) error {
 		return domain.DomainError{Code: contracts.ErrorCodeEVENTNOTFOUND, Message: "Event not found."}
 	case errors.Is(err, ErrEventArchived):
 		return domain.DomainError{Code: contracts.ErrorCodeEVENTARCHIVED, Message: "Event is archived."}
+	case errors.Is(err, ErrEventNotAssigned):
+		return domain.DomainError{Code: contracts.ErrorCodeRBACFORBIDDEN, Message: "Coordinator is not assigned to this event."}
 	case errors.Is(err, ErrCategoryNotFound):
 		return domain.DomainError{Code: contracts.ErrorCodeCATEGORYNOTFOUND, Message: "Category not found."}
 	default:

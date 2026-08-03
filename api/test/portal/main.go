@@ -70,6 +70,11 @@ const (
 // own reasoning for why this fixture is stable rather than suffixed.
 const teacherFixtureEmail = "teacher-fixture-student@amrita.edu"
 
+// coordinatorFixtureEmail is the provisioned student row the coordinator
+// assignment browser journeys promote. It is reset on every harness start so a
+// rerun begins with the same eligible candidate state.
+const coordinatorFixtureEmail = "coordinator-fixture-student@amrita.edu"
+
 // fixtureEventPrefixes are the events the browser journeys create. seed()
 // removes them (and their children) so a run is repeatable; keep this in step
 // with web/tests/integration/*.spec.ts.
@@ -80,7 +85,7 @@ const teacherFixtureEmail = "teacher-fixture-student@amrita.edu"
 // would otherwise leave two identically-named events, making the row locators
 // ambiguous and the audit-row counts wrong. Matching on the prefix means seed()
 // still clears every previous run's leftovers.
-var fixtureEventPrefixes = []string{"Browser Persisted Event", "Browser Category Event"}
+var fixtureEventPrefixes = []string{"Browser Persisted Event", "Browser Category Event", "Browser Coordinator Event"}
 
 type fixedVerifier struct{}
 
@@ -233,6 +238,15 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 	// prefix: two specs sharing one would make the row locators ambiguous and
 	// double the audit-row counts the CI assertions check.
 	if _, err := tx.Exec(ctx, `
+		DELETE FROM event_coordinator_assignments
+		WHERE event_id IN (
+			SELECT id FROM events
+			WHERE name LIKE ANY (SELECT prefix || '%' FROM unnest($1::text[]) AS prefix)
+		)
+	`, fixtureEventPrefixes); err != nil {
+		return fmt.Errorf("delete event coordinator assignments: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
 		DELETE FROM event_branches
 		WHERE event_id IN (
 			SELECT id FROM events
@@ -325,6 +339,14 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("upsert teacher fixture user: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, supabase_subject, email, name, role)
+		VALUES ('92000000-0000-4000-8000-000000000002', 'portal-coordinator-fixture-subject', $1, 'Coordinator Fixture', 'student')
+		ON CONFLICT (supabase_subject) DO UPDATE
+		SET email = EXCLUDED.email, name = EXCLUDED.name, role = 'student'
+	`, coordinatorFixtureEmail); err != nil {
+		return fmt.Errorf("upsert coordinator fixture user: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO branches (id, code, name)
 		VALUES
 			('91000000-0000-4000-8000-000000000001', 'CSE', 'Computer Science and Engineering'),
@@ -384,6 +406,13 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
 	`, markingCategoryID, markingEventID); err != nil {
 		return fmt.Errorf("upsert marking category: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO event_coordinator_assignments (user_id, event_id, created_by_user_id)
+		VALUES ('90000000-0000-4000-8000-000000000003', $1, '90000000-0000-4000-8000-000000000001')
+		ON CONFLICT (user_id, event_id) DO NOTHING
+	`, markingEventID); err != nil {
+		return fmt.Errorf("upsert marking coordinator assignment: %w", err)
 	}
 	// Marks from a previous run would make the counter assertions cumulative, so
 	// the journey starts from a known zero every time.

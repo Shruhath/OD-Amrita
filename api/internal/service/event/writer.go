@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -17,6 +18,9 @@ type eventWriteQueries interface {
 	AddEventBranch(context.Context, sqlc.AddEventBranchParams) (int64, error)
 	ArchiveEvent(context.Context, sqlc.ArchiveEventParams) (pgtype.UUID, error)
 	CreateCategory(context.Context, sqlc.CreateCategoryParams) (sqlc.CreateCategoryRow, error)
+	LockCoordinatorAssignmentUser(context.Context, pgtype.UUID) (sqlc.LockCoordinatorAssignmentUserRow, error)
+	PromoteUserToCoordinator(context.Context, pgtype.UUID) (int64, error)
+	InsertEventCoordinatorAssignment(context.Context, sqlc.InsertEventCoordinatorAssignmentParams) (sqlc.InsertEventCoordinatorAssignmentRow, error)
 }
 
 type queryFactory func(pgx.Tx) eventWriteQueries
@@ -100,6 +104,42 @@ func (w *SQLCWriter) CreateCategory(ctx context.Context, tx pgx.Tx, input Create
 		return Category{}, false, mapErr
 	}
 	return category, true, nil
+}
+
+func (w *SQLCWriter) CreateCoordinatorAssignment(ctx context.Context, tx pgx.Tx, input CreateCoordinatorAssignmentWrite) (CoordinatorAssignment, bool, error) {
+	q := w.queries(tx)
+	user, err := q.LockCoordinatorAssignmentUser(ctx, dbUUID(input.UserID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return CoordinatorAssignment{}, false, ErrCoordinatorUserNotFound
+		}
+		return CoordinatorAssignment{}, false, err
+	}
+	if user.Role == "student" {
+		changed, promoteErr := q.PromoteUserToCoordinator(ctx, dbUUID(input.UserID))
+		if promoteErr != nil {
+			return CoordinatorAssignment{}, false, promoteErr
+		}
+		if changed != 1 {
+			return CoordinatorAssignment{}, false, ErrCoordinatorRoleAlreadyAssigned
+		}
+	} else if user.Role != "coordinator" {
+		return CoordinatorAssignment{}, false, ErrCoordinatorRoleAlreadyAssigned
+	}
+
+	inserted, err := q.InsertEventCoordinatorAssignment(ctx, sqlc.InsertEventCoordinatorAssignmentParams{
+		UserID:          dbUUID(input.UserID),
+		EventID:         dbUUID(input.EventID),
+		CreatedByUserID: dbUUID(input.CreatedByUserID),
+	})
+	if err != nil {
+		return CoordinatorAssignment{}, false, err
+	}
+	assignment, mapErr := mapCoordinatorAssignment(inserted.ID, inserted.UserID, user.Email, user.Name, inserted.EventID, inserted.CreatedAt)
+	if mapErr != nil {
+		return CoordinatorAssignment{}, false, mapErr
+	}
+	return assignment, true, nil
 }
 
 func dbUUID(id uuid.UUID) pgtype.UUID {

@@ -108,6 +108,65 @@ func (r *SQLCReader) ListCategories(ctx context.Context, eventID uuid.UUID) ([]C
 	return categories, nil
 }
 
+func (r *SQLCReader) ListCoordinatorAssignments(ctx context.Context, eventID uuid.UUID) ([]CoordinatorAssignment, error) {
+	rows, err := r.queries.ListCoordinatorAssignmentsByEvent(ctx, dbUUID(eventID))
+	if err != nil {
+		return nil, err
+	}
+	assignments := make([]CoordinatorAssignment, 0, len(rows))
+	for _, row := range rows {
+		assignment, mapErr := mapCoordinatorAssignment(
+			row.ID, row.UserID, row.Email, row.Name, row.EventID, row.CreatedAt,
+		)
+		if mapErr != nil {
+			return nil, mapErr
+		}
+		assignments = append(assignments, assignment)
+	}
+	return assignments, nil
+}
+
+func (r *SQLCReader) GetCoordinatorCandidateByEmail(ctx context.Context, email string) (CoordinatorCandidate, error) {
+	row, err := r.queries.GetCoordinatorCandidateByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return CoordinatorCandidate{}, ErrCoordinatorUserNotFound
+		}
+		return CoordinatorCandidate{}, err
+	}
+	return mapCoordinatorCandidate(row.ID, row.Email, row.Name, row.Role)
+}
+
+func (r *SQLCReader) CoordinatorAssignmentExists(ctx context.Context, userID, eventID uuid.UUID) (bool, error) {
+	return r.queries.CoordinatorAssignmentExists(ctx, sqlc.CoordinatorAssignmentExistsParams{
+		UserID:  dbUUID(userID),
+		EventID: dbUUID(eventID),
+	})
+}
+
+func (r *SQLCReader) ListAssignedActiveEvents(ctx context.Context, userID uuid.UUID) ([]Event, error) {
+	rows, err := r.queries.ListAssignedActiveEvents(ctx, dbUUID(userID))
+	if err != nil {
+		return nil, err
+	}
+	events := make([]Event, 0, len(rows))
+	for _, row := range rows {
+		event, mapErr := mapEvent(row.ID, row.Name, row.EventDate, row.Status, row.ArchivedAt, row.CreatedAt, row.BranchesJson)
+		if mapErr != nil {
+			return nil, mapErr
+		}
+		events = append(events, event)
+	}
+	return events, nil
+}
+
+func (r *SQLCReader) CoordinatorAssignedToEvent(ctx context.Context, userID, eventID uuid.UUID) (bool, error) {
+	return r.queries.CoordinatorAssignedToEvent(ctx, sqlc.CoordinatorAssignedToEventParams{
+		UserID:  dbUUID(userID),
+		EventID: dbUUID(eventID),
+	})
+}
+
 func mapCategory(id, eventID pgtype.UUID, name string, createdAt pgtype.Timestamptz) (Category, error) {
 	if !id.Valid || !eventID.Valid || !createdAt.Valid {
 		return Category{}, errors.New("event: category row contains invalid required values")
@@ -118,6 +177,43 @@ func mapCategory(id, eventID pgtype.UUID, name string, createdAt pgtype.Timestam
 		Name:      name,
 		CreatedAt: createdAt.Time,
 	}, nil
+}
+
+func mapCoordinatorAssignment(
+	id, userID pgtype.UUID,
+	email string,
+	name pgtype.Text,
+	eventID pgtype.UUID,
+	createdAt pgtype.Timestamptz,
+) (CoordinatorAssignment, error) {
+	if !id.Valid || !userID.Valid || !eventID.Valid || !createdAt.Valid {
+		return CoordinatorAssignment{}, errors.New("event: coordinator assignment row contains invalid required values")
+	}
+	var displayName *string
+	if name.Valid {
+		value := name.String
+		displayName = &value
+	}
+	return CoordinatorAssignment{
+		ID:        uuid.UUID(id.Bytes).String(),
+		UserID:    uuid.UUID(userID.Bytes).String(),
+		Email:     email,
+		Name:      displayName,
+		EventID:   uuid.UUID(eventID.Bytes).String(),
+		CreatedAt: createdAt.Time,
+	}, nil
+}
+
+func mapCoordinatorCandidate(id pgtype.UUID, email string, name pgtype.Text, role string) (CoordinatorCandidate, error) {
+	if !id.Valid {
+		return CoordinatorCandidate{}, errors.New("event: coordinator candidate row contains invalid id")
+	}
+	var displayName *string
+	if name.Valid {
+		value := name.String
+		displayName = &value
+	}
+	return CoordinatorCandidate{ID: uuid.UUID(id.Bytes).String(), Email: email, Name: displayName, Role: role}, nil
 }
 
 func pageOffset(total int64, page, pageSize int) (int64, bool) {

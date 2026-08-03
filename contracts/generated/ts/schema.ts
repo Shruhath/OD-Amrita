@@ -290,6 +290,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/events/{event_id}/coordinators": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * List event-level coordinator assignments
+         * @description Lists the provisioned users assigned to coordinate the whole event. Results are bounded per-event reference data and remain readable after an event is archived.
+         */
+        get: operations["listAdminEventCoordinators"];
+        put?: never;
+        /**
+         * Assign one provisioned user as an event coordinator
+         * @description Elevates an existing student to coordinator on first assignment, or adds another event assignment for an existing coordinator. Duplicate user/event assignments are rejected with COORDINATOR_ASSIGNMENT_EXISTS.
+         */
+        post: operations["createAdminEventCoordinatorAssignment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/teachers": {
         parameters: {
             query?: never;
@@ -453,6 +479,27 @@ export interface components {
         CategoryCollection: {
             data: components["schemas"]["Category"][];
         };
+        /** @description Event-level coordinator assignment. A row grants the user coordinator marking access for the whole event; it carries no category or scope field in this MVP. */
+        CoordinatorAssignment: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            user_id: string;
+            email: string;
+            name: string | null;
+            /** Format: uuid */
+            event_id: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @description Bounded per-event reference data, ordered by assignment creation time. */
+        CoordinatorAssignmentCollection: {
+            data: components["schemas"]["CoordinatorAssignment"][];
+        };
+        CreateCoordinatorAssignmentRequest: {
+            /** @description Email of an existing, already-provisioned users row. The request does not pre-provision an identity. */
+            email: string;
+        };
         /** @description A teacher's elevated role plus the branches they are associated with. Reuses BranchSummary rather than a parallel branch shape. */
         TeacherProfile: {
             /** Format: uuid */
@@ -607,7 +654,7 @@ export interface components {
              * @description Canonical SCREAMING_SNAKE error code. This enum is the WIRE source of truth; the Go `errors.go` const registry mirrors it. Do not invent free-text codes.
              * @enum {string}
              */
-            code: "AUTH_DOMAIN_REJECTED" | "AUTH_TOKEN_INVALID" | "RBAC_FORBIDDEN" | "SCAN_DUPLICATE" | "SLOT_CLOSED" | "CARD_NOT_RECOGNIZED" | "QR_LIMIT_REACHED" | "RATE_LIMITED" | "INVALID_SCAN_ID" | "VALIDATION_FAILED" | "EVENT_NOT_FOUND" | "EVENT_ARCHIVED" | "CATEGORY_NOT_FOUND" | "USER_NOT_FOUND" | "STUDENT_NOT_FOUND" | "ROLE_ALREADY_ASSIGNED" | "INTERNAL";
+            code: "AUTH_DOMAIN_REJECTED" | "AUTH_TOKEN_INVALID" | "RBAC_FORBIDDEN" | "SCAN_DUPLICATE" | "SLOT_CLOSED" | "CARD_NOT_RECOGNIZED" | "QR_LIMIT_REACHED" | "RATE_LIMITED" | "INVALID_SCAN_ID" | "VALIDATION_FAILED" | "EVENT_NOT_FOUND" | "EVENT_ARCHIVED" | "CATEGORY_NOT_FOUND" | "USER_NOT_FOUND" | "STUDENT_NOT_FOUND" | "ROLE_ALREADY_ASSIGNED" | "COORDINATOR_ASSIGNMENT_EXISTS" | "INTERNAL";
             /** @description Human-readable message. For diagnostics/display only — branch on `code`. */
             message: string;
             /** @description Optional, freeform context for generic errors. Typed validation failures use ValidationError.details (a typed array) instead. */
@@ -1723,6 +1770,153 @@ export interface operations {
                 };
             };
             /** @description The event is archived. An archived event is a closed aggregate and accepts no child writes (EVENT_ARCHIVED). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listAdminEventCoordinators: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every coordinator assignment for the requested event. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoordinatorAssignmentCollection"];
+                };
+            };
+            /** @description The event id is malformed. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No event exists with the supplied id. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createAdminEventCoordinatorAssignment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCoordinatorAssignmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Coordinator assignment persisted atomically. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoordinatorAssignment"];
+                };
+            };
+            /** @description Request validation failed with typed field details. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event or user was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Duplicate assignment, archived event, or ineligible role. */
             409: {
                 headers: {
                     [name: string]: unknown;

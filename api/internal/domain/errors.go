@@ -57,24 +57,27 @@ func (e DomainError) Error() string {
 //   - ROLE_ALREADY_ASSIGNED -> 409: the user already holds a non-student role.
 //     Same state-conflict family as EVENT_ARCHIVED/SCAN_DUPLICATE, not reused
 //     from EVENT_ARCHIVED because it is a distinct aggregate/state.
+//   - COORDINATOR_ASSIGNMENT_EXISTS -> 409: the assignment already exists for
+//     that user/event pair, including a uniqueness race.
 var codeToStatus = map[contracts.ErrorCode]int{
-	contracts.ErrorCodeAUTHDOMAINREJECTED:  403,
-	contracts.ErrorCodeAUTHTOKENINVALID:    401,
-	contracts.ErrorCodeRBACFORBIDDEN:       403,
-	contracts.ErrorCodeSCANDUPLICATE:       409,
-	contracts.ErrorCodeSLOTCLOSED:          409,
-	contracts.ErrorCodeCARDNOTRECOGNIZED:   422,
-	contracts.ErrorCodeQRLIMITREACHED:      429,
-	contracts.ErrorCodeRATELIMITED:         429,
-	contracts.ErrorCodeINVALIDSCANID:       400,
-	contracts.ErrorCodeVALIDATIONFAILED:    400,
-	contracts.ErrorCodeEVENTNOTFOUND:       404,
-	contracts.ErrorCodeEVENTARCHIVED:       409,
-	contracts.ErrorCodeCATEGORYNOTFOUND:    404,
-	contracts.ErrorCodeUSERNOTFOUND:        404,
-	contracts.ErrorCodeSTUDENTNOTFOUND:     404,
-	contracts.ErrorCodeROLEALREADYASSIGNED: 409,
-	contracts.ErrorCodeINTERNAL:            500,
+	contracts.ErrorCodeAUTHDOMAINREJECTED:          403,
+	contracts.ErrorCodeAUTHTOKENINVALID:            401,
+	contracts.ErrorCodeRBACFORBIDDEN:               403,
+	contracts.ErrorCodeSCANDUPLICATE:               409,
+	contracts.ErrorCodeSLOTCLOSED:                  409,
+	contracts.ErrorCodeCARDNOTRECOGNIZED:           422,
+	contracts.ErrorCodeQRLIMITREACHED:              429,
+	contracts.ErrorCodeRATELIMITED:                 429,
+	contracts.ErrorCodeINVALIDSCANID:               400,
+	contracts.ErrorCodeVALIDATIONFAILED:            400,
+	contracts.ErrorCodeEVENTNOTFOUND:               404,
+	contracts.ErrorCodeEVENTARCHIVED:               409,
+	contracts.ErrorCodeCATEGORYNOTFOUND:            404,
+	contracts.ErrorCodeUSERNOTFOUND:                404,
+	contracts.ErrorCodeSTUDENTNOTFOUND:             404,
+	contracts.ErrorCodeROLEALREADYASSIGNED:         409,
+	contracts.ErrorCodeCOORDINATORASSIGNMENTEXISTS: 409,
+	contracts.ErrorCodeINTERNAL:                    500,
 }
 
 // HTTPStatus returns the HTTP status for a domain error code. An unknown or

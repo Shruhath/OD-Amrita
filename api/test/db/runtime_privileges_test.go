@@ -53,10 +53,11 @@ var runtimePrivileges = map[string][]string{
 
 	// Imported student roster and its import summaries are stable references for
 	// attendance, dashboard, and correction flows.
-	"students":               {"SELECT", "INSERT", "UPDATE"},
-	"student_roster_imports": {"SELECT", "INSERT", "UPDATE"},
-	"student_card_tokens":    {"SELECT", "INSERT", "UPDATE"},
-	"od_records":             {"SELECT", "INSERT", "UPDATE"},
+	"students":                      {"SELECT", "INSERT", "UPDATE"},
+	"student_roster_imports":        {"SELECT", "INSERT", "UPDATE"},
+	"student_card_tokens":           {"SELECT", "INSERT", "UPDATE"},
+	"od_records":                    {"SELECT", "INSERT", "UPDATE"},
+	"event_coordinator_assignments": {"SELECT", "INSERT", "UPDATE"},
 }
 
 // gooseBookkeeping is goose's own version table. It is created by od_migrator and

@@ -49,6 +49,7 @@ const (
 	ActionTeacherProfileCreated Action = "teacher.profile_created"
 	ActionStudentRosterImported Action = "student_roster.imported"
 	ActionCardTokenSealed       Action = "card_token.sealed"
+	ActionCoordinatorAssigned   Action = "coordinator.assigned"
 )
 
 // AllActions is the canonical registry-of-record: every declared Action, in
@@ -71,6 +72,7 @@ var AllActions = []Action{
 	ActionTeacherProfileCreated,
 	ActionStudentRosterImported,
 	ActionCardTokenSealed,
+	ActionCoordinatorAssigned,
 }
 
 // registeredActions is the O(1) lookup set DERIVED from AllActions, so it can

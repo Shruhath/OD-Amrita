@@ -22,7 +22,7 @@ import (
 // deliberate rather than an oversight:
 //
 //   - VisibleEvents, Categories and MarkStatus go through the FULL policy —
-//     role, event, and (for MarkStatus) category ownership. They describe a
+//     role, assignment, event, and (for MarkStatus) category ownership. They describe a
 //     scope, so they must agree exactly with what the write would accept.
 //   - SearchStudents goes through the ROLE half only (assertCoordinator, which
 //     lives in scope.go beside the policy — not a second copy of it). The roster
@@ -32,11 +32,9 @@ import (
 //     still gated by AssertCanMark, so a search result confers no ability to
 //     mark. Roster READ access is separately bounded by student.assertMaySearch.
 //
-// A NOTE FOR THE ASSIGNMENT STORY: replacing the policy body with an
-// event_coordinators lookup will narrow the other three reads automatically. It
-// will NOT narrow this one. Decide there, explicitly, whether an unassigned
-// coordinator may still search the roster — do not assume this function inherits
-// the new policy, because it does not.
+// The assignment lookup narrows the scoped event/category/status reads. It does
+// NOT narrow this one. An unassigned coordinator may still search the roster,
+// because a search result alone grants no ability to mark.
 type ReadService struct {
 	policy   *Policy
 	events   svcevent.Reader

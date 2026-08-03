@@ -11,21 +11,7 @@ import (
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
 )
 
-// maxMarkableEvents bounds what the coordinator selector will ever offer.
-//
-// The seam's VisibleEvents answers a policy question, not a pagination question,
-// so it takes no page arguments — but an unbounded read is still an unbounded
-// read. One event runs at a time in practice (the MVP exists for a single day),
-// so a hundred active events is already far past anything real. The bound is
-// stated here rather than left implicit in a query.
-const maxMarkableEvents = 100
-
 // EventReaderAdapter serves the policy from service/event's existing reader.
-//
-// No new SQL: ListEvents already filters by lifecycle and orders deterministically,
-// GetEvent already reports a missing event, and ListCategoriesByEvent already
-// answers ownership. Forking a second event reader would create exactly the kind
-// of second source of truth this story is trying to avoid.
 type EventReaderAdapter struct {
 	events svcevent.Reader
 }
@@ -34,12 +20,12 @@ func NewEventReader(events svcevent.Reader) *EventReaderAdapter {
 	return &EventReaderAdapter{events: events}
 }
 
-func (a *EventReaderAdapter) ActiveEvents(ctx context.Context) ([]Event, error) {
-	rows, _, err := a.events.ListEvents(ctx, svcevent.ListInput{
-		Status:   svcevent.StatusActive,
-		Page:     1,
-		PageSize: maxMarkableEvents,
-	})
+func (a *EventReaderAdapter) AssignedActiveEvents(ctx context.Context, userID string) ([]Event, error) {
+	parsedUser, err := uuid.Parse(strings.TrimSpace(userID))
+	if err != nil {
+		return nil, ErrNotCoordinator
+	}
+	rows, err := a.events.ListAssignedActiveEvents(ctx, parsedUser)
 	if err != nil {
 		return nil, err
 	}
@@ -69,6 +55,18 @@ func (a *EventReaderAdapter) EventByID(ctx context.Context, eventID string) (Eve
 		return Event{}, err
 	}
 	return fromServiceEvent(row)
+}
+
+func (a *EventReaderAdapter) CoordinatorAssignedToEvent(ctx context.Context, userID, eventID string) (bool, error) {
+	parsedUser, err := uuid.Parse(strings.TrimSpace(userID))
+	if err != nil {
+		return false, ErrNotCoordinator
+	}
+	parsedEvent, err := uuid.Parse(strings.TrimSpace(eventID))
+	if err != nil {
+		return false, ErrEventNotFound
+	}
+	return a.events.CoordinatorAssignedToEvent(ctx, parsedUser, parsedEvent)
 }
 
 func (a *EventReaderAdapter) CategoryForEvent(ctx context.Context, eventID, categoryID string) error {

@@ -1,7 +1,7 @@
 import { useRef, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { CategoryRecord, EventRecord, ValidationError } from '../../../api/client'
+import type { CategoryRecord, CoordinatorAssignment, EventRecord, ValidationError } from '../../../api/client'
 import { PortalShell } from '../../../components/PortalShell'
 import { ApiFailure } from '../../../api/client'
 import { useAuth } from '../../../features/auth/context'
@@ -15,15 +15,20 @@ import { formatDate, messageOf, titleCase } from './format'
 // whose categories the very next query loaded successfully.
 const eventKey = (eventID: string) => ['admin', 'events', eventID] as const
 const categoryKey = (eventID: string) => ['admin', 'events', eventID, 'categories'] as const
+const coordinatorKey = (eventID: string) => ['admin', 'events', eventID, 'coordinators'] as const
 
 export default function EventDetailPortal() {
   const { event_id: eventID = '' } = useParams()
   const { api } = useAuth()
   const queryClient = useQueryClient()
   const nameInput = useRef<HTMLInputElement>(null)
+  const coordinatorInput = useRef<HTMLInputElement>(null)
   const [name, setName] = useState('')
   const [fieldError, setFieldError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
+  const [coordinatorEmail, setCoordinatorEmail] = useState('')
+  const [coordinatorFieldError, setCoordinatorFieldError] = useState<string | null>(null)
+  const [coordinatorFormError, setCoordinatorFormError] = useState<string | null>(null)
 
   const currentEventKey = eventKey(eventID)
   const events = useQuery({
@@ -35,6 +40,12 @@ export default function EventDetailPortal() {
   const categories = useQuery({
     queryKey: currentKey,
     queryFn: () => api.categories(eventID),
+    enabled: Boolean(eventID),
+  })
+  const currentCoordinatorKey = coordinatorKey(eventID)
+  const coordinators = useQuery({
+    queryKey: currentCoordinatorKey,
+    queryFn: () => api.coordinators(eventID),
     enabled: Boolean(eventID),
   })
 
@@ -90,9 +101,40 @@ export default function EventDetailPortal() {
     },
   })
 
+  const createCoordinator = useMutation({
+    mutationFn: (email: string) => api.createCoordinator(eventID, { email }),
+    onSuccess: (created) => {
+      if (coordinators.isSuccess) {
+        queryClient.setQueryData(currentCoordinatorKey, (current: { data: CoordinatorAssignment[] } | undefined) => ({
+          data: orderedCoordinators(mergeCoordinatorByID(current?.data ?? [], created)),
+        }))
+      }
+      void queryClient.invalidateQueries({ queryKey: currentCoordinatorKey })
+      setCoordinatorEmail('')
+      setCoordinatorFieldError(null)
+      setCoordinatorFormError(null)
+      coordinatorInput.current?.focus()
+    },
+    onError: (cause) => {
+      const detail = fieldDetail(cause, 'email')
+      if (detail) {
+        setCoordinatorFieldError(detail)
+        setCoordinatorFormError(null)
+        return
+      }
+      setCoordinatorFieldError(null)
+      setCoordinatorFormError(messageOf(cause, 'The coordinator could not be assigned'))
+      if (cause instanceof ApiFailure && cause.body.code === 'EVENT_ARCHIVED') {
+        void queryClient.invalidateQueries({ queryKey: currentEventKey })
+      }
+    },
+  })
+
   const event = events.data
   const categoryData = categories.data?.data ?? []
+  const coordinatorData = coordinators.data?.data ?? []
   const canSubmit = name.trim().length > 0 && !create.isPending
+  const canSubmitCoordinator = coordinatorEmail.trim().length > 0 && !createCoordinator.isPending
   const notFound = events.isError && events.error instanceof ApiFailure
     && events.error.body.code === 'EVENT_NOT_FOUND'
 
@@ -106,6 +148,12 @@ export default function EventDetailPortal() {
     if (formError) setFormError(null)
   }
 
+  const changeCoordinatorEmail = (value: string) => {
+    setCoordinatorEmail(value)
+    if (coordinatorFieldError) setCoordinatorFieldError(null)
+    if (coordinatorFormError) setCoordinatorFormError(null)
+  }
+
   const submit = (submitEvent: FormEvent) => {
     submitEvent.preventDefault()
     const trimmed = name.trim()
@@ -115,6 +163,15 @@ export default function EventDetailPortal() {
     setFieldError(null)
     setFormError(null)
     create.mutate(trimmed)
+  }
+
+  const submitCoordinator = (submitEvent: FormEvent) => {
+    submitEvent.preventDefault()
+    const trimmed = coordinatorEmail.trim()
+    if (!trimmed || createCoordinator.isPending) return
+    setCoordinatorFieldError(null)
+    setCoordinatorFormError(null)
+    createCoordinator.mutate(trimmed)
   }
 
   return (
@@ -190,6 +247,52 @@ export default function EventDetailPortal() {
             )}
             {formError && <p className="notice error" role="alert">{formError}</p>}
           </section>
+
+          <section className="detail-section">
+            <h2>Coordinators</h2>
+            {coordinators.isPending && <p role="status" aria-label="Loading coordinators">Loading coordinators…</p>}
+            {coordinators.isError && (
+              <ErrorState
+                message={messageOf(coordinators.error, 'Coordinators could not be loaded')}
+                retry={() => void coordinators.refetch()}
+              />
+            )}
+
+            {coordinators.isSuccess && coordinatorData.length === 0 && (
+              <p className="empty-note">No coordinators assigned</p>
+            )}
+            {coordinatorData.length > 0 && (
+              <ul className="category-list" aria-label="Coordinators">
+                {coordinatorData.map((coordinator) => (
+                  <li key={coordinator.id}>
+                    <span>{coordinator.name ?? coordinator.email}</span>
+                    {coordinator.name && <small>{coordinator.email}</small>}
+                    <time dateTime={coordinator.created_at}>{new Date(coordinator.created_at).toLocaleString()}</time>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {event.status === 'active' && (
+              <form className="category-form" onSubmit={submitCoordinator} noValidate>
+                <label htmlFor="coordinator-email">Coordinator email</label>
+                <input
+                  id="coordinator-email"
+                  ref={coordinatorInput}
+                  value={coordinatorEmail}
+                  onChange={(changeEvent) => changeCoordinatorEmail(changeEvent.target.value)}
+                  aria-invalid={coordinatorFieldError ? 'true' : undefined}
+                  aria-describedby={coordinatorFieldError ? 'coordinator-email-error' : undefined}
+                />
+                {coordinatorFieldError && <p className="field-error" id="coordinator-email-error">{coordinatorFieldError}</p>}
+                <button className="primary" type="submit" disabled={!canSubmitCoordinator}>Assign coordinator</button>
+              </form>
+            )}
+            {event.status === 'archived' && (
+              <p className="empty-note">This event is archived. Its coordinator assignments are read-only.</p>
+            )}
+            {coordinatorFormError && <p className="notice error" role="alert">{coordinatorFormError}</p>}
+          </section>
         </>
       )}
     </PortalShell>
@@ -261,9 +364,24 @@ function orderedCategories(categories: CategoryRecord[]) {
   })
 }
 
+function orderedCoordinators(coordinators: CoordinatorAssignment[]) {
+  return [...coordinators].sort((left, right) => {
+    if (left.created_at !== right.created_at) return left.created_at < right.created_at ? -1 : 1
+    if (left.email !== right.email) return left.email < right.email ? -1 : 1
+    if (left.id === right.id) return 0
+    return left.id < right.id ? -1 : 1
+  })
+}
+
 /** Appends a category unless the list already carries that id. */
 function mergeByID(categories: CategoryRecord[], created: CategoryRecord) {
   return categories.some((category) => category.id === created.id)
     ? categories.map((category) => (category.id === created.id ? created : category))
     : [...categories, created]
+}
+
+function mergeCoordinatorByID(coordinators: CoordinatorAssignment[], created: CoordinatorAssignment) {
+  return coordinators.some((coordinator) => coordinator.id === created.id)
+    ? coordinators.map((coordinator) => (coordinator.id === created.id ? created : coordinator))
+    : [...coordinators, created]
 }

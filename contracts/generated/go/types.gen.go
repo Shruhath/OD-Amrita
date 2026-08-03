@@ -63,23 +63,24 @@ func (e CaptureMethod) Valid() bool {
 
 // Defines values for ErrorCode.
 const (
-	ErrorCodeAUTHDOMAINREJECTED  ErrorCode = "AUTH_DOMAIN_REJECTED"
-	ErrorCodeAUTHTOKENINVALID    ErrorCode = "AUTH_TOKEN_INVALID"
-	ErrorCodeCARDNOTRECOGNIZED   ErrorCode = "CARD_NOT_RECOGNIZED"
-	ErrorCodeCATEGORYNOTFOUND    ErrorCode = "CATEGORY_NOT_FOUND"
-	ErrorCodeEVENTARCHIVED       ErrorCode = "EVENT_ARCHIVED"
-	ErrorCodeEVENTNOTFOUND       ErrorCode = "EVENT_NOT_FOUND"
-	ErrorCodeINTERNAL            ErrorCode = "INTERNAL"
-	ErrorCodeINVALIDSCANID       ErrorCode = "INVALID_SCAN_ID"
-	ErrorCodeQRLIMITREACHED      ErrorCode = "QR_LIMIT_REACHED"
-	ErrorCodeRATELIMITED         ErrorCode = "RATE_LIMITED"
-	ErrorCodeRBACFORBIDDEN       ErrorCode = "RBAC_FORBIDDEN"
-	ErrorCodeROLEALREADYASSIGNED ErrorCode = "ROLE_ALREADY_ASSIGNED"
-	ErrorCodeSCANDUPLICATE       ErrorCode = "SCAN_DUPLICATE"
-	ErrorCodeSLOTCLOSED          ErrorCode = "SLOT_CLOSED"
-	ErrorCodeSTUDENTNOTFOUND     ErrorCode = "STUDENT_NOT_FOUND"
-	ErrorCodeUSERNOTFOUND        ErrorCode = "USER_NOT_FOUND"
-	ErrorCodeVALIDATIONFAILED    ErrorCode = "VALIDATION_FAILED"
+	ErrorCodeAUTHDOMAINREJECTED          ErrorCode = "AUTH_DOMAIN_REJECTED"
+	ErrorCodeAUTHTOKENINVALID            ErrorCode = "AUTH_TOKEN_INVALID"
+	ErrorCodeCARDNOTRECOGNIZED           ErrorCode = "CARD_NOT_RECOGNIZED"
+	ErrorCodeCATEGORYNOTFOUND            ErrorCode = "CATEGORY_NOT_FOUND"
+	ErrorCodeCOORDINATORASSIGNMENTEXISTS ErrorCode = "COORDINATOR_ASSIGNMENT_EXISTS"
+	ErrorCodeEVENTARCHIVED               ErrorCode = "EVENT_ARCHIVED"
+	ErrorCodeEVENTNOTFOUND               ErrorCode = "EVENT_NOT_FOUND"
+	ErrorCodeINTERNAL                    ErrorCode = "INTERNAL"
+	ErrorCodeINVALIDSCANID               ErrorCode = "INVALID_SCAN_ID"
+	ErrorCodeQRLIMITREACHED              ErrorCode = "QR_LIMIT_REACHED"
+	ErrorCodeRATELIMITED                 ErrorCode = "RATE_LIMITED"
+	ErrorCodeRBACFORBIDDEN               ErrorCode = "RBAC_FORBIDDEN"
+	ErrorCodeROLEALREADYASSIGNED         ErrorCode = "ROLE_ALREADY_ASSIGNED"
+	ErrorCodeSCANDUPLICATE               ErrorCode = "SCAN_DUPLICATE"
+	ErrorCodeSLOTCLOSED                  ErrorCode = "SLOT_CLOSED"
+	ErrorCodeSTUDENTNOTFOUND             ErrorCode = "STUDENT_NOT_FOUND"
+	ErrorCodeUSERNOTFOUND                ErrorCode = "USER_NOT_FOUND"
+	ErrorCodeVALIDATIONFAILED            ErrorCode = "VALIDATION_FAILED"
 )
 
 // Valid indicates whether the value is a known member of the ErrorCode enum.
@@ -92,6 +93,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeCARDNOTRECOGNIZED:
 		return true
 	case ErrorCodeCATEGORYNOTFOUND:
+		return true
+	case ErrorCodeCOORDINATORASSIGNMENTEXISTS:
 		return true
 	case ErrorCodeEVENTARCHIVED:
 		return true
@@ -358,10 +361,31 @@ type CategoryCollection struct {
 	Data []Category `json:"data"`
 }
 
+// CoordinatorAssignment Event-level coordinator assignment. A row grants the user coordinator marking access for the whole event; it carries no category or scope field in this MVP.
+type CoordinatorAssignment struct {
+	CreatedAt time.Time          `json:"created_at"`
+	Email     string             `json:"email"`
+	EventId   openapi_types.UUID `json:"event_id"`
+	Id        openapi_types.UUID `json:"id"`
+	Name      *string            `json:"name"`
+	UserId    openapi_types.UUID `json:"user_id"`
+}
+
+// CoordinatorAssignmentCollection Bounded per-event reference data, ordered by assignment creation time.
+type CoordinatorAssignmentCollection struct {
+	Data []CoordinatorAssignment `json:"data"`
+}
+
 // CreateCategoryRequest defines model for CreateCategoryRequest.
 type CreateCategoryRequest struct {
 	// Name Trimmed, nonblank category name. Unique within the event, compared case-insensitively after trimming.
 	Name string `json:"name"`
+}
+
+// CreateCoordinatorAssignmentRequest defines model for CreateCoordinatorAssignmentRequest.
+type CreateCoordinatorAssignmentRequest struct {
+	// Email Email of an existing, already-provisioned users row. The request does not pre-provision an identity.
+	Email string `json:"email"`
 }
 
 // CreateEventRequest defines model for CreateEventRequest.
@@ -726,6 +750,9 @@ type CreateAdminEventJSONRequestBody = CreateEventRequest
 
 // CreateAdminEventCategoryJSONRequestBody defines body for CreateAdminEventCategory for application/json ContentType.
 type CreateAdminEventCategoryJSONRequestBody = CreateCategoryRequest
+
+// CreateAdminEventCoordinatorAssignmentJSONRequestBody defines body for CreateAdminEventCoordinatorAssignment for application/json ContentType.
+type CreateAdminEventCoordinatorAssignmentJSONRequestBody = CreateCoordinatorAssignmentRequest
 
 // ImportAdminStudentsMultipartRequestBody defines body for ImportAdminStudents for multipart/form-data ContentType.
 type ImportAdminStudentsMultipartRequestBody ImportAdminStudentsMultipartBody

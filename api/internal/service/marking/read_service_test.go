@@ -56,6 +56,26 @@ func (r *recordingEvents) EventStatus(context.Context, uuid.UUID) (svcevent.Stat
 	panic("marking read service must not read event status directly")
 }
 
+func (r *recordingEvents) ListCoordinatorAssignments(context.Context, uuid.UUID) ([]svcevent.CoordinatorAssignment, error) {
+	panic("marking read service must not list coordinator assignments directly")
+}
+
+func (r *recordingEvents) GetCoordinatorCandidateByEmail(context.Context, string) (svcevent.CoordinatorCandidate, error) {
+	panic("marking read service must not read coordinator candidates")
+}
+
+func (r *recordingEvents) CoordinatorAssignmentExists(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
+	panic("marking read service must not check coordinator assignments directly")
+}
+
+func (r *recordingEvents) ListAssignedActiveEvents(context.Context, uuid.UUID) ([]svcevent.Event, error) {
+	panic("marking read service must not list assigned events directly")
+}
+
+func (r *recordingEvents) CoordinatorAssignedToEvent(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
+	panic("marking read service must not check event assignment directly")
+}
+
 type recordingSearcher struct{ calls int }
 
 func (r *recordingSearcher) Search(context.Context, svcstudent.Actor, svcstudent.SearchInput) ([]svcstudent.SearchResult, error) {
@@ -76,6 +96,7 @@ func newReadFixture(t *testing.T) (*ReadService, *fakeReader, *recordingEvents, 
 		activeEvents: []Event{{EventID: activeEventID, Status: "active"}},
 		events:       map[string]Event{activeEventID: {EventID: activeEventID, Status: "active"}},
 		categories:   map[string]string{categoryID: activeEventID},
+		assignments:  map[string]bool{"u-coord|" + activeEventID: true},
 	}
 	events := &recordingEvents{categories: []svcevent.Category{{
 		ID: categoryID, EventID: activeEventID, Name: "Procession", CreatedAt: time.Now(),

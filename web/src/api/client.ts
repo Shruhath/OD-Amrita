@@ -10,6 +10,9 @@ export type CreateEventInput = components['schemas']['CreateEventRequest']
 export type CategoryRecord = components['schemas']['Category']
 export type CategoryCollection = components['schemas']['CategoryCollection']
 export type CreateCategoryInput = components['schemas']['CreateCategoryRequest']
+export type CoordinatorAssignment = components['schemas']['CoordinatorAssignment']
+export type CoordinatorAssignmentCollection = components['schemas']['CoordinatorAssignmentCollection']
+export type CreateCoordinatorAssignmentInput = components['schemas']['CreateCoordinatorAssignmentRequest']
 export type TeacherProfile = components['schemas']['TeacherProfile']
 export type TeacherProfileCollection = components['schemas']['TeacherProfileCollection']
 export type CreateTeacherProfileInput = components['schemas']['CreateTeacherProfileRequest']
@@ -154,6 +157,17 @@ export function createEventApi(session: SessionPort) {
     },
     async createCategory(eventID: string, input: CreateCategoryInput) {
       return unwrap(await client.POST('/api/v1/admin/events/{event_id}/categories', {
+        params: { path: { event_id: eventID } },
+        body: input,
+      }))
+    },
+    async coordinators(eventID: string) {
+      return unwrap(await client.GET('/api/v1/admin/events/{event_id}/coordinators', {
+        params: { path: { event_id: eventID } },
+      }))
+    },
+    async createCoordinator(eventID: string, input: CreateCoordinatorAssignmentInput) {
+      return unwrap(await client.POST('/api/v1/admin/events/{event_id}/coordinators', {
         params: { path: { event_id: eventID } },
         body: input,
       }))

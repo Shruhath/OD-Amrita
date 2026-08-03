@@ -8,20 +8,10 @@
 // behind exactly two entry points, and is called from every read AND from the
 // mark service before any write.
 //
-// POLICY IN FORCE TODAY: the actor's role is `coordinator`, the event exists and
-// is `active`, and the category belongs to that event. Nothing else — there is no
-// event_coordinators table yet.
-//
-// STORY 0.7 IS THE ONLY STORY THAT CHANGES THE POLICY BODY. It replaces the two
-// function bodies below with an assignment lookup against event_coordinators, and
-// owns the migration, the admin assignment UI, role elevation and the assignment
-// audit action. It must not add a third entry point, and it must not move any
-// part of the policy into a handler.
-//
-// KNOWN INTERIM EXPOSURE, stated plainly: until 0.7 lands, any user whose
-// users.role is `coordinator` can mark for any active event. In practice nobody
-// holds that role — production provisions every first-time user as `student` —
-// but the gap is real, and 0.7 is a hard prerequisite before the live event.
+// POLICY IN FORCE: the actor's role is `coordinator`, the event exists and is
+// `active`, an event-level assignment exists for actor.UserID, and the category
+// belongs to that event. The assignment check is server-side; browser state is
+// never authorization.
 package marking
 
 import (
@@ -41,6 +31,7 @@ var (
 
 	ErrEventNotFound    = errors.New("marking: event not found")
 	ErrEventArchived    = errors.New("marking: event is archived")
+	ErrEventNotAssigned = errors.New("marking: event not assigned")
 	ErrCategoryNotFound = errors.New("marking: category not found")
 )
 
@@ -78,10 +69,12 @@ type Event struct {
 // rather than a general event repository, so a future policy change cannot widen
 // what the seam can see without saying so here.
 type Reader interface {
-	// ActiveEvents returns active events only, deterministically ordered.
-	ActiveEvents(context.Context) ([]Event, error)
+	// AssignedActiveEvents returns active assigned events only.
+	AssignedActiveEvents(ctx context.Context, userID string) ([]Event, error)
 	// EventByID returns ErrEventNotFound for an unknown id.
 	EventByID(context.Context, string) (Event, error)
+	// CoordinatorAssignedToEvent reports whether userID is assigned to eventID.
+	CoordinatorAssignedToEvent(ctx context.Context, userID, eventID string) (bool, error)
 	// CategoryForEvent returns ErrCategoryNotFound unless the category belongs to
 	// the event.
 	CategoryForEvent(ctx context.Context, eventID, categoryID string) error
@@ -104,7 +97,7 @@ func (p *Policy) VisibleEvents(ctx context.Context, actor Actor) ([]Event, error
 	if err := assertCoordinator(actor); err != nil {
 		return nil, err
 	}
-	events, err := p.reader.ActiveEvents(ctx)
+	events, err := p.reader.AssignedActiveEvents(ctx, strings.TrimSpace(actor.UserID))
 	if err != nil {
 		return nil, err
 	}
@@ -142,6 +135,13 @@ func (p *Policy) assertEventScope(ctx context.Context, actor Actor, eventID stri
 	}
 	switch event.Status {
 	case statusActive:
+		assigned, err := p.reader.CoordinatorAssignedToEvent(ctx, strings.TrimSpace(actor.UserID), strings.TrimSpace(eventID))
+		if err != nil {
+			return err
+		}
+		if !assigned {
+			return ErrEventNotAssigned
+		}
 		return nil
 	case statusArchived:
 		return ErrEventArchived

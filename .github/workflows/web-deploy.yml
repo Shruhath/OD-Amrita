@@ -182,6 +182,35 @@ jobs:
             echo "expected two categories and two category.created rows for event $event_id, got $categories and $audits"
             exit 1
           }
+      - name: Verify coordinator audit conservation
+        # The coordinator journey creates one event, assigns one fixture student,
+        # repeats the same assignment as a duplicate, then archives the event.
+        # Only the successful assignment may have a matching audit row.
+        run: |
+          event_id="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT id FROM events
+            WHERE name LIKE 'Browser Coordinator Event%'
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1")"
+          if [ -z "$event_id" ]; then
+            echo "the browser journey did not create its coordinator fixture event"
+            exit 1
+          fi
+          assignments="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT count(*)
+            FROM event_coordinator_assignments
+            WHERE event_id = '$event_id'")"
+          audits="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT count(*)
+            FROM event_coordinator_assignments AS assignment
+            JOIN audit_log AS audit ON audit.target_id = assignment.id::text
+            WHERE assignment.event_id = '$event_id'
+              AND audit.action = 'coordinator.assigned'
+              AND audit.target_table = 'event_coordinator_assignments'")"
+          [ "$assignments" = "1" ] && [ "$audits" = "1" ] || {
+            echo "expected one coordinator assignment and one coordinator.assigned row for event $event_id, got $assignments and $audits"
+            exit 1
+          }
       - name: Verify teacher audit conservation
         # The fixture is a STABLE, non-suffixed email (unlike the events/
         # categories fixtures above): D2 makes a repeat elevation a 409 that

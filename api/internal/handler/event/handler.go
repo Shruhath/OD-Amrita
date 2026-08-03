@@ -27,6 +27,8 @@ type Service interface {
 	Archive(context.Context, eventsvc.Actor, string) (eventsvc.Event, error)
 	ListCategories(context.Context, eventsvc.Actor, string) ([]eventsvc.Category, error)
 	CreateCategory(context.Context, eventsvc.Actor, eventsvc.CreateCategoryInput) (eventsvc.Category, error)
+	ListCoordinatorAssignments(context.Context, eventsvc.Actor, string) ([]eventsvc.CoordinatorAssignment, error)
+	CreateCoordinatorAssignment(context.Context, eventsvc.Actor, eventsvc.CreateCoordinatorAssignmentInput) (eventsvc.CoordinatorAssignment, error)
 }
 
 // RegisterAdminRoutes mounts every admin event and category route on an
@@ -49,6 +51,8 @@ func RegisterAdminRoutes(group gin.IRouter, svc Service) {
 	// without one, and nesting makes the lifecycle check fall out of the path.
 	group.GET("/events/:event_id/categories", ListCategoriesHandler(svc))
 	group.POST("/events/:event_id/categories", CreateCategoryHandler(svc))
+	group.GET("/events/:event_id/coordinators", ListCoordinatorAssignmentsHandler(svc))
+	group.POST("/events/:event_id/coordinators", CreateCoordinatorAssignmentHandler(svc))
 }
 
 func ListBranchesHandler(svc Service) gin.HandlerFunc {
@@ -229,6 +233,87 @@ func ArchiveEventHandler(svc Service) gin.HandlerFunc {
 	}
 }
 
+func ListCoordinatorAssignmentsHandler(svc Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		actor, err := actorFromContext(c)
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		rows, err := svc.ListCoordinatorAssignments(c.Request.Context(), actor, c.Param("event_id"))
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		data := make([]contracts.CoordinatorAssignment, 0, len(rows))
+		for _, row := range rows {
+			mapped, mapErr := coordinatorAssignmentContract(row)
+			if mapErr != nil {
+				fail(c, mapErr)
+				return
+			}
+			data = append(data, mapped)
+		}
+		c.JSON(http.StatusOK, contracts.CoordinatorAssignmentCollection{Data: data})
+	}
+}
+
+func CreateCoordinatorAssignmentHandler(svc Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var body contracts.CreateCoordinatorAssignmentRequest
+		if err := bindCoordinatorAssignmentRequest(c, &body); err != nil {
+			fail(c, err)
+			return
+		}
+		actor, err := actorFromContext(c)
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		created, err := svc.CreateCoordinatorAssignment(c.Request.Context(), actor, eventsvc.CreateCoordinatorAssignmentInput{
+			EventID: c.Param("event_id"),
+			Email:   body.Email,
+		})
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		response, err := coordinatorAssignmentContract(created)
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		c.JSON(http.StatusCreated, response)
+	}
+}
+
+type coordinatorAssignmentRequestShape struct {
+	Email json.RawMessage `json:"email"`
+}
+
+func bindCoordinatorAssignmentRequest(c *gin.Context, body *contracts.CreateCoordinatorAssignmentRequest) error {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxCreateRequestBytes)
+	var shape coordinatorAssignmentRequestShape
+	if err := c.ShouldBindBodyWith(&shape, binding.JSON); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return requestValidation("$", "maximum", "Request body must not exceed 1 MiB.")
+		}
+		return requestValidation("$", "invalid_json", "Request body must be valid JSON.")
+	}
+	if len(shape.Email) == 0 {
+		return requestValidation("email", "required", "Coordinator email is required.")
+	}
+	var email string
+	if err := json.Unmarshal(shape.Email, &email); err != nil {
+		return requestValidation("email", "invalid_format", "Coordinator email must be a string.")
+	}
+	if err := c.ShouldBindBodyWith(body, binding.JSON); err != nil {
+		return requestValidation("$", "invalid_json", "Request body must be valid JSON.")
+	}
+	return nil
+}
+
 func actorFromContext(c *gin.Context) (eventsvc.Actor, error) {
 	principal, ok := rbac.PrincipalFromContext(c)
 	if !ok {
@@ -271,6 +356,29 @@ func branchContract(value eventsvc.Branch) (contracts.BranchSummary, error) {
 		return contracts.BranchSummary{}, fmt.Errorf("event: map branch id: %w", err)
 	}
 	return contracts.BranchSummary{Id: id, Code: value.Code, Name: value.Name}, nil
+}
+
+func coordinatorAssignmentContract(value eventsvc.CoordinatorAssignment) (contracts.CoordinatorAssignment, error) {
+	id, err := uuid.Parse(value.ID)
+	if err != nil {
+		return contracts.CoordinatorAssignment{}, fmt.Errorf("event: map coordinator assignment id: %w", err)
+	}
+	userID, err := uuid.Parse(value.UserID)
+	if err != nil {
+		return contracts.CoordinatorAssignment{}, fmt.Errorf("event: map coordinator user id: %w", err)
+	}
+	eventID, err := uuid.Parse(value.EventID)
+	if err != nil {
+		return contracts.CoordinatorAssignment{}, fmt.Errorf("event: map coordinator event id: %w", err)
+	}
+	return contracts.CoordinatorAssignment{
+		Id:        id,
+		UserId:    userID,
+		Email:     value.Email,
+		Name:      value.Name,
+		EventId:   eventID,
+		CreatedAt: value.CreatedAt,
+	}, nil
 }
 
 func requestValidation(field, code, message string) domain.DomainError {

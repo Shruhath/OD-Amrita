@@ -884,6 +884,119 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/admin/events/{event_id}/coordinators:
+    parameters:
+      - name: event_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listAdminEventCoordinators
+      summary: List event-level coordinator assignments
+      description: >-
+        Lists the provisioned users assigned to coordinate the whole event.
+        Results are bounded per-event reference data and remain readable after
+        an event is archived.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Every coordinator assignment for the requested event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoordinatorAssignmentCollection"
+        "400":
+          description: The event id is malformed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Missing, malformed, expired, or revoked token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a provisioned Admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No event exists with the supplied id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      operationId: createAdminEventCoordinatorAssignment
+      summary: Assign one provisioned user as an event coordinator
+      description: >-
+        Elevates an existing student to coordinator on first assignment, or
+        adds another event assignment for an existing coordinator. Duplicate
+        user/event assignments are rejected with COORDINATOR_ASSIGNMENT_EXISTS.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCoordinatorAssignmentRequest"
+      responses:
+        "201":
+          description: Coordinator assignment persisted atomically.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoordinatorAssignment"
+        "400":
+          description: Request validation failed with typed field details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Missing, malformed, expired, or revoked token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a provisioned Admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Event or user was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Duplicate assignment, archived event, or ineligible role.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/admin/teachers:
     get:
       operationId: listAdminTeachers
@@ -1387,6 +1500,55 @@ components:
           items:
             $ref: "#/components/schemas/Category"
 
+    CoordinatorAssignment:
+      type: object
+      description: >-
+        Event-level coordinator assignment. A row grants the user coordinator
+        marking access for the whole event; it carries no category or scope
+        field in this MVP.
+      required: [id, user_id, email, name, event_id, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        name:
+          type: string
+          nullable: true
+        event_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+
+    CoordinatorAssignmentCollection:
+      type: object
+      description: >-
+        Bounded per-event reference data, ordered by assignment creation time.
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/CoordinatorAssignment"
+
+    CreateCoordinatorAssignmentRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          minLength: 1
+          maxLength: 320
+          description: >-
+            Email of an existing, already-provisioned users row. The request
+            does not pre-provision an identity.
+
     TeacherProfile:
       type: object
       description: >-
@@ -1815,6 +1977,7 @@ components:
             - USER_NOT_FOUND
             - STUDENT_NOT_FOUND
             - ROLE_ALREADY_ASSIGNED
+            - COORDINATOR_ASSIGNMENT_EXISTS
             - INTERNAL
         message:
           type: string

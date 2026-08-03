@@ -27,17 +27,22 @@ type fakeReader struct {
 	activeEvents []Event
 	events       map[string]Event
 	categories   map[string]string // categoryID -> owning eventID
+	assignments  map[string]bool
 
 	activeEventsCalls int
 	eventByIDCalls    []string
+	assignmentCalls   [][2]string
 	categoryCalls     [][2]string
 	err               error
 }
 
-func (f *fakeReader) ActiveEvents(context.Context) ([]Event, error) {
+func (f *fakeReader) AssignedActiveEvents(_ context.Context, userID string) ([]Event, error) {
 	f.activeEventsCalls++
 	if f.err != nil {
 		return nil, f.err
+	}
+	if userID == "" {
+		return nil, ErrNotCoordinator
 	}
 	return f.activeEvents, nil
 }
@@ -52,6 +57,14 @@ func (f *fakeReader) EventByID(_ context.Context, eventID string) (Event, error)
 		return Event{}, ErrEventNotFound
 	}
 	return event, nil
+}
+
+func (f *fakeReader) CoordinatorAssignedToEvent(_ context.Context, userID, eventID string) (bool, error) {
+	f.assignmentCalls = append(f.assignmentCalls, [2]string{userID, eventID})
+	if f.err != nil {
+		return false, f.err
+	}
+	return f.assignments[userID+"|"+eventID], nil
 }
 
 func (f *fakeReader) CategoryForEvent(_ context.Context, eventID, categoryID string) error {
@@ -84,6 +97,7 @@ func newFixture() *fakeReader {
 			categoryID:   activeEventID,
 			foreignCatID: archivedEventID,
 		},
+		assignments: map[string]bool{"u-coord|" + activeEventID: true},
 	}
 }
 

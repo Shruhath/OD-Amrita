@@ -96,6 +96,7 @@ export default function EventDetailPortal() {
       // makes the UI agree with the server — the add affordance disappears,
       // which is the documented archived behavior.
       if (cause instanceof ApiFailure && cause.body.code === 'EVENT_ARCHIVED') {
+        markEventArchived(queryClient, currentEventKey)
         void queryClient.invalidateQueries({ queryKey: currentEventKey })
       }
     },
@@ -125,6 +126,7 @@ export default function EventDetailPortal() {
       setCoordinatorFieldError(null)
       setCoordinatorFormError(messageOf(cause, 'The coordinator could not be assigned'))
       if (cause instanceof ApiFailure && cause.body.code === 'EVENT_ARCHIVED') {
+        markEventArchived(queryClient, currentEventKey)
         void queryClient.invalidateQueries({ queryKey: currentEventKey })
       }
     },
@@ -206,7 +208,7 @@ export default function EventDetailPortal() {
 
           <section className="detail-section">
             <h2>Categories</h2>
-            <p>Categories scope coordinators and OD records to a specific activity within this event.</p>
+            <p>Categories scope OD records to a specific activity within this event.</p>
 
             {categories.isPending && <p role="status" aria-label="Loading categories">Loading categories…</p>}
             {categories.isError && (
@@ -367,7 +369,6 @@ function orderedCategories(categories: CategoryRecord[]) {
 function orderedCoordinators(coordinators: CoordinatorAssignment[]) {
   return [...coordinators].sort((left, right) => {
     if (left.created_at !== right.created_at) return left.created_at < right.created_at ? -1 : 1
-    if (left.email !== right.email) return left.email < right.email ? -1 : 1
     if (left.id === right.id) return 0
     return left.id < right.id ? -1 : 1
   })
@@ -384,4 +385,13 @@ function mergeCoordinatorByID(coordinators: CoordinatorAssignment[], created: Co
   return coordinators.some((coordinator) => coordinator.id === created.id)
     ? coordinators.map((coordinator) => (coordinator.id === created.id ? created : coordinator))
     : [...coordinators, created]
+}
+
+function markEventArchived(
+  queryClient: ReturnType<typeof useQueryClient>,
+  key: ReturnType<typeof eventKey>,
+) {
+  queryClient.setQueryData(key, (current: EventRecord | undefined) => (
+    current ? { ...current, status: 'archived' as const, archived_at: current.archived_at ?? new Date().toISOString() } : current
+  ))
 }

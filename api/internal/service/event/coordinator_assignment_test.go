@@ -179,10 +179,10 @@ func TestCoordinatorAssignmentCreateElevatesStudentAndAuditsOneAssignment(t *tes
 	createdAt := time.Date(2026, 8, 3, 4, 0, 0, 0, time.UTC)
 	reader := &fakeCoordinatorReader{
 		status:    StatusActive,
-		candidate: CoordinatorCandidate{ID: coordinatorUserID, Email: "candidate@amrita.edu", Role: "student"},
+		candidate: CoordinatorCandidate{ID: coordinatorUserID, Email: "precheck@amrita.edu", Role: "student"},
 	}
 	writer := &fakeCoordinatorWriter{assignment: CoordinatorAssignment{
-		ID: assignmentID, UserID: coordinatorUserID, Email: "candidate@amrita.edu", EventID: eventID.String(), CreatedAt: createdAt,
+		ID: assignmentID, UserID: coordinatorUserID, Email: "locked@amrita.edu", EventID: eventID.String(), CreatedAt: createdAt,
 	}}
 	audit := &fakeAuditStore{}
 	created, err := NewService(reader, audit, writer).CreateCoordinatorAssignment(
@@ -212,7 +212,7 @@ func TestCoordinatorAssignmentCreateElevatesStudentAndAuditsOneAssignment(t *tes
 	if err := json.Unmarshal(audit.event.Payload, &payload); err != nil {
 		t.Fatalf("decode audit payload: %v", err)
 	}
-	if payload["user_id"] != coordinatorUserID || payload["event_id"] != eventID.String() || payload["email"] != "candidate@amrita.edu" {
+	if payload["user_id"] != coordinatorUserID || payload["event_id"] != eventID.String() || payload["email"] != "locked@amrita.edu" {
 		t.Fatalf("payload = %#v", payload)
 	}
 }
@@ -247,6 +247,26 @@ func TestCoordinatorAssignmentCreateMapsDuplicateRaceWithoutWritingAudit(t *test
 	var de domain.DomainError
 	if !errors.As(err, &de) || de.Code != contracts.ErrorCodeCOORDINATORASSIGNMENTEXISTS {
 		t.Fatalf("error = %#v, want COORDINATOR_ASSIGNMENT_EXISTS", err)
+	}
+}
+
+func TestCoordinatorAssignmentWriteErrorMapsOnlyTargetUserFKToUserNotFound(t *testing.T) {
+	targetErr := mapCoordinatorAssignmentWriteError(&pgconn.PgError{
+		Code:           "23503",
+		ConstraintName: coordinatorAssignmentUserFK,
+	})
+	var targetDomain domain.DomainError
+	if !errors.As(targetErr, &targetDomain) || targetDomain.Code != contracts.ErrorCodeUSERNOTFOUND {
+		t.Fatalf("target user FK error = %#v, want USER_NOT_FOUND", targetErr)
+	}
+
+	actorErr := mapCoordinatorAssignmentWriteError(&pgconn.PgError{
+		Code:           "23503",
+		ConstraintName: coordinatorAssignmentCreatedByFK,
+	})
+	var actorDomain domain.DomainError
+	if errors.As(actorErr, &actorDomain) {
+		t.Fatalf("actor FK error = %#v, want internal/raw error", actorErr)
 	}
 }
 

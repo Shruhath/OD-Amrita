@@ -128,6 +128,48 @@ func TestCoordinatorAssignmentCreateCommitsRoleInsertAndAuditAtomically(t *testi
 	}
 }
 
+func TestCoordinatorAssignmentCreateAllowsExistingCoordinatorOnDifferentEvents(t *testing.T) {
+	ctx := testContext(t)
+	migrator, runtime, _ := isolatedCategoryDatabase(t, ctx)
+	adminID := seedAdmin(t, ctx, migrator, "coord-second-admin@amrita.edu")
+	coordinatorID := seedUser(t, ctx, migrator, "coord-second@amrita.edu", "coordinator")
+	firstEvent := seedActiveEvent(t, ctx, migrator, "Coordinator First Event")
+	secondEvent := seedActiveEvent(t, ctx, migrator, "Coordinator Second Event")
+
+	svc := eventsvc.NewService(eventsvc.NewSQLCReader(runtime), store.New(runtime), eventsvc.NewSQLCWriter())
+	actor := eventsvc.Actor{UserID: adminID.String(), Email: "coord-second-admin@amrita.edu", Role: "admin"}
+	for _, eventID := range []uuid.UUID{firstEvent, secondEvent} {
+		if _, err := svc.CreateCoordinatorAssignment(ctx, actor, eventsvc.CreateCoordinatorAssignmentInput{
+			EventID: eventID.String(),
+			Email:   "coord-second@amrita.edu",
+		}); err != nil {
+			t.Fatalf("assign existing coordinator to %s: %v", eventID, err)
+		}
+	}
+
+	var role string
+	var assignments, auditRows int
+	if err := migrator.QueryRow(ctx, `SELECT role FROM users WHERE id = $1`, coordinatorID).Scan(&role); err != nil {
+		t.Fatalf("read role: %v", err)
+	}
+	if err := migrator.QueryRow(ctx, `SELECT count(*) FROM event_coordinator_assignments WHERE user_id = $1`, coordinatorID).Scan(&assignments); err != nil {
+		t.Fatalf("count assignments: %v", err)
+	}
+	if err := migrator.QueryRow(ctx, `
+		SELECT count(*)
+		FROM event_coordinator_assignments AS assignment
+		JOIN audit_log AS audit ON audit.target_id = assignment.id::text
+		WHERE assignment.user_id = $1
+		  AND audit.action = 'coordinator.assigned'
+		  AND audit.target_table = 'event_coordinator_assignments'
+	`, coordinatorID).Scan(&auditRows); err != nil {
+		t.Fatalf("count audit rows: %v", err)
+	}
+	if role != "coordinator" || assignments != 2 || auditRows != 2 {
+		t.Fatalf("role/assignments/audit = %s/%d/%d, want coordinator/2/2", role, assignments, auditRows)
+	}
+}
+
 func TestCoordinatorAssignmentRejectionsLeaveNoAssignmentRoleChangeOrAudit(t *testing.T) {
 	ctx := testContext(t)
 	migrator, runtime, _ := isolatedCategoryDatabase(t, ctx)

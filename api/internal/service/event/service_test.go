@@ -94,6 +94,13 @@ func (f *fakeAuditStore) WithAudit(ctx context.Context, event store.AuditEvent, 
 	if err != nil {
 		return err
 	}
+	if changed && event.PayloadFunc != nil {
+		payload, payloadErr := event.PayloadFunc()
+		if payloadErr != nil {
+			return payloadErr
+		}
+		f.event.Payload = payload
+	}
 	return f.err
 }
 

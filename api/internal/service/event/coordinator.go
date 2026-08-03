@@ -20,6 +20,10 @@ import (
 )
 
 const coordinatorAssignmentUniqueConstraint = "event_coordinator_assignments_user_event_unique"
+const (
+	coordinatorAssignmentUserFK      = "event_coordinator_assignments_user_id_fkey"
+	coordinatorAssignmentCreatedByFK = "event_coordinator_assignments_created_by_user_id_fkey"
+)
 
 var (
 	ErrCoordinatorUserNotFound        = errors.New("event: coordinator user not found")
@@ -121,21 +125,22 @@ func (s *Service) CreateCoordinatorAssignment(ctx context.Context, actor Actor, 
 	actorRole := actor.Role
 	targetTable := "event_coordinator_assignments"
 	var targetID string
-	payload, _ := json.Marshal(map[string]any{
-		"user_id":  userID.String(),
-		"event_id": eventID.String(),
-		"email":    user.Email,
-	})
+	var created CoordinatorAssignment
 	evt := store.AuditEvent{
 		Action:       domain.ActionCoordinatorAssigned,
 		ActorAccount: &actorAccount,
 		ActorRole:    &actorRole,
 		TargetTable:  &targetTable,
 		TargetID:     &targetID,
-		Payload:      payload,
+		PayloadFunc: func() ([]byte, error) {
+			return json.Marshal(map[string]any{
+				"user_id":  created.UserID,
+				"event_id": created.EventID,
+				"email":    created.Email,
+			})
+		},
 	}
 
-	var created CoordinatorAssignment
 	err = s.store.WithAudit(ctx, evt, func(ctx context.Context, tx pgx.Tx) (bool, error) {
 		row, changed, writeErr := s.writer.CreateCoordinatorAssignment(ctx, tx, CreateCoordinatorAssignmentWrite{
 			UserID:          userID,
@@ -184,8 +189,10 @@ func mapCoordinatorAssignmentWriteError(err error) error {
 		return eventArchived()
 	case pgErr.Code == "23503" && strings.Contains(pgErr.ConstraintName, "event_id"):
 		return domain.DomainError{Code: contracts.ErrorCodeEVENTNOTFOUND, Message: "Event not found."}
-	case pgErr.Code == "23503" && strings.Contains(pgErr.ConstraintName, "user_id"):
+	case pgErr.Code == "23503" && pgErr.ConstraintName == coordinatorAssignmentUserFK:
 		return coordinatorUserNotFound()
+	case pgErr.Code == "23503" && pgErr.ConstraintName == coordinatorAssignmentCreatedByFK:
+		return err
 	default:
 		return err
 	}

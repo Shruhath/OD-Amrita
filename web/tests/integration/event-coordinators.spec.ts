@@ -41,6 +41,28 @@ test('rejects a duplicate assignment from the real database', async ({ page }) =
   await expect(page.getByRole('list', { name: 'Coordinators' }).getByRole('listitem')).toHaveCount(1)
 })
 
+test('rejects an unknown coordinator email from the real database', async ({ page }) => {
+  await page.goto('/integration.html')
+  await openFixtureEvent(page)
+
+  await page.getByLabel('Coordinator email').fill('never-signed-in-coordinator@amrita.edu')
+  await page.getByRole('button', { name: 'Assign coordinator' }).click()
+
+  await expect(page.getByRole('alert')).toContainText(/signed in/i)
+  await expect(page.getByRole('list', { name: 'Coordinators' }).getByRole('listitem')).toHaveCount(1)
+})
+
+test('rejects an ineligible admin role from the real database', async ({ page }) => {
+  await page.goto('/integration.html')
+  await openFixtureEvent(page)
+
+  await page.getByLabel('Coordinator email').fill('portal-admin@amrita.edu')
+  await page.getByRole('button', { name: 'Assign coordinator' }).click()
+
+  await expect(page.getByRole('alert')).toContainText(/assigned role/i)
+  await expect(page.getByRole('list', { name: 'Coordinators' }).getByRole('listitem')).toHaveCount(1)
+})
+
 test('keeps assignments readable after archive and refuses stale writes', async ({ page }) => {
   await page.goto('/integration.html')
   const eventID = await currentEventID(page)

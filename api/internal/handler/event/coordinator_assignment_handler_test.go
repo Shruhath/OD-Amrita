@@ -143,6 +143,9 @@ func TestCreateCoordinatorAssignmentHandlerRejectsMalformedAndOversizedBodiesBef
 			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 				t.Fatalf("decode validation: %v", err)
 			}
+			if body.Message != "Coordinator assignment validation failed." {
+				t.Fatalf("message = %q, want coordinator assignment validation message", body.Message)
+			}
 			if len(body.Details) != 1 || body.Details[0].Code != tc.code {
 				t.Fatalf("details = %#v, want code %s", body.Details, tc.code)
 			}

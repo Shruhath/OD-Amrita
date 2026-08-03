@@ -45,7 +45,6 @@ export function serverOrderedCoordinatorAssignments(
 ): CoordinatorAssignmentFixture[] {
   return [...assignments].sort((left, right) => {
     if (left.created_at !== right.created_at) return left.created_at < right.created_at ? -1 : 1
-    if (left.email !== right.email) return left.email < right.email ? -1 : 1
     if (left.id === right.id) return 0
     return left.id < right.id ? -1 : 1
   })

@@ -297,19 +297,19 @@ func bindCoordinatorAssignmentRequest(c *gin.Context, body *contracts.CreateCoor
 	if err := c.ShouldBindBodyWith(&shape, binding.JSON); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			return requestValidation("$", "maximum", "Request body must not exceed 1 MiB.")
+			return coordinatorRequestValidation("$", "maximum", "Request body must not exceed 1 MiB.")
 		}
-		return requestValidation("$", "invalid_json", "Request body must be valid JSON.")
+		return coordinatorRequestValidation("$", "invalid_json", "Request body must be valid JSON.")
 	}
 	if len(shape.Email) == 0 {
-		return requestValidation("email", "required", "Coordinator email is required.")
+		return coordinatorRequestValidation("email", "required", "Coordinator email is required.")
 	}
 	var email string
 	if err := json.Unmarshal(shape.Email, &email); err != nil {
-		return requestValidation("email", "invalid_format", "Coordinator email must be a string.")
+		return coordinatorRequestValidation("email", "invalid_format", "Coordinator email must be a string.")
 	}
 	if err := c.ShouldBindBodyWith(body, binding.JSON); err != nil {
-		return requestValidation("$", "invalid_json", "Request body must be valid JSON.")
+		return coordinatorRequestValidation("$", "invalid_json", "Request body must be valid JSON.")
 	}
 	return nil
 }
@@ -384,6 +384,13 @@ func coordinatorAssignmentContract(value eventsvc.CoordinatorAssignment) (contra
 func requestValidation(field, code, message string) domain.DomainError {
 	return domain.DomainError{
 		Code: contracts.ErrorCodeVALIDATIONFAILED, Message: "Event validation failed.",
+		Details: []contracts.ValidationErrorDetail{{Field: field, Code: code, Message: message}},
+	}
+}
+
+func coordinatorRequestValidation(field, code, message string) domain.DomainError {
+	return domain.DomainError{
+		Code: contracts.ErrorCodeVALIDATIONFAILED, Message: "Coordinator assignment validation failed.",
 		Details: []contracts.ValidationErrorDetail{{Field: field, Code: code, Message: message}},
 	}
 }

@@ -69,6 +69,18 @@ func (f *fakeService) CreateCoordinatorAssignment(_ context.Context, _ eventsvc.
 	return eventsvc.CoordinatorAssignment{}, f.err
 }
 
+func (f *fakeService) ListCaptureCredits(context.Context, eventsvc.Actor, string) (eventsvc.CaptureCreditSummary, error) {
+	return eventsvc.CaptureCreditSummary{}, f.err
+}
+
+func (f *fakeService) UpdateCaptureCreditConfig(context.Context, eventsvc.Actor, eventsvc.CaptureCreditConfigInput) (eventsvc.CaptureCreditConfig, error) {
+	return eventsvc.CaptureCreditConfig{}, f.err
+}
+
+func (f *fakeService) ResetCaptureCredits(context.Context, eventsvc.Actor, string, string) (eventsvc.CaptureCreditUsage, error) {
+	return eventsvc.CaptureCreditUsage{}, f.err
+}
+
 func TestHandlersReturnGeneratedSuccessShapes(t *testing.T) {
 	eventID := uuid.NewString()
 	branchID := uuid.NewString()

@@ -168,6 +168,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "429":
+          description: Camera/search fallback credit limit reached.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           description: Internal error.
           content:
@@ -997,6 +1003,199 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/admin/events/{event_id}/capture-credits:
+    parameters:
+      - name: event_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listAdminEventCaptureCredits
+      summary: List fallback-credit usage for event coordinators
+      description: >-
+        Admin-only per-event fallback-credit summary. Rows are bounded by the
+        event coordinator assignments and ordered consistently with the
+        assignment list. NFC is not part of this credit pool.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Event credit config and each assigned coordinator's usage.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaptureCreditSummary"
+        "400":
+          description: The event id is malformed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Missing, malformed, expired, or revoked token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a provisioned Admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No event exists with the supplied id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Event is archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/events/{event_id}/capture-credits/config:
+    parameters:
+      - name: event_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      operationId: updateAdminEventCaptureCreditConfig
+      summary: Update an event's fallback-credit cap
+      description: >-
+        Persists the event-wide camera/search credit cap. A limit of zero is a
+        deliberate live-disable for fallback modes; NFC remains unlimited.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCaptureCreditConfigRequest"
+      responses:
+        "200":
+          description: Persisted event credit config.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaptureCreditConfig"
+        "400":
+          description: Malformed event id or invalid limit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Missing, malformed, expired, or revoked token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a provisioned Admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No event exists with the supplied id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Event is archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/events/{event_id}/capture-credits/coordinators/{user_id}/reset:
+    parameters:
+      - name: event_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: resetAdminEventCoordinatorCaptureCredits
+      summary: Reset one assigned coordinator's fallback-credit usage
+      description: >-
+        Resets consumed fallback credits for a coordinator assigned to the event.
+        It never creates an assignment and never resets a non-coordinator row.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Updated usage for the assigned coordinator.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaptureCreditUsage"
+        "400":
+          description: Malformed event or user id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Missing, malformed, expired, or revoked token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a provisioned Admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Event or coordinator assignment was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Event is archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/admin/teachers:
     get:
       operationId: listAdminTeachers
@@ -1549,6 +1748,76 @@ components:
             Email of an existing, already-provisioned users row. The request
             does not pre-provision an identity.
 
+    CaptureCreditConfig:
+      type: object
+      description: Event-wide fallback-credit cap for camera/search marks.
+      required: [event_id, limit, updated_by_user_id, updated_at]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        limit:
+          type: integer
+          minimum: 0
+          description: Zero deliberately live-disables camera/search fallback modes.
+        updated_by_user_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Null until an admin explicitly saves the event cap.
+        updated_at:
+          type: string
+          format: date-time
+
+    CaptureCreditUsage:
+      type: object
+      description: One assigned coordinator's event-wide camera/search credit usage.
+      required: [event_id, user_id, email, name, limit, consumed, remaining, exhausted]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        name:
+          type: string
+          nullable: true
+        limit:
+          type: integer
+          minimum: 0
+        consumed:
+          type: integer
+          minimum: 0
+        remaining:
+          type: integer
+          minimum: 0
+        exhausted:
+          type: boolean
+
+    CaptureCreditSummary:
+      type: object
+      description: Event credit config plus bounded coordinator usage rows.
+      required: [config, data]
+      properties:
+        config:
+          $ref: "#/components/schemas/CaptureCreditConfig"
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/CaptureCreditUsage"
+
+    UpdateCaptureCreditConfigRequest:
+      type: object
+      required: [limit]
+      properties:
+        limit:
+          type: integer
+          minimum: 0
+          description: Zero deliberately live-disables camera/search fallback modes.
+
     TeacherProfile:
       type: object
       description: >-
@@ -1780,7 +2049,7 @@ components:
       # null when no slot is open. Leaving it merely optional lets the generator
       # emit `omitempty`, which omits the key entirely — and a client then cannot
       # tell "no slot is open" from "this server is too old to report slots".
-      required: [server_time, slot, counters]
+      required: [server_time, slot, counters, fallback_credit]
       properties:
         server_time:
           type: string
@@ -1791,6 +2060,30 @@ components:
             - $ref: "#/components/schemas/MarkSlotWindow"
         counters:
           $ref: "#/components/schemas/MarkCounters"
+        fallback_credit:
+          $ref: "#/components/schemas/FallbackCreditState"
+
+    FallbackCreditState:
+      type: object
+      description: >-
+        Server-derived camera/search fallback-credit state for the selected
+        event and coordinator. NFC never consumes this pool.
+      required: [limit, consumed, remaining, exhausted]
+      properties:
+        limit:
+          type: integer
+          minimum: 0
+        consumed:
+          type: integer
+          minimum: 0
+        remaining:
+          type: integer
+          minimum: 0
+        exhausted:
+          type: boolean
+        warning_threshold:
+          type: integer
+          minimum: 0
 
     MarkSlotWindow:
       type: object
@@ -1967,6 +2260,7 @@ components:
             - SCAN_DUPLICATE
             - SLOT_CLOSED
             - CARD_NOT_RECOGNIZED
+            - CAPTURE_CREDIT_LIMIT_REACHED
             - QR_LIMIT_REACHED
             - RATE_LIMITED
             - INVALID_SCAN_ID

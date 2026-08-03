@@ -66,6 +66,7 @@ var codeToStatus = map[contracts.ErrorCode]int{
 	contracts.ErrorCodeSCANDUPLICATE:               409,
 	contracts.ErrorCodeSLOTCLOSED:                  409,
 	contracts.ErrorCodeCARDNOTRECOGNIZED:           422,
+	contracts.ErrorCodeCAPTURECREDITLIMITREACHED:   429,
 	contracts.ErrorCodeQRLIMITREACHED:              429,
 	contracts.ErrorCodeRATELIMITED:                 429,
 	contracts.ErrorCodeINVALIDSCANID:               400,

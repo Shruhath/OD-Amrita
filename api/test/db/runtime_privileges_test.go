@@ -58,6 +58,8 @@ var runtimePrivileges = map[string][]string{
 	"student_card_tokens":           {"SELECT", "INSERT", "UPDATE"},
 	"od_records":                    {"SELECT", "INSERT", "UPDATE"},
 	"event_coordinator_assignments": {"SELECT", "INSERT", "UPDATE"},
+	"event_capture_credit_config":   {"SELECT", "INSERT", "UPDATE"},
+	"event_capture_credit_usage":    {"SELECT", "INSERT", "UPDATE"},
 }
 
 // gooseBookkeeping is goose's own version table. It is created by od_migrator and

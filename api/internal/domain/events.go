@@ -46,10 +46,12 @@ const (
 	// association from the same request as ONE audit row (Story 2.3) — mirroring
 	// event.created's single row covering the event insert and every
 	// event_branches insert.
-	ActionTeacherProfileCreated Action = "teacher.profile_created"
-	ActionStudentRosterImported Action = "student_roster.imported"
-	ActionCardTokenSealed       Action = "card_token.sealed"
-	ActionCoordinatorAssigned   Action = "coordinator.assigned"
+	ActionTeacherProfileCreated   Action = "teacher.profile_created"
+	ActionStudentRosterImported   Action = "student_roster.imported"
+	ActionCardTokenSealed         Action = "card_token.sealed"
+	ActionCoordinatorAssigned     Action = "coordinator.assigned"
+	ActionCaptureCreditCapChanged Action = "capture_credit.cap_changed"
+	ActionCaptureCreditReset      Action = "capture_credit.reset"
 )
 
 // AllActions is the canonical registry-of-record: every declared Action, in
@@ -73,6 +75,8 @@ var AllActions = []Action{
 	ActionStudentRosterImported,
 	ActionCardTokenSealed,
 	ActionCoordinatorAssigned,
+	ActionCaptureCreditCapChanged,
+	ActionCaptureCreditReset,
 }
 
 // registeredActions is the O(1) lookup set DERIVED from AllActions, so it can

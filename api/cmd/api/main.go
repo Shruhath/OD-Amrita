@@ -128,6 +128,7 @@ func run() error {
 	// One event reader serves both the admin surface and the coordinator marking
 	// surface — the scoped reads are siblings of the admin reads, not a fork.
 	eventReader := svcevent.NewSQLCReader(pool)
+	creditLedger := svcodrecord.NewSQLCCreditLedger(pool)
 	// The scope seam. Every marking read AND the mark write go through this one
 	// policy, so a scope the reads refuse can never be reached by posting to
 	// /api/v1/mark directly (NFR11). Story 0.7 replaces only its policy body.
@@ -139,6 +140,7 @@ func run() error {
 		st,
 		nil,
 		svcmarking.NewMarkGuard(markingPolicy),
+		creditLedger,
 	)
 	handlerodrecord.RegisterRoutes(markAPI, markSvc)
 
@@ -150,7 +152,7 @@ func run() error {
 		markingPolicy,
 		eventReader,
 		studentSvc,
-		svcodrecord.NewStatusService(svcodrecord.NewSQLCReader(pool), svcodrecord.NewSQLCCounter(pool), nil),
+		svcodrecord.NewStatusService(svcodrecord.NewSQLCReader(pool), svcodrecord.NewSQLCCounter(pool), creditLedger, nil),
 	))
 
 	admin := newAdminGroup(api, principalLoader)

@@ -1,6 +1,8 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
-import { afterAll, afterEach, beforeAll } from 'vitest'
+import { http, HttpResponse } from 'msw'
+import { afterAll, afterEach, beforeAll, beforeEach } from 'vitest'
+import { captureCreditSummary } from '../../tests/support/factories/captureCredits'
 import { server } from './server'
 
 const storage = new Map<string, string>()
@@ -16,6 +18,14 @@ Object.defineProperty(window, 'localStorage', { configurable: true, value: local
 Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: localStorageStub })
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
+
+beforeEach(() => {
+  server.use(
+    http.get('*/api/v1/admin/events/:eventID/capture-credits', () =>
+      HttpResponse.json(captureCreditSummary({ data: [] })),
+    ),
+  )
+})
 
 afterEach(() => {
   server.resetHandlers()

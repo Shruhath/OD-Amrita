@@ -63,6 +63,20 @@ type EventBranch struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type EventCaptureCreditConfig struct {
+	EventID         pgtype.UUID        `json:"event_id"`
+	CreditLimit     int32              `json:"credit_limit"`
+	UpdatedByUserID pgtype.UUID        `json:"updated_by_user_id"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type EventCaptureCreditUsage struct {
+	EventID   pgtype.UUID        `json:"event_id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	Consumed  int32              `json:"consumed"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
 type EventCoordinatorAssignment struct {
 	ID              pgtype.UUID        `json:"id"`
 	UserID          pgtype.UUID        `json:"user_id"`

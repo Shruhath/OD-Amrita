@@ -28,8 +28,9 @@ type Status struct {
 	ServerTime time.Time
 	// Slot is nil when no slot is open. That absence is the state (FR14); slot 0
 	// is not a slot and must never be used to encode it.
-	Slot     *SlotWindow
-	Counters Counters
+	Slot           *SlotWindow
+	Counters       Counters
+	FallbackCredit FallbackCreditState
 }
 
 // CountReader returns (mine, categoryTotal) for one actor and scope.
@@ -42,16 +43,20 @@ type CountReader interface {
 // It holds no scope policy of its own: the handler runs the marking scope seam
 // before calling it, exactly as the mark write does.
 type StatusService struct {
-	reader Reader
-	counts CountReader
-	clock  Clock
+	reader  Reader
+	counts  CountReader
+	credits CreditLedger
+	clock   Clock
 }
 
-func NewStatusService(reader Reader, counts CountReader, clock Clock) *StatusService {
+func NewStatusService(reader Reader, counts CountReader, credits CreditLedger, clock Clock) *StatusService {
 	if clock == nil {
 		clock = systemClock{}
 	}
-	return &StatusService{reader: reader, counts: counts, clock: clock}
+	if credits == nil {
+		panic("od_record: NewStatusService requires a CreditLedger")
+	}
+	return &StatusService{reader: reader, counts: counts, credits: credits, clock: clock}
 }
 
 func (s *StatusService) MarkStatus(ctx context.Context, actor Actor, eventID, categoryID string) (Status, error) {
@@ -84,5 +89,10 @@ func (s *StatusService) MarkStatus(ctx context.Context, actor Actor, eventID, ca
 		return Status{}, err
 	}
 	status.Counters = Counters{Mine: mine, CategoryTotal: categoryTotal}
+	credit, err := s.credits.State(ctx, eventID, actor.UserID)
+	if err != nil {
+		return Status{}, err
+	}
+	status.FallbackCredit = credit
 	return status, nil
 }

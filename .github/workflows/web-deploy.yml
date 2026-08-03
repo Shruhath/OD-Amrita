@@ -211,6 +211,26 @@ jobs:
             echo "expected one coordinator assignment and one coordinator.assigned row for event $event_id, got $assignments and $audits"
             exit 1
           }
+      - name: Verify fallback credit audit conservation
+        run: |
+          event_id="93000000-0000-4000-8000-000000000001"
+          coordinator_id="90000000-0000-4000-8000-000000000003"
+          cap_audits="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT count(*)
+            FROM audit_log
+            WHERE action = 'capture_credit.cap_changed'
+              AND target_table = 'event_capture_credit_config'
+              AND target_id = '$event_id'")"
+          reset_audits="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT count(*)
+            FROM audit_log
+            WHERE action = 'capture_credit.reset'
+              AND target_table = 'event_capture_credit_usage'
+              AND target_id = '$event_id:$coordinator_id'")"
+          [ "$cap_audits" = "2" ] && [ "$reset_audits" = "1" ] || {
+            echo "expected two capture_credit.cap_changed rows and one capture_credit.reset row for marking fixture, got $cap_audits and $reset_audits"
+            exit 1
+          }
       - name: Verify teacher audit conservation
         # The fixture is a STABLE, non-suffixed email (unlike the events/
         # categories fixtures above): D2 makes a repeat elevation a 409 that

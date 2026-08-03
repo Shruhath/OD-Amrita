@@ -99,6 +99,21 @@ async function mockApi(page: Page, scenario: Scenario = {}) {
   await page.route(`**/api/v1/admin/events/${eventID}`, (route) =>
     json(route, eventRecord(status)),
   )
+  await page.route(`**/api/v1/admin/events/${eventID}/capture-credits`, async (route) => {
+    if (route.request().method() === 'OPTIONS') {
+      await fulfilPreflight(route)
+      return
+    }
+    await json(route, {
+      config: {
+        event_id: eventID,
+        limit: 5,
+        updated_by_user_id: null,
+        updated_at: '2026-07-20T03:00:00Z',
+      },
+      data: [],
+    })
+  })
   await page.route(`**/api/v1/admin/events/${eventID}/coordinators`, async (route) => {
     if (route.request().method() === 'OPTIONS') {
       await fulfilPreflight(route)

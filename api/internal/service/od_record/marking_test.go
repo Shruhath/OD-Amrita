@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/Shruhath/OD-Amrita/api/internal/domain"
 	"github.com/Shruhath/OD-Amrita/api/internal/store"
 )
 
@@ -111,7 +112,7 @@ func TestMark_CallsScopeGuardBeforeAnyWrite(t *testing.T) {
 	guard := &recordingGuard{err: errScopeRefused}
 	writer := &countingWriter{}
 
-	svc := NewService(stubReader(), stubCardResolver(), writer, stubAuditStore(), scaffoldClock{}, guard)
+	svc := NewService(stubReader(), stubCardResolver(), writer, stubAuditStore(), scaffoldClock{}, guard, stubCreditLedger())
 
 	_, err := svc.Mark(context.Background(), Actor{UserID: "u", Role: "coordinator"}, MarkInput{
 		EventID:       "11111111-1111-4111-8111-111111111111",
@@ -133,7 +134,7 @@ func TestMark_CallsScopeGuardBeforeAnyWrite(t *testing.T) {
 
 func TestMark_PassesTheRequestedScopeToTheGuardVerbatim(t *testing.T) {
 	guard := &recordingGuard{err: errScopeRefused}
-	svc := NewService(stubReader(), stubCardResolver(), &countingWriter{}, stubAuditStore(), scaffoldClock{}, guard)
+	svc := NewService(stubReader(), stubCardResolver(), &countingWriter{}, stubAuditStore(), scaffoldClock{}, guard, stubCreditLedger())
 
 	const wantEvent = "11111111-1111-4111-8111-111111111111"
 	const wantCategory = "33333333-3333-4333-8333-333333333333"
@@ -191,7 +192,7 @@ func (s *stubCounts) CountMarks(_ context.Context, actorUserID, eventID, categor
 
 func TestMarkStatus_ReportsBothCountersSeparately(t *testing.T) {
 	counts := &stubCounts{mine: 7, categoryTotal: 23}
-	svc := NewStatusService(stubReader(), counts, scaffoldClock{})
+	svc := NewStatusService(stubReader(), counts, stubCreditLedger(), scaffoldClock{})
 
 	status, err := svc.MarkStatus(context.Background(),
 		Actor{UserID: "coord-1", Role: "coordinator"},
@@ -217,7 +218,7 @@ func TestMarkStatus_SlotWindowAndServerTimeShareOneClockRead(t *testing.T) {
 	// 09:00 IST on the event date sits inside slot 3 (09:40 is its end... slot 2
 	// runs 08:50-09:40), so this asserts a live slot rather than a boundary.
 	at := time.Date(2026, 9, 4, 9, 0, 0, 0, campusTZ)
-	svc := NewStatusService(stubReaderOn(at), &stubCounts{}, scaffoldClock{at: at})
+	svc := NewStatusService(stubReaderOn(at), &stubCounts{}, stubCreditLedger(), scaffoldClock{at: at})
 
 	status, err := svc.MarkStatus(context.Background(),
 		Actor{UserID: "coord-1", Role: "coordinator"},
@@ -249,7 +250,7 @@ func TestMarkStatus_SlotWindowAndServerTimeShareOneClockRead(t *testing.T) {
 func TestMarkStatus_ReturnsNilSlotWhenNoSlotIsOpen(t *testing.T) {
 	// 03:00 IST is before slot 1 (08:00) and after slot 12 ended the day before.
 	at := time.Date(2026, 9, 4, 3, 0, 0, 0, campusTZ)
-	svc := NewStatusService(stubReaderOn(at), &stubCounts{}, scaffoldClock{at: at})
+	svc := NewStatusService(stubReaderOn(at), &stubCounts{}, stubCreditLedger(), scaffoldClock{at: at})
 
 	status, err := svc.MarkStatus(context.Background(),
 		Actor{UserID: "coord-1", Role: "coordinator"},
@@ -274,7 +275,7 @@ func TestMarkStatus_ReturnsNilSlotOnADayThatIsNotTheEventDate(t *testing.T) {
 	eventDate := time.Date(2026, 9, 4, 0, 0, 0, 0, campusTZ)
 	at := time.Date(2026, 9, 5, 9, 0, 0, 0, campusTZ) // one day later, mid-slot-2 time-of-day
 
-	svc := NewStatusService(stubReaderOn(eventDate), &stubCounts{}, scaffoldClock{at: at})
+	svc := NewStatusService(stubReaderOn(eventDate), &stubCounts{}, stubCreditLedger(), scaffoldClock{at: at})
 
 	status, err := svc.MarkStatus(context.Background(),
 		Actor{UserID: "coord-1", Role: "coordinator"},
@@ -298,14 +299,21 @@ const (
 	scaffoldEventID    = "11111111-1111-4111-8111-111111111111"
 	scaffoldCategoryID = "33333333-3333-4333-8333-333333333333"
 	scaffoldStudentID  = "55555555-5555-4555-8555-555555555555"
+	scaffoldActorID    = "77777777-7777-4777-8777-777777777777"
 )
 
 // countingWriter records whether a write was attempted. The scope tests above
 // rely on `inserts` staying at 0 when the guard refuses.
-type countingWriter struct{ inserts int }
+type countingWriter struct {
+	inserts int
+	err     error
+}
 
 func (w *countingWriter) InsertPresent(_ context.Context, _ pgx.Tx, input RecordInput) (MarkResult, error) {
 	w.inserts++
+	if w.err != nil {
+		return MarkResult{}, w.err
+	}
 	return MarkResult{
 		RecordID:         "66666666-6666-4666-8666-666666666666",
 		Student:          input.Student,
@@ -376,6 +384,66 @@ func (passthroughAudit) WithAudit(ctx context.Context, _ store.AuditEvent, fn fu
 
 func stubAuditStore() AuditStore { return passthroughAudit{} }
 
+type recordingAuditStore struct {
+	actions  []domain.Action
+	payloads [][]byte
+}
+
+func (s *recordingAuditStore) WithAudit(ctx context.Context, evt store.AuditEvent, fn func(context.Context, pgx.Tx) (bool, error)) error {
+	changed, err := fn(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if !changed {
+		return nil
+	}
+	s.actions = append(s.actions, evt.Action)
+	if evt.PayloadFunc != nil {
+		payload, err := evt.PayloadFunc()
+		if err != nil {
+			return err
+		}
+		s.payloads = append(s.payloads, payload)
+		return nil
+	}
+	s.payloads = append(s.payloads, evt.Payload)
+	return nil
+}
+
+func (s *recordingAuditStore) payloadContains(value string) bool {
+	for _, payload := range s.payloads {
+		if strings.Contains(string(payload), value) {
+			return true
+		}
+	}
+	return false
+}
+
+type fixedCreditLedger struct {
+	state  FallbackCreditState
+	debits int
+	err    error
+}
+
+func (l *fixedCreditLedger) Debit(context.Context, pgx.Tx, string, string) (FallbackCreditState, error) {
+	l.debits++
+	if l.err != nil {
+		return FallbackCreditState{}, l.err
+	}
+	return l.state, nil
+}
+
+func (l *fixedCreditLedger) State(context.Context, string, string) (FallbackCreditState, error) {
+	if l.err != nil {
+		return FallbackCreditState{}, l.err
+	}
+	return l.state, nil
+}
+
+func stubCreditLedger() *fixedCreditLedger {
+	return &fixedCreditLedger{state: FallbackCreditState{Limit: 5, Consumed: 1, Remaining: 4, Exhausted: false, WarningThreshold: 1}}
+}
+
 // 0.6-SCOPE-002 — a missing scope guard is refused at COMPOSITION time.
 //
 // NewService used to map a nil guard onto an unexported allow-everything policy,
@@ -396,13 +464,13 @@ func TestNewService_RefusesANilScopeGuard(t *testing.T) {
 		}
 	}()
 
-	NewService(stubReader(), stubCardResolver(), &countingWriter{}, stubAuditStore(), scaffoldClock{}, nil)
+	NewService(stubReader(), stubCardResolver(), &countingWriter{}, stubAuditStore(), scaffoldClock{}, nil, stubCreditLedger())
 }
 
 // 0.6-SCOPE-002b — the explicit opt-out still works, so tests that are genuinely
 // not about scope have a supported way to say so IN SOURCE.
 func TestNewService_AcceptsTheExplicitAllowAnyScopeOptOut(t *testing.T) {
-	svc := NewService(stubReader(), stubCardResolver(), &countingWriter{}, stubAuditStore(), scaffoldClock{}, AllowAnyScope{})
+	svc := NewService(stubReader(), stubCardResolver(), &countingWriter{}, stubAuditStore(), scaffoldClock{}, AllowAnyScope{}, stubCreditLedger())
 	if svc == nil {
 		t.Fatal("[P0] NewService returned nil for an explicit AllowAnyScope")
 	}

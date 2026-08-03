@@ -123,6 +123,7 @@ func TestODRecordServiceDuplicateRaceAuditAndBlockedSlot(t *testing.T) {
 		store.New(runtime),
 		fixedClock{now: fixture.slotOneTime},
 		odsvc.AllowAnyScope{},
+		odsvc.NewSQLCCreditLedger(runtime),
 	)
 	actor := odsvc.Actor{UserID: fixture.coordinatorID, Email: "coordinator@amrita.edu", Role: "coordinator"}
 
@@ -185,6 +186,7 @@ func TestODRecordServiceDuplicateRaceAuditAndBlockedSlot(t *testing.T) {
 		store.New(runtime),
 		fixedClock{now: fixture.breakTime},
 		odsvc.AllowAnyScope{},
+		odsvc.NewSQLCCreditLedger(runtime),
 	)
 	_, err := closedSvc.Mark(ctx, actor, odsvc.MarkInput{
 		EventID:       fixture.eventID,
@@ -212,6 +214,7 @@ type markFixture struct {
 	categoryID    string
 	studentID     string
 	coordinatorID string
+	adminID       string
 	cardToken     string
 	cardKeyring   svccardtoken.Keyring
 	slotOneTime   time.Time
@@ -235,6 +238,7 @@ func seedMarkFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) mark
 		categoryID:    uuid.NewString(),
 		studentID:     uuid.NewString(),
 		coordinatorID: uuid.NewString(),
+		adminID:       uuid.NewString(),
 		cardKeyring:   cardKeyring,
 		slotOneTime:   time.Date(2026, 8, 3, 8, 25, 0, 0, loc),
 		breakTime:     time.Date(2026, 8, 3, 10, 35, 0, 0, loc),
@@ -253,9 +257,21 @@ func seedMarkFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) mark
 		t.Fatalf("seed coordinator: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
+		INSERT INTO users (id, supabase_subject, email, name, role)
+		VALUES ($1, $2, 'admin@amrita.edu', 'ATDD Admin', 'admin')
+		ON CONFLICT (supabase_subject) DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name, role = EXCLUDED.role`,
+		fixture.adminID, "atdd-admin-"+fixture.adminID); err != nil {
+		t.Fatalf("seed admin: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
 		INSERT INTO events (id, name, event_date, status)
 		VALUES ($1, 'ATDD Mark Event', $2, 'active')`, fixture.eventID, eventDate); err != nil {
 		t.Fatalf("seed event: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO event_coordinator_assignments (user_id, event_id, created_by_user_id)
+		VALUES ($1, $2, $3)`, fixture.coordinatorID, fixture.eventID, fixture.adminID); err != nil {
+		t.Fatalf("seed coordinator assignment: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO categories (id, event_id, name)

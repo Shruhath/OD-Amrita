@@ -13,6 +13,10 @@ export type CreateCategoryInput = components['schemas']['CreateCategoryRequest']
 export type CoordinatorAssignment = components['schemas']['CoordinatorAssignment']
 export type CoordinatorAssignmentCollection = components['schemas']['CoordinatorAssignmentCollection']
 export type CreateCoordinatorAssignmentInput = components['schemas']['CreateCoordinatorAssignmentRequest']
+export type CaptureCreditConfig = components['schemas']['CaptureCreditConfig']
+export type CaptureCreditUsage = components['schemas']['CaptureCreditUsage']
+export type CaptureCreditSummary = components['schemas']['CaptureCreditSummary']
+export type UpdateCaptureCreditConfigInput = components['schemas']['UpdateCaptureCreditConfigRequest']
 export type TeacherProfile = components['schemas']['TeacherProfile']
 export type TeacherProfileCollection = components['schemas']['TeacherProfileCollection']
 export type CreateTeacherProfileInput = components['schemas']['CreateTeacherProfileRequest']
@@ -170,6 +174,22 @@ export function createEventApi(session: SessionPort) {
       return unwrap(await client.POST('/api/v1/admin/events/{event_id}/coordinators', {
         params: { path: { event_id: eventID } },
         body: input,
+      }))
+    },
+    async captureCredits(eventID: string) {
+      return unwrap(await client.GET('/api/v1/admin/events/{event_id}/capture-credits', {
+        params: { path: { event_id: eventID } },
+      }))
+    },
+    async updateCaptureCreditConfig(eventID: string, input: UpdateCaptureCreditConfigInput) {
+      return unwrap(await client.PUT('/api/v1/admin/events/{event_id}/capture-credits/config', {
+        params: { path: { event_id: eventID } },
+        body: input,
+      }))
+    },
+    async resetCaptureCredits(eventID: string, userID: string) {
+      return unwrap(await client.POST('/api/v1/admin/events/{event_id}/capture-credits/coordinators/{user_id}/reset', {
+        params: { path: { event_id: eventID, user_id: userID } },
       }))
     },
     async teachers(page = 1, pageSize = 20) {

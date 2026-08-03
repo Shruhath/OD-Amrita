@@ -92,7 +92,9 @@ test.describe('Student roster import API', () => {
       studentRosterRow(14, { name: 'N'.repeat(300) }),
       studentRosterRow(15, { rollNo: 'bad roll!' }),
     ]
-    const csv = `${studentRosterCsv(rows)}${studentRosterRow(16).rollNo},Missing Batch,CSE,A\n`
+    // Trailing raw row: valid roll, but no Batch column value at all. Its
+    // section matches the fixture section for the same isolation reason.
+    const csv = `${studentRosterCsv(rows)}${studentRosterRow(16).rollNo},Missing Batch,CSE,C\n`
 
     // When the mixed-validity roster is uploaded.
     const response = await upload(request, csv)

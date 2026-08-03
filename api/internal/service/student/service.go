@@ -88,6 +88,11 @@ type ImportWrite struct {
 
 type Reader interface {
 	ResolveBranch(context.Context, string) (Branch, error)
+	// ListStudents backs the admin card-populator roster page (see list.go).
+	// It lives on the same interface — rather than behind a runtime type
+	// assertion — so a reader that cannot serve the populator fails to compile
+	// instead of failing the request.
+	ListStudents(context.Context, ListInput) ([]Student, int, error)
 }
 
 type Writer interface {
@@ -99,10 +104,15 @@ type AuditStore interface {
 }
 
 type Service struct {
-	reader Reader
-	store  AuditStore
-	writer Writer
+	reader       Reader
+	store        AuditStore
+	writer       Writer
+	searchReader SearchReader
 }
+
+// errSearchReaderMissing is a composition error, not a request error: it means
+// someone wired the search route without wiring the reader behind it.
+var errSearchReaderMissing = errors.New("student: search reader is not configured")
 
 func NewService(reader Reader, audited AuditStore, writer Writer) *Service {
 	return &Service{reader: reader, store: audited, writer: writer}

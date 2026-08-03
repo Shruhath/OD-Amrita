@@ -1,7 +1,7 @@
 import { useRef, useState, type ChangeEvent, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { ApiFailure, type StudentRosterImportResult, type ValidationError } from '../../../api/client'
+import { PortalShell } from '../../../components/PortalShell'
 import { useAuth } from '../../../features/auth/context'
 import { messageOf } from '../events/format'
 
@@ -17,7 +17,7 @@ const countCards: Array<[CountField, string]> = [
 ]
 
 export default function StudentsPortal() {
-  const { api, identity, signOut } = useAuth()
+  const { api } = useAuth()
   const fileRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
   const [fieldError, setFieldError] = useState<string | null>(null)
@@ -62,56 +62,38 @@ export default function StudentsPortal() {
   }
 
   return (
-    <div className="portal-shell">
-      <header className="topbar">
+    <PortalShell>
+      <div className="page-heading">
         <div>
-          <span className="brand-mark" aria-hidden="true">OD</span>
-          <span className="brand-name">OD-Amrita</span>
+          <p className="eyebrow">Administration · Students</p>
+          <h1>Student roster</h1>
+          <p>Load the event roster from CSV and reconcile rows by canonical roll number.</p>
         </div>
-        <nav className="portal-nav" aria-label="Administration sections">
-          <Link to="/portal/events">Events</Link>
-          <Link to="/portal/teachers">Teachers</Link>
-          <Link to="/portal/students" aria-current="page">Students</Link>
-        </nav>
-        <div className="account-actions">
-          <span>{identity?.name ?? identity?.email}</span>
-          <button className="text-button" type="button" onClick={() => void signOut()}>Sign out</button>
-        </div>
-      </header>
+      </div>
 
-      <main className="workspace">
-        <div className="page-heading">
-          <div>
-            <p className="eyebrow">Administration · Students</p>
-            <h1>Student roster</h1>
-            <p>Load the event roster from CSV and reconcile rows by canonical roll number.</p>
-          </div>
-        </div>
+      <section className="detail-section roster-import">
+        <h2>Import CSV</h2>
+        <form className="roster-form" onSubmit={submit} noValidate>
+          <label htmlFor="student-roster-csv">Student roster CSV</label>
+          <input
+            ref={fileRef}
+            id="student-roster-csv"
+            type="file"
+            accept=".csv,text/csv"
+            onChange={chooseFile}
+            aria-invalid={Boolean(fieldError)}
+            aria-describedby={fieldError ? 'student-roster-csv-error' : undefined}
+          />
+          {fieldError && <p className="field-error" id="student-roster-csv-error">{fieldError}</p>}
+          <button className="primary" type="submit" disabled={importRoster.isPending}>
+            {importRoster.isPending ? 'Importing…' : 'Import students'}
+          </button>
+        </form>
+        {formError && <p className="notice error" role="alert">{formError}</p>}
+      </section>
 
-        <section className="detail-section roster-import">
-          <h2>Import CSV</h2>
-          <form className="roster-form" onSubmit={submit} noValidate>
-            <label htmlFor="student-roster-csv">Student roster CSV</label>
-            <input
-              ref={fileRef}
-              id="student-roster-csv"
-              type="file"
-              accept=".csv,text/csv"
-              onChange={chooseFile}
-              aria-invalid={Boolean(fieldError)}
-              aria-describedby={fieldError ? 'student-roster-csv-error' : undefined}
-            />
-            {fieldError && <p className="field-error" id="student-roster-csv-error">{fieldError}</p>}
-            <button className="primary" type="submit" disabled={importRoster.isPending}>
-              {importRoster.isPending ? 'Importing…' : 'Import students'}
-            </button>
-          </form>
-          {formError && <p className="notice error" role="alert">{formError}</p>}
-        </section>
-
-        {result && <ImportSummary result={result} />}
-      </main>
-    </div>
+      {result && <ImportSummary result={result} />}
+    </PortalShell>
   )
 }
 

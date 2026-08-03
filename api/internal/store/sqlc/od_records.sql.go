@@ -11,6 +11,42 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countMarksForCategory = `-- name: CountMarksForCategory :one
+SELECT
+    count(*)::bigint AS category_total,
+    (count(*) FILTER (WHERE actor_user_id = $1))::bigint AS mine
+FROM od_records
+WHERE event_id = $2
+  AND category_id = $3
+  AND status = 'present'
+`
+
+type CountMarksForCategoryParams struct {
+	ActorUserID pgtype.UUID `json:"actor_user_id"`
+	EventID     pgtype.UUID `json:"event_id"`
+	CategoryID  pgtype.UUID `json:"category_id"`
+}
+
+type CountMarksForCategoryRow struct {
+	CategoryTotal int64 `json:"category_total"`
+	Mine          int64 `json:"mine"`
+}
+
+// The two FR13 counters in one round trip: every coordinator's marks for this
+// event+category, and the calling coordinator's own.
+//
+// Deliberately a live COUNT(*) rather than a tally table. AR10's tally is
+// deferred: one event at roughly 20 writes/second over a few hours does not need
+// a denormalised counter, and a tally row is a second source of truth that can
+// drift from od_records — the very thing the audit trail exists to prevent.
+// od_records_event_category_slot_idx covers the scope predicate.
+func (q *Queries) CountMarksForCategory(ctx context.Context, arg CountMarksForCategoryParams) (CountMarksForCategoryRow, error) {
+	row := q.db.QueryRow(ctx, countMarksForCategory, arg.ActorUserID, arg.EventID, arg.CategoryID)
+	var i CountMarksForCategoryRow
+	err := row.Scan(&i.CategoryTotal, &i.Mine)
+	return i, err
+}
+
 const getMarkCategoryForEvent = `-- name: GetMarkCategoryForEvent :one
 SELECT id, event_id
 FROM categories

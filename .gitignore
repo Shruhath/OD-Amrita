@@ -67,3 +67,9 @@ AGENTS.md
 docs/auth-microsoft-supabase-setup.md
 
 sprint-status.yaml
+
+# ── Superseded application, kept locally for reference only ──
+# MUST NEVER reach GitHub. Local-only working copy; not product code and not a
+# build input. Both spellings are ignored so a rename cannot quietly un-ignore it.
+old-od-app/
+old-od-app

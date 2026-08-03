@@ -39,6 +39,21 @@ func (f *fakeReader) EventStatus(context.Context, uuid.UUID) (Status, error) {
 func (f *fakeReader) ListCategories(context.Context, uuid.UUID) ([]Category, error) {
 	return nil, f.err
 }
+func (f *fakeReader) ListCoordinatorAssignments(context.Context, uuid.UUID) ([]CoordinatorAssignment, error) {
+	return nil, f.err
+}
+func (f *fakeReader) GetCoordinatorCandidateByEmail(context.Context, string) (CoordinatorCandidate, error) {
+	return CoordinatorCandidate{}, f.err
+}
+func (f *fakeReader) CoordinatorAssignmentExists(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
+	return false, f.err
+}
+func (f *fakeReader) ListAssignedActiveEvents(context.Context, uuid.UUID) ([]Event, error) {
+	return nil, f.err
+}
+func (f *fakeReader) CoordinatorAssignedToEvent(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
+	return false, f.err
+}
 
 type fakeWriter struct {
 	createID      uuid.UUID
@@ -60,6 +75,9 @@ func (f *fakeWriter) Archive(context.Context, pgx.Tx, uuid.UUID, uuid.UUID) (boo
 func (f *fakeWriter) CreateCategory(context.Context, pgx.Tx, CreateCategoryWrite) (Category, bool, error) {
 	return Category{}, false, f.err
 }
+func (f *fakeWriter) CreateCoordinatorAssignment(context.Context, pgx.Tx, CreateCoordinatorAssignmentWrite) (CoordinatorAssignment, bool, error) {
+	return CoordinatorAssignment{}, false, f.err
+}
 
 type fakeAuditStore struct {
 	event   store.AuditEvent
@@ -75,6 +93,13 @@ func (f *fakeAuditStore) WithAudit(ctx context.Context, event store.AuditEvent, 
 	f.changed = changed
 	if err != nil {
 		return err
+	}
+	if changed && event.PayloadFunc != nil {
+		payload, payloadErr := event.PayloadFunc()
+		if payloadErr != nil {
+			return payloadErr
+		}
+		f.event.Payload = payload
 	}
 	return f.err
 }

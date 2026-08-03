@@ -37,6 +37,7 @@ import (
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	svccardtoken "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
+	svcmarking "github.com/Shruhath/OD-Amrita/api/internal/service/marking"
 	svcodrecord "github.com/Shruhath/OD-Amrita/api/internal/service/od_record"
 	svcstudent "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 	svcteacher "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
@@ -124,22 +125,40 @@ func run() error {
 	}
 	markAPI := api.Group("")
 	markAPI.Use(rbac.RequirePrincipal(principalLoader))
+	// One event reader serves both the admin surface and the coordinator marking
+	// surface — the scoped reads are siblings of the admin reads, not a fork.
+	eventReader := svcevent.NewSQLCReader(pool)
+	// The scope seam. Every marking read AND the mark write go through this one
+	// policy, so a scope the reads refuse can never be reached by posting to
+	// /api/v1/mark directly (NFR11). Story 0.7 replaces only its policy body.
+	markingPolicy := svcmarking.NewPolicy(svcmarking.NewEventReader(eventReader))
 	markSvc := svcodrecord.NewService(
 		svcodrecord.NewSQLCReader(pool),
 		svcodrecord.NewCardTokenResolver(svccardtoken.NewSQLCLedger(pool), cardKeyring),
 		svcodrecord.NewSQLCWriter(),
 		st,
 		nil,
+		svcmarking.NewMarkGuard(markingPolicy),
 	)
 	handlerodrecord.RegisterRoutes(markAPI, markSvc)
 
+	// One student service serves the admin roster import/list and the coordinator
+	// search; the search reader is an add-on rather than a second service.
+	studentSvc := svcstudent.NewService(svcstudent.NewSQLCReader(pool), st, svcstudent.NewSQLCWriter())
+	studentSvc.WithSearchReader(svcstudent.NewSQLCSearchReader(pool))
+	handlerodrecord.RegisterMarkingReadRoutes(markAPI, svcmarking.NewReadService(
+		markingPolicy,
+		eventReader,
+		studentSvc,
+		svcodrecord.NewStatusService(svcodrecord.NewSQLCReader(pool), svcodrecord.NewSQLCCounter(pool), nil),
+	))
+
 	admin := newAdminGroup(api, principalLoader)
 	admin.POST("/users/:user_id/sessions/revoke", handleradmin.RevokeSessionsHandler(revSvc))
-	eventSvc := svcevent.NewService(svcevent.NewSQLCReader(pool), st, svcevent.NewSQLCWriter())
+	eventSvc := svcevent.NewService(eventReader, st, svcevent.NewSQLCWriter())
 	handlerevent.RegisterAdminRoutes(admin, eventSvc)
 	teacherSvc := svcteacher.NewService(svcteacher.NewSQLCReader(pool), st, svcteacher.NewSQLCWriter())
 	handlerteacher.RegisterAdminRoutes(admin, teacherSvc)
-	studentSvc := svcstudent.NewService(svcstudent.NewSQLCReader(pool), st, svcstudent.NewSQLCWriter())
 	handlerstudent.RegisterAdminRoutes(admin, studentSvc)
 	cardTokenSvc := svccardtoken.NewService(svccardtoken.NewSQLCReader(pool), svccardtoken.NewSQLCLedger(pool), st, cardKeyring)
 	handlercardtoken.RegisterAdminRoutes(admin, cardTokenSvc)

@@ -78,12 +78,18 @@ type Reader interface {
 	// canonical 404 — distinct from an archived event's 409.
 	EventStatus(context.Context, uuid.UUID) (Status, error)
 	ListCategories(context.Context, uuid.UUID) ([]Category, error)
+	ListCoordinatorAssignments(context.Context, uuid.UUID) ([]CoordinatorAssignment, error)
+	GetCoordinatorCandidateByEmail(context.Context, string) (CoordinatorCandidate, error)
+	CoordinatorAssignmentExists(context.Context, uuid.UUID, uuid.UUID) (bool, error)
+	ListAssignedActiveEvents(context.Context, uuid.UUID) ([]Event, error)
+	CoordinatorAssignedToEvent(context.Context, uuid.UUID, uuid.UUID) (bool, error)
 }
 
 type Writer interface {
 	Create(context.Context, pgx.Tx, CreateWrite) (uuid.UUID, bool, error)
 	Archive(context.Context, pgx.Tx, uuid.UUID, uuid.UUID) (bool, error)
 	CreateCategory(context.Context, pgx.Tx, CreateCategoryWrite) (Category, bool, error)
+	CreateCoordinatorAssignment(context.Context, pgx.Tx, CreateCoordinatorAssignmentWrite) (CoordinatorAssignment, bool, error)
 }
 
 type AuditStore interface {

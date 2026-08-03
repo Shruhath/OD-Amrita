@@ -25,6 +25,14 @@ type fakeWriteQueries struct {
 	categoryErr     error
 	categoryWrites  int
 	categoryLastArg sqlc.CreateCategoryParams
+	lockedUser      sqlc.LockCoordinatorAssignmentUserRow
+	lockErr         error
+	promoteRows     int64
+	promoteErr      error
+	promoteCalls    int
+	assignment      sqlc.InsertEventCoordinatorAssignmentRow
+	assignmentErr   error
+	assignmentCalls int
 }
 
 func (f *fakeWriteQueries) CreateEvent(context.Context, sqlc.CreateEventParams) (sqlc.CreateEventRow, error) {
@@ -44,6 +52,20 @@ func (f *fakeWriteQueries) CreateCategory(_ context.Context, arg sqlc.CreateCate
 	f.categoryWrites++
 	f.categoryLastArg = arg
 	return f.category, f.categoryErr
+}
+
+func (f *fakeWriteQueries) LockCoordinatorAssignmentUser(context.Context, pgtype.UUID) (sqlc.LockCoordinatorAssignmentUserRow, error) {
+	return f.lockedUser, f.lockErr
+}
+
+func (f *fakeWriteQueries) PromoteUserToCoordinator(context.Context, pgtype.UUID) (int64, error) {
+	f.promoteCalls++
+	return f.promoteRows, f.promoteErr
+}
+
+func (f *fakeWriteQueries) InsertEventCoordinatorAssignment(context.Context, sqlc.InsertEventCoordinatorAssignmentParams) (sqlc.InsertEventCoordinatorAssignmentRow, error) {
+	f.assignmentCalls++
+	return f.assignment, f.assignmentErr
 }
 
 // TestSQLCWriterCreateCategoryReturnsTheRowTheDatabaseWrote pins that the id and
@@ -87,6 +109,70 @@ func TestSQLCWriterCreateCategorySurfacesTheDatabaseError(t *testing.T) {
 	})
 	if !errors.Is(err, boom) || changed {
 		t.Fatalf("CreateCategory = (%v, %v), want the raw error and changed=false", changed, err)
+	}
+}
+
+func TestSQLCWriterCreateCoordinatorAssignmentPromotesOnlyStudents(t *testing.T) {
+	userID := uuid.New()
+	eventID := uuid.New()
+	actorID := uuid.New()
+	assignmentID := uuid.New()
+	createdAt := time.Date(2026, 8, 3, 4, 30, 0, 0, time.UTC)
+
+	for _, tc := range []struct {
+		name         string
+		role         string
+		promoteRows  int64
+		wantPromotes int
+	}{
+		{name: "student is promoted", role: "student", promoteRows: 1, wantPromotes: 1},
+		{name: "coordinator is not re-promoted", role: "coordinator", promoteRows: 0, wantPromotes: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			queries := &fakeWriteQueries{
+				lockedUser: sqlc.LockCoordinatorAssignmentUserRow{
+					ID: dbUUID(userID), Email: "coord@amrita.edu", Role: tc.role,
+				},
+				promoteRows: tc.promoteRows,
+				assignment: sqlc.InsertEventCoordinatorAssignmentRow{
+					ID: dbUUID(assignmentID), UserID: dbUUID(userID), EventID: dbUUID(eventID),
+					CreatedAt: pgtype.Timestamptz{Time: createdAt, Valid: true},
+				},
+			}
+			writer := newSQLCWriter(func(pgx.Tx) eventWriteQueries { return queries })
+
+			got, changed, err := writer.CreateCoordinatorAssignment(context.Background(), nil, CreateCoordinatorAssignmentWrite{
+				UserID: userID, EventID: eventID, CreatedByUserID: actorID,
+			})
+			if err != nil || !changed {
+				t.Fatalf("CreateCoordinatorAssignment = (%#v, %v, %v)", got, changed, err)
+			}
+			if queries.promoteCalls != tc.wantPromotes {
+				t.Fatalf("promote calls = %d, want %d", queries.promoteCalls, tc.wantPromotes)
+			}
+			if queries.assignmentCalls != 1 {
+				t.Fatalf("assignment insert calls = %d, want 1", queries.assignmentCalls)
+			}
+			if got.ID != assignmentID.String() || got.UserID != userID.String() || got.Email != "coord@amrita.edu" {
+				t.Fatalf("assignment = %#v, want database row plus locked user email", got)
+			}
+		})
+	}
+}
+
+func TestSQLCWriterCreateCoordinatorAssignmentRejectsIneligibleLockedRole(t *testing.T) {
+	queries := &fakeWriteQueries{lockedUser: sqlc.LockCoordinatorAssignmentUserRow{
+		ID: dbUUID(uuid.New()), Email: "teacher@amrita.edu", Role: "teacher",
+	}}
+	writer := newSQLCWriter(func(pgx.Tx) eventWriteQueries { return queries })
+	_, changed, err := writer.CreateCoordinatorAssignment(context.Background(), nil, CreateCoordinatorAssignmentWrite{
+		UserID: uuid.New(), EventID: uuid.New(), CreatedByUserID: uuid.New(),
+	})
+	if !errors.Is(err, ErrCoordinatorRoleAlreadyAssigned) || changed {
+		t.Fatalf("CreateCoordinatorAssignment = (%v, %v), want ErrCoordinatorRoleAlreadyAssigned and changed=false", changed, err)
+	}
+	if queries.assignmentCalls != 0 {
+		t.Fatalf("assignment insert reached for ineligible role")
 	}
 }
 

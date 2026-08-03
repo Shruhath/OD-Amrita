@@ -67,6 +67,85 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mark/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Server-computed marking counters and the active slot window
+         * @description The single source of truth behind the coordinator marking screen's two counters and its slot countdown. `server_time` is read from the same clock read that decided the slot, so the client's countdown and the server's slot decision can never disagree by a poll interval. The client never computes a slot boundary and never counts a mark itself.
+         */
+        get: operations["getMarkStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the active events the caller may mark for
+         * @description The coordinator marking surface's scoped event read. A sibling of `/api/v1/admin/events`, never a replacement: this one is authenticated rather than admin-gated and returns ACTIVE events only, so the marking selector can never offer an event the mark path would refuse.
+         */
+        get: operations["listMarkableEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/events/{event_id}/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        /** List the categories of an event the caller may mark for */
+        get: operations["listMarkableEventCategories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/students/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Prefix-search the roster by roll number or name
+         * @description The coordinator's fallback when a card will not tap, and the resolution step for the camera path (the printed barcode carries a ROLL NUMBER). Matching is PREFIX-ONLY so `students_roll_no_idx` and `students_name_lower_idx` stay usable, `q` is bounded at both ends so an empty query cannot become a roster dump, and the result item carries no email, card token or token fingerprint.
+         */
+        get: operations["searchStudents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/me": {
         parameters: {
             query?: never;
@@ -211,6 +290,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/events/{event_id}/coordinators": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * List event-level coordinator assignments
+         * @description Lists the provisioned users assigned to coordinate the whole event. Results are bounded per-event reference data and remain readable after an event is archived.
+         */
+        get: operations["listAdminEventCoordinators"];
+        put?: never;
+        /**
+         * Assign one provisioned user as an event coordinator
+         * @description Elevates an existing student to coordinator on first assignment, or adds another event assignment for an existing coordinator. Duplicate user/event assignments are rejected with COORDINATOR_ASSIGNMENT_EXISTS.
+         */
+        post: operations["createAdminEventCoordinatorAssignment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/teachers": {
         parameters: {
             query?: never;
@@ -249,6 +354,26 @@ export interface paths {
          * @description Admin-only roster import. The CSV is uploaded as multipart field `file`. Rows are reconciled by canonical roll number; valid rows commit even when other rows are invalid. A malformed file or an upload with zero valid data rows is rejected with typed validation details.
          */
         post: operations["importAdminStudents"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/students": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List students for card-populator selection
+         * @description Admin-only, database-backed roster read used to select a student before sealing and writing their NFC card. Results are ordered by branch code, then batch, then canonical roll_no, then id as a tiebreaker. Never exposes email or card-token material.
+         */
+        get: operations["listAdminStudents"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -354,6 +479,27 @@ export interface components {
         CategoryCollection: {
             data: components["schemas"]["Category"][];
         };
+        /** @description Event-level coordinator assignment. A row grants the user coordinator marking access for the whole event; it carries no category or scope field in this MVP. */
+        CoordinatorAssignment: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            user_id: string;
+            email: string;
+            name: string | null;
+            /** Format: uuid */
+            event_id: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @description Bounded per-event reference data, ordered by assignment creation time. */
+        CoordinatorAssignmentCollection: {
+            data: components["schemas"]["CoordinatorAssignment"][];
+        };
+        CreateCoordinatorAssignmentRequest: {
+            /** @description Email of an existing, already-provisioned users row. The request does not pre-provision an identity. */
+            email: string;
+        };
         /** @description A teacher's elevated role plus the branches they are associated with. Reuses BranchSummary rather than a parallel branch shape. */
         TeacherProfile: {
             /** Format: uuid */
@@ -394,6 +540,13 @@ export interface components {
             code: string;
             message: string;
         };
+        /** @description The card-populator roster read. Paginated like EventCollection, and deliberately bounded to display fields only — no email or card-token material. */
+        StudentCollection: {
+            data: components["schemas"]["ResolvedCardStudent"][];
+            page: number;
+            page_size: number;
+            total: number;
+        };
         ResolvedCardStudent: {
             /** Format: uuid */
             student_id: string;
@@ -418,6 +571,31 @@ export interface components {
         };
         /** @enum {string} */
         CaptureMethod: "nfc" | "camera" | "search";
+        /** @description The authenticated roster search read. Deliberately unpaginated — the server caps the result count instead — and bounded to display fields only: `students` has no email column and card tokens are stored as fingerprints, so neither can appear here. */
+        StudentSearchResults: {
+            data: components["schemas"]["ResolvedCardStudent"][];
+        };
+        /** @description Everything the marking screen needs that the client must not compute for itself. `slot: null` is the explicit "no slot is open" state — never slot 0 — and `server_time` shares one clock read with the slot decision. */
+        MarkStatus: {
+            /** Format: date-time */
+            server_time: string;
+            slot: components["schemas"]["MarkSlotWindow"] | null;
+            counters: components["schemas"]["MarkCounters"];
+        };
+        /** @description The bounds of the currently active slot, in server time. */
+        MarkSlotWindow: {
+            slot: number;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            ends_at: string;
+        };
+        /** @description Both figures are server-computed live counts over od_records (FR13). `mine` is the calling coordinator's marks for this event and category; `category_total` is every coordinator's, and is identical for all callers. */
+        MarkCounters: {
+            mine: number;
+            category_total: number;
+        };
+        /** @description Exactly one identity, paired with the capture method that produced it. `card` is valid for `nfc` and `camera`; `student_id` is valid for `camera` and `search`. The camera pairs with BOTH because the barcode printed on the physical university ID card carries a ROLL NUMBER, not a sealed token — the client resolves that roll to a student_id through `GET /api/v1/students/search` and marks with `capture_method: camera`. `capture_method` is persisted truthfully on the record and its audit row. */
         MarkAttendanceRequest: {
             /** Format: uuid */
             event_id: string;
@@ -476,7 +654,7 @@ export interface components {
              * @description Canonical SCREAMING_SNAKE error code. This enum is the WIRE source of truth; the Go `errors.go` const registry mirrors it. Do not invent free-text codes.
              * @enum {string}
              */
-            code: "AUTH_DOMAIN_REJECTED" | "AUTH_TOKEN_INVALID" | "RBAC_FORBIDDEN" | "SCAN_DUPLICATE" | "SLOT_CLOSED" | "CARD_NOT_RECOGNIZED" | "QR_LIMIT_REACHED" | "RATE_LIMITED" | "INVALID_SCAN_ID" | "VALIDATION_FAILED" | "EVENT_NOT_FOUND" | "EVENT_ARCHIVED" | "CATEGORY_NOT_FOUND" | "USER_NOT_FOUND" | "STUDENT_NOT_FOUND" | "ROLE_ALREADY_ASSIGNED" | "INTERNAL";
+            code: "AUTH_DOMAIN_REJECTED" | "AUTH_TOKEN_INVALID" | "RBAC_FORBIDDEN" | "SCAN_DUPLICATE" | "SLOT_CLOSED" | "CARD_NOT_RECOGNIZED" | "QR_LIMIT_REACHED" | "RATE_LIMITED" | "INVALID_SCAN_ID" | "VALIDATION_FAILED" | "EVENT_NOT_FOUND" | "EVENT_ARCHIVED" | "CATEGORY_NOT_FOUND" | "USER_NOT_FOUND" | "STUDENT_NOT_FOUND" | "ROLE_ALREADY_ASSIGNED" | "COORDINATOR_ASSIGNMENT_EXISTS" | "INTERNAL";
             /** @description Human-readable message. For diagnostics/display only — branch on `code`. */
             message: string;
             /** @description Optional, freeform context for generic errors. Typed validation failures use ValidationError.details (a typed array) instead. */
@@ -761,6 +939,279 @@ export interface operations {
             };
             /** @description Card token was not recognized. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getMarkStatus: {
+        parameters: {
+            query: {
+                event_id: string;
+                category_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Server time, the active slot window (or null), and both counters. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarkStatus"];
+                };
+            };
+            /** @description Missing or malformed scope parameters. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller may not mark for this event and category. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event or category was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event is archived. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listMarkableEvents: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deterministically ordered page of markable active events. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventCollection"];
+                };
+            };
+            /** @description Invalid pagination value. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller holds no role that may mark. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listMarkableEventCategories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every category belonging to the event. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CategoryCollection"];
+                };
+            };
+            /** @description Malformed event id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller may not mark for this event. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event is archived. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    searchStudents: {
+        parameters: {
+            query: {
+                /** @description Roll-number or name prefix, trimmed before length is judged. */
+                q: string;
+                /** @description Server-bounded result cap. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching students, exact roll match first. An empty list is a valid answer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentSearchResults"];
+                };
+            };
+            /** @description Query below the minimum length or otherwise invalid. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller holds no role that may search the roster. */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1338,6 +1789,153 @@ export interface operations {
             };
         };
     };
+    listAdminEventCoordinators: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every coordinator assignment for the requested event. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoordinatorAssignmentCollection"];
+                };
+            };
+            /** @description The event id is malformed. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No event exists with the supplied id. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createAdminEventCoordinatorAssignment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCoordinatorAssignmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Coordinator assignment persisted atomically. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoordinatorAssignment"];
+                };
+            };
+            /** @description Request validation failed with typed field details. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event or user was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Duplicate assignment, archived event, or ineligible role. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listAdminTeachers: {
         parameters: {
             query?: {
@@ -1501,6 +2099,68 @@ export interface operations {
                 };
             };
             /** @description Request, CSV, or zero-valid-row validation failed. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listAdminStudents: {
+        parameters: {
+            query?: {
+                branch_id?: string;
+                batch?: string;
+                section?: string;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deterministically ordered page of students. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentCollection"];
+                };
+            };
+            /** @description Invalid filter or pagination value. */
             400: {
                 headers: {
                     [name: string]: unknown;

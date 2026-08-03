@@ -50,6 +50,7 @@ const eventName = 'Onam Celebrations'
 const adminEventsCollectionPath = /\/api\/v1\/admin\/events(?:\?.*)?$/
 const adminEventItemPath = /\/api\/v1\/admin\/events\/[^/?]+$/
 const adminEventCategoriesPath = /\/api\/v1\/admin\/events\/[^/?]+\/categories$/
+const adminEventCoordinatorsPath = /\/api\/v1\/admin\/events\/[^/?]+\/coordinators$/
 
 function renderPortal({
   status = 'active',
@@ -115,6 +116,7 @@ function renderPortal({
       const scoped = serverCategories.filter((category) => category.event_id === eventID)
       return HttpResponse.json({ data: scoped })
     }),
+    http.get(adminEventCoordinatorsPath, () => HttpResponse.json({ data: [] })),
     http.post(adminEventCategoriesPath, async ({ request }) => {
       const eventID = categoryEventID(request.url)
       calls.push('create')

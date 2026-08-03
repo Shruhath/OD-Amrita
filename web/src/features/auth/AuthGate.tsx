@@ -63,7 +63,35 @@ export function AuthProvider({ children, session }: { children: ReactNode; sessi
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
-export function SessionBoundary({ children }: { children: ReactNode }) {
+/** The university lockup that heads every signed-out surface. */
+function AuthBrand() {
+  return (
+    <img
+      className="auth-brand"
+      src="/brand/amrita-logo.png"
+      alt="Amrita Vishwa Vidyapeetham"
+      width={600}
+      height={155}
+    />
+  )
+}
+
+/**
+ * Gates a route on being signed in AND holding one of `allowedRoles`.
+ *
+ * The default is `['admin']` deliberately: every portal route calls this with no
+ * roles at all, so the default IS their access rule. Widening it — to "any
+ * signed-in user", or by dropping the check — would expose every admin screen to
+ * every student in the university, which is why the marking surface passes its
+ * own role rather than the default being relaxed to accommodate it.
+ */
+export function SessionBoundary({
+  children,
+  allowedRoles = ['admin'],
+}: {
+  children: ReactNode
+  allowedRoles?: readonly string[]
+}) {
   const auth = useAuth()
   if (auth.loading) {
     return <main className="center-state"><p role="status">Checking your session…</p></main>
@@ -71,6 +99,7 @@ export function SessionBoundary({ children }: { children: ReactNode }) {
   if (auth.error) {
     return (
       <main className="center-state">
+        <AuthBrand />
         <h1>Sign in to OD-Amrita</h1>
         <p role="alert">{auth.error}</p>
         <button type="button" onClick={() => void auth.reload()}>Try again</button>
@@ -80,24 +109,41 @@ export function SessionBoundary({ children }: { children: ReactNode }) {
   if (!auth.identity) {
     return (
       <main className="center-state sign-in">
+        <AuthBrand />
         <p className="eyebrow">Event administration</p>
         <h1>Sign in to OD-Amrita</h1>
         <p>Use your university Microsoft account to continue.</p>
         <button className="primary" type="button" onClick={() => void auth.signIn()}>
           Sign in with Microsoft
         </button>
+        <p className="auth-hint">
+          Use your university address — for example
+          {' '}<code>cb.sc.u4cse24124@cb.students.amrita.edu</code>.
+        </p>
       </main>
     )
   }
-  if (auth.identity.role !== 'admin') {
+  if (!allowedRoles.includes(auth.identity.role)) {
     return (
       <main className="center-state">
+        <AuthBrand />
         <p className="eyebrow">OD-Amrita portal</p>
         <h1>Access denied</h1>
-        <p>Administrator access is required for event administration.</p>
+        <p>{deniedReason(allowedRoles)}</p>
         <button type="button" onClick={() => void auth.signOut()}>Sign out</button>
       </main>
     )
   }
   return children
+}
+
+/** Says which access the screen needs, so a refusal is never a dead end. */
+function deniedReason(allowedRoles: readonly string[]): string {
+  if (allowedRoles.length === 1 && allowedRoles[0] === 'coordinator') {
+    return 'Coordinator access is required to mark attendance. Ask an administrator to assign you as a coordinator.'
+  }
+  if (allowedRoles.length === 1 && allowedRoles[0] === 'admin') {
+    return 'Administrator access is required for event administration.'
+  }
+  return `This screen requires one of these roles: ${allowedRoles.join(', ')}.`
 }

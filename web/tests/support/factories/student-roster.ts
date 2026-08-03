@@ -28,6 +28,24 @@ export type StudentImportResult = {
 
 const rosterRunToken = faker.string.numeric(5)
 
+/**
+ * The section these fixtures import into.
+ *
+ * Deliberately NOT 'A'. The harness seeds its card-populator students into
+ * CSE/2024/A, and the populator journey asserts that the roll-ordered first two
+ * rows of that section are exactly those two seeded students. These fixture
+ * rolls are `CB.SC.U4CSE<random 5 digits><n>`, so whenever the run token starts
+ * below "24" they sort AHEAD of the seeded rolls — and with `fullyParallel` an
+ * import that lands first pushed the seeded rows down the list and failed a
+ * journey that has nothing to do with importing. Roughly a quarter of tokens
+ * qualify, which is why it read as flake rather than a bug.
+ *
+ * Nothing here depends on the section itself; the import path treats it as
+ * opaque text. Owning a section of our own removes the interference at its
+ * source instead of loosening the populator's ordering assertion.
+ */
+const rosterSection = 'C'
+
 export function studentRosterRow(
   sequence: number,
   overrides: Partial<StudentRosterRow> = {},
@@ -36,7 +54,7 @@ export function studentRosterRow(
     rollNo: `CB.SC.U4CSE${rosterRunToken}${String(sequence).padStart(3, '0')}`,
     name: faker.person.fullName(),
     branch: 'CSE',
-    section: 'A',
+    section: rosterSection,
     batch: '2024',
     ...overrides,
   }

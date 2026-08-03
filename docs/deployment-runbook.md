@@ -109,7 +109,7 @@ unset PGPASSWORD
 psql "$DATABASE_URL_MIGRATOR" -c 'SELECT max(version_id) FROM goose_db_version;'
 ```
 
-Expect **11** — migrations `0001`–`0011`. A lower number, or a missing table, means the
+Expect **12** — migrations `0001`–`0012`. A lower number, or a missing table, means the
 migrations did not all apply; stop and fix that before deploying, because the API will fail at
 runtime rather than at boot.
 
@@ -282,7 +282,7 @@ deliberately called out because it does **not** meet the production transport po
   not answer browser requests with an HTML page. That header is inert against any other host and
   **should be removed when the API moves to its own domain**.
 - **The database is a local container, not Neon.** The deployed Neon project is reachable over HTTPS
-  but its Postgres port is blocked from the operator network, so migrations `0004`–`0011` are **not**
+  but its Postgres port is blocked from the operator network, so migrations `0004`–`0012` are **not**
   applied there yet. Applying them (§3) is part of the Fly cutover, from a network that permits 5432.
 
 **Cutover checklist when Fly lands:** deploy per §4 → apply §3 against Neon → set `VITE_API_BASE_URL`

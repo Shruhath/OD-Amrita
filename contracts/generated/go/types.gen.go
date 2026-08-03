@@ -63,23 +63,24 @@ func (e CaptureMethod) Valid() bool {
 
 // Defines values for ErrorCode.
 const (
-	ErrorCodeAUTHDOMAINREJECTED  ErrorCode = "AUTH_DOMAIN_REJECTED"
-	ErrorCodeAUTHTOKENINVALID    ErrorCode = "AUTH_TOKEN_INVALID"
-	ErrorCodeCARDNOTRECOGNIZED   ErrorCode = "CARD_NOT_RECOGNIZED"
-	ErrorCodeCATEGORYNOTFOUND    ErrorCode = "CATEGORY_NOT_FOUND"
-	ErrorCodeEVENTARCHIVED       ErrorCode = "EVENT_ARCHIVED"
-	ErrorCodeEVENTNOTFOUND       ErrorCode = "EVENT_NOT_FOUND"
-	ErrorCodeINTERNAL            ErrorCode = "INTERNAL"
-	ErrorCodeINVALIDSCANID       ErrorCode = "INVALID_SCAN_ID"
-	ErrorCodeQRLIMITREACHED      ErrorCode = "QR_LIMIT_REACHED"
-	ErrorCodeRATELIMITED         ErrorCode = "RATE_LIMITED"
-	ErrorCodeRBACFORBIDDEN       ErrorCode = "RBAC_FORBIDDEN"
-	ErrorCodeROLEALREADYASSIGNED ErrorCode = "ROLE_ALREADY_ASSIGNED"
-	ErrorCodeSCANDUPLICATE       ErrorCode = "SCAN_DUPLICATE"
-	ErrorCodeSLOTCLOSED          ErrorCode = "SLOT_CLOSED"
-	ErrorCodeSTUDENTNOTFOUND     ErrorCode = "STUDENT_NOT_FOUND"
-	ErrorCodeUSERNOTFOUND        ErrorCode = "USER_NOT_FOUND"
-	ErrorCodeVALIDATIONFAILED    ErrorCode = "VALIDATION_FAILED"
+	ErrorCodeAUTHDOMAINREJECTED          ErrorCode = "AUTH_DOMAIN_REJECTED"
+	ErrorCodeAUTHTOKENINVALID            ErrorCode = "AUTH_TOKEN_INVALID"
+	ErrorCodeCARDNOTRECOGNIZED           ErrorCode = "CARD_NOT_RECOGNIZED"
+	ErrorCodeCATEGORYNOTFOUND            ErrorCode = "CATEGORY_NOT_FOUND"
+	ErrorCodeCOORDINATORASSIGNMENTEXISTS ErrorCode = "COORDINATOR_ASSIGNMENT_EXISTS"
+	ErrorCodeEVENTARCHIVED               ErrorCode = "EVENT_ARCHIVED"
+	ErrorCodeEVENTNOTFOUND               ErrorCode = "EVENT_NOT_FOUND"
+	ErrorCodeINTERNAL                    ErrorCode = "INTERNAL"
+	ErrorCodeINVALIDSCANID               ErrorCode = "INVALID_SCAN_ID"
+	ErrorCodeQRLIMITREACHED              ErrorCode = "QR_LIMIT_REACHED"
+	ErrorCodeRATELIMITED                 ErrorCode = "RATE_LIMITED"
+	ErrorCodeRBACFORBIDDEN               ErrorCode = "RBAC_FORBIDDEN"
+	ErrorCodeROLEALREADYASSIGNED         ErrorCode = "ROLE_ALREADY_ASSIGNED"
+	ErrorCodeSCANDUPLICATE               ErrorCode = "SCAN_DUPLICATE"
+	ErrorCodeSLOTCLOSED                  ErrorCode = "SLOT_CLOSED"
+	ErrorCodeSTUDENTNOTFOUND             ErrorCode = "STUDENT_NOT_FOUND"
+	ErrorCodeUSERNOTFOUND                ErrorCode = "USER_NOT_FOUND"
+	ErrorCodeVALIDATIONFAILED            ErrorCode = "VALIDATION_FAILED"
 )
 
 // Valid indicates whether the value is a known member of the ErrorCode enum.
@@ -92,6 +93,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeCARDNOTRECOGNIZED:
 		return true
 	case ErrorCodeCATEGORYNOTFOUND:
+		return true
+	case ErrorCodeCOORDINATORASSIGNMENTEXISTS:
 		return true
 	case ErrorCodeEVENTARCHIVED:
 		return true
@@ -358,10 +361,31 @@ type CategoryCollection struct {
 	Data []Category `json:"data"`
 }
 
+// CoordinatorAssignment Event-level coordinator assignment. A row grants the user coordinator marking access for the whole event; it carries no category or scope field in this MVP.
+type CoordinatorAssignment struct {
+	CreatedAt time.Time          `json:"created_at"`
+	Email     string             `json:"email"`
+	EventId   openapi_types.UUID `json:"event_id"`
+	Id        openapi_types.UUID `json:"id"`
+	Name      *string            `json:"name"`
+	UserId    openapi_types.UUID `json:"user_id"`
+}
+
+// CoordinatorAssignmentCollection Bounded per-event reference data, ordered by assignment creation time.
+type CoordinatorAssignmentCollection struct {
+	Data []CoordinatorAssignment `json:"data"`
+}
+
 // CreateCategoryRequest defines model for CreateCategoryRequest.
 type CreateCategoryRequest struct {
 	// Name Trimmed, nonblank category name. Unique within the event, compared case-insensitively after trimming.
 	Name string `json:"name"`
+}
+
+// CreateCoordinatorAssignmentRequest defines model for CreateCoordinatorAssignmentRequest.
+type CreateCoordinatorAssignmentRequest struct {
+	// Email Email of an existing, already-provisioned users row. The request does not pre-provision an identity.
+	Email string `json:"email"`
 }
 
 // CreateEventRequest defines model for CreateEventRequest.
@@ -433,7 +457,7 @@ type HealthStatusDb string
 // HealthStatusStatus Overall service status. "ok" when every dependency is reachable; "degraded" (served with HTTP 503) when the database is not.
 type HealthStatusStatus string
 
-// MarkAttendanceRequest defines model for MarkAttendanceRequest.
+// MarkAttendanceRequest Exactly one identity, paired with the capture method that produced it. `card` is valid for `nfc` and `camera`; `student_id` is valid for `camera` and `search`. The camera pairs with BOTH because the barcode printed on the physical university ID card carries a ROLL NUMBER, not a sealed token — the client resolves that roll to a student_id through `GET /api/v1/students/search` and marks with `capture_method: camera`. `capture_method` is persisted truthfully on the record and its audit row.
 type MarkAttendanceRequest struct {
 	CaptureMethod MarkAttendanceRequestCaptureMethod `json:"capture_method"`
 	Card          *CardTokenResolveRequest           `json:"card,omitempty"`
@@ -466,6 +490,27 @@ type MarkAttendanceResult struct {
 	ServerReceivedAt time.Time          `json:"server_received_at"`
 	Slot             int                `json:"slot"`
 	Student          MarkedStudent      `json:"student"`
+}
+
+// MarkCounters Both figures are server-computed live counts over od_records (FR13). `mine` is the calling coordinator's marks for this event and category; `category_total` is every coordinator's, and is identical for all callers.
+type MarkCounters struct {
+	CategoryTotal int `json:"category_total"`
+	Mine          int `json:"mine"`
+}
+
+// MarkSlotWindow The bounds of the currently active slot, in server time.
+type MarkSlotWindow struct {
+	EndsAt    time.Time `json:"ends_at"`
+	Slot      int       `json:"slot"`
+	StartedAt time.Time `json:"started_at"`
+}
+
+// MarkStatus Everything the marking screen needs that the client must not compute for itself. `slot: null` is the explicit "no slot is open" state — never slot 0 — and `server_time` shares one clock read with the slot decision.
+type MarkStatus struct {
+	// Counters Both figures are server-computed live counts over od_records (FR13). `mine` is the calling coordinator's marks for this event and category; `category_total` is every coordinator's, and is identical for all callers.
+	Counters   MarkCounters    `json:"counters"`
+	ServerTime time.Time       `json:"server_time"`
+	Slot       *MarkSlotWindow `json:"slot"`
 }
 
 // MarkedStudent defines model for MarkedStudent.
@@ -563,6 +608,14 @@ type SessionRevocationResult struct {
 	RevocationId string `json:"revocation_id"`
 }
 
+// StudentCollection The card-populator roster read. Paginated like EventCollection, and deliberately bounded to display fields only — no email or card-token material.
+type StudentCollection struct {
+	Data     []ResolvedCardStudent `json:"data"`
+	Page     int                   `json:"page"`
+	PageSize int                   `json:"page_size"`
+	Total    int                   `json:"total"`
+}
+
 // StudentRosterImportError defines model for StudentRosterImportError.
 type StudentRosterImportError struct {
 	Code    string `json:"code"`
@@ -581,6 +634,11 @@ type StudentRosterImportResult struct {
 	TotalRows     int                        `json:"total_rows"`
 	UnchangedRows int                        `json:"unchanged_rows"`
 	UpdatedRows   int                        `json:"updated_rows"`
+}
+
+// StudentSearchResults The authenticated roster search read. Deliberately unpaginated — the server caps the result count instead — and bounded to display fields only: `students` has no email column and card tokens are stored as fingerprints, so neither can appear here.
+type StudentSearchResults struct {
+	Data []ResolvedCardStudent `json:"data"`
 }
 
 // TeacherProfile A teacher's elevated role plus the branches they are associated with. Reuses BranchSummary rather than a parallel branch shape.
@@ -643,6 +701,15 @@ type ListAdminEventsParams struct {
 // ListAdminEventsParamsStatus defines parameters for ListAdminEvents.
 type ListAdminEventsParamsStatus string
 
+// ListAdminStudentsParams defines parameters for ListAdminStudents.
+type ListAdminStudentsParams struct {
+	BranchId *openapi_types.UUID `form:"branch_id,omitempty" json:"branch_id,omitempty"`
+	Batch    *string             `form:"batch,omitempty" json:"batch,omitempty"`
+	Section  *string             `form:"section,omitempty" json:"section,omitempty"`
+	Page     *int                `form:"page,omitempty" json:"page,omitempty"`
+	PageSize *int                `form:"page_size,omitempty" json:"page_size,omitempty"`
+}
+
 // ImportAdminStudentsMultipartBody defines parameters for ImportAdminStudents.
 type ImportAdminStudentsMultipartBody struct {
 	File openapi_types.File `json:"file"`
@@ -654,6 +721,27 @@ type ListAdminTeachersParams struct {
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
+// ListMarkableEventsParams defines parameters for ListMarkableEvents.
+type ListMarkableEventsParams struct {
+	Page     *int `form:"page,omitempty" json:"page,omitempty"`
+	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+}
+
+// GetMarkStatusParams defines parameters for GetMarkStatus.
+type GetMarkStatusParams struct {
+	EventId    openapi_types.UUID `form:"event_id" json:"event_id"`
+	CategoryId openapi_types.UUID `form:"category_id" json:"category_id"`
+}
+
+// SearchStudentsParams defines parameters for SearchStudents.
+type SearchStudentsParams struct {
+	// Q Roll-number or name prefix, trimmed before length is judged.
+	Q string `form:"q" json:"q"`
+
+	// Limit Server-bounded result cap.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ResolveAdminCardTokenJSONRequestBody defines body for ResolveAdminCardToken for application/json ContentType.
 type ResolveAdminCardTokenJSONRequestBody = CardTokenResolveRequest
 
@@ -662,6 +750,9 @@ type CreateAdminEventJSONRequestBody = CreateEventRequest
 
 // CreateAdminEventCategoryJSONRequestBody defines body for CreateAdminEventCategory for application/json ContentType.
 type CreateAdminEventCategoryJSONRequestBody = CreateCategoryRequest
+
+// CreateAdminEventCoordinatorAssignmentJSONRequestBody defines body for CreateAdminEventCoordinatorAssignment for application/json ContentType.
+type CreateAdminEventCoordinatorAssignmentJSONRequestBody = CreateCoordinatorAssignmentRequest
 
 // ImportAdminStudentsMultipartRequestBody defines body for ImportAdminStudents for multipart/form-data ContentType.
 type ImportAdminStudentsMultipartRequestBody ImportAdminStudentsMultipartBody

@@ -25,12 +25,15 @@ import (
 )
 
 type fakeService struct {
-	branches    []eventsvc.Branch
-	page        eventsvc.Page
-	event       eventsvc.Event
-	err         error
-	createCalls int
-	getCalls    int
+	branches               []eventsvc.Branch
+	page                   eventsvc.Page
+	event                  eventsvc.Event
+	assignments            []eventsvc.CoordinatorAssignment
+	err                    error
+	createCalls            int
+	getCalls               int
+	coordinatorCreateCalls int
+	coordinatorInput       eventsvc.CreateCoordinatorAssignmentInput
 }
 
 func (f *fakeService) Branches(context.Context) ([]eventsvc.Branch, error) { return f.branches, f.err }
@@ -53,6 +56,17 @@ func (f *fakeService) CreateCategory(context.Context, eventsvc.Actor, eventsvc.C
 }
 func (f *fakeService) Archive(context.Context, eventsvc.Actor, string) (eventsvc.Event, error) {
 	return f.event, f.err
+}
+func (f *fakeService) ListCoordinatorAssignments(context.Context, eventsvc.Actor, string) ([]eventsvc.CoordinatorAssignment, error) {
+	return f.assignments, f.err
+}
+func (f *fakeService) CreateCoordinatorAssignment(_ context.Context, _ eventsvc.Actor, input eventsvc.CreateCoordinatorAssignmentInput) (eventsvc.CoordinatorAssignment, error) {
+	f.coordinatorCreateCalls++
+	f.coordinatorInput = input
+	if len(f.assignments) > 0 {
+		return f.assignments[0], f.err
+	}
+	return eventsvc.CoordinatorAssignment{}, f.err
 }
 
 func TestHandlersReturnGeneratedSuccessShapes(t *testing.T) {
@@ -260,6 +274,8 @@ func eventRouter(svc Service) *gin.Engine {
 	router.POST("/events", CreateEventHandler(svc))
 	router.GET("/events/:event_id", GetEventHandler(svc))
 	router.POST("/events/:event_id/archive", ArchiveEventHandler(svc))
+	router.GET("/events/:event_id/coordinators", ListCoordinatorAssignmentsHandler(svc))
+	router.POST("/events/:event_id/coordinators", CreateCoordinatorAssignmentHandler(svc))
 	return router
 }
 

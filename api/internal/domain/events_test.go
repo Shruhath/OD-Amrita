@@ -49,6 +49,7 @@ func TestAllActions_MatchesDeclaredConstants(t *testing.T) {
 		ActionTeacherProfileCreated: "teacher.profile_created",
 		ActionStudentRosterImported: "student_roster.imported",
 		ActionCardTokenSealed:       "card_token.sealed",
+		ActionCoordinatorAssigned:   "coordinator.assigned",
 	}
 
 	// (1) Each constant carries its exact architecture-mandated wire value.

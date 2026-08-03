@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type R
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Branch, CreateEventInput, EventRecord, ValidationError } from '../../../api/client'
+import { PortalShell } from '../../../components/PortalShell'
 import { ApiFailure } from '../../../api/client'
 import { useAuth } from '../../../features/auth/context'
 import { formatDate, messageOf, titleCase } from './format'
@@ -12,7 +13,7 @@ const pageSize = 20
 const eventKey = (page: number) => [...eventKeyRoot, page, pageSize] as const
 
 export default function EventsPortal() {
-  const { api, identity, signOut } = useAuth()
+  const { api } = useAuth()
   const queryClient = useQueryClient()
   const [creating, setCreating] = useState(false)
   const [page, setPage] = useState(1)
@@ -39,92 +40,74 @@ export default function EventsPortal() {
   const totalPages = Math.max(1, Math.ceil((events.data?.total ?? 0) / (events.data?.page_size ?? pageSize)))
 
   return (
-    <div className="portal-shell">
-      <header className="topbar">
+    <PortalShell>
+      <div className="page-heading">
         <div>
-          <span className="brand-mark" aria-hidden="true">OD</span>
-          <span className="brand-name">OD-Amrita</span>
+          <p className="eyebrow">Administration · Events</p>
+          <h1>Events</h1>
+          <p>Plan university events across branches and retain a clear historical record.</p>
         </div>
-        <nav className="portal-nav" aria-label="Administration sections">
-          <Link to="/portal/events" aria-current="page">Events</Link>
-          <Link to="/portal/teachers">Teachers</Link>
-          <Link to="/portal/students">Students</Link>
-        </nav>
-        <div className="account-actions">
-          <span>{identity?.name ?? identity?.email}</span>
-          <button className="text-button" type="button" onClick={() => void signOut()}>Sign out</button>
-        </div>
-      </header>
+        <button className="primary" type="button" disabled={!canCreate} onClick={() => setCreating(true)}>
+          New event
+        </button>
+      </div>
 
-      <main className="workspace">
-        <div className="page-heading">
-          <div>
-            <p className="eyebrow">Administration · Events</p>
-            <h1>Events</h1>
-            <p>Plan university events across branches and retain a clear historical record.</p>
+      {branches.isPending && <p role="status" aria-label="Loading branches">Loading branches…</p>}
+      {events.isPending && <p role="status" aria-label="Loading events">Loading events…</p>}
+
+      {branches.isError && (
+        <ErrorState message={messageOf(branches.error, 'Branches could not be loaded')} retry={() => void branches.refetch()} />
+      )}
+      {events.isError && (
+        <ErrorState message={messageOf(events.error, 'Events could not be loaded')} retry={() => void events.refetch()} />
+      )}
+
+      {branches.isSuccess && branchData.length === 0 && (
+        <section className="empty-state">
+          <h2>No branches available</h2>
+          <p>Branches must be configured before an event can be created.</p>
+        </section>
+      )}
+
+      {branches.isSuccess && events.isSuccess && branchData.length > 0 && eventData.length === 0 && (
+        <section className="empty-state">
+          <h2>No events yet</h2>
+          <p>Create the first event to begin the calendar.</p>
+        </section>
+      )}
+
+      {events.isSuccess && eventData.length > 0 && (
+        <>
+          <div className="table-wrap">
+            <table>
+              <caption className="sr-only">All active and archived events</caption>
+              <thead><tr><th>Event</th><th>Date</th><th>Branches</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr></thead>
+              <tbody>
+                {eventData.map((event) => (
+                  <tr key={event.id} className={event.status === 'archived' ? 'archived-row' : undefined}>
+                    <th scope="row"><Link to={`/portal/events/${event.id}`}>{event.name}</Link></th>
+                    <td>{formatDate(event.event_date)}</td>
+                    <td><div className="branch-list">{event.branches.map((branch) => <span className="branch-chip" key={branch.id}>{branch.name} <small>{branch.code}</small></span>)}</div></td>
+                    <td><span className={`status-badge ${event.status}`}><span aria-hidden="true">{event.status === 'active' ? '●' : '✓'}</span><span>{titleCase(event.status)}</span></span></td>
+                    <td className="row-action">
+                      {event.status === 'active' && (
+                        <button type="button" className="secondary" onClick={() => { setArchiveError(null); setArchiveTarget(event) }}>Archive</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <button className="primary" type="button" disabled={!canCreate} onClick={() => setCreating(true)}>
-            New event
-          </button>
-        </div>
+          <nav className="pagination" aria-label="Events pages">
+            <button type="button" disabled={page === 1 || events.isFetching} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
+            <span aria-live="polite">Page {page} of {totalPages}</span>
+            <button type="button" disabled={page >= totalPages || events.isFetching} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>Next</button>
+          </nav>
+        </>
+      )}
 
-        {branches.isPending && <p role="status" aria-label="Loading branches">Loading branches…</p>}
-        {events.isPending && <p role="status" aria-label="Loading events">Loading events…</p>}
-
-        {branches.isError && (
-          <ErrorState message={messageOf(branches.error, 'Branches could not be loaded')} retry={() => void branches.refetch()} />
-        )}
-        {events.isError && (
-          <ErrorState message={messageOf(events.error, 'Events could not be loaded')} retry={() => void events.refetch()} />
-        )}
-
-        {branches.isSuccess && branchData.length === 0 && (
-          <section className="empty-state">
-            <h2>No branches available</h2>
-            <p>Branches must be configured before an event can be created.</p>
-          </section>
-        )}
-
-        {branches.isSuccess && events.isSuccess && branchData.length > 0 && eventData.length === 0 && (
-          <section className="empty-state">
-            <h2>No events yet</h2>
-            <p>Create the first event to begin the calendar.</p>
-          </section>
-        )}
-
-        {events.isSuccess && eventData.length > 0 && (
-          <>
-            <div className="table-wrap">
-              <table>
-                <caption className="sr-only">All active and archived events</caption>
-                <thead><tr><th>Event</th><th>Date</th><th>Branches</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr></thead>
-                <tbody>
-                  {eventData.map((event) => (
-                    <tr key={event.id} className={event.status === 'archived' ? 'archived-row' : undefined}>
-                      <th scope="row"><Link to={`/portal/events/${event.id}`}>{event.name}</Link></th>
-                      <td>{formatDate(event.event_date)}</td>
-                      <td><div className="branch-list">{event.branches.map((branch) => <span className="branch-chip" key={branch.id}>{branch.name} <small>{branch.code}</small></span>)}</div></td>
-                      <td><span className={`status-badge ${event.status}`}><span aria-hidden="true">{event.status === 'active' ? '●' : '✓'}</span><span>{titleCase(event.status)}</span></span></td>
-                      <td className="row-action">
-                        {event.status === 'active' && (
-                          <button type="button" className="secondary" onClick={() => { setArchiveError(null); setArchiveTarget(event) }}>Archive</button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <nav className="pagination" aria-label="Events pages">
-              <button type="button" disabled={page === 1 || events.isFetching} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
-              <span aria-live="polite">Page {page} of {totalPages}</span>
-              <button type="button" disabled={page >= totalPages || events.isFetching} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>Next</button>
-            </nav>
-          </>
-        )}
-
-        {archiveError && <p className="notice error" role="alert">{archiveError}</p>}
-      </main>
+      {archiveError && <p className="notice error" role="alert">{archiveError}</p>}
 
       {creating && (
         <CreateDialog
@@ -151,7 +134,7 @@ export default function EventsPortal() {
           {archive.isPending && <p role="status">Archiving…</p>}
         </Dialog>
       )}
-    </div>
+    </PortalShell>
   )
 }
 

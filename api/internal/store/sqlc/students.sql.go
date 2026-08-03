@@ -23,6 +23,27 @@ func (q *Queries) CountStudents(ctx context.Context) (int32, error) {
 	return column_1, err
 }
 
+const countStudentsForCardPopulation = `-- name: CountStudentsForCardPopulation :one
+SELECT count(*)
+FROM students s
+WHERE ($1::uuid IS NULL OR s.branch_id = $1::uuid)
+  AND ($2::text = '' OR s.batch = $2::text)
+  AND ($3::text = '' OR s.section = $3::text)
+`
+
+type CountStudentsForCardPopulationParams struct {
+	BranchID pgtype.UUID `json:"branch_id"`
+	Batch    string      `json:"batch"`
+	Section  string      `json:"section"`
+}
+
+func (q *Queries) CountStudentsForCardPopulation(ctx context.Context, arg CountStudentsForCardPopulationParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countStudentsForCardPopulation, arg.BranchID, arg.Batch, arg.Section)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getBranchByCode = `-- name: GetBranchByCode :one
 SELECT id, code
 FROM branches
@@ -95,6 +116,158 @@ func (q *Queries) InsertStudentRosterImport(ctx context.Context, arg InsertStude
 	var id pgtype.UUID
 	err := row.Scan(&id)
 	return id, err
+}
+
+const listStudentsForCardPopulation = `-- name: ListStudentsForCardPopulation :many
+SELECT
+    s.id,
+    s.roll_no,
+    s.name,
+    b.code AS branch,
+    s.section,
+    s.batch
+FROM students s
+JOIN branches b ON b.id = s.branch_id
+WHERE ($1::uuid IS NULL OR s.branch_id = $1::uuid)
+  AND ($2::text = '' OR s.batch = $2::text)
+  AND ($3::text = '' OR s.section = $3::text)
+ORDER BY b.code ASC, s.batch ASC, s.section ASC, s.roll_no ASC, s.id ASC
+LIMIT $5::bigint OFFSET $4::bigint
+`
+
+type ListStudentsForCardPopulationParams struct {
+	BranchID   pgtype.UUID `json:"branch_id"`
+	Batch      string      `json:"batch"`
+	Section    string      `json:"section"`
+	PageOffset int64       `json:"page_offset"`
+	PageSize   int64       `json:"page_size"`
+}
+
+type ListStudentsForCardPopulationRow struct {
+	ID      pgtype.UUID `json:"id"`
+	RollNo  string      `json:"roll_no"`
+	Name    string      `json:"name"`
+	Branch  string      `json:"branch"`
+	Section string      `json:"section"`
+	Batch   string      `json:"batch"`
+}
+
+// Read-only roster page behind the admin card populator. Deliberately selects
+// only display columns: no email lives on students, and card token material is
+// confined to student_card_tokens, which this query never joins.
+// Empty-string filters mean "unfiltered", matching the ListEvents sentinel
+// style; section/batch can never be blank thanks to the roster CHECK
+// constraints, so a blank value is unambiguous.
+func (q *Queries) ListStudentsForCardPopulation(ctx context.Context, arg ListStudentsForCardPopulationParams) ([]ListStudentsForCardPopulationRow, error) {
+	rows, err := q.db.Query(ctx, listStudentsForCardPopulation,
+		arg.BranchID,
+		arg.Batch,
+		arg.Section,
+		arg.PageOffset,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListStudentsForCardPopulationRow
+	for rows.Next() {
+		var i ListStudentsForCardPopulationRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.RollNo,
+			&i.Name,
+			&i.Branch,
+			&i.Section,
+			&i.Batch,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchStudentsByPrefix = `-- name: SearchStudentsByPrefix :many
+SELECT
+    s.id,
+    s.roll_no,
+    s.name,
+    b.code AS branch,
+    s.section,
+    s.batch
+FROM students s
+JOIN branches b ON b.id = s.branch_id
+WHERE s.roll_no LIKE upper($1::text) ESCAPE '\'
+   OR lower(s.name) LIKE lower($1::text) ESCAPE '\'
+ORDER BY
+    (s.roll_no = $2::text) DESC,
+    s.roll_no ASC,
+    lower(s.name) ASC,
+    s.id ASC
+LIMIT $3::bigint
+`
+
+type SearchStudentsByPrefixParams struct {
+	Pattern     string `json:"pattern"`
+	ExactRoll   string `json:"exact_roll"`
+	ResultLimit int64  `json:"result_limit"`
+}
+
+type SearchStudentsByPrefixRow struct {
+	ID      pgtype.UUID `json:"id"`
+	RollNo  string      `json:"roll_no"`
+	Name    string      `json:"name"`
+	Branch  string      `json:"branch"`
+	Section string      `json:"section"`
+	Batch   string      `json:"batch"`
+}
+
+// Authenticated roster search behind the coordinator marking surface (FR55) and
+// the resolution step for the camera path.
+//
+// PREFIX-ONLY, deliberately: a leading `%foo%` wildcard turns every keystroke
+// into a full scan and can never use an index. The service escapes `%` and `_`
+// in the user's input before building the pattern, so a coordinator typing `%`
+// matches a literal `%` rather than dumping the roster.
+//
+// Index note: students_roll_no_idx and students_name_lower_idx are plain btrees.
+// Under a non-C database collation Postgres cannot use a plain btree for LIKE
+// prefix matching, so this may plan as a sequential scan. At the roster's real
+// size (~1.5k rows) that is sub-millisecond and does not justify a migration.
+// If the roster ever grows past tens of thousands, the fix is a migration adding
+// text_pattern_ops indexes on (roll_no) and (lower(name)) — not a looser query.
+//
+// Selects display columns only: no email lives on students, and card token
+// material is confined to student_card_tokens, which this query never joins.
+func (q *Queries) SearchStudentsByPrefix(ctx context.Context, arg SearchStudentsByPrefixParams) ([]SearchStudentsByPrefixRow, error) {
+	rows, err := q.db.Query(ctx, searchStudentsByPrefix, arg.Pattern, arg.ExactRoll, arg.ResultLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchStudentsByPrefixRow
+	for rows.Next() {
+		var i SearchStudentsByPrefixRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.RollNo,
+			&i.Name,
+			&i.Branch,
+			&i.Section,
+			&i.Batch,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const upsertStudent = `-- name: UpsertStudent :one

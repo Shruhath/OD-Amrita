@@ -63,6 +63,14 @@ type EventBranch struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type EventCoordinatorAssignment struct {
+	ID              pgtype.UUID        `json:"id"`
+	UserID          pgtype.UUID        `json:"user_id"`
+	EventID         pgtype.UUID        `json:"event_id"`
+	CreatedByUserID pgtype.UUID        `json:"created_by_user_id"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
 type OdRecord struct {
 	ID               pgtype.UUID        `json:"id"`
 	StudentID        pgtype.UUID        `json:"student_id"`

@@ -444,6 +444,23 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 	`); err != nil {
 		return fmt.Errorf("upsert out-of-branch student fixture: %w", err)
 	}
+	// Dedicated to the 0.9 teacher search-mark journey — CB.SC.U4CSE24001-003
+	// belongs to coordinator-marking.spec.ts and 24004-005 to
+	// capture-credits.spec.ts; reusing either pool put two legitimate marks in
+	// the same unfiltered admin attendance view and broke a strict-mode locator.
+	// Two rolls, matching the "different student per retry" convention used
+	// elsewhere, even though this config currently runs with retries: 0.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO students (id, roll_no, name, branch_id, section, batch)
+		VALUES
+			('95000000-0000-4000-8000-000000000007', 'CB.SC.U4CSE24006', 'Teacher Fixture Student One', '91000000-0000-4000-8000-000000000001', 'A', '2024'),
+			('95000000-0000-4000-8000-000000000008', 'CB.SC.U4CSE24007', 'Teacher Fixture Student Two', '91000000-0000-4000-8000-000000000001', 'A', '2024')
+		ON CONFLICT (id) DO UPDATE
+		SET roll_no = EXCLUDED.roll_no, name = EXCLUDED.name, branch_id = EXCLUDED.branch_id,
+		    section = EXCLUDED.section, batch = EXCLUDED.batch
+	`); err != nil {
+		return fmt.Errorf("upsert teacher search-mark student fixtures: %w", err)
+	}
 
 	// The marking fixtures, seeded LAST so branches and students already exist.
 	//

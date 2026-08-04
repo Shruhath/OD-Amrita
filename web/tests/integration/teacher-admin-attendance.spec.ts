@@ -16,7 +16,7 @@ import { expect, test } from '@playwright/test'
  *     branch-scoped to CSE via `user_branches`.
  *  2. An active event dated TODAY (the same `93000000-...0001` marking event
  *     the coordinator journey uses) with a CSE-branch association, plus a CSE
- *     roster (CB.SC.U4CSE24001-005) and one ECE student
+ *     roster (CB.SC.U4CSE24001-007) and one ECE student
  *     (CB.SC.U4ECE24001) outside the teacher's branch.
  */
 
@@ -33,11 +33,12 @@ test.describe('real stack teacher/admin search marking', () => {
     // A DIFFERENT student per attempt, matching coordinator-marking.spec.ts's
     // reasoning: the harness clears od_records once at boot, not per test, and
     // CI retries — re-marking the same student in the same slot would return
-    // SCAN_DUPLICATE and turn any flake into a hard red. Deliberately disjoint
-    // from coordinator-marking.spec.ts's roll pool (CSE24001-003): that spec
-    // marks at whatever slot the real clock currently has open, so sharing a
-    // roll could collide with this fixed slot 4 by coincidence.
-    const rolls = ['CB.SC.U4CSE24004', 'CB.SC.U4CSE24005']
+    // SCAN_DUPLICATE and turn any flake into a hard red. CB.SC.U4CSE24006/007
+    // are dedicated to this spec (seeded in api/test/portal/main.go) —
+    // CSE24001-003 belongs to coordinator-marking.spec.ts and CSE24004-005 to
+    // capture-credits.spec.ts; reusing either pool put two legitimate marks in
+    // the same unfiltered admin attendance view this test reads.
+    const rolls = ['CB.SC.U4CSE24006', 'CB.SC.U4CSE24007']
     const roll = rolls[testInfo.retry % rolls.length]
 
     await openTeacherMarkScreen(page)

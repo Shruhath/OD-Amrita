@@ -329,13 +329,17 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 	// harness is restartable after any journey, not only after a clean one.
 	if _, err := tx.Exec(ctx, `
 			DELETE FROM od_records
-			WHERE student_id IN (SELECT id FROM students WHERE roll_no LIKE 'CB.SC.U4CSE%')
+			WHERE student_id IN (
+				SELECT id FROM students WHERE roll_no LIKE 'CB.SC.U4CSE%' OR roll_no LIKE 'CB.SC.U4ECE%'
+			)
 		`); err != nil {
 		return fmt.Errorf("delete student od record fixtures: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
 			DELETE FROM student_card_tokens
-			WHERE student_id IN (SELECT id FROM students WHERE roll_no LIKE 'CB.SC.U4CSE%')
+			WHERE student_id IN (
+				SELECT id FROM students WHERE roll_no LIKE 'CB.SC.U4CSE%' OR roll_no LIKE 'CB.SC.U4ECE%'
+			)
 		`); err != nil {
 		return fmt.Errorf("delete student card token fixtures: %w", err)
 	}
@@ -356,18 +360,6 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 		SET email = EXCLUDED.email, name = EXCLUDED.name, role = EXCLUDED.role
 	`, adminSubject, studentSub, coordinatorSub, teacherPrincipalID, teacherSub, teacherPrincipalEmail); err != nil {
 		return fmt.Errorf("upsert users: %w", err)
-	}
-	// Story 0.9's teacher search-mark journeys need this principal already
-	// branch-scoped to CSE, re-asserted on every start (not ON CONFLICT DO
-	// NOTHING) so a run that ever removed it does not silently leave the
-	// teacher with zero branches, which would turn every "should succeed"
-	// assertion into an RBAC_FORBIDDEN red herring.
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO user_branches (user_id, branch_id)
-		VALUES ($1, '91000000-0000-4000-8000-000000000001')
-		ON CONFLICT DO NOTHING
-	`, teacherPrincipalID); err != nil {
-		return fmt.Errorf("associate teacher principal branch: %w", err)
 	}
 	// The teacher-profile browser journeys elevate this row (student -> teacher).
 	// Reset its role back to student and clear any branch associations from a
@@ -404,6 +396,19 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 		ON CONFLICT (id) DO UPDATE SET code = EXCLUDED.code, name = EXCLUDED.name
 	`); err != nil {
 		return fmt.Errorf("upsert branches: %w", err)
+	}
+	// Story 0.9's teacher search-mark journeys need this principal already
+	// branch-scoped to CSE, re-asserted on every start (not ON CONFLICT DO
+	// NOTHING on a row that could go missing) so a run that ever removed it
+	// does not silently leave the teacher with zero branches, which would turn
+	// every "should succeed" assertion into an RBAC_FORBIDDEN red herring. Must
+	// run AFTER the branches insert above — user_branches.branch_id is a real FK.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO user_branches (user_id, branch_id)
+		VALUES ($1, '91000000-0000-4000-8000-000000000001')
+		ON CONFLICT DO NOTHING
+	`, teacherPrincipalID); err != nil {
+		return fmt.Errorf("associate teacher principal branch: %w", err)
 	}
 
 	// Card-populator roster fixtures. Seeded AFTER the CB.SC.U4CSE% delete above

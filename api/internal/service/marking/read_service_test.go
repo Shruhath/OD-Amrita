@@ -106,12 +106,14 @@ func newReadFixture(t *testing.T) (*ReadService, *fakeReader, *recordingEvents, 
 	return NewReadService(NewPolicy(reader), events, searcher, status), reader, events, searcher, status
 }
 
-// 0.6-READSEAM-001a — a non-coordinator is refused by every scoped read, and no
-// downstream dependency is touched.
+// 0.6-READSEAM-001a — a non-coordinator is refused by every COORDINATOR-scoped
+// read, and no downstream dependency is touched. SearchStudents is excluded
+// here since 0.9 widens it to admit teacher/admin too — see
+// TestReadService_SearchStudentsAdmitsCoordinatorTeacherAndAdminOnly below.
 func TestReadService_RefusesNonCoordinatorsBeforeReadingAnything(t *testing.T) {
 	for _, role := range []string{"admin", "teacher", "student", "", "COORDINATOR"} {
 		t.Run(role, func(t *testing.T) {
-			svc, reader, events, searcher, status := newReadFixture(t)
+			svc, reader, events, _, status := newReadFixture(t)
 			actor := Actor{UserID: "u", Role: role}
 
 			if _, err := svc.VisibleEvents(context.Background(), actor); err == nil {
@@ -119,9 +121,6 @@ func TestReadService_RefusesNonCoordinatorsBeforeReadingAnything(t *testing.T) {
 			}
 			if _, err := svc.Categories(context.Background(), actor, activeEventID); err == nil {
 				t.Errorf("[P0] Categories admitted role %q", role)
-			}
-			if _, err := svc.SearchStudents(context.Background(), actor, "CB.SC", 10); err == nil {
-				t.Errorf("[P0] SearchStudents admitted role %q — the roster is 1,534 real people", role)
 			}
 			if _, err := svc.MarkStatus(context.Background(), actor, activeEventID, categoryID); err == nil {
 				t.Errorf("[P0] MarkStatus admitted role %q", role)
@@ -131,14 +130,44 @@ func TestReadService_RefusesNonCoordinatorsBeforeReadingAnything(t *testing.T) {
 				t.Errorf("[P0] the category repository was reached %d times for a refused actor — "+
 					"authorization must precede the read, not follow it", events.listCategoriesCalls)
 			}
-			if searcher.calls != 0 {
-				t.Errorf("[P0] the roster search ran %d times for a refused actor", searcher.calls)
-			}
 			if status.calls != 0 {
 				t.Errorf("[P0] the counters query ran %d times for a refused actor", status.calls)
 			}
 			if reader.activeEventsCalls != 0 {
 				t.Errorf("[P0] the event reader was reached %d times for a refused actor", reader.activeEventsCalls)
+			}
+		})
+	}
+}
+
+// 0.9-READSEAM-002 — SearchStudents is the one read coordinator, teacher, AND
+// admin share (the teacher/admin search-mark screen calls this exact endpoint
+// before it can select a student), while student/unknown/miscased roles stay
+// refused and never reach the searcher.
+func TestReadService_SearchStudentsAdmitsCoordinatorTeacherAndAdminOnly(t *testing.T) {
+	for _, role := range []string{"coordinator", "teacher", "admin"} {
+		t.Run(role+"_admitted", func(t *testing.T) {
+			svc, _, _, searcher, _ := newReadFixture(t)
+			actor := Actor{UserID: "u", Role: role}
+
+			if _, err := svc.SearchStudents(context.Background(), actor, "CB.SC", 10); err != nil {
+				t.Errorf("[P0] SearchStudents refused role %q = %v, want nil", role, err)
+			}
+			if searcher.calls != 1 {
+				t.Errorf("[P0] the roster search ran %d times for an admitted actor, want 1", searcher.calls)
+			}
+		})
+	}
+	for _, role := range []string{"student", "", "COORDINATOR"} {
+		t.Run(role+"_refused", func(t *testing.T) {
+			svc, _, _, searcher, _ := newReadFixture(t)
+			actor := Actor{UserID: "u", Role: role}
+
+			if _, err := svc.SearchStudents(context.Background(), actor, "CB.SC", 10); err == nil {
+				t.Errorf("[P0] SearchStudents admitted role %q — the roster is 1,534 real people", role)
+			}
+			if searcher.calls != 0 {
+				t.Errorf("[P0] the roster search ran %d times for a refused actor", searcher.calls)
 			}
 		})
 	}

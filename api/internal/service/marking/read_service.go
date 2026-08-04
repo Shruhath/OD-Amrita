@@ -141,9 +141,15 @@ func (s *ReadService) Categories(ctx context.Context, actor Actor, eventID strin
 
 // SearchStudents is the ROLE-gated read. See the type doc above for why it is
 // not event-scoped, and what the assignment story has to decide about it.
+//
+// Deliberately NOT assertCoordinator: Story 0.9's teacher/admin search-mark
+// screen calls this exact endpoint before it can select a student to mark, so
+// coordinator-only here would 403 the entire teacher/admin surface at the
+// first step. VisibleEvents/Categories/MarkStatus stay coordinator-only via
+// assertCoordinator — this is the one read three roles share.
 func (s *ReadService) SearchStudents(ctx context.Context, actor Actor, query string, limit int) ([]Student, error) {
-	if err := assertCoordinator(actor); err != nil {
-		return nil, AsDomainError(err)
+	if err := assertMaySearchRoster(actor); err != nil {
+		return nil, err
 	}
 	rows, err := s.students.Search(ctx, svcstudent.Actor{
 		UserID: actor.UserID,
@@ -187,4 +193,17 @@ func (s *ReadService) MarkStatus(ctx context.Context, actor Actor, eventID, cate
 		status.Slot = &SlotWindow{Slot: raw.Slot.Slot, StartedAt: raw.Slot.Start, EndsAt: raw.Slot.End}
 	}
 	return status, nil
+}
+
+// assertMaySearchRoster is intentionally exact-match, mirroring assertCoordinator's
+// own reasoning: role strings come from the users table, and a case-insensitive
+// compare here would silently admit a row written by some future path that did
+// not canonicalise.
+func assertMaySearchRoster(actor Actor) error {
+	switch actor.Role {
+	case roleCoordinator, "teacher", "admin":
+		return nil
+	default:
+		return forbiddenPortal("Coordinator, teacher, or administrator access is required to search students.")
+	}
 }

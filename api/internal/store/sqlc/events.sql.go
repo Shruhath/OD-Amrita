@@ -158,6 +158,67 @@ func (q *Queries) GetEventMutationStatus(ctx context.Context, eventID pgtype.UUI
 	return status, err
 }
 
+const listAdminPortalMarkEvents = `-- name: ListAdminPortalMarkEvents :many
+SELECT
+    e.id,
+    e.name,
+    e.event_date,
+    e.status,
+    e.archived_at,
+    e.created_at,
+    COALESCE(
+        jsonb_agg(
+            jsonb_build_object('id', b.id, 'code', b.code, 'name', b.name)
+            ORDER BY b.code ASC, b.id ASC
+        ) FILTER (WHERE b.id IS NOT NULL),
+        '[]'::jsonb
+    )::text AS branches_json
+FROM events e
+LEFT JOIN event_branches eb ON eb.event_id = e.id
+LEFT JOIN branches b ON b.id = eb.branch_id
+WHERE e.status = 'active'
+GROUP BY e.id
+ORDER BY e.event_date ASC, e.created_at ASC, e.id ASC
+`
+
+type ListAdminPortalMarkEventsRow struct {
+	ID           pgtype.UUID        `json:"id"`
+	Name         string             `json:"name"`
+	EventDate    pgtype.Date        `json:"event_date"`
+	Status       string             `json:"status"`
+	ArchivedAt   pgtype.Timestamptz `json:"archived_at"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	BranchesJson string             `json:"branches_json"`
+}
+
+func (q *Queries) ListAdminPortalMarkEvents(ctx context.Context) ([]ListAdminPortalMarkEventsRow, error) {
+	rows, err := q.db.Query(ctx, listAdminPortalMarkEvents)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAdminPortalMarkEventsRow
+	for rows.Next() {
+		var i ListAdminPortalMarkEventsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.EventDate,
+			&i.Status,
+			&i.ArchivedAt,
+			&i.CreatedAt,
+			&i.BranchesJson,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEvents = `-- name: ListEvents :many
 SELECT
     e.id,
@@ -207,6 +268,74 @@ func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]ListE
 	var items []ListEventsRow
 	for rows.Next() {
 		var i ListEventsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.EventDate,
+			&i.Status,
+			&i.ArchivedAt,
+			&i.CreatedAt,
+			&i.BranchesJson,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTeacherPortalMarkEvents = `-- name: ListTeacherPortalMarkEvents :many
+SELECT
+    e.id,
+    e.name,
+    e.event_date,
+    e.status,
+    e.archived_at,
+    e.created_at,
+    COALESCE(
+        jsonb_agg(
+            jsonb_build_object('id', b.id, 'code', b.code, 'name', b.name)
+            ORDER BY b.code ASC, b.id ASC
+        ) FILTER (WHERE b.id IS NOT NULL),
+        '[]'::jsonb
+    )::text AS branches_json
+FROM events e
+LEFT JOIN event_branches eb ON eb.event_id = e.id
+LEFT JOIN branches b ON b.id = eb.branch_id
+WHERE e.status = 'active'
+  AND EXISTS (
+      SELECT 1
+      FROM event_branches markable_eb
+      JOIN user_branches ub ON ub.branch_id = markable_eb.branch_id
+      WHERE markable_eb.event_id = e.id
+        AND ub.user_id = $1
+  )
+GROUP BY e.id
+ORDER BY e.event_date ASC, e.created_at ASC, e.id ASC
+`
+
+type ListTeacherPortalMarkEventsRow struct {
+	ID           pgtype.UUID        `json:"id"`
+	Name         string             `json:"name"`
+	EventDate    pgtype.Date        `json:"event_date"`
+	Status       string             `json:"status"`
+	ArchivedAt   pgtype.Timestamptz `json:"archived_at"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	BranchesJson string             `json:"branches_json"`
+}
+
+func (q *Queries) ListTeacherPortalMarkEvents(ctx context.Context, userID pgtype.UUID) ([]ListTeacherPortalMarkEventsRow, error) {
+	rows, err := q.db.Query(ctx, listTeacherPortalMarkEvents, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTeacherPortalMarkEventsRow
+	for rows.Next() {
+		var i ListTeacherPortalMarkEventsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,

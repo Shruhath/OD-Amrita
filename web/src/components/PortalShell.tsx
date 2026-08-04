@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../features/auth/context'
 import { AppFooter } from './AppFooter'
+import { ThemeToggle } from './ThemeToggle'
 
 const sections = [
   { to: '/portal/events', label: 'Events' },
@@ -43,6 +44,7 @@ export function PortalShell({ children }: { children: ReactNode }) {
 
         <div className="account-actions">
           <span>{identity?.name ?? identity?.email}</span>
+          <ThemeToggle />
           <button className="text-button" type="button" onClick={() => void signOut()}>Sign out</button>
         </div>
       </header>

@@ -13,8 +13,10 @@ export function Application({ session, router }: { session: SessionPort; router:
   }))
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Painted once, behind everything. The portal shell is opaque and covers
-          it; only the auth surfaces let it through. */}
+      {/* No theme provider: the theme is an external store (features/theme/store),
+          so every toggle shares it without one. */}
+      {/* Painted once, behind everything. Every shell above it is transparent,
+          so it is the ground for all seven surfaces, not just sign-in. */}
       <AppBackdrop />
       <AuthProvider session={session}>
         <RouterProvider router={router} />

@@ -11,6 +11,50 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const adminCanSearchMark = `-- name: AdminCanSearchMark :one
+SELECT EXISTS (
+    SELECT 1
+    FROM events e
+    JOIN categories c ON c.event_id = e.id AND c.id = $1
+    WHERE e.id = $2
+      AND e.status = 'active'
+)::boolean
+`
+
+type AdminCanSearchMarkParams struct {
+	CategoryID pgtype.UUID `json:"category_id"`
+	EventID    pgtype.UUID `json:"event_id"`
+}
+
+func (q *Queries) AdminCanSearchMark(ctx context.Context, arg AdminCanSearchMarkParams) (bool, error) {
+	row := q.db.QueryRow(ctx, adminCanSearchMark, arg.CategoryID, arg.EventID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countAttendanceRecords = `-- name: CountAttendanceRecords :one
+SELECT count(*)::bigint
+FROM od_records r
+WHERE r.event_id = $1
+  AND r.status = 'present'
+  AND ($2::uuid IS NULL OR r.category_id = $2)
+  AND ($3::integer IS NULL OR r.slot = $3)
+`
+
+type CountAttendanceRecordsParams struct {
+	EventID    pgtype.UUID `json:"event_id"`
+	CategoryID pgtype.UUID `json:"category_id"`
+	Slot       pgtype.Int4 `json:"slot"`
+}
+
+func (q *Queries) CountAttendanceRecords(ctx context.Context, arg CountAttendanceRecordsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAttendanceRecords, arg.EventID, arg.CategoryID, arg.Slot)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countMarksForCategory = `-- name: CountMarksForCategory :one
 SELECT
     count(*)::bigint AS category_total,
@@ -191,4 +235,142 @@ func (q *Queries) InsertODPresentRecord(ctx context.Context, arg InsertODPresent
 		&i.ServerReceivedAt,
 	)
 	return i, err
+}
+
+const listAttendanceRecords = `-- name: ListAttendanceRecords :many
+SELECT
+    r.id,
+    r.student_id,
+    s.roll_no,
+    s.name AS student_name,
+    b.code AS branch,
+    s.section,
+    s.batch,
+    r.event_id,
+    c.id AS category_id,
+    c.name AS category_name,
+    c.created_at AS category_created_at,
+    r.slot,
+    r.capture_method,
+    r.actor_user_id,
+    u.email AS actor_email,
+    u.name AS actor_name,
+    r.actor_role,
+    r.server_received_at
+FROM od_records r
+JOIN students s ON s.id = r.student_id
+JOIN branches b ON b.id = s.branch_id
+JOIN categories c ON c.id = r.category_id
+LEFT JOIN users u ON u.id = r.actor_user_id
+WHERE r.event_id = $1
+  AND r.status = 'present'
+  AND ($2::uuid IS NULL OR r.category_id = $2)
+  AND ($3::integer IS NULL OR r.slot = $3)
+ORDER BY r.slot ASC, r.server_received_at DESC, s.roll_no ASC, r.id ASC
+LIMIT $5::bigint OFFSET $4::bigint
+`
+
+type ListAttendanceRecordsParams struct {
+	EventID    pgtype.UUID `json:"event_id"`
+	CategoryID pgtype.UUID `json:"category_id"`
+	Slot       pgtype.Int4 `json:"slot"`
+	PageOffset int64       `json:"page_offset"`
+	PageSize   int64       `json:"page_size"`
+}
+
+type ListAttendanceRecordsRow struct {
+	ID                pgtype.UUID        `json:"id"`
+	StudentID         pgtype.UUID        `json:"student_id"`
+	RollNo            string             `json:"roll_no"`
+	StudentName       string             `json:"student_name"`
+	Branch            string             `json:"branch"`
+	Section           string             `json:"section"`
+	Batch             string             `json:"batch"`
+	EventID           pgtype.UUID        `json:"event_id"`
+	CategoryID        pgtype.UUID        `json:"category_id"`
+	CategoryName      string             `json:"category_name"`
+	CategoryCreatedAt pgtype.Timestamptz `json:"category_created_at"`
+	Slot              int32              `json:"slot"`
+	CaptureMethod     string             `json:"capture_method"`
+	ActorUserID       pgtype.UUID        `json:"actor_user_id"`
+	ActorEmail        pgtype.Text        `json:"actor_email"`
+	ActorName         pgtype.Text        `json:"actor_name"`
+	ActorRole         string             `json:"actor_role"`
+	ServerReceivedAt  pgtype.Timestamptz `json:"server_received_at"`
+}
+
+func (q *Queries) ListAttendanceRecords(ctx context.Context, arg ListAttendanceRecordsParams) ([]ListAttendanceRecordsRow, error) {
+	rows, err := q.db.Query(ctx, listAttendanceRecords,
+		arg.EventID,
+		arg.CategoryID,
+		arg.Slot,
+		arg.PageOffset,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAttendanceRecordsRow
+	for rows.Next() {
+		var i ListAttendanceRecordsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.StudentID,
+			&i.RollNo,
+			&i.StudentName,
+			&i.Branch,
+			&i.Section,
+			&i.Batch,
+			&i.EventID,
+			&i.CategoryID,
+			&i.CategoryName,
+			&i.CategoryCreatedAt,
+			&i.Slot,
+			&i.CaptureMethod,
+			&i.ActorUserID,
+			&i.ActorEmail,
+			&i.ActorName,
+			&i.ActorRole,
+			&i.ServerReceivedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const teacherCanSearchMark = `-- name: TeacherCanSearchMark :one
+SELECT EXISTS (
+    SELECT 1
+    FROM students s
+    JOIN user_branches ub ON ub.branch_id = s.branch_id AND ub.user_id = $1
+    JOIN event_branches eb ON eb.branch_id = s.branch_id AND eb.event_id = $2
+    JOIN events e ON e.id = eb.event_id AND e.status = 'active'
+    JOIN categories c ON c.id = $3 AND c.event_id = e.id
+    WHERE s.id = $4
+)::boolean
+`
+
+type TeacherCanSearchMarkParams struct {
+	UserID     pgtype.UUID `json:"user_id"`
+	EventID    pgtype.UUID `json:"event_id"`
+	CategoryID pgtype.UUID `json:"category_id"`
+	StudentID  pgtype.UUID `json:"student_id"`
+}
+
+func (q *Queries) TeacherCanSearchMark(ctx context.Context, arg TeacherCanSearchMarkParams) (bool, error) {
+	row := q.db.QueryRow(ctx, teacherCanSearchMark,
+		arg.UserID,
+		arg.EventID,
+		arg.CategoryID,
+		arg.StudentID,
+	)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }

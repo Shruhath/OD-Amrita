@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Branch, CreateTeacherProfileInput, TeacherProfile, ValidationError } from '../../../api/client'
+import { BranchChip } from '../../../components/BranchChip'
 import { PortalShell } from '../../../components/PortalShell'
 import { ApiFailure } from '../../../api/client'
 import { useAuth } from '../../../features/auth/context'
@@ -74,7 +75,7 @@ export default function TeachersPortal() {
                   <tr key={teacher.user_id}>
                     <th scope="row">{teacher.email}</th>
                     <td>{teacher.name ?? '—'}</td>
-                    <td><div className="branch-list">{teacher.branches.map((branch) => <span className="branch-chip" key={branch.id}>{branch.name} <small>{branch.code}</small></span>)}</div></td>
+                    <td><div className="branch-list">{teacher.branches.map((branch) => <BranchChip branch={branch} key={branch.id} />)}</div></td>
                   </tr>
                 ))}
               </tbody>
@@ -153,13 +154,16 @@ function CreateDialog({ branches, onClose, onCreated }: { branches: Branch[]; on
           <legend>Branches</legend>
           <div className="branch-options">
             {branches.map((branch) => (
-              <label key={branch.id}>
+              <label key={branch.id} title={branch.name}>
                 <input
                   type="checkbox"
                   checked={selected.includes(branch.id)}
                   onChange={() => { toggle(branch.id); clearErrors() }}
                 />
-                <span><strong>{branch.name}</strong><small>{branch.code}</small></span>
+                {/* The code is what is shown; the name stays in the accessible
+                    name (and in the tooltip on the label) so a checkbox is
+                    never just three unexplained letters. */}
+                <span><strong>{branch.code}</strong><span className="sr-only">{branch.name}</span></span>
               </label>
             ))}
           </div>

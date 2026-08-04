@@ -5,7 +5,7 @@ import type { SessionPort } from '../../src/features/auth/session'
 import { createPortalMemoryRouter } from '../../src/router'
 import '../../src/index.css'
 
-type TestRole = 'admin' | 'coordinator' | 'student' | 'none'
+type TestRole = 'admin' | 'coordinator' | 'teacher' | 'student' | 'none'
 
 // Must stay in step with the tokens api/test/portal/main.go's fixed verifier
 // accepts — an unknown token there is an invalid-token 401, which surfaces here
@@ -13,6 +13,7 @@ type TestRole = 'admin' | 'coordinator' | 'student' | 'none'
 const HARNESS_TOKENS: Record<TestRole, string | null> = {
   admin: 'portal-admin-token',
   coordinator: 'portal-coordinator-token',
+  teacher: 'portal-teacher-token',
   student: 'portal-student-token',
   none: null,
 }

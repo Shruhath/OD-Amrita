@@ -19,6 +19,7 @@ import { createOAuth, DEFAULT_REDIRECT_URI } from './src/features/auth/oauth';
 import { createSessionGate, type SessionGateAuthPort, type SessionLike } from './src/features/auth/sessionGate';
 import { RoundTripScreen } from './src/features/auth/RoundTripScreen';
 import { supabase } from './src/lib/supabase/client';
+import { AppSurface, GlassPanel } from './src/ui/AppSurface';
 
 // Required once at module scope by expo-web-browser so a web-flow auth session
 // (opened via openAuthSessionAsync) can signal completion back to the opener.
@@ -145,23 +146,52 @@ export default function App() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.eyebrow}>OD-AMRITA</Text>
-      <Text style={styles.title}>Attendance, without the paper.</Text>
-      <Text style={styles.subtitle}>Sign in with your Amrita Microsoft account to continue.</Text>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Pressable
-        style={styles.primaryButton}
-        accessibilityRole="button"
-        accessibilityLabel="Continue with Microsoft"
-        onPress={() => void handleSignIn()}
-        disabled={busy}
-      >
-        {busy ? (
-          <ActivityIndicator color="#08111f" />
-        ) : (
-          <Text style={styles.primaryButtonText}>Continue with Microsoft</Text>
-        )}
-      </Pressable>
+      <AppSurface>
+        <View style={styles.brandLockup}>
+          <View style={styles.brandMark}>
+            <Text style={styles.brandMarkText}>OD</Text>
+          </View>
+          <View style={styles.brandTextBlock}>
+            <Text style={styles.eyebrow}>OD-AMRITA</Text>
+            <Text style={styles.brandSubline}>Campus attendance</Text>
+          </View>
+        </View>
+
+        <GlassPanel style={styles.signInPanel}>
+          <View style={styles.statusPill}>
+            <View style={styles.statusDot} />
+            <Text style={styles.statusText}>{busy ? 'Checking session' : 'Ready'}</Text>
+          </View>
+          <Text adjustsFontSizeToFit minimumFontScale={0.86} numberOfLines={2} style={styles.title}>
+            On-duty attendance, refined.
+          </Text>
+          <Text style={styles.subtitle}>Amrita Microsoft account required.</Text>
+          {error ? (
+            <Text adjustsFontSizeToFit minimumFontScale={0.78} numberOfLines={4} style={styles.error}>
+              {error}
+            </Text>
+          ) : null}
+          <Pressable
+            style={({ pressed }) => [
+              styles.primaryButton,
+              pressed && !busy ? styles.primaryButtonPressed : null,
+              busy ? styles.primaryButtonDisabled : null,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Continue with Microsoft"
+            onPress={() => void handleSignIn()}
+            disabled={busy}
+          >
+            {busy ? (
+              <ActivityIndicator color="#07111d" />
+            ) : (
+              <Text adjustsFontSizeToFit minimumFontScale={0.9} numberOfLines={1} style={styles.primaryButtonText}>
+                Continue with Microsoft
+              </Text>
+            )}
+          </Pressable>
+        </GlassPanel>
+      </AppSurface>
       <StatusBar style="light" />
     </View>
   );
@@ -170,52 +200,119 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#08111f',
+    backgroundColor: '#06101c',
+  },
+  brandLockup: {
+    width: '100%',
+    maxWidth: 430,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 18,
+  },
+  brandMark: {
+    width: 46,
+    height: 46,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.28)',
+    backgroundColor: 'rgba(255, 255, 255, 0.14)',
+  },
+  brandMarkText: {
+    color: '#f8fafc',
+    fontSize: 16,
+    fontWeight: '900',
   },
   eyebrow: {
-    color: '#7dd3fc',
+    color: '#e7f8ff',
     fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 3,
-    marginBottom: 18,
+    fontWeight: '800',
+  },
+  brandTextBlock: {
+    minWidth: 0,
+    flex: 1,
+  },
+  brandSubline: {
+    color: 'rgba(226, 239, 247, 0.68)',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  signInPanel: {
+    padding: 22,
+  },
+  statusPill: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(125, 211, 252, 0.24)',
+    backgroundColor: 'rgba(125, 211, 252, 0.10)',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginBottom: 22,
+  },
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#67e8f9',
+  },
+  statusText: {
+    color: '#d9f7ff',
+    fontSize: 12,
+    fontWeight: '800',
   },
   title: {
     color: '#f8fafc',
-    fontSize: 34,
-    fontWeight: '800',
-    textAlign: 'center',
-    marginBottom: 14,
+    fontSize: 38,
+    fontWeight: '900',
+    lineHeight: 43,
+    marginBottom: 12,
   },
   subtitle: {
-    color: '#a8b6c8',
+    color: 'rgba(226, 239, 247, 0.76)',
     fontSize: 16,
-    lineHeight: 24,
-    maxWidth: 330,
-    textAlign: 'center',
-    marginBottom: 30,
+    lineHeight: 23,
+    marginBottom: 24,
   },
   error: {
-    color: '#fda4af',
-    fontSize: 14,
-    lineHeight: 20,
-    maxWidth: 340,
-    textAlign: 'center',
-    marginBottom: 20,
+    overflow: 'hidden',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(254, 202, 202, 0.22)',
+    backgroundColor: 'rgba(127, 29, 29, 0.30)',
+    color: '#fecdd3',
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: 16,
+    padding: 12,
   },
   primaryButton: {
+    width: '100%',
+    minHeight: 54,
     alignItems: 'center',
-    backgroundColor: '#7dd3fc',
-    borderRadius: 12,
-    minWidth: 260,
+    justifyContent: 'center',
+    backgroundColor: '#e5fbff',
+    borderRadius: 8,
     paddingHorizontal: 22,
-    paddingVertical: 16,
+    paddingVertical: 15,
+  },
+  primaryButtonPressed: {
+    opacity: 0.86,
+    transform: [{ scale: 0.99 }],
+  },
+  primaryButtonDisabled: {
+    opacity: 0.82,
   },
   primaryButtonText: {
-    color: '#08111f',
+    color: '#07111d',
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '900',
   },
 });

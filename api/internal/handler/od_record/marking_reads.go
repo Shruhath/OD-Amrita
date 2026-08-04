@@ -128,7 +128,7 @@ func MarkableCategoriesHandler(svc MarkingReadService) gin.HandlerFunc {
 
 func SearchStudentsHandler(svc MarkingReadService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		actor, err := markingActor(c)
+		actor, err := searchActor(c)
 		if err != nil {
 			fail(c, err)
 			return
@@ -227,6 +227,26 @@ func markingActor(c *gin.Context) (marking.Actor, error) {
 		return marking.Actor{}, domainForbidden()
 	}
 	return marking.Actor{UserID: actor.UserID, Email: actor.Email, Role: actor.Role}, nil
+}
+
+// searchActor is markingActor's widened sibling for SearchStudentsHandler
+// alone. Story 0.9's teacher/admin search-mark screen calls this exact route
+// before it can select anyone to mark, so coordinator-only here would 403 the
+// entire teacher/admin surface at its first step. The other three reads
+// (events, categories, mark status) stay behind markingActor — they describe
+// the COORDINATOR's own scope, which teacher/admin never uses; they read
+// their own events/categories through the separate portal-mark surface.
+func searchActor(c *gin.Context) (marking.Actor, error) {
+	actor, err := actorFromContext(c)
+	if err != nil {
+		return marking.Actor{}, err
+	}
+	switch actor.Role {
+	case "coordinator", "teacher", "admin":
+		return marking.Actor{UserID: actor.UserID, Email: actor.Email, Role: actor.Role}, nil
+	default:
+		return marking.Actor{}, domainForbidden()
+	}
 }
 
 func missingScopeDetails(eventID, categoryID string) []contracts.ValidationErrorDetail {

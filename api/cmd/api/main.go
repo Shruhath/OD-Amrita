@@ -133,16 +133,18 @@ func run() error {
 	// policy, so a scope the reads refuse can never be reached by posting to
 	// /api/v1/mark directly (NFR11). Story 0.7 replaces only its policy body.
 	markingPolicy := svcmarking.NewPolicy(svcmarking.NewEventReader(eventReader))
+	portalMarkReads := svcmarking.NewPortalMarkReadService(pool)
 	markSvc := svcodrecord.NewService(
 		svcodrecord.NewSQLCReader(pool),
 		svcodrecord.NewCardTokenResolver(svccardtoken.NewSQLCLedger(pool), cardKeyring),
 		svcodrecord.NewSQLCWriter(),
 		st,
 		nil,
-		svcmarking.NewMarkGuard(markingPolicy),
+		svcmarking.NewRoleAwareMarkGuard(markingPolicy, pool),
 		creditLedger,
 	)
 	handlerodrecord.RegisterRoutes(markAPI, markSvc)
+	handlerodrecord.RegisterPortalMarkRoutes(markAPI, portalMarkReads)
 
 	// One student service serves the admin roster import/list and the coordinator
 	// search; the search reader is an add-on rather than a second service.
@@ -159,6 +161,7 @@ func run() error {
 	admin.POST("/users/:user_id/sessions/revoke", handleradmin.RevokeSessionsHandler(revSvc))
 	eventSvc := svcevent.NewService(eventReader, st, svcevent.NewSQLCWriter())
 	handlerevent.RegisterAdminRoutes(admin, eventSvc)
+	handlerodrecord.RegisterAdminAttendanceRoutes(admin, portalMarkReads)
 	teacherSvc := svcteacher.NewService(svcteacher.NewSQLCReader(pool), st, svcteacher.NewSQLCWriter())
 	handlerteacher.RegisterAdminRoutes(admin, teacherSvc)
 	handlerstudent.RegisterAdminRoutes(admin, studentSvc)

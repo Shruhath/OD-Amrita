@@ -4,6 +4,7 @@ import RoleLanding from './routes/RoleLanding'
 import CardPopulatorRoute from './routes/portal/card-populator/CardPopulatorRoute'
 import EventsRoute from './routes/portal/events/EventsRoute'
 import EventDetailRoute from './routes/portal/events/EventDetailRoute'
+import TeacherAdminMarkRoute from './routes/portal/mark/TeacherAdminMarkRoute'
 import StudentsRoute from './routes/portal/students/StudentsRoute'
 import TeachersRoute from './routes/portal/teachers/TeachersRoute'
 
@@ -13,6 +14,7 @@ const routes = [
   // credit configuration both need this route, which is why the categories live
   // here rather than in an expandable list row.
   { path: '/portal/events/:event_id', Component: EventDetailRoute },
+  { path: '/portal/mark', Component: TeacherAdminMarkRoute },
   { path: '/portal/teachers', Component: TeachersRoute },
   { path: '/portal/students', Component: StudentsRoute },
   // The pre-event card-writing surface. Admin-only through SessionBoundary,

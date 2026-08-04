@@ -101,7 +101,10 @@ test('[P0] opens the teachers view and creates a profile that persists after rel
 
   const row = page.getByRole('row', { name: /new-teacher@amrita\.edu/ })
   await expect(row).toBeVisible()
-  await expect(row).toContainText('Computer Science and Engineering')
+  // The cell shows the branch CODE; the full name remains reachable as the
+  // abbreviation's expansion rather than being spelled out in the row.
+  await expect(row).toContainText('CSE')
+  await expect(row.getByTitle('Computer Science and Engineering')).toBeVisible()
 
   await page.reload()
   await expect(page.getByRole('row', { name: /new-teacher@amrita\.edu/ })).toBeVisible()

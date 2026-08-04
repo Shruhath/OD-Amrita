@@ -12,7 +12,10 @@ const secondStudent = { rollNo: 'CB.SC.U4CSE24002', name: 'Madhav Rao' }
 async function openPopulator(page: import('@playwright/test').Page) {
   await page.goto('/integration.html?path=%2Fportal%2Fcard-populator')
   await expect(page.getByRole('heading', { name: 'Card populator' })).toBeVisible()
-  await page.getByLabel('Branch', { exact: true }).selectOption({ label: `${seededSection.branch} — Computer Science and Engineering` })
+  // The option is the branch CODE alone — the full name was dropped from
+  // every branch display, so selecting by the old "CODE — Name" label matches
+  // nothing.
+  await page.getByLabel('Branch', { exact: true }).selectOption({ label: seededSection.branch })
   await page.getByLabel('Batch', { exact: true }).fill(seededSection.batch)
   await page.getByLabel('Section', { exact: true }).fill(seededSection.section)
   await page.getByRole('button', { name: 'Load roster' }).click()
@@ -58,7 +61,7 @@ test('[P0] filters the roster server-side rather than in the browser', async ({ 
   await page.goto('/integration.html?path=%2Fportal%2Fcard-populator')
   await expect(page.getByRole('heading', { name: 'Card populator' })).toBeVisible()
 
-  await page.getByLabel('Branch', { exact: true }).selectOption({ label: 'CSE — Computer Science and Engineering' })
+  await page.getByLabel('Branch', { exact: true }).selectOption({ label: 'CSE' })
   await page.getByLabel('Batch', { exact: true }).fill('2024')
   await page.getByLabel('Section', { exact: true }).fill('B')
   await page.getByRole('button', { name: 'Load roster' }).click()

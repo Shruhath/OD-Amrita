@@ -45,9 +45,21 @@ const (
 	adminToken       = "portal-admin-token"
 	studentToken     = "portal-student-token"
 	coordinatorToken = "portal-coordinator-token"
+	teacherToken     = "portal-teacher-token"
 	adminSubject     = "portal-admin-subject"
 	studentSub       = "portal-student-subject"
 	coordinatorSub   = "portal-coordinator-subject"
+	teacherSub       = "portal-teacher-subject"
+)
+
+// teacherPrincipalID/teacherPrincipalEmail are the ALREADY-teacher-role
+// principal Story 0.9's search-mark journeys sign in as, seeded with a CSE
+// branch association below. This is distinct from teacherFixtureEmail further
+// down, which stays role='student' between runs so the 2.3 elevation journeys
+// have something to promote — the two must never collapse into one row.
+const (
+	teacherPrincipalID    = "90000000-0000-4000-8000-000000000004"
+	teacherPrincipalEmail = "portal-teacher@amrita.edu"
 )
 
 // The marking fixtures. The coordinator surface needs a principal that
@@ -98,6 +110,8 @@ func (fixedVerifier) Verify(_ context.Context, token string) (svcauth.VerifiedId
 		return svcauth.VerifiedIdentity{Subject: studentSub, Email: "portal-student@amrita.edu", Name: "Portal Student", SessionID: uuid.NewString(), IssuedAt: now}, nil
 	case coordinatorToken:
 		return svcauth.VerifiedIdentity{Subject: coordinatorSub, Email: "portal-coordinator@amrita.edu", Name: "Portal Coordinator", SessionID: uuid.NewString(), IssuedAt: now}, nil
+	case teacherToken:
+		return svcauth.VerifiedIdentity{Subject: teacherSub, Email: teacherPrincipalEmail, Name: "Portal Teacher", SessionID: uuid.NewString(), IssuedAt: now}, nil
 	default:
 		return svcauth.VerifiedIdentity{}, domain.DomainError{Code: contracts.ErrorCodeAUTHTOKENINVALID, Message: "Authentication token is invalid."}
 	}
@@ -138,13 +152,14 @@ func main() {
 	eventReader := svcevent.NewSQLCReader(runtimePool)
 	creditLedger := svcodrecord.NewSQLCCreditLedger(runtimePool)
 	markingPolicy := svcmarking.NewPolicy(svcmarking.NewEventReader(eventReader))
+	portalMarkReads := svcmarking.NewPortalMarkReadService(runtimePool)
 	markService := svcodrecord.NewService(
 		svcodrecord.NewSQLCReader(runtimePool),
 		svcodrecord.NewCardTokenResolver(svccardtoken.NewSQLCLedger(runtimePool), cardKeyring),
 		svcodrecord.NewSQLCWriter(),
 		st,
 		nil,
-		svcmarking.NewMarkGuard(markingPolicy),
+		svcmarking.NewRoleAwareMarkGuard(markingPolicy, runtimePool),
 		creditLedger,
 	)
 	studentService.WithSearchReader(svcstudent.NewSQLCSearchReader(runtimePool))
@@ -171,6 +186,7 @@ func main() {
 	markAPI := api.Group("")
 	markAPI.Use(rbac.RequirePrincipal(principalLoader))
 	handlerodrecord.RegisterRoutes(markAPI, markService)
+	handlerodrecord.RegisterPortalMarkRoutes(markAPI, portalMarkReads)
 	// Shared with cmd/api, exactly like the admin routes below: a harness that
 	// mounts the marking reads on a different group than production turns a real
 	// route-composition bug into a browser-journey 404 that reads as a frontend
@@ -183,6 +199,7 @@ func main() {
 	// route set than production — the divergence that turns a missing route into
 	// a browser-journey 404 that reads as a frontend bug.
 	handlerevent.RegisterAdminRoutes(admin, eventService)
+	handlerodrecord.RegisterAdminAttendanceRoutes(admin, portalMarkReads)
 	handlerteacher.RegisterAdminRoutes(admin, teacherService)
 	handlerstudent.RegisterAdminRoutes(admin, studentService)
 	handlercardtoken.RegisterAdminRoutes(admin, cardTokenService)
@@ -312,19 +329,23 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 	// harness is restartable after any journey, not only after a clean one.
 	if _, err := tx.Exec(ctx, `
 			DELETE FROM od_records
-			WHERE student_id IN (SELECT id FROM students WHERE roll_no LIKE 'CB.SC.U4CSE%')
+			WHERE student_id IN (
+				SELECT id FROM students WHERE roll_no LIKE 'CB.SC.U4CSE%' OR roll_no LIKE 'CB.SC.U4ECE%'
+			)
 		`); err != nil {
 		return fmt.Errorf("delete student od record fixtures: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
 			DELETE FROM student_card_tokens
-			WHERE student_id IN (SELECT id FROM students WHERE roll_no LIKE 'CB.SC.U4CSE%')
+			WHERE student_id IN (
+				SELECT id FROM students WHERE roll_no LIKE 'CB.SC.U4CSE%' OR roll_no LIKE 'CB.SC.U4ECE%'
+			)
 		`); err != nil {
 		return fmt.Errorf("delete student card token fixtures: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
 			DELETE FROM students
-			WHERE roll_no LIKE 'CB.SC.U4CSE%'
+			WHERE roll_no LIKE 'CB.SC.U4CSE%' OR roll_no LIKE 'CB.SC.U4ECE%'
 		`); err != nil {
 		return fmt.Errorf("delete student roster fixtures: %w", err)
 	}
@@ -333,10 +354,11 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 			VALUES
 			('90000000-0000-4000-8000-000000000001', $1, 'portal-admin@amrita.edu', 'Portal Admin', 'admin'),
 			('90000000-0000-4000-8000-000000000002', $2, 'portal-student@amrita.edu', 'Portal Student', 'student'),
-			('90000000-0000-4000-8000-000000000003', $3, 'portal-coordinator@amrita.edu', 'Portal Coordinator', 'coordinator')
+			('90000000-0000-4000-8000-000000000003', $3, 'portal-coordinator@amrita.edu', 'Portal Coordinator', 'coordinator'),
+			($4, $5, $6, 'Portal Teacher', 'teacher')
 		ON CONFLICT (supabase_subject) DO UPDATE
 		SET email = EXCLUDED.email, name = EXCLUDED.name, role = EXCLUDED.role
-	`, adminSubject, studentSub, coordinatorSub); err != nil {
+	`, adminSubject, studentSub, coordinatorSub, teacherPrincipalID, teacherSub, teacherPrincipalEmail); err != nil {
 		return fmt.Errorf("upsert users: %w", err)
 	}
 	// The teacher-profile browser journeys elevate this row (student -> teacher).
@@ -375,6 +397,19 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 	`); err != nil {
 		return fmt.Errorf("upsert branches: %w", err)
 	}
+	// Story 0.9's teacher search-mark journeys need this principal already
+	// branch-scoped to CSE, re-asserted on every start (not ON CONFLICT DO
+	// NOTHING on a row that could go missing) so a run that ever removed it
+	// does not silently leave the teacher with zero branches, which would turn
+	// every "should succeed" assertion into an RBAC_FORBIDDEN red herring. Must
+	// run AFTER the branches insert above — user_branches.branch_id is a real FK.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO user_branches (user_id, branch_id)
+		VALUES ($1, '91000000-0000-4000-8000-000000000001')
+		ON CONFLICT DO NOTHING
+	`, teacherPrincipalID); err != nil {
+		return fmt.Errorf("associate teacher principal branch: %w", err)
+	}
 
 	// Card-populator roster fixtures. Seeded AFTER the CB.SC.U4CSE% delete above
 	// so each harness start gets a known section, and after branches because
@@ -396,6 +431,35 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 		    section = EXCLUDED.section, batch = EXCLUDED.batch
 	`); err != nil {
 		return fmt.Errorf("upsert card populator students: %w", err)
+	}
+	// An ECE student outside the seeded teacher principal's CSE branch, so
+	// Story 0.9's real-stack "teacher outside student branch" journey has a
+	// student to search for that must be refused rather than marked.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO students (id, roll_no, name, branch_id, section, batch)
+		VALUES ('95000000-0000-4000-8000-000000000006', 'CB.SC.U4ECE24001', 'Vivek Pillai', '91000000-0000-4000-8000-000000000002', 'A', '2024')
+		ON CONFLICT (id) DO UPDATE
+		SET roll_no = EXCLUDED.roll_no, name = EXCLUDED.name, branch_id = EXCLUDED.branch_id,
+		    section = EXCLUDED.section, batch = EXCLUDED.batch
+	`); err != nil {
+		return fmt.Errorf("upsert out-of-branch student fixture: %w", err)
+	}
+	// Dedicated to the 0.9 teacher search-mark journey — CB.SC.U4CSE24001-003
+	// belongs to coordinator-marking.spec.ts and 24004-005 to
+	// capture-credits.spec.ts; reusing either pool put two legitimate marks in
+	// the same unfiltered admin attendance view and broke a strict-mode locator.
+	// Two rolls, matching the "different student per retry" convention used
+	// elsewhere, even though this config currently runs with retries: 0.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO students (id, roll_no, name, branch_id, section, batch)
+		VALUES
+			('95000000-0000-4000-8000-000000000007', 'CB.SC.U4CSE24006', 'Teacher Fixture Student One', '91000000-0000-4000-8000-000000000001', 'A', '2024'),
+			('95000000-0000-4000-8000-000000000008', 'CB.SC.U4CSE24007', 'Teacher Fixture Student Two', '91000000-0000-4000-8000-000000000001', 'A', '2024')
+		ON CONFLICT (id) DO UPDATE
+		SET roll_no = EXCLUDED.roll_no, name = EXCLUDED.name, branch_id = EXCLUDED.branch_id,
+		    section = EXCLUDED.section, batch = EXCLUDED.batch
+	`); err != nil {
+		return fmt.Errorf("upsert teacher search-mark student fixtures: %w", err)
 	}
 
 	// The marking fixtures, seeded LAST so branches and students already exist.

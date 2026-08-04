@@ -438,6 +438,61 @@ ORDER BY o.server_received_at;
 never `search`; both camera and search consume the same fallback credit pool,
 while `nfc` consumes none.
 
+## Teacher/admin search-mark and attendance view
+
+The exception path lives at **`/portal/mark`**, distinct from the coordinator's
+`/mark`. `RoleLanding` sends a signed-in coordinator to `/mark`, a teacher to
+`/portal/mark`, and an admin to `/portal/events`; an admin can also reach
+`/portal/mark` directly to search-mark on behalf of any branch.
+
+**Search only, explicit slot.** Teacher and admin marks always carry
+`capture_method: "search"` — there is no NFC or camera control on this screen.
+The operator picks an active event, a category in that event, a slot `1..12`,
+then searches a student by roll number or name (same 3–64 character bound as
+the coordinator screen) and selects one result before the "Mark present" button
+is enabled. A mark shows a green confirmation only after the server returns
+`201`; a refusal is a sticky red message, never an optimistic mark.
+
+**Teacher branch scope.** A teacher's event and category options come from a
+server-authorized read scoped to their own branch associations, not the admin
+list. The server independently re-checks branch membership on every
+`POST /mark`: the student must belong to one of the teacher's branches and the
+event must include that branch, or the request is refused with
+`RBAC_FORBIDDEN` and writes nothing. Roster search itself is not branch-scoped
+— a search result is display data only, and permission to mark is decided at
+the point of marking, not at the point of search.
+
+**Admin scope.** An admin's event/category options and marks are not
+branch-restricted; an admin may search-mark any student for any active
+event/category/slot.
+
+**No capture credit spent.** Teacher and admin search-marks never debit the
+coordinator fallback-credit pool — that ledger is coordinator-only, camera/
+search capture only.
+
+### Admin attendance view
+
+On an event's detail page, admins see a live **Attendance** panel: every
+present mark for that event, filterable by category and by slot (`1..12`, or
+all slots). Each row shows the student's name, roll number, branch, section,
+category, slot, who marked it, their role, capture method, and the server
+timestamp — never a card token, token fingerprint, fallback-credit internals,
+dispute contents, or a student's private email. The panel polls every few
+seconds so a fresh mark from `/mark` or `/portal/mark` appears without a
+reload; a persistently failing read shows a retryable error and the panel
+stops polling until the operator retries, rather than hammering a broken
+endpoint indefinitely.
+
+### Audit expectations
+
+A successful teacher or admin search-mark commits exactly one `od_records` row
+and exactly one `od.created` audit row in the same transaction as the
+coordinator path, with `actor_role` set to `teacher` or `admin` and the audit
+payload recording `capture_method: "search"`. The admin attendance read is
+read-only and writes no audit row of its own. A duplicate `(student_id,
+event_id, slot)` mark is rejected as `SCAN_DUPLICATE` with no second row and no
+extra audit entry, identically to the coordinator path.
+
 ## Verification commands
 
 The default local verification does not require a database:
@@ -482,6 +537,16 @@ reload and confirm it persists, attempt the same email again and confirm a
 and confirm `404 USER_NOT_FOUND`. Confirm exactly one `teacher.profile_created`
 audit row exists for the elevated user — every rejected attempt must have
 contributed none.
+
+For the teacher/admin search-mark surface, sign in as a teacher with a branch
+association, open `/portal/mark`, search-mark a student in that branch, and
+confirm a green confirmation plus exactly one new `od_records` row and one
+`od.created` audit row with `actor_role = 'teacher'`. Attempt the same search
+against a student outside the teacher's branch and confirm `403
+RBAC_FORBIDDEN` with no row written either table. From the admin's event detail
+page, confirm the Attendance panel shows the successful mark within a few
+seconds without a reload, and that filtering by category or slot narrows the
+rows without ever returning another event's data.
 
 For the card populator, run the physical card smoke check above. It is the only
 step here that CI cannot stand in for: the browser suites fake the NFC radio, so

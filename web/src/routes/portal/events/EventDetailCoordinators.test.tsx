@@ -31,6 +31,7 @@ const adminEventsCollectionPath = /\/api\/v1\/admin\/events(?:\?.*)?$/
 const adminEventItemPath = /\/api\/v1\/admin\/events\/[^/?]+$/
 const adminEventCategoriesPath = /\/api\/v1\/admin\/events\/[^/?]+\/categories$/
 const adminEventCoordinatorsPath = /\/api\/v1\/admin\/events\/[^/?]+\/coordinators$/
+const adminEventAttendancePath = /\/api\/v1\/admin\/events\/[^/?]+\/attendance(?:\?.*)?$/
 
 function renderCoordinatorPortal({
   status = 'active',
@@ -72,6 +73,9 @@ function renderCoordinatorPortal({
     }),
     http.get(adminEventCategoriesPath, () =>
       HttpResponse.json({ data: [createCategoryFixture({ name: 'Procession' })] }),
+    ),
+    http.get(adminEventAttendancePath, () =>
+      HttpResponse.json({ data: [], page: 1, page_size: 20, total: 0 }),
     ),
     http.get(adminEventCoordinatorsPath, () => {
       calls.push('list-coordinators')

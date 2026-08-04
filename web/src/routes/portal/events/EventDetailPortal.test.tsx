@@ -7,6 +7,7 @@ import type { SessionPort } from '../../../features/auth/session'
 import { createPortalMemoryRouter } from '../../../router'
 import { server } from '../../../test/server'
 import { createEventFixture, testBranches } from '../../../../tests/support/factories/event'
+import { attendanceCollection } from '../../../../tests/support/factories/teacher-admin-marking'
 import {
   archivedEventError,
   createCategoryFixture,
@@ -117,6 +118,7 @@ function renderPortal({
       return HttpResponse.json({ data: scoped })
     }),
     http.get(adminEventCoordinatorsPath, () => HttpResponse.json({ data: [] })),
+    http.get('*/api/v1/admin/events/:eventID/attendance', () => HttpResponse.json(attendanceCollection([]))),
     http.post(adminEventCategoriesPath, async ({ request }) => {
       const eventID = categoryEventID(request.url)
       calls.push('create')
@@ -213,7 +215,8 @@ describe('Admin event detail and categories', () => {
     for (const name of ['Procession', 'Stage Setup', 'Registration']) {
       await user.type(input, name)
       await user.click(submit)
-      expect(await screen.findByText(name)).toBeInTheDocument()
+      const list = await screen.findByRole('list', { name: 'Categories' })
+      expect(await within(list).findByText(name)).toBeInTheDocument()
     }
 
     // Journey 5 adds three categories in a row, so the field must clear itself
@@ -297,8 +300,8 @@ describe('Admin event detail and categories', () => {
     })
 
     await openEventDetail(user)
-
-    expect(await screen.findByText('Procession')).toBeInTheDocument()
+    const list = await screen.findByRole('list', { name: 'Categories' })
+    expect(await within(list).findByText('Procession')).toBeInTheDocument()
     // Not merely disabled — absent. A disabled control still advertises an
     // action the aggregate can never accept again.
     expect(screen.queryByLabelText('Category name')).not.toBeInTheDocument()
@@ -330,7 +333,8 @@ describe('Admin event detail and categories', () => {
     await user.click(submit)
     expect(submit).toBeDisabled()
     release()
-    expect(await screen.findByText('Procession')).toBeInTheDocument()
+    const list = await screen.findByRole('list', { name: 'Categories' })
+    expect(await within(list).findByText('Procession')).toBeInTheDocument()
   })
 
   test('[P2] shows an honest empty state rather than an indefinite spinner', async () => {
@@ -372,7 +376,8 @@ describe('Admin event detail and categories', () => {
 
     // Enter in a single-field form submits it: the form element must be real,
     // not a div with a click handler.
-    expect(await screen.findByText('Procession')).toBeInTheDocument()
+    const list = await screen.findByRole('list', { name: 'Categories' })
+    expect(await within(list).findByText('Procession')).toBeInTheDocument()
   })
 
   test('[P1] shows the event context the admin needs to know where they are', async () => {

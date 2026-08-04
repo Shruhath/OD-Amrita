@@ -56,10 +56,22 @@ test.describe('real stack teacher/admin search marking', () => {
     await page.goto(`/integration.html?role=admin&path=%2Fportal%2Fevents%2F${MARKING_EVENT_ID}`)
     await expect(page.getByRole('heading', { name: /attendance/i })).toBeVisible()
 
+    // Assert against THIS student's row, not the whole table. The admin view is
+    // unfiltered, so it also carries every other real-stack spec's marks — and
+    // "marked by search" is the common case among them, so a table-wide
+    // `getByRole('cell', { name: 'search' })` matches all of them at once. Row
+    // scoping is also the stronger assertion: table-wide checks could be
+    // satisfied by three DIFFERENT rows (the roll in one, the teacher in
+    // another, the method in a third) and still pass while the row this test
+    // actually wrote was wrong.
     const attendanceTable = page.locator('.table-wrap')
-    await expect(attendanceTable.getByText(new RegExp(roll.replace(/\./g, '\\.'), 'i'))).toBeVisible()
-    await expect(attendanceTable.getByText('Portal Teacher')).toBeVisible()
-    await expect(attendanceTable.getByRole('cell', { name: 'search', exact: true })).toBeVisible()
+    const row = attendanceTable
+      .locator('tbody tr')
+      .filter({ hasText: new RegExp(roll.replace(/\./g, '\\.'), 'i') })
+    await expect(row).toHaveCount(1)
+    await expect(row.getByText('Portal Teacher')).toBeVisible()
+    await expect(row.getByRole('cell', { name: /^teacher$/i })).toBeVisible()
+    await expect(row.getByRole('cell', { name: 'search', exact: true })).toBeVisible()
   })
 
   test('[P0] a teacher outside the student branch is refused without an attendance row', async ({ page, request }) => {

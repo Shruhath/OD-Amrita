@@ -72,6 +72,15 @@ func (s *PortalMarkReadService) Categories(ctx context.Context, actor Actor, eve
 	if err != nil {
 		return nil, portalValidation("event_id", "invalid_format", "event_id must be a UUID.")
 	}
+	event, err := s.queries.GetMarkEvent(ctx, dbUUID(parsedEvent))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, AsDomainError(ErrEventNotFound)
+	} else if err != nil {
+		return nil, err
+	}
+	if event.Status == "archived" {
+		return nil, AsDomainError(ErrEventArchived)
+	}
 	if actor.Role == "admin" {
 		rows, err := s.queries.ListAdminPortalMarkCategories(ctx, dbUUID(parsedEvent))
 		if err != nil {

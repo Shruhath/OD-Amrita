@@ -101,7 +101,7 @@ func attendanceSlot(c *gin.Context) (*int, error) {
 	if raw == "" {
 		return nil, nil
 	}
-	value, err := boundedQueryInt(c, "slot", 0, 1, 12)
+	value, err := boundedQueryInt(c, "slot", 1, 1, 12)
 	if err != nil {
 		return nil, err
 	}

@@ -1,7 +1,6 @@
 package contract
 
 import (
-	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -11,9 +10,6 @@ const adminAttendancePath = "/api/v1/admin/events/{event_id}/attendance"
 
 func requireTeacherAdminAttendanceATDD(t *testing.T) {
 	t.Helper()
-	if os.Getenv("ATDD_ACTIVE_09") != "1" {
-		t.Skip("red-phase scaffold for 0.9; set ATDD_ACTIVE_09=1 while implementing")
-	}
 }
 
 func TestTeacherAdminAttendanceContract_AdminAttendanceRead(t *testing.T) {
@@ -82,9 +78,18 @@ func TestTeacherAdminAttendanceContract_AttendanceSchemas(t *testing.T) {
 			t.Errorf("[P0] AttendanceRecord required is missing %v", missing)
 		}
 		props := getMap(record, "properties")
-		for _, forbidden := range []string{"card", "token", "token_fingerprint", "fallback_credit", "dispute", "reason"} {
-			if _, ok := props[forbidden]; ok {
-				t.Errorf("[P0] AttendanceRecord must not expose deferred/private field %s", forbidden)
+		// Allowlist, not a blocklist: any property outside this exact set fails,
+		// so a future field (card/token/fallback_credit/dispute/reason/email or
+		// anything else not yet imagined) is caught the moment it is added,
+		// rather than only the handful of names checked here today.
+		allowed := map[string]bool{
+			"record_id": true, "student": true, "event_id": true, "category": true,
+			"slot": true, "capture_method": true, "marked_by": true, "actor_role": true,
+			"server_received_at": true,
+		}
+		for name := range props {
+			if !allowed[name] {
+				t.Errorf("[P0] AttendanceRecord exposes undeclared field %s; T7 requires an explicit allowlist decision before adding it", name)
 			}
 		}
 		if got := enumStrings(resolveSchema(doc, getMap(props, "capture_method"))); !slices.Contains(got, "search") {

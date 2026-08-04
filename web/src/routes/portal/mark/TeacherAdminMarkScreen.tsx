@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { MarkAttendanceResult, ResolvedCardStudent, StudentSearchResults } from '../../../api/client'
+import type { MarkAttendanceResult, ResolvedCardStudent } from '../../../api/client'
 import { ApiFailure } from '../../../api/client'
 import { PortalShell } from '../../../components/PortalShell'
 import { useAuth } from '../../../features/auth/context'
@@ -152,6 +152,18 @@ export default function TeacherAdminMarkScreen() {
             <button type="button" onClick={() => void events.refetch()}>Try again</button>
           </div>
         )}
+        {events.isSuccess && eventOptions.length === 0 && (
+          <p className="empty-note">No events available to mark.</p>
+        )}
+        {categories.isError && (
+          <div className="notice error" role="alert">
+            <span>{categories.error instanceof ApiFailure ? categories.error.body.message : 'Categories could not be loaded.'}</span>
+            <button type="button" onClick={() => void categories.refetch()}>Try again</button>
+          </div>
+        )}
+        {categories.isSuccess && categoryOptions.length === 0 && (
+          <p className="empty-note">No categories available for this event.</p>
+        )}
 
         <form className="category-form" onSubmit={submit} noValidate>
           <label htmlFor="teacher-mark-event">Event</label>
@@ -199,7 +211,16 @@ export default function TeacherAdminMarkScreen() {
         {debouncedQuery.length > 0 && debouncedQuery.length < MIN_SEARCH_RUNES && (
           <p className="empty-note">Keep typing to search students.</p>
         )}
-        {studentQuery.isPending && <p role="status">Searching students…</p>}
+        {debouncedQuery.length > MAX_SEARCH_RUNES && (
+          <p className="empty-note">Search text is too long.</p>
+        )}
+        {studentQuery.isPending && studentQuery.fetchStatus !== 'idle' && <p role="status">Searching students…</p>}
+        {studentQuery.isError && (
+          <div className="notice error" role="alert">
+            <span>{studentQuery.error instanceof ApiFailure ? studentQuery.error.body.message : 'Student search failed.'}</span>
+            <button type="button" onClick={() => void studentQuery.refetch()}>Try again</button>
+          </div>
+        )}
         {studentQuery.isSuccess && studentOptions.length > 0 && (
           <ul className="category-list" role="listbox" aria-label="Student search results">
             {studentOptions.map((student) => (

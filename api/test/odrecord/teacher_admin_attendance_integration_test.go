@@ -3,15 +3,11 @@
 package odrecordtest
 
 import (
-	"os"
 	"testing"
 )
 
 func requireTeacherAdminAttendanceIntegrationATDD(t *testing.T) {
 	t.Helper()
-	if os.Getenv("ATDD_ACTIVE_09") != "1" {
-		t.Skip("red-phase scaffold for 0.9; set ATDD_ACTIVE_09=1 while implementing")
-	}
 }
 
 func TestTeacherAdminSearchMarkIntegration_AuditConservationAndNoCreditDebit(t *testing.T) {

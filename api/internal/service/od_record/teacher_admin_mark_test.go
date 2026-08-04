@@ -2,15 +2,28 @@ package odrecord
 
 import (
 	"context"
-	"os"
+	"strings"
 	"testing"
 )
 
 func requireTeacherAdminMarkATDD(t *testing.T) {
 	t.Helper()
-	if os.Getenv("ATDD_ACTIVE_09") != "1" {
-		t.Skip("red-phase scaffold for 0.9; set ATDD_ACTIVE_09=1 while implementing")
+}
+
+// branchScopingGuard is the StudentScopeGuard fake for these tests. AllowAnyScope
+// cannot exercise branch refusal — it admits every scope unconditionally, which
+// is exactly why it is the wrong guard for a test that asserts a REFUSAL. This
+// fake mirrors RoleAwareMarkGuard's shape (allow-unless-refused) using the
+// actor's email as the discriminator the two test cases already vary on.
+type branchScopingGuard struct{}
+
+func (branchScopingGuard) AssertCanMark(context.Context, Actor, string, string) error { return nil }
+
+func (branchScopingGuard) AssertCanMarkStudent(_ context.Context, actor Actor, _, _ string, _ Student) error {
+	if actor.Role == "teacher" && strings.Contains(actor.Email, "outside-branch") {
+		return forbidden("Teacher may mark only students in a taught branch for an active event branch.")
 	}
+	return nil
 }
 
 func TestTeacherAdminMark_TeacherSearchMarkRequiresBranchAuthorization(t *testing.T) {
@@ -20,7 +33,7 @@ func TestTeacherAdminMark_TeacherSearchMarkRequiresBranchAuthorization(t *testin
 	credits := stubCreditLedger()
 	studentID := scaffoldStudentID
 	slot := 4
-	svc := NewService(stubReader(), stubCardResolver(), writer, stubAuditStore(), scaffoldClock{}, AllowAnyScope{}, credits)
+	svc := NewService(stubReader(), stubCardResolver(), writer, stubAuditStore(), scaffoldClock{}, branchScopingGuard{}, credits)
 
 	_, err := svc.Mark(context.Background(), Actor{
 		UserID: scaffoldActorID,
@@ -51,7 +64,7 @@ func TestTeacherAdminMark_RejectsTeacherOutsideStudentBranchBeforeWrite(t *testi
 	writer := &countingWriter{}
 	studentID := scaffoldStudentID
 	slot := 4
-	svc := NewService(stubReader(), stubCardResolver(), writer, stubAuditStore(), scaffoldClock{}, AllowAnyScope{}, stubCreditLedger())
+	svc := NewService(stubReader(), stubCardResolver(), writer, stubAuditStore(), scaffoldClock{}, branchScopingGuard{}, stubCreditLedger())
 
 	_, err := svc.Mark(context.Background(), Actor{
 		UserID: scaffoldActorID,

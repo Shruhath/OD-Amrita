@@ -10,7 +10,6 @@ import {
 } from './marking'
 
 export const teacherMarkRoute = '/portal/mark'
-export const attendancePath = `/api/v1/admin/events/${markEventID}/attendance`
 
 export type AttendanceActor = {
   user_id: string | null

@@ -231,6 +231,41 @@ jobs:
             echo "expected two capture_credit.cap_changed rows and one capture_credit.reset row for marking fixture, got $cap_audits and $reset_audits"
             exit 1
           }
+      - name: Verify teacher/admin marking audit conservation
+        # Story 0.9: exactly one search-mark lands as actor_role='teacher' in
+        # slot 4 (teacher-admin-attendance.spec.ts), with exactly one matching
+        # od.created row, and the refused out-of-branch attempt (slot 7) writes
+        # neither an od_records row nor an audit row.
+        run: |
+          event_id="93000000-0000-4000-8000-000000000001"
+          records="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT count(*)
+            FROM od_records
+            WHERE event_id = '$event_id'
+              AND actor_role = 'teacher'
+              AND capture_method = 'search'
+              AND slot = 4")"
+          audits="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT count(*)
+            FROM od_records AS record
+            JOIN audit_log AS audit ON audit.target_id = record.id::text
+            WHERE record.event_id = '$event_id'
+              AND record.actor_role = 'teacher'
+              AND record.slot = 4
+              AND audit.action = 'od.created'
+              AND audit.target_table = 'od_records'")"
+          [ "$records" = "1" ] && [ "$audits" = "1" ] || {
+            echo "expected one teacher search-mark and one matching od.created row in slot 4, got $records and $audits"
+            exit 1
+          }
+          refused="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT count(*)
+            FROM od_records
+            WHERE event_id = '$event_id' AND slot = 7")"
+          [ "$refused" = "0" ] || {
+            echo "expected the out-of-branch teacher mark attempt to write nothing in slot 7, got $refused rows"
+            exit 1
+          }
       - name: Verify teacher audit conservation
         # The fixture is a STABLE, non-suffixed email (unlike the events/
         # categories fixtures above): D2 makes a repeat elevation a 409 that

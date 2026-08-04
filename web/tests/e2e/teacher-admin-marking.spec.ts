@@ -7,8 +7,9 @@ import {
   teacherMarkRoute,
   teacherSearchMarkResult,
 } from '../support/factories/teacher-admin-marking'
+import { markableCategory, markableEvent } from '../support/factories/marking'
 
-const redTest = process.env.ATDD_ACTIVE_09 === '1' ? test : test.skip
+const redTest = test
 
 async function installTeacherAdminRoutes(page: import('@playwright/test').Page, role: 'teacher' | 'admin' = 'teacher') {
   const reads = teacherMarkReads()
@@ -35,6 +36,20 @@ async function installTeacherAdminRoutes(page: import('@playwright/test').Page, 
       return json(route, teacherSearchMarkResult(4, role), 201)
     }
     if (url.pathname.endsWith('/attendance')) return json(route, attendanceCollection([attendanceRecord({ actor_role: role })]))
+    // The admin event-detail page (EventDetailPortal) that hosts the Attendance
+    // section also needs the event item, its admin categories, coordinators, and
+    // capture-credit reads before it will render at all.
+    if (/\/admin\/events\/[^/]+$/.test(url.pathname)) return json(route, markableEvent())
+    if (url.pathname.includes('/admin/events/') && url.pathname.endsWith('/categories')) {
+      return json(route, { data: [markableCategory()] })
+    }
+    if (url.pathname.endsWith('/coordinators')) return json(route, { data: [] })
+    if (url.pathname.endsWith('/capture-credits')) {
+      return json(route, {
+        config: { event_id: '11111111-1111-4111-8111-111111111111', limit: 5, updated_by_user_id: null, updated_at: new Date().toISOString() },
+        data: [],
+      })
+    }
     return json(route, { code: 'NOT_FOUND', message: `unmocked ${url.pathname}` }, 404)
   })
 
@@ -67,9 +82,10 @@ test.describe('teacher/admin search marking', () => {
 
     await expect(page.getByRole('heading', { name: /attendance/i })).toBeVisible()
     await page.getByRole('combobox', { name: /slot/i }).selectOption('4')
-    await expect(page.getByText(/CB\.SC\.U4CSE/i)).toBeVisible()
-    await expect(page.getByText(/teacher|admin/i)).toBeVisible()
-    await expect(page.getByText(/search/i)).toBeVisible()
+    const attendanceTable = page.locator('.table-wrap')
+    await expect(attendanceTable.getByText(/CB\.SC\.U4CSE/i)).toBeVisible()
+    await expect(attendanceTable.getByRole('cell', { name: 'admin', exact: true })).toBeVisible()
+    await expect(attendanceTable.getByRole('cell', { name: 'search', exact: true })).toBeVisible()
   })
 
   redTest('[P1] a teacher landing on the app root is routed to the teacher mark surface', async ({ page }) => {

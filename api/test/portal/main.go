@@ -45,9 +45,21 @@ const (
 	adminToken       = "portal-admin-token"
 	studentToken     = "portal-student-token"
 	coordinatorToken = "portal-coordinator-token"
+	teacherToken     = "portal-teacher-token"
 	adminSubject     = "portal-admin-subject"
 	studentSub       = "portal-student-subject"
 	coordinatorSub   = "portal-coordinator-subject"
+	teacherSub       = "portal-teacher-subject"
+)
+
+// teacherPrincipalID/teacherPrincipalEmail are the ALREADY-teacher-role
+// principal Story 0.9's search-mark journeys sign in as, seeded with a CSE
+// branch association below. This is distinct from teacherFixtureEmail further
+// down, which stays role='student' between runs so the 2.3 elevation journeys
+// have something to promote — the two must never collapse into one row.
+const (
+	teacherPrincipalID    = "90000000-0000-4000-8000-000000000004"
+	teacherPrincipalEmail = "portal-teacher@amrita.edu"
 )
 
 // The marking fixtures. The coordinator surface needs a principal that
@@ -98,6 +110,8 @@ func (fixedVerifier) Verify(_ context.Context, token string) (svcauth.VerifiedId
 		return svcauth.VerifiedIdentity{Subject: studentSub, Email: "portal-student@amrita.edu", Name: "Portal Student", SessionID: uuid.NewString(), IssuedAt: now}, nil
 	case coordinatorToken:
 		return svcauth.VerifiedIdentity{Subject: coordinatorSub, Email: "portal-coordinator@amrita.edu", Name: "Portal Coordinator", SessionID: uuid.NewString(), IssuedAt: now}, nil
+	case teacherToken:
+		return svcauth.VerifiedIdentity{Subject: teacherSub, Email: teacherPrincipalEmail, Name: "Portal Teacher", SessionID: uuid.NewString(), IssuedAt: now}, nil
 	default:
 		return svcauth.VerifiedIdentity{}, domain.DomainError{Code: contracts.ErrorCodeAUTHTOKENINVALID, Message: "Authentication token is invalid."}
 	}
@@ -145,7 +159,7 @@ func main() {
 		svcodrecord.NewSQLCWriter(),
 		st,
 		nil,
-		svcmarking.NewMarkGuard(markingPolicy),
+		svcmarking.NewRoleAwareMarkGuard(markingPolicy, runtimePool),
 		creditLedger,
 	)
 	studentService.WithSearchReader(svcstudent.NewSQLCSearchReader(runtimePool))
@@ -327,7 +341,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 	if _, err := tx.Exec(ctx, `
 			DELETE FROM students
-			WHERE roll_no LIKE 'CB.SC.U4CSE%'
+			WHERE roll_no LIKE 'CB.SC.U4CSE%' OR roll_no LIKE 'CB.SC.U4ECE%'
 		`); err != nil {
 		return fmt.Errorf("delete student roster fixtures: %w", err)
 	}
@@ -336,11 +350,24 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 			VALUES
 			('90000000-0000-4000-8000-000000000001', $1, 'portal-admin@amrita.edu', 'Portal Admin', 'admin'),
 			('90000000-0000-4000-8000-000000000002', $2, 'portal-student@amrita.edu', 'Portal Student', 'student'),
-			('90000000-0000-4000-8000-000000000003', $3, 'portal-coordinator@amrita.edu', 'Portal Coordinator', 'coordinator')
+			('90000000-0000-4000-8000-000000000003', $3, 'portal-coordinator@amrita.edu', 'Portal Coordinator', 'coordinator'),
+			($4, $5, $6, 'Portal Teacher', 'teacher')
 		ON CONFLICT (supabase_subject) DO UPDATE
 		SET email = EXCLUDED.email, name = EXCLUDED.name, role = EXCLUDED.role
-	`, adminSubject, studentSub, coordinatorSub); err != nil {
+	`, adminSubject, studentSub, coordinatorSub, teacherPrincipalID, teacherSub, teacherPrincipalEmail); err != nil {
 		return fmt.Errorf("upsert users: %w", err)
+	}
+	// Story 0.9's teacher search-mark journeys need this principal already
+	// branch-scoped to CSE, re-asserted on every start (not ON CONFLICT DO
+	// NOTHING) so a run that ever removed it does not silently leave the
+	// teacher with zero branches, which would turn every "should succeed"
+	// assertion into an RBAC_FORBIDDEN red herring.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO user_branches (user_id, branch_id)
+		VALUES ($1, '91000000-0000-4000-8000-000000000001')
+		ON CONFLICT DO NOTHING
+	`, teacherPrincipalID); err != nil {
+		return fmt.Errorf("associate teacher principal branch: %w", err)
 	}
 	// The teacher-profile browser journeys elevate this row (student -> teacher).
 	// Reset its role back to student and clear any branch associations from a
@@ -399,6 +426,18 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 		    section = EXCLUDED.section, batch = EXCLUDED.batch
 	`); err != nil {
 		return fmt.Errorf("upsert card populator students: %w", err)
+	}
+	// An ECE student outside the seeded teacher principal's CSE branch, so
+	// Story 0.9's real-stack "teacher outside student branch" journey has a
+	// student to search for that must be refused rather than marked.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO students (id, roll_no, name, branch_id, section, batch)
+		VALUES ('95000000-0000-4000-8000-000000000006', 'CB.SC.U4ECE24001', 'Vivek Pillai', '91000000-0000-4000-8000-000000000002', 'A', '2024')
+		ON CONFLICT (id) DO UPDATE
+		SET roll_no = EXCLUDED.roll_no, name = EXCLUDED.name, branch_id = EXCLUDED.branch_id,
+		    section = EXCLUDED.section, batch = EXCLUDED.batch
+	`); err != nil {
+		return fmt.Errorf("upsert out-of-branch student fixture: %w", err)
 	}
 
 	// The marking fixtures, seeded LAST so branches and students already exist.

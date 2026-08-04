@@ -121,6 +121,13 @@ async function mockApi(page: Page, scenario: Scenario = {}) {
     }
     await json(route, { data: [] })
   })
+  await page.route(`**/api/v1/admin/events/${eventID}/attendance*`, async (route) => {
+    if (route.request().method() === 'OPTIONS') {
+      await fulfilPreflight(route)
+      return
+    }
+    await json(route, { data: [], page: 1, page_size: 20, total: 0 })
+  })
   await page.route(`**/api/v1/admin/events/${eventID}/categories`, async (route) => {
     // The browser preflights the cross-origin POST before it ever sends it.
     if (route.request().method() === 'OPTIONS') {

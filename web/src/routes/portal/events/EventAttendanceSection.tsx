@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { CategoryRecord, AttendanceRecordCollection } from '../../../api/client'
-import { ApiFailure } from '../../../api/client'
 import { useAuth } from '../../../features/auth/context'
 import { messageOf } from './format'
 
@@ -40,7 +39,7 @@ export function EventAttendanceSection({
       pageSize: 20,
     }),
     enabled: eventID !== '',
-    refetchInterval: ATTENDANCE_POLL_MS,
+    refetchInterval: (query) => (query.state.error ? false : ATTENDANCE_POLL_MS),
   })
 
   const rows = attendance.data?.data ?? []
@@ -105,7 +104,7 @@ export function EventAttendanceSection({
                 const markedBy = row.marked_by.name ?? row.marked_by.email ?? 'Unknown user'
                 return (
                   <tr key={row.record_id}>
-                    <th>
+                    <th scope="row">
                       <div>{row.student.display_name}</div>
                       <small>{row.student.roll_no} · {row.student.branch} · {row.student.section}</small>
                     </th>

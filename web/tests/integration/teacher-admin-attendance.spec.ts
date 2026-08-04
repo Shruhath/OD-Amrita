@@ -1,39 +1,87 @@
 import { expect, test } from '@playwright/test'
-import { installPortalSession } from '../e2e/support/portal-session'
-import { teacherMarkRoute } from '../support/factories/teacher-admin-marking'
 
-const redTest = process.env.ATDD_ACTIVE_09 === '1' ? test : test.skip
+/**
+ * The real-stack teacher/admin search-mark and attendance-view journey.
+ *
+ * Runs the real `web/` app against the real Go API and real Postgres through
+ * `api/test/portal/main.go`, using the same `/integration.html?role=X&path=Y`
+ * harness entry every other real-stack spec in this directory uses (see
+ * coordinator-marking.spec.ts and teacher-profiles.spec.ts) — NOT the mocked
+ * `installPortalSession` helper from tests/e2e/support, which only fakes the
+ * Supabase auth endpoint and never talks to this harness's fixed verifier.
+ *
+ * TWO HARNESS FACTS this depends on, both seeded by api/test/portal/main.go:
+ *
+ *  1. A `role = 'teacher'` principal behind `portal-teacher-token`, already
+ *     branch-scoped to CSE via `user_branches`.
+ *  2. An active event dated TODAY (the same `93000000-...0001` marking event
+ *     the coordinator journey uses) with a CSE-branch association, plus a CSE
+ *     roster (CB.SC.U4CSE24001-005) and one ECE student
+ *     (CB.SC.U4ECE24001) outside the teacher's branch.
+ */
 
-test.describe('teacher/admin attendance real-stack scaffold', () => {
-  redTest('[P0] teacher search-mark writes through the real API and appears in admin attendance', async ({ page }) => {
-    await installPortalSession(page, 'teacher')
+const portalAPI = 'http://127.0.0.1:8081'
+const MARKING_EVENT_ID = '93000000-0000-4000-8000-000000000001'
 
-    await page.goto(teacherMarkRoute)
+async function openTeacherMarkScreen(page: import('@playwright/test').Page) {
+  await page.goto('/integration.html?role=teacher&path=%2Fportal%2Fmark')
+  await expect(page.getByRole('heading', { name: /mark attendance/i })).toBeVisible()
+}
 
-    await expect(page.getByRole('heading', { name: /mark attendance/i })).toBeVisible()
+test.describe('real stack teacher/admin search marking', () => {
+  test('[P0] teacher search-marks with an explicit slot and no device capture controls', async ({ page }, testInfo) => {
+    // A DIFFERENT student per attempt, matching coordinator-marking.spec.ts's
+    // reasoning: the harness clears od_records once at boot, not per test, and
+    // CI retries — re-marking the same student in the same slot would return
+    // SCAN_DUPLICATE and turn any flake into a hard red. Deliberately disjoint
+    // from coordinator-marking.spec.ts's roll pool (CSE24001-003): that spec
+    // marks at whatever slot the real clock currently has open, so sharing a
+    // roll could collide with this fixed slot 4 by coincidence.
+    const rolls = ['CB.SC.U4CSE24004', 'CB.SC.U4CSE24005']
+    const roll = rolls[testInfo.retry % rolls.length]
+
+    await openTeacherMarkScreen(page)
+
+    await expect(page.getByRole('button', { name: /tap|nfc/i })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /camera|scan/i })).toHaveCount(0)
+
     await page.getByRole('combobox', { name: /slot/i }).selectOption('4')
-    await page.getByRole('searchbox', { name: /student/i }).fill('CB.SC.U4CSE24')
-    await page.getByRole('option', { name: /CB\.SC\.U4CSE/i }).first().click()
+    await page.getByRole('searchbox', { name: /student/i }).fill(roll)
+    await page.getByRole('option', { name: new RegExp(roll.replace(/\./g, '\\.'), 'i') }).click()
     await page.getByRole('button', { name: /mark present/i }).click()
+
     await expect(page.getByRole('status')).toContainText(/marked|present/i)
 
-    await installPortalSession(page, 'admin')
-    await page.goto('/portal/events/11111111-1111-4111-8111-111111111111')
+    await page.goto(`/integration.html?role=admin&path=%2Fportal%2Fevents%2F${MARKING_EVENT_ID}`)
     await expect(page.getByRole('heading', { name: /attendance/i })).toBeVisible()
-    await expect(page.getByText(/CB\.SC\.U4CSE/i)).toBeVisible()
-    await expect(page.getByText(/teacher@amrita\.edu/i)).toBeVisible()
+
+    const attendanceTable = page.locator('.table-wrap')
+    await expect(attendanceTable.getByText(new RegExp(roll.replace(/\./g, '\\.'), 'i'))).toBeVisible()
+    await expect(attendanceTable.getByText('Portal Teacher')).toBeVisible()
+    await expect(attendanceTable.getByRole('cell', { name: 'search', exact: true })).toBeVisible()
   })
 
-  redTest('[P0] unauthorized teacher branch mismatch is refused without an attendance row', async ({ page }) => {
-    await installPortalSession(page, 'teacher')
+  test('[P0] a teacher outside the student branch is refused without an attendance row', async ({ page, request }) => {
+    const before = await request.get(
+      `${portalAPI}/api/v1/admin/events/${MARKING_EVENT_ID}/attendance?slot=7`,
+      { headers: { Authorization: 'Bearer portal-admin-token' } },
+    )
+    expect(before.status()).toBe(200)
+    const beforeTotal = (await before.json()).total
 
-    await page.goto(teacherMarkRoute)
+    await openTeacherMarkScreen(page)
 
-    await page.getByRole('combobox', { name: /slot/i }).selectOption('4')
-    await page.getByRole('searchbox', { name: /student/i }).fill('CB.SC.U4ECE24')
-    await page.getByRole('option', { name: /CB\.SC\.U4ECE/i }).first().click()
+    await page.getByRole('combobox', { name: /slot/i }).selectOption('7')
+    await page.getByRole('searchbox', { name: /student/i }).fill('CB.SC.U4ECE24001')
+    await page.getByRole('option', { name: /CB\.SC\.U4ECE24001/i }).click()
     await page.getByRole('button', { name: /mark present/i }).click()
 
     await expect(page.getByRole('alert')).toContainText(/not allowed|forbidden|branch/i)
+
+    const after = await request.get(
+      `${portalAPI}/api/v1/admin/events/${MARKING_EVENT_ID}/attendance?slot=7`,
+      { headers: { Authorization: 'Bearer portal-admin-token' } },
+    )
+    expect((await after.json()).total).toBe(beforeTotal)
   })
 })

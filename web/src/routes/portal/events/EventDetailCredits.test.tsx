@@ -23,6 +23,7 @@ const adminEventCoordinatorsPath = /\/api\/v1\/admin\/events\/[^/?]+\/coordinato
 const adminEventCreditsPath = /\/api\/v1\/admin\/events\/[^/?]+\/capture-credits$/
 const adminEventCreditConfigPath = /\/api\/v1\/admin\/events\/[^/?]+\/capture-credits\/config$/
 const adminEventCreditResetPath = /\/api\/v1\/admin\/events\/[^/?]+\/capture-credits\/coordinators\/[^/?]+\/reset$/
+const adminEventAttendancePath = /\/api\/v1\/admin\/events\/[^/?]+\/attendance(?:\?.*)?$/
 
 function session(): SessionPort {
   return {
@@ -68,6 +69,9 @@ function renderEventDetail(status: 'active' | 'archived' = 'active') {
       HttpResponse.json({ data: [createCategoryFixture({ event_id: testEventID })] }),
     ),
     http.get(adminEventCoordinatorsPath, () => HttpResponse.json({ data: [] })),
+    http.get(adminEventAttendancePath, () =>
+      HttpResponse.json({ data: [], page: 1, page_size: 20, total: 0 }),
+    ),
     http.get(adminEventCreditsPath, () => HttpResponse.json(summary)),
     http.put(adminEventCreditConfigPath, async ({ request }) => {
       calls.push('config')

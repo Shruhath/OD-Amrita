@@ -17,7 +17,7 @@ import {
   teacherSearchMarkResult,
 } from '../../../../tests/support/factories/teacher-admin-marking'
 
-const redTest = process.env.ATDD_ACTIVE_09 === '1' ? test : test.skip
+const redTest = test
 
 function sessionPort(): SessionPort {
   return {

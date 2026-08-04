@@ -140,7 +140,7 @@ func run() error {
 		svcodrecord.NewSQLCWriter(),
 		st,
 		nil,
-		svcmarking.NewMarkGuard(markingPolicy),
+		svcmarking.NewRoleAwareMarkGuard(markingPolicy, pool),
 		creditLedger,
 	)
 	handlerodrecord.RegisterRoutes(markAPI, markSvc)

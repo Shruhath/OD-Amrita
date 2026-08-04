@@ -232,10 +232,20 @@ jobs:
             exit 1
           }
       - name: Verify teacher/admin marking audit conservation
-        # Story 0.9: exactly one search-mark lands as actor_role='teacher' in
-        # slot 4 (teacher-admin-attendance.spec.ts), with exactly one matching
-        # od.created row, and the refused out-of-branch attempt (slot 7) writes
-        # neither an od_records row nor an audit row.
+        # Exactly one search-mark lands as actor_role='teacher' in slot 4
+        # (teacher-admin-attendance.spec.ts), with exactly one matching
+        # od.created row, and the refused out-of-branch attempt writes no
+        # od_records row at all.
+        #
+        # The refusal is asserted against the out-of-branch STUDENT, not against
+        # the slot the spec happens to attempt. Slot 7 is a real teaching slot
+        # (13:15-14:05 IST, see api/internal/service/od_record/schedule.go), and
+        # every other real-stack spec marks at whatever slot the server reports
+        # currently open — so a `slot = 7` predicate silently folds those
+        # legitimate marks into this assertion whenever CI runs inside that
+        # 50-minute window, and passes for the wrong reason the rest of the day.
+        # Scoping to the student tests the refusal directly and catches a leak
+        # in ANY slot, not just the one the spec asked for.
         run: |
           event_id="93000000-0000-4000-8000-000000000001"
           records="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
@@ -260,10 +270,12 @@ jobs:
           }
           refused="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
             SELECT count(*)
-            FROM od_records
-            WHERE event_id = '$event_id' AND slot = 7")"
+            FROM od_records AS record
+            JOIN students AS student ON student.id = record.student_id
+            WHERE record.event_id = '$event_id'
+              AND student.roll_no = 'CB.SC.U4ECE24001'")"
           [ "$refused" = "0" ] || {
-            echo "expected the out-of-branch teacher mark attempt to write nothing in slot 7, got $refused rows"
+            echo "expected the out-of-branch teacher mark attempt to write nothing, got $refused rows"
             exit 1
           }
       - name: Verify teacher audit conservation

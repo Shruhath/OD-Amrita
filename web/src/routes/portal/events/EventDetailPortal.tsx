@@ -6,6 +6,7 @@ import { BranchChip } from '../../../components/BranchChip'
 import { PortalShell } from '../../../components/PortalShell'
 import { ApiFailure } from '../../../api/client'
 import { useAuth } from '../../../features/auth/context'
+import { EventAttendanceSection } from './EventAttendanceSection'
 import { formatDate, messageOf, titleCase } from './format'
 
 // The event is read by ID through the contract's item endpoint.
@@ -429,6 +430,7 @@ export default function EventDetailPortal() {
             )}
             {creditFormError && <p className="notice error" role="alert">{creditFormError}</p>}
           </section>
+          <EventAttendanceSection eventID={eventID} categories={categoryData} />
           {resetCandidate && (
             <div className="dialog-backdrop" role="presentation">
               <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="reset-credit-title">

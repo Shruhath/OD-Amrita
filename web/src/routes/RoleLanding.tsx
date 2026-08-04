@@ -14,5 +14,7 @@ export default function RoleLanding() {
   if (auth.loading) {
     return <main className="center-state"><p role="status">Checking your session…</p></main>
   }
-  return <Navigate to={auth.identity?.role === 'coordinator' ? '/mark' : '/portal/events'} replace />
+  if (auth.identity?.role === 'coordinator') return <Navigate to="/mark" replace />
+  if (auth.identity?.role === 'teacher') return <Navigate to="/portal/mark" replace />
+  return <Navigate to="/portal/events" replace />
 }

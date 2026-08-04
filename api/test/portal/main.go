@@ -138,6 +138,7 @@ func main() {
 	eventReader := svcevent.NewSQLCReader(runtimePool)
 	creditLedger := svcodrecord.NewSQLCCreditLedger(runtimePool)
 	markingPolicy := svcmarking.NewPolicy(svcmarking.NewEventReader(eventReader))
+	portalMarkReads := svcmarking.NewPortalMarkReadService(runtimePool)
 	markService := svcodrecord.NewService(
 		svcodrecord.NewSQLCReader(runtimePool),
 		svcodrecord.NewCardTokenResolver(svccardtoken.NewSQLCLedger(runtimePool), cardKeyring),
@@ -171,6 +172,7 @@ func main() {
 	markAPI := api.Group("")
 	markAPI.Use(rbac.RequirePrincipal(principalLoader))
 	handlerodrecord.RegisterRoutes(markAPI, markService)
+	handlerodrecord.RegisterPortalMarkRoutes(markAPI, portalMarkReads)
 	// Shared with cmd/api, exactly like the admin routes below: a harness that
 	// mounts the marking reads on a different group than production turns a real
 	// route-composition bug into a browser-journey 404 that reads as a frontend
@@ -183,6 +185,7 @@ func main() {
 	// route set than production — the divergence that turns a missing route into
 	// a browser-journey 404 that reads as a frontend bug.
 	handlerevent.RegisterAdminRoutes(admin, eventService)
+	handlerodrecord.RegisterAdminAttendanceRoutes(admin, portalMarkReads)
 	handlerteacher.RegisterAdminRoutes(admin, teacherService)
 	handlerstudent.RegisterAdminRoutes(admin, studentService)
 	handlercardtoken.RegisterAdminRoutes(admin, cardTokenService)

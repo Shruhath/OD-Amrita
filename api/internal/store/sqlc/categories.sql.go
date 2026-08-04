@@ -41,6 +41,47 @@ func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) 
 	return i, err
 }
 
+const listAdminPortalMarkCategories = `-- name: ListAdminPortalMarkCategories :many
+SELECT c.id, c.event_id, c.name, c.created_at
+FROM categories c
+JOIN events e ON e.id = c.event_id
+WHERE c.event_id = $1
+  AND e.status = 'active'
+ORDER BY c.name ASC, c.id ASC
+`
+
+type ListAdminPortalMarkCategoriesRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	EventID   pgtype.UUID        `json:"event_id"`
+	Name      string             `json:"name"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) ListAdminPortalMarkCategories(ctx context.Context, eventID pgtype.UUID) ([]ListAdminPortalMarkCategoriesRow, error) {
+	rows, err := q.db.Query(ctx, listAdminPortalMarkCategories, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAdminPortalMarkCategoriesRow
+	for rows.Next() {
+		var i ListAdminPortalMarkCategoriesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventID,
+			&i.Name,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCategoriesByEvent = `-- name: ListCategoriesByEvent :many
 SELECT id, event_id, name, created_at
 FROM categories
@@ -64,6 +105,59 @@ func (q *Queries) ListCategoriesByEvent(ctx context.Context, eventID pgtype.UUID
 	var items []ListCategoriesByEventRow
 	for rows.Next() {
 		var i ListCategoriesByEventRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventID,
+			&i.Name,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTeacherPortalMarkCategories = `-- name: ListTeacherPortalMarkCategories :many
+SELECT c.id, c.event_id, c.name, c.created_at
+FROM categories c
+JOIN events e ON e.id = c.event_id
+WHERE c.event_id = $1
+  AND e.status = 'active'
+  AND EXISTS (
+      SELECT 1
+      FROM event_branches eb
+      JOIN user_branches ub ON ub.branch_id = eb.branch_id
+      WHERE eb.event_id = c.event_id
+        AND ub.user_id = $2
+  )
+ORDER BY c.name ASC, c.id ASC
+`
+
+type ListTeacherPortalMarkCategoriesParams struct {
+	EventID pgtype.UUID `json:"event_id"`
+	UserID  pgtype.UUID `json:"user_id"`
+}
+
+type ListTeacherPortalMarkCategoriesRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	EventID   pgtype.UUID        `json:"event_id"`
+	Name      string             `json:"name"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) ListTeacherPortalMarkCategories(ctx context.Context, arg ListTeacherPortalMarkCategoriesParams) ([]ListTeacherPortalMarkCategoriesRow, error) {
+	rows, err := q.db.Query(ctx, listTeacherPortalMarkCategories, arg.EventID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTeacherPortalMarkCategoriesRow
+	for rows.Next() {
+		var i ListTeacherPortalMarkCategoriesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.EventID,

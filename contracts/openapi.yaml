@@ -250,6 +250,202 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/portal/mark/events:
+    get:
+      operationId: listPortalMarkEvents
+      summary: List active events available to the teacher/admin search-mark surface
+      description: >-
+        Authenticated teacher/admin search-mark event read. Teachers see active
+        events that include at least one of their associated branches; admins see
+        all active events. This is deliberately separate from the coordinator
+        `/api/v1/events` surface so teacher/admin access cannot widen coordinator
+        NFC/camera marking semantics.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Deterministically ordered page of active markable events.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventCollection"
+        "400":
+          description: Invalid pagination value.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a teacher or admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/portal/mark/events/{event_id}/categories:
+    get:
+      operationId: listPortalMarkEventCategories
+      summary: List categories available to the teacher/admin search-mark surface
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Categories for an active event the caller may search-mark.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategoryCollection"
+        "400":
+          description: Malformed event id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller may not search-mark for this event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Event was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Event is archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/events/{event_id}/attendance:
+    get:
+      operationId: listAdminEventAttendance
+      summary: List present attendance records for one event
+      description: >-
+        Admin-only event verification read. Filters are applied server-side
+        before pagination, returns present OD rows only, and exposes display and
+        actor fields needed to verify the live event without revealing card
+        tokens, fingerprints, fallback-credit internals, disputes, reasons, or
+        private student email.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: category_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: slot
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 12
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Page of attendance rows for the requested event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceRecordCollection"
+        "400":
+          description: Invalid filter or pagination value.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Administrator access is required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Event was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/events:
     get:
       operationId: listMarkableEvents
@@ -2214,6 +2410,83 @@ components:
           type: string
         batch:
           type: string
+
+    AttendanceActor:
+      type: object
+      description: >-
+        Actor display snapshot for an OD record. All fields are required but
+        nullable so records remain renderable after the referenced user row is
+        removed through ON DELETE SET NULL.
+      required: [user_id, email, name]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          nullable: true
+        email:
+          type: string
+          format: email
+          nullable: true
+        name:
+          type: string
+          nullable: true
+
+    AttendanceRecord:
+      type: object
+      required:
+        - record_id
+        - student
+        - event_id
+        - category
+        - slot
+        - capture_method
+        - marked_by
+        - actor_role
+        - server_received_at
+      properties:
+        record_id:
+          type: string
+          format: uuid
+        student:
+          $ref: "#/components/schemas/MarkedStudent"
+        event_id:
+          type: string
+          format: uuid
+        category:
+          $ref: "#/components/schemas/Category"
+        slot:
+          type: integer
+          minimum: 1
+          maximum: 12
+        capture_method:
+          $ref: "#/components/schemas/CaptureMethod"
+        marked_by:
+          $ref: "#/components/schemas/AttendanceActor"
+        actor_role:
+          type: string
+          enum: [coordinator, teacher, admin]
+        server_received_at:
+          type: string
+          format: date-time
+
+    AttendanceRecordCollection:
+      type: object
+      required: [data, page, page_size, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttendanceRecord"
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
 
     HealthStatus:
       type: object

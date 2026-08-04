@@ -127,6 +127,10 @@ type ScopeGuard interface {
 	AssertCanMark(ctx context.Context, actor Actor, eventID, categoryID string) error
 }
 
+type StudentScopeGuard interface {
+	AssertCanMarkStudent(ctx context.Context, actor Actor, eventID, categoryID string, student Student) error
+}
+
 // AllowAnyScope admits every scope. It is the EXPLICIT opt-out for tests that
 // are not about scope at all, and it is exported precisely so choosing it has to
 // be written down at the call site.
@@ -140,6 +144,9 @@ type ScopeGuard interface {
 type AllowAnyScope struct{}
 
 func (AllowAnyScope) AssertCanMark(context.Context, Actor, string, string) error { return nil }
+func (AllowAnyScope) AssertCanMarkStudent(context.Context, Actor, string, string, Student) error {
+	return nil
+}
 
 type systemClock struct{}
 
@@ -191,11 +198,13 @@ func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkR
 		return MarkResult{}, validation("category_id", "invalid_format", "category_id must be a UUID.")
 	}
 
-	// The scope gate, in front of every read and every write on this path.
-	// Enforcing scope in the read handlers alone would be worthless: the client
-	// chooses these two ids and could post any pair it liked (NFR11).
-	if err := s.scope.AssertCanMark(ctx, actor, input.EventID, input.CategoryID); err != nil {
-		return MarkResult{}, err
+	if actor.Role == "coordinator" {
+		// The coordinator scope gate stays in front of every read and write on
+		// this path. Enforcing scope in the read handlers alone would be worthless:
+		// the client chooses these ids and could post any pair it liked (NFR11).
+		if err := s.scope.AssertCanMark(ctx, actor, input.EventID, input.CategoryID); err != nil {
+			return MarkResult{}, err
+		}
 	}
 
 	// The actor's id is only needed to write the record and its audit row, so it
@@ -230,6 +239,16 @@ func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkR
 	}
 	if err != nil {
 		return MarkResult{}, err
+	}
+
+	if actor.Role != "coordinator" {
+		studentScope, ok := s.scope.(StudentScopeGuard)
+		if !ok {
+			return MarkResult{}, forbidden("Teacher/admin mark authorization is not configured.")
+		}
+		if err := studentScope.AssertCanMarkStudent(ctx, actor, input.EventID, input.CategoryID, student); err != nil {
+			return MarkResult{}, err
+		}
 	}
 
 	slot, serverReceivedAt, err := s.slotFor(actor, input, event)

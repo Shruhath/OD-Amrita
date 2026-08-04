@@ -87,6 +87,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/mark/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List active events available to the teacher/admin search-mark surface
+         * @description Authenticated teacher/admin search-mark event read. Teachers see active events that include at least one of their associated branches; admins see all active events. This is deliberately separate from the coordinator `/api/v1/events` surface so teacher/admin access cannot widen coordinator NFC/camera marking semantics.
+         */
+        get: operations["listPortalMarkEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/mark/events/{event_id}/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List categories available to the teacher/admin search-mark surface */
+        get: operations["listPortalMarkEventCategories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/events/{event_id}/attendance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List present attendance records for one event
+         * @description Admin-only event verification read. Filters are applied server-side before pagination, returns present OD rows only, and exposes display and actor fields needed to verify the live event without revealing card tokens, fingerprints, fallback-credit internals, disputes, reasons, or private student email.
+         */
+        get: operations["listAdminEventAttendance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/events": {
         parameters: {
             query?: never;
@@ -747,6 +804,35 @@ export interface components {
             section: string;
             batch: string;
         };
+        /** @description Actor display snapshot for an OD record. All fields are required but nullable so records remain renderable after the referenced user row is removed through ON DELETE SET NULL. */
+        AttendanceActor: {
+            /** Format: uuid */
+            user_id: string | null;
+            /** Format: email */
+            email: string | null;
+            name: string | null;
+        };
+        AttendanceRecord: {
+            /** Format: uuid */
+            record_id: string;
+            student: components["schemas"]["MarkedStudent"];
+            /** Format: uuid */
+            event_id: string;
+            category: components["schemas"]["Category"];
+            slot: number;
+            capture_method: components["schemas"]["CaptureMethod"];
+            marked_by: components["schemas"]["AttendanceActor"];
+            /** @enum {string} */
+            actor_role: "coordinator" | "teacher" | "admin";
+            /** Format: date-time */
+            server_received_at: string;
+        };
+        AttendanceRecordCollection: {
+            data: components["schemas"]["AttendanceRecord"][];
+            page: number;
+            page_size: number;
+            total: number;
+        };
         /** @description Health probe shape — overall service status plus database connectivity. */
         HealthStatus: {
             /**
@@ -1137,6 +1223,213 @@ export interface operations {
             };
             /** @description Event is archived. */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listPortalMarkEvents: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deterministically ordered page of active markable events. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventCollection"];
+                };
+            };
+            /** @description Invalid pagination value. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a teacher or admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listPortalMarkEventCategories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Categories for an active event the caller may search-mark. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CategoryCollection"];
+                };
+            };
+            /** @description Malformed event id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller may not search-mark for this event. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event is archived. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listAdminEventAttendance: {
+        parameters: {
+            query?: {
+                category_id?: string;
+                slot?: number;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of attendance rows for the requested event. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceRecordCollection"];
+                };
+            };
+            /** @description Invalid filter or pagination value. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Administrator access is required. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event was not found. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

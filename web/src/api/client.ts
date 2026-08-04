@@ -20,6 +20,9 @@ export type UpdateCaptureCreditConfigInput = components['schemas']['UpdateCaptur
 export type TeacherProfile = components['schemas']['TeacherProfile']
 export type TeacherProfileCollection = components['schemas']['TeacherProfileCollection']
 export type CreateTeacherProfileInput = components['schemas']['CreateTeacherProfileRequest']
+export type AttendanceActor = components['schemas']['AttendanceActor']
+export type AttendanceRecord = components['schemas']['AttendanceRecord']
+export type AttendanceRecordCollection = components['schemas']['AttendanceRecordCollection']
 export type StudentRosterImportResult = components['schemas']['StudentRosterImportResult']
 export type StudentRosterImportError = components['schemas']['StudentRosterImportError']
 export type StudentCollection = components['schemas']['StudentCollection']
@@ -159,6 +162,16 @@ export function createEventApi(session: SessionPort) {
         params: { path: { event_id: eventID } },
       }))
     },
+    async portalMarkEvents(page = 1, pageSize = 20) {
+      return unwrap(await client.GET('/api/v1/portal/mark/events', {
+        params: { query: { page, page_size: pageSize } },
+      }))
+    },
+    async portalMarkCategories(eventID: string) {
+      return unwrap(await client.GET('/api/v1/portal/mark/events/{event_id}/categories', {
+        params: { path: { event_id: eventID } },
+      }))
+    },
     async createCategory(eventID: string, input: CreateCategoryInput) {
       return unwrap(await client.POST('/api/v1/admin/events/{event_id}/categories', {
         params: { path: { event_id: eventID } },
@@ -289,6 +302,20 @@ export function createEventApi(session: SessionPort) {
     async markStatus(eventID: string, categoryID: string) {
       return unwrap(await client.GET('/api/v1/mark/status', {
         params: { query: { event_id: eventID, category_id: categoryID } },
+      }))
+    },
+    async adminAttendance(
+      eventID: string,
+      filters: { categoryID?: string; slot?: number; page?: number; pageSize?: number } = {},
+    ) {
+      const query: Record<string, string | number> = {
+        page: filters.page ?? 1,
+        page_size: filters.pageSize ?? 20,
+      }
+      if (filters.categoryID) query.category_id = filters.categoryID
+      if (filters.slot !== undefined) query.slot = filters.slot
+      return unwrap(await client.GET('/api/v1/admin/events/{event_id}/attendance', {
+        params: { path: { event_id: eventID }, query },
       }))
     },
 

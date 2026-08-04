@@ -16,6 +16,27 @@ const (
 	BearerAuthScopes bearerAuthContextKey = "bearerAuth.Scopes"
 )
 
+// Defines values for AttendanceRecordActorRole.
+const (
+	AttendanceRecordActorRoleAdmin       AttendanceRecordActorRole = "admin"
+	AttendanceRecordActorRoleCoordinator AttendanceRecordActorRole = "coordinator"
+	AttendanceRecordActorRoleTeacher     AttendanceRecordActorRole = "teacher"
+)
+
+// Valid indicates whether the value is a known member of the AttendanceRecordActorRole enum.
+func (e AttendanceRecordActorRole) Valid() bool {
+	switch e {
+	case AttendanceRecordActorRoleAdmin:
+		return true
+	case AttendanceRecordActorRoleCoordinator:
+		return true
+	case AttendanceRecordActorRoleTeacher:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AuthenticatedIdentityRole.
 const (
 	AuthenticatedIdentityRoleAdmin       AuthenticatedIdentityRole = "admin"
@@ -299,6 +320,41 @@ func (e ListAdminEventsParamsStatus) Valid() bool {
 	default:
 		return false
 	}
+}
+
+// AttendanceActor Actor display snapshot for an OD record. All fields are required but nullable so records remain renderable after the referenced user row is removed through ON DELETE SET NULL.
+type AttendanceActor struct {
+	Email  *openapi_types.Email `json:"email"`
+	Name   *string              `json:"name"`
+	UserId *openapi_types.UUID  `json:"user_id"`
+}
+
+// AttendanceRecord defines model for AttendanceRecord.
+type AttendanceRecord struct {
+	ActorRole     AttendanceRecordActorRole `json:"actor_role"`
+	CaptureMethod CaptureMethod             `json:"capture_method"`
+
+	// Category An activity within one event (e.g. Procession, Stage Setup). A category has no identity without its event, which is why event_id is part of the resource and the operations are nested under the event.
+	Category Category           `json:"category"`
+	EventId  openapi_types.UUID `json:"event_id"`
+
+	// MarkedBy Actor display snapshot for an OD record. All fields are required but nullable so records remain renderable after the referenced user row is removed through ON DELETE SET NULL.
+	MarkedBy         AttendanceActor    `json:"marked_by"`
+	RecordId         openapi_types.UUID `json:"record_id"`
+	ServerReceivedAt time.Time          `json:"server_received_at"`
+	Slot             int                `json:"slot"`
+	Student          MarkedStudent      `json:"student"`
+}
+
+// AttendanceRecordActorRole defines model for AttendanceRecord.ActorRole.
+type AttendanceRecordActorRole string
+
+// AttendanceRecordCollection defines model for AttendanceRecordCollection.
+type AttendanceRecordCollection struct {
+	Data     []AttendanceRecord `json:"data"`
+	Page     int                `json:"page"`
+	PageSize int                `json:"page_size"`
+	Total    int                `json:"total"`
 }
 
 // AuthenticatedIdentity Identity claims verified from the Supabase JWT and accepted by the backend amrita.edu domain-family gate.
@@ -753,6 +809,14 @@ type ListAdminEventsParams struct {
 // ListAdminEventsParamsStatus defines parameters for ListAdminEvents.
 type ListAdminEventsParamsStatus string
 
+// ListAdminEventAttendanceParams defines parameters for ListAdminEventAttendance.
+type ListAdminEventAttendanceParams struct {
+	CategoryId *openapi_types.UUID `form:"category_id,omitempty" json:"category_id,omitempty"`
+	Slot       *int                `form:"slot,omitempty" json:"slot,omitempty"`
+	Page       *int                `form:"page,omitempty" json:"page,omitempty"`
+	PageSize   *int                `form:"page_size,omitempty" json:"page_size,omitempty"`
+}
+
 // ListAdminStudentsParams defines parameters for ListAdminStudents.
 type ListAdminStudentsParams struct {
 	BranchId *openapi_types.UUID `form:"branch_id,omitempty" json:"branch_id,omitempty"`
@@ -783,6 +847,12 @@ type ListMarkableEventsParams struct {
 type GetMarkStatusParams struct {
 	EventId    openapi_types.UUID `form:"event_id" json:"event_id"`
 	CategoryId openapi_types.UUID `form:"category_id" json:"category_id"`
+}
+
+// ListPortalMarkEventsParams defines parameters for ListPortalMarkEvents.
+type ListPortalMarkEventsParams struct {
+	Page     *int `form:"page,omitempty" json:"page,omitempty"`
+	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
 // SearchStudentsParams defines parameters for SearchStudents.

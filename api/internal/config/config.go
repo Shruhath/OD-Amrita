@@ -9,6 +9,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/Shruhath/OD-Amrita/api/internal/middleware/ratelimit"
 )
 
 // TLS holds the transport-security settings (NFR15: the server is TLS-only —
@@ -60,6 +62,22 @@ type Config struct {
 	TLS      TLS
 	Auth     Auth
 	CardSeal CardSeal
+
+	// PublicRateLimit bounds the UNAUTHENTICATED public dashboard endpoints
+	// (Story 0.10). Both fields have working defaults on purpose: the deployed
+	// Fly app carries no rate-limit secret, and requiring one would take the API
+	// down at the next deploy. Tuning them live is the venue-day lever — a
+	// `flyctl secrets set` rather than a redeploy.
+	PublicRateLimit PublicRateLimit
+}
+
+// PublicRateLimit is the token-bucket tuning for the public group.
+type PublicRateLimit struct {
+	// PerMinute is the sustained per-client refill rate.
+	PerMinute int
+	// Burst is the bucket capacity — how many requests a client may make back
+	// to back. A debounced search plus a records fetch must fit comfortably.
+	Burst int
 }
 
 // Load reads the environment and fails fast on a configuration the server
@@ -134,6 +152,11 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("config: TLS_KEY_FILE: %w", err)
 		}
 	}
+	publicRateLimit, err := parsePublicRateLimit()
+	if err != nil {
+		return nil, err
+	}
+	cfg.PublicRateLimit = publicRateLimit
 	if err := validateAuth(cfg.Auth, cfg.AppEnv); err != nil {
 		return nil, err
 	}
@@ -149,6 +172,38 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// parsePublicRateLimit reads the public-surface limiter tuning.
+//
+// UNSET IS VALID and yields the defaults — that is what lets the current Fly
+// deployment keep booting without a new secret. A SET-BUT-GARBAGE value is not:
+// a typo that silently fell back to the default would leave an operator raising
+// a cap that never moved, on the one day they need it to.
+func parsePublicRateLimit() (PublicRateLimit, error) {
+	perMinute, err := positiveIntDefault("PUBLIC_RATE_LIMIT_PER_MINUTE", ratelimit.DefaultPerMinute)
+	if err != nil {
+		return PublicRateLimit{}, err
+	}
+	burst, err := positiveIntDefault("PUBLIC_RATE_LIMIT_BURST", ratelimit.DefaultBurst)
+	if err != nil {
+		return PublicRateLimit{}, err
+	}
+	return PublicRateLimit{PerMinute: perMinute, Burst: burst}, nil
+}
+
+// positiveIntDefault returns def when the variable is absent or blank, and
+// fails when it is present but not a positive integer.
+func positiveIntDefault(key string, def int) (int, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return def, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return 0, fmt.Errorf("config: %s must be a positive integer, got %q", key, raw)
+	}
+	return value, nil
 }
 
 // LoadCardSealFromEnv loads only the card-seal keyring configuration. Test

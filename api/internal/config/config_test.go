@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Shruhath/OD-Amrita/api/internal/middleware/ratelimit"
 )
 
 // writeTempCertKey creates readable placeholder cert/key files and returns their
@@ -36,6 +38,7 @@ func setEnv(t *testing.T, env map[string]string) {
 		"AUTH_BOOTSTRAP_ADMINS",
 		"PORTAL_ALLOWED_ORIGINS",
 		"CARD_SEAL_ACTIVE_VERSION", "CARD_SEAL_HMAC_KEYS",
+		"PUBLIC_RATE_LIMIT_PER_MINUTE", "PUBLIC_RATE_LIMIT_BURST",
 	} {
 		t.Setenv(k, "")
 	}
@@ -358,5 +361,55 @@ func TestLoad_RedirectListenerForbidden(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "HTTP_REDIRECT_LISTENER") {
 		t.Errorf("error must name the offending variable, got: %v", err)
+	}
+}
+
+// The public rate limit must work with NO configuration at all: the deployed
+// Fly app carries no such secret, and a limiter that required one would take
+// the API down at the next deploy.
+func TestLoad_PublicRateLimitDefaultsWhenUnset(t *testing.T) {
+	setEnv(t, map[string]string{
+		"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":          "false",
+	})
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.PublicRateLimit.PerMinute != ratelimit.DefaultPerMinute {
+		t.Errorf("PerMinute = %d, want the package default %d", cfg.PublicRateLimit.PerMinute, ratelimit.DefaultPerMinute)
+	}
+	if cfg.PublicRateLimit.Burst != ratelimit.DefaultBurst {
+		t.Errorf("Burst = %d, want the package default %d", cfg.PublicRateLimit.Burst, ratelimit.DefaultBurst)
+	}
+}
+
+func TestLoad_PublicRateLimitOverridesAndRejectsGarbage(t *testing.T) {
+	setEnv(t, map[string]string{
+		"DATABASE_URL_RUNTIME":         "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":                  "false",
+		"PUBLIC_RATE_LIMIT_PER_MINUTE": "600",
+		"PUBLIC_RATE_LIMIT_BURST":      "120",
+	})
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.PublicRateLimit.PerMinute != 600 || cfg.PublicRateLimit.Burst != 120 {
+		t.Fatalf("public rate limit = %+v, want {600 120}", cfg.PublicRateLimit)
+	}
+
+	// A SET-but-unusable value must fail fast rather than fall back. An operator
+	// raising the cap on event day has to be told their typo did nothing, not
+	// left believing a limit moved when it did not.
+	for _, invalid := range []string{"0", "-1", "thirty", "30/min", "1.5"} {
+		setEnv(t, map[string]string{
+			"DATABASE_URL_RUNTIME":         "postgres://od_runtime:x@localhost:5432/od_amrita",
+			"TLS_ENABLED":                  "false",
+			"PUBLIC_RATE_LIMIT_PER_MINUTE": invalid,
+		})
+		if _, err := Load(); err == nil {
+			t.Errorf("Load accepted PUBLIC_RATE_LIMIT_PER_MINUTE=%q", invalid)
+		}
 	}
 }

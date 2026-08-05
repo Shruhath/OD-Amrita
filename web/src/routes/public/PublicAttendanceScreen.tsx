@@ -51,14 +51,19 @@ export default function PublicAttendanceScreen() {
     return () => window.clearTimeout(timer)
   }, [query])
 
+  // Counted in RUNES, matching the server. `String.length` is UTF-16 code
+  // units, so a name in a non-BMP script counts double and the page would
+  // refuse to send a query the API would have accepted.
   const trimmed = query.trim()
-  const tooShort = trimmed.length > 0 && trimmed.length < MIN_SEARCH_RUNES
-  const tooLong = trimmed.length > MAX_SEARCH_RUNES
-  const searchable = debouncedQuery.length >= MIN_SEARCH_RUNES && debouncedQuery.length <= MAX_SEARCH_RUNES
+  const trimmedRunes = runeCount(trimmed)
+  const tooShort = trimmedRunes > 0 && trimmedRunes < MIN_SEARCH_RUNES
+  const tooLong = trimmedRunes > MAX_SEARCH_RUNES
+  const debouncedRunes = runeCount(debouncedQuery)
+  const searchable = debouncedRunes >= MIN_SEARCH_RUNES && debouncedRunes <= MAX_SEARCH_RUNES
 
   const search = useQuery({
     queryKey: ['public', 'students', 'search', debouncedQuery],
-    queryFn: () => api.searchStudents(debouncedQuery),
+    queryFn: () => api.publicSearchStudents(debouncedQuery),
     enabled: searchable,
     // Nothing about a roster result should outlive the view that asked for it.
     gcTime: 0,
@@ -66,7 +71,7 @@ export default function PublicAttendanceScreen() {
 
   const records = useQuery({
     queryKey: ['public', 'students', selectedStudentID, 'od-records'],
-    queryFn: () => api.studentRecords(selectedStudentID),
+    queryFn: () => api.publicStudentRecords(selectedStudentID),
     enabled: selectedStudentID !== '',
     gcTime: 0,
   })
@@ -222,30 +227,46 @@ export default function PublicAttendanceScreen() {
  * the day wrapper too.
  */
 function DaySlots({ day }: { day: PublicODDay }) {
-  const bySlot = new Map(day.records.map((record) => [record.slot, record]))
+  // A slot holds a LIST, not a single record. Uniqueness in the database is
+  // (student_id, event_id, slot) — per event — while a day here is a calendar
+  // date, so two events on one date can each hold a mark at the same slot for
+  // the same student. Keying a Map on the slot number alone silently keeps the
+  // last one, and the mark that loses renders as "No record": the page telling a
+  // student they were not marked when they were, which is the single outcome
+  // this screen exists to avoid.
+  const bySlot = new Map<number, PublicODDay['records']>()
+  for (const record of day.records) {
+    const existing = bySlot.get(record.slot)
+    if (existing) existing.push(record)
+    else bySlot.set(record.slot, [record])
+  }
 
   return (
     <section className="public-day" aria-label={`OD records for ${formatDate(day.event_date)}`}>
       <h3>{formatDate(day.event_date)}</h3>
       <ul className="public-slots">
         {SLOT_VALUES.map((slot) => {
-          const record = bySlot.get(slot)
+          const records = bySlot.get(slot) ?? []
           return (
-            <li key={slot} className={record ? 'public-slot is-present' : 'public-slot is-absent'}>
+            <li key={slot} className={records.length > 0 ? 'public-slot is-present' : 'public-slot is-absent'}>
               {/* The trailing colon is load-bearing, not decoration. A row's
                   textContent concatenates its children with no separator, so
                   without it "Slot 3" runs straight into "No record" and any
                   "slot 3 as a whole word" match — including a screen reader
                   pausing at the label — sees "Slot 3No". */}
               <span className="public-slot-label">Slot {slot}:</span>
-              {record ? (
+              {records.length > 0 ? (
                 <span className="public-slot-detail">
-                  <strong>{record.event_name}</strong>
-                  <span>{record.category_name}</span>
-                  <span>
-                    Marked by {record.marked_by_name ?? 'a former staff member'} ({record.marked_by_role})
-                    {' at '}{formatTime(record.marked_at)}
-                  </span>
+                  {records.map((record) => (
+                    <span className="public-slot-mark" key={record.record_id}>
+                      <strong>{record.event_name}</strong>
+                      <span>{record.category_name}</span>
+                      <span>
+                        Marked by {record.marked_by_name ?? 'a former staff member'} ({record.marked_by_role})
+                        {' at '}{formatTime(record.marked_at)}
+                      </span>
+                    </span>
+                  ))}
                 </span>
               ) : (
                 <span className="public-slot-detail public-slot-empty">No record</span>
@@ -287,6 +308,7 @@ function searchFailureMessage(error: unknown): string {
   if (error instanceof ApiFailure) {
     if (error.status === 429) return 'Too many searches from this connection. Please slow down and try again in a moment.'
     if (error.status === 400) return 'That search could not be read. Try your full roll number.'
+    if (error.status >= 500) return 'The server could not answer that search right now. This is our problem, not yours — please try again.'
   }
   return 'The search could not be completed. Check your connection and try again.'
 }
@@ -297,8 +319,18 @@ function recordsFailureMessage(error: unknown): string {
     // a mistyped roll number is a lookup problem, not an absence.
     if (error.status === 404) return 'No such student. Check the roll number and search again.'
     if (error.status === 429) return 'Too many requests from this connection. Please slow down and try again in a moment.'
+    // A truncated or mangled shared link is the common way to get here, and it
+    // is the visitor's link that is broken, not their network. AC 12 asks each
+    // failure to NAME its reason; "check your connection" names the wrong one.
+    if (error.status === 400) return 'That link is not a valid student reference. Search for the student instead.'
+    if (error.status >= 500) return 'The server could not load these records right now. This is our problem, not yours — please try again.'
   }
   return 'These records could not be loaded. Check your connection and try again.'
+}
+
+/** Counts Unicode code points, the unit the Go service bounds on. */
+function runeCount(value: string): number {
+  return [...value].length
 }
 
 /** Renders a YYYY-MM-DD event date in the campus timezone-free way it is stored. */

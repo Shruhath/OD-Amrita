@@ -298,6 +298,28 @@ jobs:
         # pass for the wrong reason 23 hours a day.
         run: |
           public_events="'93000000-0000-4000-8000-000000000002','93000000-0000-4000-8000-000000000003'"
+          # POSITIVE CONTROL FIRST. Both assertions below are conservation
+          # checks, and the seed alone already satisfies them — so with no proof
+          # that the journey ran, this step is green when the public specs are
+          # filtered out, skipped, or deleted outright. Unlike the sibling gates
+          # there is no database trace to look for, because a read-only journey
+          # is precisely what this step exists to prove; so the evidence comes
+          # from the test report instead. Assert the journey happened before
+          # asserting what it did not do.
+          report="web/playwright-integration-report.json"
+          [ -f "$report" ] || {
+            echo "no Playwright integration report at $report — cannot prove the public journey ran"
+            exit 1
+          }
+          passed="$(jq '[.suites[]? | recurse(.suites[]?)
+            | .specs[]? | select(.file | test("public-attendance"))
+            | select(.ok)] | length' "$report")"
+          [ "${passed:-0}" -gt 0 ] || {
+            echo "no public dashboard specs passed, so 'the public journey wrote nothing' is unproven —"
+            echo "this gate would pass for a build with the feature removed"
+            exit 1
+          }
+          echo "public dashboard specs passed: $passed"
           records="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
             SELECT count(*) FROM od_records WHERE event_id IN ($public_events)")"
           [ "$records" = "4" ] || {

@@ -53,6 +53,134 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 
+  # ─── UNAUTHENTICATED PUBLIC SURFACE (Story 0.10, FR38-FR40) ─────────────────
+  #
+  # The two operations below are the ONLY ones under /api/v1 that deliberately
+  # omit `security`. This spec declares no root-level `security`, so under
+  # OpenAPI 3.0.3 the ABSENCE of the key is what makes an operation
+  # unauthenticated — do not add `security: []`, which reads as overriding a
+  # global requirement that does not exist here.
+  #
+  # Server-side they are mounted on a group built from the ROOT gin router, a
+  # SIBLING of the authenticated /api/v1 group and never a child of it: gin
+  # attaches middleware to the group value rather than to the path prefix, so
+  # `api.Group("/public")` would produce these exact URLs behind the auth
+  # middleware and 401 every student. Only the rate limiter guards them.
+  #
+  # Nothing here may grow a field without a disclosure decision. The response
+  # bodies are served to the open internet, so the Public* schemas are DISTINCT
+  # types that never $ref an authenticated schema (see their descriptions).
+
+  /api/v1/public/students/search:
+    get:
+      operationId: searchPublicStudents
+      summary: Prefix-search the roster with no authentication (public dashboard)
+      description: >-
+        Lets a student find themselves on the public attendance dashboard
+        without signing in. Matching is PREFIX-ONLY and LIKE-escaped, `q` is
+        bounded at both ends so an empty query cannot become a roster dump, and
+        the result cap is FIXED SERVER-SIDE at 10 — there is deliberately no
+        `limit` parameter, because a knob the open internet controls is a knob
+        that gets turned to 10,000. Results carry display fields only: no email
+        (the students table has no such column), no card token and no token
+        fingerprint. Rate limited per client.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: >-
+            Roll-number or name prefix, trimmed before length is judged. The
+            bounds mirror the authenticated search's exported constants.
+          schema:
+            type: string
+            minLength: 3
+            maxLength: 64
+      responses:
+        "200":
+          description: Matching students, exact roll match first. An empty list is a valid answer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicStudentSearchResults"
+        "400":
+          description: Query below the minimum length or otherwise invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "429":
+          description: >-
+            Rate limited (RATE_LIMITED). The only refusal an anonymous caller can
+            provoke on this surface; carries a Retry-After header.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/public/students/{student_id}/od-records:
+    get:
+      operationId: listPublicStudentODRecords
+      summary: One student's OD records, grouped by day and slot (public dashboard)
+      description: >-
+        The read that closes the loop the whole event depends on: a student
+        checks whether they were actually marked. Records are grouped by the
+        EVENT's date — `od_records` has no date column, and grouping by the
+        server receipt time would file a teacher's next-morning correction under
+        the wrong day — most recent day first, slots ascending within a day.
+        Records on ARCHIVED events are still returned: archiving is an
+        administrative act on the event, not a retraction of the student's
+        attendance. The response exposes OD records only; the marker appears as
+        a display name and a role, never a user id, an email or a contact detail.
+      parameters:
+        - name: student_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: >-
+            The student's display fields and their present OD records. A real
+            student with no marks is this response with an empty `days` list —
+            deliberately a different answer from the 404 below, because telling
+            someone who mistyped their roll number that they were not marked is
+            the most damaging wrong answer this page can give.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicODRecordCollection"
+        "400":
+          description: student_id is not a well-formed UUID.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "404":
+          description: No student matches that id (STUDENT_NOT_FOUND).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited (RATE_LIMITED); carries a Retry-After header.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/scans:
     post:
       operationId: submitScans
@@ -64,6 +192,14 @@ paths:
         durable enqueue, ON CONFLICT/present-wins resolution and same-transaction
         audit are implemented later; this contract only freezes the shape so
         mobile and backend do not renegotiate it piecemeal.
+      # Required even though the handler is deferred. From Story 0.10 onward,
+      # OMITTING `security` is how this spec declares an endpoint public — the
+      # public dashboard reads rely on exactly that — so an operation that
+      # documents 401/403 while declaring no way to authenticate now reads as
+      # open to the internet. Declaring it here keeps the convention honest
+      # before the offline path is ever implemented.
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -2236,6 +2372,153 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ResolvedCardStudent"
+
+    # ─── PUBLIC (UNAUTHENTICATED) SCHEMAS — Story 0.10 ──────────────────────
+    #
+    # Every schema below is serialised to callers with NO credential. Three
+    # rules hold for all of them:
+    #
+    #  1. They are DISTINCT types. None $refs AttendanceRecord, AttendanceActor,
+    #     ResolvedCardStudent or any other authenticated schema, even where the
+    #     fields coincide today. Sharing one means the next field added for the
+    #     admin surface — a credit balance, an email, a dispute note — ships to
+    #     the open internet with nobody reviewing that decision.
+    #  2. Adding a property here is a DISCLOSURE decision. A contract test holds
+    #     each of these to an exact allowlist, so a new field fails the build
+    #     until it is argued for in the same change.
+    #  3. Every property is `required`. An optional key becomes `| undefined` in
+    #     the generated client, which the UI silently renders as blank.
+
+    PublicStudent:
+      type: object
+      description: >-
+        A student as the public dashboard shows them: display fields only. The
+        `students` table has no email column and card material lives in
+        `student_card_tokens`, which no public query joins, so this shape cannot
+        be widened by accident — only deliberately.
+      required: [student_id, roll_no, display_name, branch, section, batch]
+      properties:
+        student_id:
+          type: string
+          format: uuid
+        roll_no:
+          type: string
+          minLength: 1
+          maxLength: 64
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        branch:
+          type: string
+          minLength: 1
+          maxLength: 32
+        section:
+          type: string
+          minLength: 1
+          maxLength: 32
+        batch:
+          type: string
+          minLength: 1
+          maxLength: 32
+
+    PublicODRecord:
+      type: object
+      description: >-
+        One present OD record as a student sees it. The marker is a NAME and a
+        ROLE — that is the entire actor surface. `AttendanceActor` carries an
+        email and a user id and must never be the shape this reuses.
+      required:
+        [record_id, slot, event_id, event_name, event_date, category_id,
+         category_name, marked_by_name, marked_by_role, marked_at]
+      properties:
+        record_id:
+          type: string
+          format: uuid
+        slot:
+          type: integer
+          minimum: 1
+          maximum: 12
+        event_id:
+          type: string
+          format: uuid
+        event_name:
+          type: string
+          minLength: 1
+        event_date:
+          type: string
+          format: date
+        category_id:
+          type: string
+          format: uuid
+        category_name:
+          type: string
+          minLength: 1
+        marked_by_name:
+          # Nullable because od_records.actor_user_id is ON DELETE SET NULL: an
+          # off-boarded teacher must leave the student's record readable with no
+          # name, never delete it as a side effect.
+          type: string
+          nullable: true
+        marked_by_role:
+          type: string
+          enum: [coordinator, teacher, admin]
+        marked_at:
+          type: string
+          format: date-time
+          description: The server receipt time of the mark (`server_received_at`).
+
+    PublicODDay:
+      type: object
+      description: >-
+        One day's records. The grouping key is the EVENT's date, not the mark's
+        receipt time — `od_records` has no date column, and one event is one day
+        in this model.
+      required: [event_date, records]
+      properties:
+        event_date:
+          type: string
+          format: date
+        records:
+          type: array
+          description: Present records for this day, ordered by slot ascending.
+          items:
+            $ref: "#/components/schemas/PublicODRecord"
+
+    PublicODRecordCollection:
+      type: object
+      description: >-
+        A student's whole public attendance view. Deliberately unpaginated: the
+        server caps the underlying row read instead, because a page parameter
+        cannot be reconciled with day grouping without splitting a day across
+        pages.
+      required: [student, days, generated_at]
+      properties:
+        student:
+          $ref: "#/components/schemas/PublicStudent"
+        days:
+          type: array
+          description: Days carrying at least one record, most recent first. Empty means no marks.
+          items:
+            $ref: "#/components/schemas/PublicODDay"
+        generated_at:
+          type: string
+          format: date-time
+          description: >-
+            Server time at which this view was computed. Rendered as an
+            "as of HH:MM" stamp so a stale tab is not mistaken for live truth.
+
+    PublicStudentSearchResults:
+      type: object
+      description: >-
+        The unauthenticated roster search read. Unpaginated and capped
+        server-side at 10 results; there is no caller-supplied `limit`.
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicStudent"
 
     MarkStatus:
       type: object

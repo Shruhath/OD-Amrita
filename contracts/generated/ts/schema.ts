@@ -27,6 +27,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/students/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Prefix-search the roster with no authentication (public dashboard)
+         * @description Lets a student find themselves on the public attendance dashboard without signing in. Matching is PREFIX-ONLY and LIKE-escaped, `q` is bounded at both ends so an empty query cannot become a roster dump, and the result cap is FIXED SERVER-SIDE at 10 — there is deliberately no `limit` parameter, because a knob the open internet controls is a knob that gets turned to 10,000. Results carry display fields only: no email (the students table has no such column), no card token and no token fingerprint. Rate limited per client.
+         */
+        get: operations["searchPublicStudents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/students/{student_id}/od-records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One student's OD records, grouped by day and slot (public dashboard)
+         * @description The read that closes the loop the whole event depends on: a student checks whether they were actually marked. Records are grouped by the EVENT's date — `od_records` has no date column, and grouping by the server receipt time would file a teacher's next-morning correction under the wrong day — most recent day first, slots ascending within a day. Records on ARCHIVED events are still returned: archiving is an administrative act on the event, not a retraction of the student's attendance. The response exposes OD records only; the marker appears as a display name and a role, never a user id, an email or a contact detail.
+         */
+        get: operations["listPublicStudentODRecords"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/scans": {
         parameters: {
             query?: never;
@@ -735,6 +775,60 @@ export interface components {
         StudentSearchResults: {
             data: components["schemas"]["ResolvedCardStudent"][];
         };
+        /** @description A student as the public dashboard shows them: display fields only. The `students` table has no email column and card material lives in `student_card_tokens`, which no public query joins, so this shape cannot be widened by accident — only deliberately. */
+        PublicStudent: {
+            /** Format: uuid */
+            student_id: string;
+            roll_no: string;
+            display_name: string;
+            branch: string;
+            section: string;
+            batch: string;
+        };
+        /** @description One present OD record as a student sees it. The marker is a NAME and a ROLE — that is the entire actor surface. `AttendanceActor` carries an email and a user id and must never be the shape this reuses. */
+        PublicODRecord: {
+            /** Format: uuid */
+            record_id: string;
+            slot: number;
+            /** Format: uuid */
+            event_id: string;
+            event_name: string;
+            /** Format: date */
+            event_date: string;
+            /** Format: uuid */
+            category_id: string;
+            category_name: string;
+            marked_by_name: string | null;
+            /** @enum {string} */
+            marked_by_role: "coordinator" | "teacher" | "admin";
+            /**
+             * Format: date-time
+             * @description The server receipt time of the mark (`server_received_at`).
+             */
+            marked_at: string;
+        };
+        /** @description One day's records. The grouping key is the EVENT's date, not the mark's receipt time — `od_records` has no date column, and one event is one day in this model. */
+        PublicODDay: {
+            /** Format: date */
+            event_date: string;
+            /** @description Present records for this day, ordered by slot ascending. */
+            records: components["schemas"]["PublicODRecord"][];
+        };
+        /** @description A student's whole public attendance view. Deliberately unpaginated: the server caps the underlying row read instead, because a page parameter cannot be reconciled with day grouping without splitting a day across pages. */
+        PublicODRecordCollection: {
+            student: components["schemas"]["PublicStudent"];
+            /** @description Days carrying at least one record, most recent first. Empty means no marks. */
+            days: components["schemas"]["PublicODDay"][];
+            /**
+             * Format: date-time
+             * @description Server time at which this view was computed. Rendered as an "as of HH:MM" stamp so a stale tab is not mistaken for live truth.
+             */
+            generated_at: string;
+        };
+        /** @description The unauthenticated roster search read. Unpaginated and capped server-side at 10 results; there is no caller-supplied `limit`. */
+        PublicStudentSearchResults: {
+            data: components["schemas"]["PublicStudent"][];
+        };
         /** @description Everything the marking screen needs that the client must not compute for itself. `slot: null` is the explicit "no slot is open" state — never slot 0 — and `server_time` shares one clock read with the slot decision. */
         MarkStatus: {
             /** Format: date-time */
@@ -995,6 +1089,114 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthStatus"];
+                };
+            };
+        };
+    };
+    searchPublicStudents: {
+        parameters: {
+            query: {
+                /** @description Roll-number or name prefix, trimmed before length is judged. The bounds mirror the authenticated search's exported constants. */
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching students, exact roll match first. An empty list is a valid answer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicStudentSearchResults"];
+                };
+            };
+            /** @description Query below the minimum length or otherwise invalid. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Rate limited (RATE_LIMITED). The only refusal an anonymous caller can provoke on this surface; carries a Retry-After header. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listPublicStudentODRecords: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                student_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The student's display fields and their present OD records. A real student with no marks is this response with an empty `days` list — deliberately a different answer from the 404 below, because telling someone who mistyped their roll number that they were not marked is the most damaging wrong answer this page can give. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicODRecordCollection"];
+                };
+            };
+            /** @description student_id is not a well-formed UUID. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description No student matches that id (STUDENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Rate limited (RATE_LIMITED); carries a Retry-After header. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };

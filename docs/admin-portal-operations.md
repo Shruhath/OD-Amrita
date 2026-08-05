@@ -548,15 +548,30 @@ secret is required** and the deployed app boots without them:
 
 Raising the cap on event day is a `flyctl secrets set` plus a restart, not a
 redeploy. A value that is present but not a positive integer fails at boot
-rather than silently reverting to the default.
+rather than silently reverting to the default — and so does one above `10000`,
+because a burst of a million leaves the middleware in place while removing the
+guard entirely.
 
-Two caveats worth knowing before reading those numbers as guarantees. The
-limiter is **in-process**, and the API runs two Fly machines, so the effective
-per-client ceiling is roughly double the configured value. And the client is
-identified by Fly's edge-set `Fly-Client-IP` header, falling back to the TCP
-peer address — `X-Forwarded-For` is deliberately ignored, because gin trusts all
-proxies by default and a limiter keyed on a caller-supplied header is
-bypassable with one line of curl.
+Three caveats worth knowing before reading those numbers as guarantees.
+
+**The limiter is in-process** and the API runs two Fly machines, so the
+effective per-client ceiling is roughly double the configured value.
+
+**The client identity depends on where the API is running.** `Fly-Client-IP` is
+believed only when the process is actually on Fly — detected via `FLY_APP_NAME`,
+which the Fly runtime sets and nothing else does. That header is trustworthy
+there precisely because the Fly edge overwrites whatever a caller sent; nothing
+overwrites it anywhere else, so off-Fly it is ignored and the key is the TCP peer
+address. `X-Forwarded-For` is never used in either case: gin trusts all proxies
+by default, and a limiter keyed on a caller-supplied header is bypassable with
+one line of curl.
+
+**Behind a non-Fly proxy, every visitor shares one bucket.** Through the ngrok
+tunnel used for pre-production demos there is no `Fly-Client-IP` and the TCP peer
+is the tunnel itself, so all traffic keys to a single bucket and 30 requests a
+minute is a *shared* budget. Raise `PUBLIC_RATE_LIMIT_PER_MINUTE` for the
+duration of a tunnelled demo, or expect the dashboard to start refusing once a
+handful of people use it at once. This does not affect the Fly deployment.
 
 ### CORS
 

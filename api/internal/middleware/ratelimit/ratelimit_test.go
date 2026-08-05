@@ -18,7 +18,11 @@
 //	func New(Config) (*Limiter, error)
 //	func (*Limiter) Middleware() gin.HandlerFunc
 //	func (*Limiter) Entries() int      // tracked client keys — the bounded-memory oracle
-//	func ClientKey(*gin.Context) string
+//	func (*Limiter) ClientKey(*gin.Context) string
+//
+// ClientKey hangs off the Limiter rather than being a free function because
+// whether Fly-Client-IP may be believed is a property of the DEPLOYMENT
+// (Config.TrustEdgeHeader), not of the request.
 //
 // `Now` is injectable because AC 7 requires proving the bucket REFILLS, and the
 // only alternative is a test that sleeps — which is both slow and flaky. `Entries`
@@ -216,11 +220,46 @@ func TestClientKey_IgnoresForgedForwardingHeaders(t *testing.T) {
 		}
 	}
 
-	// Fly-Client-IP is the edge-set header and IS the key when present, so two
-	// different real clients behind the same edge socket stay separate.
-	if code := get(router, peer, map[string]string{"Fly-Client-IP": "198.51.100.77"}).Code; code != http.StatusOK {
-		t.Errorf("[P0] Fly-Client-IP was ignored (got %d); behind the Fly edge every request shares one TCP "+
-			"peer, so keying on the peer alone would rate-limit the entire internet as one client", code)
+	// Fly-Client-IP gets NO special treatment off-Fly. This limiter was built
+	// with TrustEdgeHeader unset, which is what the local harness, the ngrok
+	// tunnel and any direct-connect deployment run with — and there nothing
+	// overwrites the header, so believing it would be the same one-header bypass
+	// the assertions above exist to prevent, under a different name.
+	for i := 0; i < 3; i++ {
+		forged := map[string]string{"Fly-Client-IP": fmt.Sprintf("198.51.100.%d", i)}
+		if code := get(router, peer, forged).Code; code != http.StatusTooManyRequests {
+			t.Fatalf("[P0] a forged Fly-Client-IP bought request %d a fresh bucket (got %d) on a limiter that is "+
+				"NOT behind the Fly edge. AC 8 requires one machine to share one bucket regardless of headers", i, code)
+		}
+	}
+}
+
+// 0.10-RL-004b — behind the Fly edge, the edge-set header IS the key.
+//
+// The mirror of RL-004, and the reason the trust is a flag rather than a
+// deletion: behind the edge every request shares ONE TCP peer, so keying on the
+// peer there would rate-limit the entire internet as a single client and take
+// the dashboard down for everyone at 30 requests a minute.
+func TestClientKey_TrustsTheEdgeHeaderOnlyWhenBehindTheEdge(t *testing.T) {
+	clock := newTestClock()
+	router, _, _ := limitedRouter(t, Config{
+		PerMinute: 30, Burst: 2, IdleTTL: 10 * time.Minute, MaxEntries: 1000,
+		Now: clock.Now, TrustEdgeHeader: true,
+	})
+
+	// One shared edge socket, two genuinely different visitors.
+	const edgePeer = "203.0.113.10:5000"
+	first := map[string]string{"Fly-Client-IP": "198.51.100.1"}
+	get(router, edgePeer, first)
+	get(router, edgePeer, first)
+	if code := get(router, edgePeer, first).Code; code != http.StatusTooManyRequests {
+		t.Fatalf("[P0] the third request from one edge client answered %d, want 429", code)
+	}
+
+	second := map[string]string{"Fly-Client-IP": "198.51.100.2"}
+	if code := get(router, edgePeer, second).Code; code != http.StatusOK {
+		t.Errorf("[P0] a second visitor behind the same edge socket was refused (%d); keying on the shared TCP "+
+			"peer rate-limits the entire internet as one client", code)
 	}
 }
 
@@ -233,9 +272,10 @@ func TestLimiter_BoundsItsOwnMemory(t *testing.T) {
 	clock := newTestClock()
 	router, limiter, _ := limitedRouter(t, Config{PerMinute: 30, Burst: 2, IdleTTL: 10 * time.Minute, MaxEntries: 50, Now: clock.Now})
 
-	// 500 distinct client keys — the shape of a trivial enumeration script, not
-	// of a campus. Each ip:port pair is a different TCP peer and therefore a
-	// different bucket.
+	// 500 requests across 256 distinct client keys — the shape of a trivial
+	// enumeration script, not of a campus. The key is the ADDRESS, not the
+	// ip:port pair: RemoteIP() strips the port, so varying the port alone would
+	// reuse one bucket and the loop below would prove nothing about the cap.
 	for i := 0; i < 500; i++ {
 		get(router, fmt.Sprintf("198.51.100.%d:%d", i%256, 6000+i), nil)
 	}
@@ -257,6 +297,38 @@ func TestLimiter_BoundsItsOwnMemory(t *testing.T) {
 	}
 }
 
+// 0.10-RL-005b — a full table still admits a visitor who has never been seen.
+//
+// The memory bound must not be paid for with a lockout. When the map is at
+// MaxEntries the attacker's keys are the ones already IN it — refusing every
+// unseen key would keep serving them while turning away each new student, and
+// with a Retry-After that cannot help, because recovery would need an eviction
+// rather than a refill. Bounded memory is the invariant; refusing new clients is
+// not.
+func TestLimiter_AdmitsANewClientWhenTheTableIsFull(t *testing.T) {
+	clock := newTestClock()
+	router, limiter, _ := limitedRouter(t, Config{PerMinute: 30, Burst: 2, IdleTTL: 10 * time.Minute, MaxEntries: 20, Now: clock.Now})
+
+	// Fill the table well past the cap, WITHOUT letting anything go idle, so
+	// the sweep cannot be what makes room.
+	for i := 0; i < 200; i++ {
+		get(router, fmt.Sprintf("198.51.100.%d:6000", i%256), nil)
+	}
+	if entries := limiter.Entries(); entries > 20 {
+		t.Fatalf("[P0] limiter tracks %d client keys with MaxEntries=20", entries)
+	}
+
+	// A student arriving now has never been seen before.
+	if code := get(router, "203.0.113.77:5000", nil).Code; code != http.StatusOK {
+		t.Errorf("[P0] a first-time visitor was refused (%d) because the table was full of somebody else's keys. "+
+			"The limiter has become the denial of service it exists to prevent", code)
+	}
+	if entries := limiter.Entries(); entries > 20 {
+		t.Errorf("[P0] admitting the new client pushed the table to %d entries, past MaxEntries=20; making room "+
+			"must mean evicting, not growing", entries)
+	}
+}
+
 // 0.10-RL-006 — an unusable configuration fails at boot, not at the first
 // request, matching how every other config field in this codebase behaves.
 func TestNew_RejectsUnusableConfiguration(t *testing.T) {
@@ -268,6 +340,12 @@ func TestNew_RejectsUnusableConfiguration(t *testing.T) {
 		{"negative rate", Config{PerMinute: -1, Burst: 10}},
 		{"zero burst", Config{PerMinute: 30, Burst: 0}},
 		{"negative burst", Config{PerMinute: 30, Burst: -5}},
+		// Bounded above too. "Raise the cap for event day" is a real operator
+		// instinct, and a burst of a million leaves the middleware in place
+		// while removing the guard entirely — a failure that looks like
+		// configuration rather than like a hole.
+		{"absurd rate", Config{PerMinute: 10_000_000, Burst: 10}},
+		{"absurd burst", Config{PerMinute: 30, Burst: 10_000_000}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := New(tc.cfg); err == nil {

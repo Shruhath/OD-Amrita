@@ -84,6 +84,11 @@ func run() error {
 	publicLimiter, err := ratelimit.New(ratelimit.Config{
 		PerMinute: cfg.PublicRateLimit.PerMinute,
 		Burst:     cfg.PublicRateLimit.Burst,
+		// Fly-Client-IP may be believed only when the Fly edge is actually in
+		// front of this process to overwrite it. FLY_APP_NAME is set by the Fly
+		// runtime and by nothing else, so it answers "am I behind the edge"
+		// without inventing a secret an operator has to remember to set.
+		TrustEdgeHeader: os.Getenv("FLY_APP_NAME") != "",
 	})
 	if err != nil {
 		return err

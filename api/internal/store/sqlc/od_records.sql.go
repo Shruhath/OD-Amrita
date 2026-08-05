@@ -344,6 +344,105 @@ func (q *Queries) ListAttendanceRecords(ctx context.Context, arg ListAttendanceR
 	return items, nil
 }
 
+const listPublicStudentODRecords = `-- name: ListPublicStudentODRecords :many
+SELECT
+    r.id,
+    r.slot,
+    r.event_id,
+    e.name       AS event_name,
+    e.event_date AS event_date,
+    c.id         AS category_id,
+    c.name       AS category_name,
+    u.name       AS marked_by_name,
+    r.actor_role AS marked_by_role,
+    r.server_received_at
+FROM od_records r
+JOIN events e ON e.id = r.event_id
+JOIN categories c ON c.id = r.category_id
+LEFT JOIN users u ON u.id = r.actor_user_id
+WHERE r.student_id = $1
+  AND r.status = 'present'
+ORDER BY e.event_date DESC, r.slot ASC, r.server_received_at ASC, r.id ASC
+LIMIT $2::bigint
+`
+
+type ListPublicStudentODRecordsParams struct {
+	StudentID pgtype.UUID `json:"student_id"`
+	RowLimit  int64       `json:"row_limit"`
+}
+
+type ListPublicStudentODRecordsRow struct {
+	ID               pgtype.UUID        `json:"id"`
+	Slot             int32              `json:"slot"`
+	EventID          pgtype.UUID        `json:"event_id"`
+	EventName        string             `json:"event_name"`
+	EventDate        pgtype.Date        `json:"event_date"`
+	CategoryID       pgtype.UUID        `json:"category_id"`
+	CategoryName     string             `json:"category_name"`
+	MarkedByName     pgtype.Text        `json:"marked_by_name"`
+	MarkedByRole     string             `json:"marked_by_role"`
+	ServerReceivedAt pgtype.Timestamptz `json:"server_received_at"`
+}
+
+// One student's present OD records for the UNAUTHENTICATED public dashboard
+// (Story 0.10, FR39).
+//
+// GROUPING KEY IS events.event_date, NOT server_received_at. od_records has no
+// date column at all, and one event is one day in this model. Deriving the day
+// from the receipt time would file a teacher's next-morning correction under the
+// wrong day, which on this screen reads to the student as "I was not marked".
+//
+// NO events.status FILTER, deliberately (T6). Archiving is an administrative act
+// on the event, not a retraction of the student's attendance; filtering active
+// events here would erase a student's whole record the moment a coordinator
+// tidied up after the event — exactly when they are most likely to check it.
+//
+// LEFT JOIN users because actor_user_id is ON DELETE SET NULL. An inner join
+// would silently delete a student's attendance record as a side effect of
+// off-boarding a teacher. actor_role is read from the RECORD, not the user row,
+// so the role survives the actor.
+//
+// Selects display columns only: no users.email, no actor id, and
+// student_card_tokens is never joined. This result is serialised to the open
+// internet.
+//
+// od_records_student_event_slot_idx leads with student_id, which is this
+// query's only equality predicate — no new index is needed.
+//
+// row_limit is a server-chosen ceiling rather than a page parameter: pagination
+// cannot be reconciled with day grouping without splitting a day across pages,
+// and 12 slots a day makes any realistic history far smaller than the cap.
+func (q *Queries) ListPublicStudentODRecords(ctx context.Context, arg ListPublicStudentODRecordsParams) ([]ListPublicStudentODRecordsRow, error) {
+	rows, err := q.db.Query(ctx, listPublicStudentODRecords, arg.StudentID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPublicStudentODRecordsRow
+	for rows.Next() {
+		var i ListPublicStudentODRecordsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slot,
+			&i.EventID,
+			&i.EventName,
+			&i.EventDate,
+			&i.CategoryID,
+			&i.CategoryName,
+			&i.MarkedByName,
+			&i.MarkedByRole,
+			&i.ServerReceivedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const teacherCanSearchMark = `-- name: TeacherCanSearchMark :one
 SELECT EXISTS (
     SELECT 1

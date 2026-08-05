@@ -6,7 +6,14 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
   workers: 1,
-  reporter: process.env.CI ? 'github' : 'list',
+  // The JSON report is what lets a CI step assert that a given spec actually
+  // RAN. It matters for the read-only public dashboard journey in particular:
+  // that journey leaves no database trace by design, so its conservation gate
+  // ("it wrote nothing") is satisfied by the seed alone and would pass just as
+  // happily if the spec had been filtered out or deleted.
+  reporter: process.env.CI
+    ? [['github'], ['json', { outputFile: 'playwright-integration-report.json' }]]
+    : 'list',
   use: {
     baseURL: 'http://127.0.0.1:4174',
     trace: 'retain-on-failure',

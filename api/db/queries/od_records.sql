@@ -118,3 +118,52 @@ WHERE r.event_id = @event_id
   AND r.status = 'present'
   AND (sqlc.narg('category_id')::uuid IS NULL OR r.category_id = sqlc.narg('category_id'))
   AND (sqlc.narg('slot')::integer IS NULL OR r.slot = sqlc.narg('slot'));
+
+-- name: ListPublicStudentODRecords :many
+-- One student's present OD records for the UNAUTHENTICATED public dashboard
+-- (Story 0.10, FR39).
+--
+-- GROUPING KEY IS events.event_date, NOT server_received_at. od_records has no
+-- date column at all, and one event is one day in this model. Deriving the day
+-- from the receipt time would file a teacher's next-morning correction under the
+-- wrong day, which on this screen reads to the student as "I was not marked".
+--
+-- NO events.status FILTER, deliberately (T6). Archiving is an administrative act
+-- on the event, not a retraction of the student's attendance; filtering active
+-- events here would erase a student's whole record the moment a coordinator
+-- tidied up after the event — exactly when they are most likely to check it.
+--
+-- LEFT JOIN users because actor_user_id is ON DELETE SET NULL. An inner join
+-- would silently delete a student's attendance record as a side effect of
+-- off-boarding a teacher. actor_role is read from the RECORD, not the user row,
+-- so the role survives the actor.
+--
+-- Selects display columns only: no users.email, no actor id, and
+-- student_card_tokens is never joined. This result is serialised to the open
+-- internet.
+--
+-- od_records_student_event_slot_idx leads with student_id, which is this
+-- query's only equality predicate — no new index is needed.
+--
+-- row_limit is a server-chosen ceiling rather than a page parameter: pagination
+-- cannot be reconciled with day grouping without splitting a day across pages,
+-- and 12 slots a day makes any realistic history far smaller than the cap.
+SELECT
+    r.id,
+    r.slot,
+    r.event_id,
+    e.name       AS event_name,
+    e.event_date AS event_date,
+    c.id         AS category_id,
+    c.name       AS category_name,
+    u.name       AS marked_by_name,
+    r.actor_role AS marked_by_role,
+    r.server_received_at
+FROM od_records r
+JOIN events e ON e.id = r.event_id
+JOIN categories c ON c.id = r.category_id
+LEFT JOIN users u ON u.id = r.actor_user_id
+WHERE r.student_id = @student_id
+  AND r.status = 'present'
+ORDER BY e.event_date DESC, r.slot ASC, r.server_received_at ASC, r.id ASC
+LIMIT @row_limit::bigint;

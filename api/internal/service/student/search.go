@@ -116,11 +116,30 @@ func buildSearchQuery(input SearchInput) (SearchQuery, error) {
 	if utf8.RuneCountInString(trimmed) > MaxSearchRunes {
 		return SearchQuery{}, searchValidation("q", "max_length", "Search must not exceed 64 characters.")
 	}
+	// A NUL byte is valid UTF-8, so it survives TrimSpace, the rune counts and
+	// escapeLikePattern (which only special-cases \ % _) and reaches Postgres as
+	// a bind parameter — where it is rejected with SQLSTATE 22021, "invalid byte
+	// sequence for encoding UTF8". That surfaces as a 500 on an endpoint anyone
+	// can call, for a six-character query string. It is a malformed input, so it
+	// gets the typed 400 every other malformed input here gets.
+	//
+	// The check is the whole C0 range rather than NUL alone: no control
+	// character belongs in a roll number or a name, none of them can match a
+	// row, and enumerating just the one that happens to error today invites the
+	// next one to be found in production.
+	if strings.IndexFunc(trimmed, isControl) >= 0 {
+		return SearchQuery{}, searchValidation("q", "invalid_characters", "Search must not contain control characters.")
+	}
 	return SearchQuery{
 		Pattern:   escapeLikePattern(trimmed) + "%",
 		ExactRoll: strings.ToUpper(trimmed),
 		Limit:     boundSearchLimit(input.Limit),
 	}, nil
+}
+
+// isControl reports whether r is a C0/C1 control character or DEL.
+func isControl(r rune) bool {
+	return r < 0x20 || (r >= 0x7f && r <= 0x9f)
 }
 
 // boundSearchLimit is the server's answer, not the client's ask. A request for

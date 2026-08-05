@@ -226,6 +226,27 @@ func (e MarkAttendanceRequestCaptureMethod) Valid() bool {
 	}
 }
 
+// Defines values for PublicODRecordMarkedByRole.
+const (
+	PublicODRecordMarkedByRoleAdmin       PublicODRecordMarkedByRole = "admin"
+	PublicODRecordMarkedByRoleCoordinator PublicODRecordMarkedByRole = "coordinator"
+	PublicODRecordMarkedByRoleTeacher     PublicODRecordMarkedByRole = "teacher"
+)
+
+// Valid indicates whether the value is a known member of the PublicODRecordMarkedByRole enum.
+func (e PublicODRecordMarkedByRole) Valid() bool {
+	switch e {
+	case PublicODRecordMarkedByRoleAdmin:
+		return true
+	case PublicODRecordMarkedByRoleCoordinator:
+		return true
+	case PublicODRecordMarkedByRoleTeacher:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RevokeSessionsRequestScope.
 const (
 	RevokeSessionsRequestScopeAll     RevokeSessionsRequestScope = "all"
@@ -625,6 +646,60 @@ type MarkedStudent struct {
 	StudentId   openapi_types.UUID `json:"student_id"`
 }
 
+// PublicODDay One day's records. The grouping key is the EVENT's date, not the mark's receipt time — `od_records` has no date column, and one event is one day in this model.
+type PublicODDay struct {
+	EventDate openapi_types.Date `json:"event_date"`
+
+	// Records Present records for this day, ordered by slot ascending.
+	Records []PublicODRecord `json:"records"`
+}
+
+// PublicODRecord One present OD record as a student sees it. The marker is a NAME and a ROLE — that is the entire actor surface. `AttendanceActor` carries an email and a user id and must never be the shape this reuses.
+type PublicODRecord struct {
+	CategoryId   openapi_types.UUID `json:"category_id"`
+	CategoryName string             `json:"category_name"`
+	EventDate    openapi_types.Date `json:"event_date"`
+	EventId      openapi_types.UUID `json:"event_id"`
+	EventName    string             `json:"event_name"`
+
+	// MarkedAt The server receipt time of the mark (`server_received_at`).
+	MarkedAt     time.Time                  `json:"marked_at"`
+	MarkedByName *string                    `json:"marked_by_name"`
+	MarkedByRole PublicODRecordMarkedByRole `json:"marked_by_role"`
+	RecordId     openapi_types.UUID         `json:"record_id"`
+	Slot         int                        `json:"slot"`
+}
+
+// PublicODRecordMarkedByRole defines model for PublicODRecord.MarkedByRole.
+type PublicODRecordMarkedByRole string
+
+// PublicODRecordCollection A student's whole public attendance view. Deliberately unpaginated: the server caps the underlying row read instead, because a page parameter cannot be reconciled with day grouping without splitting a day across pages.
+type PublicODRecordCollection struct {
+	// Days Days carrying at least one record, most recent first. Empty means no marks.
+	Days []PublicODDay `json:"days"`
+
+	// GeneratedAt Server time at which this view was computed. Rendered as an "as of HH:MM" stamp so a stale tab is not mistaken for live truth.
+	GeneratedAt time.Time `json:"generated_at"`
+
+	// Student A student as the public dashboard shows them: display fields only. The `students` table has no email column and card material lives in `student_card_tokens`, which no public query joins, so this shape cannot be widened by accident — only deliberately.
+	Student PublicStudent `json:"student"`
+}
+
+// PublicStudent A student as the public dashboard shows them: display fields only. The `students` table has no email column and card material lives in `student_card_tokens`, which no public query joins, so this shape cannot be widened by accident — only deliberately.
+type PublicStudent struct {
+	Batch       string             `json:"batch"`
+	Branch      string             `json:"branch"`
+	DisplayName string             `json:"display_name"`
+	RollNo      string             `json:"roll_no"`
+	Section     string             `json:"section"`
+	StudentId   openapi_types.UUID `json:"student_id"`
+}
+
+// PublicStudentSearchResults The unauthenticated roster search read. Unpaginated and capped server-side at 10 results; there is no caller-supplied `limit`.
+type PublicStudentSearchResults struct {
+	Data []PublicStudent `json:"data"`
+}
+
 // ResolvedCardStudent defines model for ResolvedCardStudent.
 type ResolvedCardStudent struct {
 	Batch       string             `json:"batch"`
@@ -853,6 +928,12 @@ type GetMarkStatusParams struct {
 type ListPortalMarkEventsParams struct {
 	Page     *int `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+}
+
+// SearchPublicStudentsParams defines parameters for SearchPublicStudents.
+type SearchPublicStudentsParams struct {
+	// Q Roll-number or name prefix, trimmed before length is judged. The bounds mirror the authenticated search's exported constants.
+	Q string `form:"q" json:"q"`
 }
 
 // SearchStudentsParams defines parameters for SearchStudents.

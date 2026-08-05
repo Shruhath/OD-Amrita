@@ -22,6 +22,21 @@ const query = new URLSearchParams(window.location.search)
 const role = (query.get('role') ?? 'admin') as TestRole
 const token = HARNESS_TOKENS[role] ?? null
 
+// `role` and `path` are HARNESS controls. Every other query parameter is the
+// app's own URL state and has to reach the memory router, or a surface that
+// keeps state in the query string cannot be tested here at all — the public
+// dashboard puts the selected student in `?student=<uuid>`, and without this
+// split its deep-link and reload journeys would fail for a harness reason
+// rather than a product one.
+const HARNESS_PARAMS = ['role', 'path']
+
+function appSearch(source: URLSearchParams): string {
+  const params = new URLSearchParams(source)
+  for (const name of HARNESS_PARAMS) params.delete(name)
+  const encoded = params.toString()
+  return encoded === '' ? '' : `?${encoded}`
+}
+
 const session: SessionPort = {
   async accessToken() { return token },
   async refresh() { return token },
@@ -36,10 +51,19 @@ const session: SessionPort = {
 // persistence oracle for a deep route: without it, reloading the event detail
 // view would silently drop back to the events list and the assertion after the
 // reload would be testing the wrong page.
-const router = createPortalMemoryRouter([query.get('path') ?? '/portal/events'])
+const router = createPortalMemoryRouter([(query.get('path') ?? '/portal/events') + appSearch(query)])
 router.subscribe((state) => {
+  // Mirror BOTH halves of the app's location. Mirroring only the pathname drops
+  // the query string, so a reload rebuilt the initial entry without it and any
+  // query-string state silently vanished across the reload.
   const next = new URLSearchParams(window.location.search)
+  for (const name of [...next.keys()]) {
+    if (!HARNESS_PARAMS.includes(name)) next.delete(name)
+  }
   next.set('path', state.location.pathname)
+  for (const [name, value] of new URLSearchParams(state.location.search)) {
+    next.set(name, value)
+  }
   window.history.replaceState(null, '', `${window.location.pathname}?${next.toString()}`)
 })
 

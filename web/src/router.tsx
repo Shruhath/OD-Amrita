@@ -1,5 +1,6 @@
 import { createBrowserRouter, createMemoryRouter } from 'react-router-dom'
 import MarkRoute from './routes/mark/MarkRoute'
+import PublicAttendanceRoute from './routes/public/PublicAttendanceRoute'
 import RoleLanding from './routes/RoleLanding'
 import CardPopulatorRoute from './routes/portal/card-populator/CardPopulatorRoute'
 import EventsRoute from './routes/portal/events/EventsRoute'
@@ -24,6 +25,12 @@ const routes = [
   // /portal: /portal/* is the admin administration surface, and this screen has
   // its own compact phone chrome rather than the admin nav.
   { path: '/mark', Component: MarkRoute },
+  // The UNAUTHENTICATED public dashboard. At the root and NOT wrapped in
+  // SessionBoundary — it is the one surface with no session at all. It must stay
+  // ABOVE the catch-all below: `*` renders RoleLanding, which sends a signed-out
+  // visitor to /portal/events and therefore to a sign-in wall, so a route
+  // registered after it is unreachable.
+  { path: '/attendance', Component: PublicAttendanceRoute },
   { path: '*', Component: RoleLanding },
 ]
 

@@ -34,6 +34,13 @@ export type CardPayload = CardSeal['payload']
 export type ValidationError = components['schemas']['ValidationError']
 export type ErrorEnvelope = components['schemas']['Error']
 
+// Public (unauthenticated) attendance dashboard.
+export type PublicStudent = components['schemas']['PublicStudent']
+export type PublicODRecord = components['schemas']['PublicODRecord']
+export type PublicODDay = components['schemas']['PublicODDay']
+export type PublicODRecordCollection = components['schemas']['PublicODRecordCollection']
+export type PublicStudentSearchResults = components['schemas']['PublicStudentSearchResults']
+
 // Coordinator marking surface.
 export type StudentSearchResults = components['schemas']['StudentSearchResults']
 export type MarkStatus = components['schemas']['MarkStatus']
@@ -121,6 +128,69 @@ function createAuthorizedFetch(session: SessionPort): typeof fetch {
     response = await invoke(initial.clone(), refreshed)
     if (response.status === 401) await session.signOut()
     return response
+  }
+}
+
+/**
+ * The fetch used by the PUBLIC dashboard. No session, no Authorization header,
+ * no refresh-on-401, no sign-out.
+ *
+ * Deliberately NOT createAuthorizedFetch. That one retries once on 401 and calls
+ * `session.signOut()` if the refresh fails — so reusing it here would let a
+ * public page, opened by anyone, sign a signed-in admin out of another tab the
+ * moment the public endpoint returned a 401 for any reason. The public surface
+ * has no credential to send and nothing to revoke, so the correct client is one
+ * that cannot reach a SessionPort at all.
+ *
+ * The ngrok bypass header is kept because it is a transport concern, not an auth
+ * one: without it the tunnel answers browser-looking requests with an HTML
+ * interstitial and every call fails. It disappears automatically at cutover (see
+ * isNgrokTunnel).
+ */
+const publicFetch: typeof fetch = async (input, init) => {
+  const request = new Request(input, init)
+  const headers = new Headers(request.headers)
+  headers.set('Accept', 'application/json')
+  if (isNgrokTunnel) headers.set('ngrok-skip-browser-warning', 'true')
+  return fetch(new Request(request, { headers }))
+}
+
+export type PublicApi = ReturnType<typeof createPublicApi>
+
+/**
+ * The unauthenticated public attendance dashboard client (Story 0.10).
+ *
+ * Takes no SessionPort — structurally, not just by convention, so a later change
+ * cannot quietly start sending a token from this surface.
+ */
+export function createPublicApi() {
+  const client = createClient<paths>({ baseUrl: apiBaseURL, fetch: publicFetch })
+
+  const unwrap = <T>(result: { data?: T; error?: ErrorEnvelope | ValidationError; response: Response }): T => {
+    if (result.data !== undefined) return result.data
+    throw new ApiFailure(result.response.status, errorEnvelope(result.error, result.response))
+  }
+
+  return {
+    /**
+     * Prefix-searches the roster anonymously.
+     *
+     * There is no `limit` argument because the endpoint accepts none: the cap is
+     * fixed server-side at 10. The query is trimmed here so the URL carries what
+     * the visitor meant; the server trims and bounds again and owns the minimum.
+     */
+    async publicSearchStudents(query: string) {
+      return unwrap(await client.GET('/api/v1/public/students/search', {
+        params: { query: { q: query.trim() } },
+      }))
+    },
+
+    /** One student's OD records, already grouped by day and ordered by the server. */
+    async publicStudentRecords(studentID: string) {
+      return unwrap(await client.GET('/api/v1/public/students/{student_id}/od-records', {
+        params: { path: { student_id: studentID } },
+      }))
+    },
   }
 }
 

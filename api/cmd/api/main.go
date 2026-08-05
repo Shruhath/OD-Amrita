@@ -28,17 +28,20 @@ import (
 	handlerevent "github.com/Shruhath/OD-Amrita/api/internal/handler/event"
 	"github.com/Shruhath/OD-Amrita/api/internal/handler/health"
 	handlerodrecord "github.com/Shruhath/OD-Amrita/api/internal/handler/od_record"
+	handlerpublicattendance "github.com/Shruhath/OD-Amrita/api/internal/handler/publicattendance"
 	handlerstudent "github.com/Shruhath/OD-Amrita/api/internal/handler/student"
 	handlerteacher "github.com/Shruhath/OD-Amrita/api/internal/handler/teacher"
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
 	corsmw "github.com/Shruhath/OD-Amrita/api/internal/middleware/cors"
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
+	"github.com/Shruhath/OD-Amrita/api/internal/middleware/ratelimit"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	svccardtoken "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
 	svcmarking "github.com/Shruhath/OD-Amrita/api/internal/service/marking"
 	svcodrecord "github.com/Shruhath/OD-Amrita/api/internal/service/od_record"
+	svcpublicattendance "github.com/Shruhath/OD-Amrita/api/internal/service/publicattendance"
 	svcstudent "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 	svcteacher "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
 	svcuser "github.com/Shruhath/OD-Amrita/api/internal/service/user"
@@ -74,6 +77,23 @@ func run() error {
 	router.Use(errormw.Handler())
 	router.Use(corsmw.Middleware(cfg.PortalAllowedOrigins))
 	router.GET("/health", health.Handler(pool))
+
+	// The UNAUTHENTICATED public dashboard (Story 0.10). Built here, BEFORE the
+	// /api/v1 group, so the two are visibly siblings in the source rather than
+	// one being an easy-to-miss child of the other.
+	publicLimiter, err := ratelimit.New(ratelimit.Config{
+		PerMinute: cfg.PublicRateLimit.PerMinute,
+		Burst:     cfg.PublicRateLimit.Burst,
+		// Fly-Client-IP may be believed only when the Fly edge is actually in
+		// front of this process to overwrite it. FLY_APP_NAME is set by the Fly
+		// runtime and by nothing else, so it answers "am I behind the edge"
+		// without inventing a secret an operator has to remember to set.
+		TrustEdgeHeader: os.Getenv("FLY_APP_NAME") != "",
+	})
+	if err != nil {
+		return err
+	}
+	publicGroup := newPublicGroup(router, publicLimiter.Middleware())
 
 	var verifier svcauth.TokenVerifier = svcauth.RejectingVerifier{}
 	if cfg.Auth.JWKSURL != "" && cfg.Auth.Issuer != "" {
@@ -150,6 +170,10 @@ func run() error {
 	// search; the search reader is an add-on rather than a second service.
 	studentSvc := svcstudent.NewService(svcstudent.NewSQLCReader(pool), st, svcstudent.NewSQLCWriter())
 	studentSvc.WithSearchReader(svcstudent.NewSQLCSearchReader(pool))
+	// The public dashboard's two reads. The SAME student service serves the
+	// anonymous search — PublicSearch is a separate, actor-less, hard-capped
+	// method on it, not a relaxation of the authenticated Search.
+	handlerpublicattendance.RegisterPublicRoutes(publicGroup, studentSvc, svcpublicattendance.NewSQLCService(pool))
 	handlerodrecord.RegisterMarkingReadRoutes(markAPI, svcmarking.NewReadService(
 		markingPolicy,
 		eventReader,
@@ -229,6 +253,30 @@ func newAdminGroup(api *gin.RouterGroup, loader rbac.PrincipalLoader) *gin.Route
 	admin := api.Group("/admin")
 	admin.Use(rbac.RequireAdmin(loader))
 	return admin
+}
+
+// newPublicGroup returns the UNAUTHENTICATED group the public dashboard is
+// served from (Story 0.10), carrying the rate limiter and nothing else.
+//
+// It takes the ROOT *gin.Engine rather than the /api/v1 group, and that is the
+// entire reason this function exists as a named seam. gin attaches middleware to
+// the GROUP VALUE, not to the path prefix, so
+//
+//	router.Group("/api/v1/public")   // sibling of the auth group -> public
+//	api.Group("/public")             // child  of the auth group -> 401 for everyone
+//
+// produce the IDENTICAL URLs and completely different middleware chains. The
+// second compiles cleanly, looks right in a diff, and 401s every student on
+// campus. Nothing in the handler or ratelimit tests can catch that — they build
+// their own routers — so, exactly as with newAdminGroup, only the composition is
+// at risk and the composition is what gets a test (public_routes_test.go).
+//
+// The signature takes the engine, not gin.IRouter: passing `api` would then be a
+// compile error rather than a silent behaviour change.
+func newPublicGroup(router *gin.Engine, limiter gin.HandlerFunc) *gin.RouterGroup {
+	public := router.Group("/api/v1/public")
+	public.Use(limiter)
+	return public
 }
 
 func tlsMinVersion(v string) uint16 {

@@ -493,6 +493,78 @@ read-only and writes no audit row of its own. A duplicate `(student_id,
 event_id, slot)` mark is rejected as `SCAN_DUPLICATE` with no second row and no
 extra audit entry, identically to the coordinator path.
 
+## Public attendance dashboard
+
+**`/attendance` is the one page in this app that needs no sign-in.** A student
+opens it on a phone, searches their roll number or name, and sees which slots
+they were marked for. It is how a student learns they got credit — there are no
+notifications anywhere in this system (FR59 was dropped), so re-checking this
+page is the whole feedback loop.
+
+**What it exposes, and nothing more.** Search results and records carry display
+fields only: roll number, name, branch, section, batch, and per record the
+event, category, slot, the marker's **display name and role**, and the time the
+mark was received. There is deliberately no email, no marker user id, no card
+token, no token fingerprint, no fallback-credit figure and no dispute content
+anywhere on this surface. OD status is public information by Amrita policy —
+like a notice board — but that licence covers attendance status only.
+
+**All twelve slots are rendered, not just the marked ones.** A day shows slots
+`1..12` with present rows and explicit "No record" rows, because the *gap* is
+the information a student is looking for. There is no third "pending" or
+"syncing" state: Epic 0 marks synchronously, so a slot is either recorded or it
+is not.
+
+**Days come from the event's date**, not from when the mark was received — so a
+teacher's next-morning correction still appears under the day it was for.
+Records on **archived** events remain visible: archiving tidies up the event, it
+does not retract a student's attendance.
+
+**Three different answers, three different messages.** "No OD records found"
+(a successful read with no marks), "No such student" (a 404 — a mistyped roll
+number), and a failed read are never rendered alike. Telling a student who
+mistyped their roll number that they were not marked is the worst thing this
+page could do.
+
+**Sharing a result.** The selected student is reflected in the URL as
+`?student=<uuid>`, so a refresh keeps the view and a shared link opens it. That
+uuid is the only thing this page ever puts in a query string.
+
+### Rate limiting
+
+The two public endpoints sit behind a per-client token bucket — the only refusal
+an anonymous caller can provoke is `429 RATE_LIMITED`, which the page renders as
+"too many searches, try again in a moment" with a retry button. Roster search is
+additionally capped at **10 results**, prefix-only, with a 3-character minimum,
+and accepts no caller-supplied result limit.
+
+Two optional environment variables tune it. **Both have working defaults, so no
+secret is required** and the deployed app boots without them:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PUBLIC_RATE_LIMIT_PER_MINUTE` | `30` | Sustained requests per client per minute |
+| `PUBLIC_RATE_LIMIT_BURST` | `10` | Back-to-back requests before the rate binds |
+
+Raising the cap on event day is a `flyctl secrets set` plus a restart, not a
+redeploy. A value that is present but not a positive integer fails at boot
+rather than silently reverting to the default.
+
+Two caveats worth knowing before reading those numbers as guarantees. The
+limiter is **in-process**, and the API runs two Fly machines, so the effective
+per-client ceiling is roughly double the configured value. And the client is
+identified by Fly's edge-set `Fly-Client-IP` header, falling back to the TCP
+peer address — `X-Forwarded-For` is deliberately ignored, because gin trusts all
+proxies by default and a limiter keyed on a caller-supplied header is
+bypassable with one line of curl.
+
+### CORS
+
+No configuration change is needed while the dashboard is served from the same
+origin as the portal — `PORTAL_ALLOWED_ORIGINS` already covers it, and the CORS
+middleware is attached at the router root so it applies to the public group too.
+If the public page is ever served from its own hostname, add that exact origin.
+
 ## Verification commands
 
 The default local verification does not require a database:

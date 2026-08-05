@@ -278,6 +278,42 @@ jobs:
             echo "expected the out-of-branch teacher mark attempt to write nothing, got $refused rows"
             exit 1
           }
+      - name: Verify public dashboard writes nothing
+        # The invariant that makes an UNAUTHENTICATED endpoint safe to expose:
+        # the public journey is a pure read.
+        #
+        # Both halves are checked because they fail differently. An extra
+        # od_records row would mean a read path acquired a write; an audit_log
+        # row referencing one of these records would mean the read went through
+        # store.WithAudit, which is an unauthenticated write path even when the
+        # OD table is untouched.
+        #
+        # Scoped to the two Story 0.10 fixture events and asserted as an exact
+        # count, not a delta: api/test/portal/main.go seeds exactly four records
+        # for them on every harness start (slots 1, 2 and 4 of the public event
+        # plus slot 5 of the archived one) with plain INSERTs that write no audit
+        # rows. Nothing else in the suite touches those event ids, so both
+        # numbers are fixed rather than dependent on wall-clock time or on which
+        # slot happens to be open — the failure mode that made an earlier gate
+        # pass for the wrong reason 23 hours a day.
+        run: |
+          public_events="'93000000-0000-4000-8000-000000000002','93000000-0000-4000-8000-000000000003'"
+          records="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT count(*) FROM od_records WHERE event_id IN ($public_events)")"
+          [ "$records" = "4" ] || {
+            echo "expected the 4 seeded public-dashboard records to be unchanged by a read-only journey, got $records"
+            exit 1
+          }
+          audits="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT count(*)
+            FROM audit_log AS audit
+            JOIN od_records AS record ON audit.target_id = record.id::text
+            WHERE record.event_id IN ($public_events)
+              AND audit.target_table = 'od_records'")"
+          [ "$audits" = "0" ] || {
+            echo "the public dashboard wrote $audits audit rows; a public read has no actor to attribute and no state change to record"
+            exit 1
+          }
       - name: Verify teacher audit conservation
         # The fixture is a STABLE, non-suffixed email (unlike the events/
         # categories fixtures above): D2 makes a repeat elevation a 409 that

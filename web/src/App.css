@@ -1941,3 +1941,254 @@ tbody tr:hover {
   .mark-meters { grid-template-columns: 1fr 1fr; }
   .mark-scope { grid-template-columns: 1fr; }
 }
+
+/* ------------------------------------------------- public attendance page */
+/*
+   The one surface an unauthenticated visitor sees, and the only one that is
+   phone-first by default rather than as a narrow-width fallback: a student
+   opens it on their own phone, at night, from a link. Everything below is sized
+   for 390px first and allowed to grow, and nothing here may introduce a
+   horizontal overflow — a sideways scroll on the one screen every student opens
+   is the most visible defect this project could ship.
+*/
+
+.public-page {
+  width: min(720px, calc(100% - 24px));
+  margin: 0 auto;
+  padding: max(16px, env(safe-area-inset-top)) 0 max(32px, env(safe-area-inset-bottom));
+  color: var(--on-backdrop);
+}
+
+.public-header {
+  padding: 8px 4px 20px;
+  text-align: center;
+}
+
+.public-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.public-brand {
+  display: block;
+  width: min(240px, 65%);
+  height: auto;
+  margin: 4px auto 18px;
+}
+
+:root[data-theme='dark'] .public-brand {
+  /* Matches .auth-brand: the lockup is dark ink on transparent, so it needs
+     inverting to stay legible on the dark backdrop. */
+  filter: invert(1) brightness(1.6);
+}
+
+.public-header h1 {
+  margin: 4px 0 8px;
+  font-size: clamp(22px, 6vw, 30px);
+  font-weight: 760;
+  letter-spacing: -0.03em;
+}
+
+.public-lede {
+  margin: 0;
+  color: var(--gray-600);
+  line-height: 1.55;
+}
+
+.public-search,
+.public-records {
+  padding: clamp(16px, 4vw, 24px);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-2xl);
+  background: var(--surface-strong);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: var(--shadow-raised);
+  color: var(--foreground);
+}
+
+.public-records { margin-top: 16px; }
+
+.public-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.public-field > span {
+  font-size: 13px;
+  font-weight: 640;
+  color: var(--gray-600);
+}
+
+.public-field input {
+  width: 100%;
+  /* Without an explicit min-width, a flex/grid child refuses to shrink below
+     its intrinsic size and pushes the page sideways on a narrow phone. */
+  min-width: 0;
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--foreground);
+  /* 16px exactly: iOS Safari zooms the viewport on focus for anything smaller,
+     which on this page looks like the layout breaking. */
+  font-size: 16px;
+}
+
+.public-field input:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.public-hint {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--gray-600);
+  line-height: 1.5;
+}
+
+.public-results {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.public-results li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  /* 44px is the smallest reliably tappable target on a phone. */
+  min-height: 44px;
+  border-bottom: 1px solid var(--surface-line);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.public-results li:last-child { border-bottom: none; }
+.public-results li:hover { background: var(--surface-quiet); }
+
+.public-results li:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.public-results strong { font-size: 15px; }
+.public-results span { font-size: 13px; color: var(--gray-600); }
+
+.public-student h2 {
+  margin: 0 0 4px;
+  font-size: clamp(19px, 5vw, 23px);
+  font-weight: 720;
+  letter-spacing: -0.02em;
+}
+
+.public-student-meta {
+  margin: 0;
+  font-size: 13px;
+  color: var(--gray-600);
+}
+
+.public-asof {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--gray-600);
+}
+
+.public-empty {
+  margin: 18px 0 0;
+  padding: 16px;
+  border: 1px dashed var(--surface-border);
+  border-radius: var(--radius-md);
+  text-align: center;
+  color: var(--gray-600);
+}
+
+.public-day { margin-top: 22px; }
+
+.public-day h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 680;
+  color: var(--gray-600);
+}
+
+.public-slots {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.public-slot {
+  display: grid;
+  /* A fixed label column keeps the twelve rows aligned; minmax(0, 1fr) is what
+     stops a long event name from widening the grid past the viewport. */
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+/* Present and absent must be distinguishable WITHOUT relying on colour alone:
+   the left rule differs in weight, the absent row is dashed and dimmed, and the
+   text itself says "No record". */
+.public-slot.is-present { border-left: 4px solid var(--success, #1a7f4b); }
+
+.public-slot.is-absent {
+  border-left: 4px dashed var(--surface-border);
+  background: var(--surface-quiet);
+}
+
+.public-slot-label {
+  font-size: 13px;
+  font-weight: 660;
+  white-space: nowrap;
+}
+
+.public-slot-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--gray-600);
+  /* Event names and staff names are user data and can be long; wrapping beats
+     any horizontal scroll. */
+  overflow-wrap: anywhere;
+}
+
+.public-slot-detail strong { color: var(--foreground); }
+.public-slot-empty { color: var(--gray-600); font-style: italic; }
+
+.public-alert {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--danger-border, var(--surface-border));
+  border-left: 4px solid var(--danger, #b3261e);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.public-alert p { margin: 0 0 10px; line-height: 1.5; }
+
+.public-alert-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 380px) {
+  /* At the narrowest supported width the fixed label column costs more than it
+     buys, so the slot label sits above its detail instead. */
+  .public-slot { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}

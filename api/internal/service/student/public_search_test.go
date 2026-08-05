@@ -93,7 +93,14 @@ func TestPublicSearch_EnforcesRuneBoundsBeforeQuerying(t *testing.T) {
 		{"two runes", "ab"},
 		{"two runes after trimming", "  ab  "},
 		{"tabs and newlines", "\t\n"},
-		{"over 64 runes", strings.Repeat("a", 65)},
+		{"over 64 runes", strings.Repeat("a", MaxSearchRunes+1)},
+		// A NUL byte is valid UTF-8, so it clears TrimSpace, both rune counts
+		// and escapeLikePattern, then reaches Postgres and is rejected there
+		// with SQLSTATE 22021 — a 500 on an endpoint with no credential, caused
+		// by six characters of query string. It must be refused here, before the
+		// reader is consulted, like every other malformed input.
+		{"nul byte", "CB.\x00"},
+		{"interior control character", "CB\x01SC"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			capture := &searchCapture{}

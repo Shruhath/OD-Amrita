@@ -24,11 +24,14 @@ import { describe, expect, test, vi } from 'vitest'
 import { Application } from '../../Application'
 import { createPortalMemoryRouter } from '../../router'
 import type { SessionPort } from '../../features/auth/session'
+import { THEME_STORAGE_KEY } from '../../features/theme/theme'
 import { server } from '../../test/server'
 import {
   publicAttendanceRoute,
+  publicDay,
   publicEmptyRecordCollection,
   publicError,
+  publicRecord,
   publicRecordCollection,
   publicSearchResults,
   publicStudentID,
@@ -86,6 +89,22 @@ function installPublicBackend(
 }
 
 /**
+ * The keys actually STORED, via the Storage API.
+ *
+ * Object.keys(localStorage) is not that list under jsdom — it returns the
+ * interface's own methods (getItem, setItem, …) alongside any stored key, so an
+ * assertion built on it compares against noise.
+ */
+function storageKeys(storage: Storage): string[] {
+  const keys: string[] = []
+  for (let i = 0; i < storage.length; i++) {
+    const key = storage.key(i)
+    if (key !== null) keys.push(key)
+  }
+  return keys.sort()
+}
+
+/**
  * Renders the app on a memory router and hands the ROUTER back.
  *
  * window.location never changes under a memory router, so an assertion about
@@ -94,8 +113,13 @@ function installPublicBackend(
  */
 function renderPublicRoute(path = publicAttendanceRoute) {
   const router = createPortalMemoryRouter([path])
-  const result = render(<Application session={anonymousSession()} router={router} />)
-  return { ...result, router }
+  // The session is handed back so a test can assert on the PORT rather than on
+  // a symptom. "refresh() throws, so a test that finishes must not have called
+  // it" is not sound — the throw becomes a rejected promise the client renders
+  // as an error alert, which is exactly what a passing assertion waits for.
+  const session = anonymousSession()
+  const result = render(<Application session={session} router={router} />)
+  return { ...result, router, session }
 }
 
 describe('public attendance dashboard', () => {
@@ -208,6 +232,46 @@ describe('public attendance dashboard', () => {
     expect(screen.queryByText(/@amrita\.edu/i)).not.toBeInTheDocument()
   })
 
+  // 0.10-WEB-005b — two events on the SAME DAY may each hold the same slot, and
+  // both marks must be shown (AC 4, AC 11).
+  //
+  // Uniqueness in the database is (student_id, event_id, slot) — per EVENT —
+  // while a "day" here is a calendar date, so a festival day with two events can
+  // legitimately produce two slot-4 records for one student. Keying the render
+  // on the slot number alone keeps only the last, and the mark that loses reads
+  // as "No record": the page telling a student they were not marked when they
+  // were. Every other fixture avoids the collision by construction, so without
+  // this case nothing in the suite exercises it.
+  test('[P0] renders both marks when one day holds two records in the same slot', async () => {
+    installPublicBackend({
+      records: publicRecordCollection({
+        days: [publicDay({
+          records: [
+            publicRecord(4),
+            publicRecord(4, {
+              record_id: '66000000-0000-4000-8000-000000000404',
+              event_id: '93000000-0000-4000-8000-000000000002',
+              event_name: 'Sports Day Relay',
+              category_id: '94000000-0000-4000-8000-000000000002',
+              category_name: 'Athletics',
+              marked_by_name: 'Second Coordinator',
+            }),
+          ],
+        })],
+      }),
+    })
+
+    renderPublicRoute(`${publicAttendanceRoute}?student=${publicStudentID}`)
+
+    const slotFour = (await screen.findAllByRole('listitem')).find((item) =>
+      /slot\s*4:/i.test(item.textContent ?? ''),
+    )
+    expect(slotFour).toBeDefined()
+    expect(slotFour).toHaveTextContent(/Onam Celebrations/i)
+    expect(slotFour).toHaveTextContent(/Sports Day Relay/i)
+    expect(slotFour).not.toHaveTextContent(/No record/i)
+  })
+
   // 0.10-WEB-006 — an empty result is "no OD records found", rendered ONLY after
   // a successful empty response, and a 404 says something different (AC 12).
   //
@@ -267,6 +331,18 @@ describe('public attendance dashboard', () => {
     }
     expect(localStorage.length).toBe(0)
     expect(sessionStorage.length).toBe(0)
+
+    // AC 13 is about the page not persisting IDENTITY or ROSTER data, and the
+    // load-time snapshot above cannot tell the difference between "writes
+    // nothing" and "has not written yet". The page ships a theme toggle, so
+    // exercise it and pin what a write is ALLOWED to be: the theme preference,
+    // and nothing else. A student's roll number, a search result or a token
+    // appearing here would fail this.
+    await userEvent.setup().click(screen.getByRole('button', { name: /switch to (dark|light) theme/i }))
+
+    expect(storageKeys(localStorage)).toEqual([THEME_STORAGE_KEY])
+    expect(sessionStorage.length).toBe(0)
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toMatch(/^(light|dark)$/)
   })
 
   // 0.10-WEB-009 — a public 401 does not sign anybody out (AC 13).
@@ -276,10 +352,14 @@ describe('public attendance dashboard', () => {
   test('[P0] a 401 from a public call never triggers a refresh or a sign-out', async () => {
     installPublicBackend({ recordsStatus: 401 })
 
-    renderPublicRoute(`${publicAttendanceRoute}?student=${publicStudentID}`)
+    const { session } = renderPublicRoute(`${publicAttendanceRoute}?student=${publicStudentID}`)
 
     expect(await screen.findByRole('alert')).toBeInTheDocument()
-    // If the authorized fetch had been reused, refresh()/signOut() would have
-    // thrown by now and this assertion would never be reached.
+    // Asserted on the PORT, not inferred from the alert. A reused authorized
+    // fetch would call refresh(), the throw would surface as a query error, and
+    // RetryableAlert would render role="alert" — so waiting for the alert alone
+    // goes green in precisely the scenario this test exists to catch.
+    expect(session.refresh).not.toHaveBeenCalled()
+    expect(session.signOut).not.toHaveBeenCalled()
   })
 })

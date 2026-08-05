@@ -263,10 +263,15 @@ func TestPublicAttendanceContract_PublicSchemasNeverRefAnAuthenticatedSchema(t *
 // api/cmd/api/main.go, outside the /api/v1 group, and answers a liveness probe.
 // The two public reads are what this story adds. There is no fourth entry, and
 // adding one is a disclosure decision that belongs in this list with a reason.
+// Keyed by "METHOD path", not by path alone. A path-keyed exemption is inherited
+// by every operation later added under it, so a POST dropped onto either public
+// path would be waved past the bearer requirement by the very table that exists
+// to enumerate what may skip it — while the package doc insists no write may
+// exist in this group at all.
 var deliberatelyUnauthenticated = map[string]string{
-	"/health":         "liveness probe on the bare router, outside /api/v1",
-	publicSearchPath:  "Story 0.10 public dashboard search (FR38)",
-	publicRecordsPath: "Story 0.10 public dashboard records read (FR39)",
+	"get /health":              "liveness probe on the bare router, outside /api/v1",
+	"get " + publicSearchPath:  "public dashboard search (FR38)",
+	"get " + publicRecordsPath: "public dashboard records read (FR39)",
 }
 
 // 0.10-CONTRACT-006 — the regression this story makes possible: every operation
@@ -286,12 +291,12 @@ func TestPublicAttendanceContract_EveryOtherOperationStillRequiresBearer(t *test
 	methods := map[string]bool{"get": true, "post": true, "put": true, "patch": true, "delete": true}
 
 	for path, raw := range paths {
-		if _, exempt := deliberatelyUnauthenticated[path]; exempt {
-			continue
-		}
 		item := asMap(raw)
 		for method, rawOp := range item {
 			if !methods[strings.ToLower(method)] {
+				continue
+			}
+			if _, exempt := deliberatelyUnauthenticated[strings.ToLower(method)+" "+path]; exempt {
 				continue
 			}
 			op := asMap(rawOp)

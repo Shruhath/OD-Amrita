@@ -182,10 +182,12 @@ func TestPublicRoutesAreNotNestedUnderAnAuthenticatedGroup(t *testing.T) {
 
 	router := composePublicRouter(t, &reachCounter{}, &refusingLoader{})
 
+	inspected := 0
 	for _, route := range router.Routes() {
 		if !strings.Contains(route.Path, "/public/") {
 			continue
 		}
+		inspected++
 		if strings.HasPrefix(route.Path, "/api/v1/admin") {
 			t.Errorf("[P0] %s %s is under /admin", route.Method, route.Path)
 		}
@@ -194,6 +196,14 @@ func TestPublicRoutesAreNotNestedUnderAnAuthenticatedGroup(t *testing.T) {
 				"(T2): a write reachable without authentication is an open door, not a feature",
 				route.Method, route.Path)
 		}
+	}
+
+	// Without this the whole loop is skippable: delete the route registration
+	// and every iteration `continue`s, the body never runs, and the test reports
+	// success for a public surface that does not exist.
+	if inspected != 2 {
+		t.Errorf("[P0] inspected %d public routes, want 2 (search + od-records). A test that asserts properties "+
+			"of routes it never found passes most loudly when the feature is missing", inspected)
 	}
 }
 
@@ -213,6 +223,13 @@ func TestRateLimiterGuardsThePublicGroupOnly(t *testing.T) {
 
 	api := router.Group("/api/v1")
 	api.Use(mwauth.Middleware(svcauth.RejectingVerifier{}, "amrita.edu", nil))
+	// A REGISTERED route on the authenticated group is what makes the /api/v1
+	// half of this test mean anything. gin runs group middleware only for a
+	// matched route: with nothing registered here, /api/v1/... falls to NoRoute,
+	// answers 404 without entering the group chain, and the "never 429"
+	// assertion below passes for every possible implementation — including one
+	// that attached the limiter to /api/v1.
+	api.GET("/auth/me", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{}) })
 
 	// A burst of exactly one, so the SECOND request on any limited path is
 	// refused. Anything the limiter does not guard keeps answering.
@@ -248,7 +265,15 @@ func TestRateLimiterGuardsThePublicGroupOnly(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		// Unauthenticated, so 401 is the expected answer — the point is that it
 		// is never 429, i.e. the limiter is not in this chain.
-		if code := send("/api/v1/auth/me"); code == http.StatusTooManyRequests {
+		code := send("/api/v1/auth/me")
+		// Asserted, not assumed: a 404 here would mean the route never matched,
+		// no group middleware ran, and the "never 429" check below proved
+		// nothing at all.
+		if code != http.StatusUnauthorized {
+			t.Fatalf("[P0] /api/v1/auth/me answered %d, want 401 — the authenticated chain did not run, so this "+
+				"test cannot tell whether the limiter is attached to /api/v1", code)
+		}
+		if code == http.StatusTooManyRequests {
 			t.Errorf("[P0] an /api/v1 route was rate limited; FR15 coordinator scan limiting is out of Epic 0 " +
 				"and throttling a coordinator mid-event is a live-event outage")
 			break

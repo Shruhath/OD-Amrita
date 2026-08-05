@@ -39,17 +39,28 @@ test.describe('real stack fallback credits', () => {
     )
     const slotOpen = (await status.json()).slot !== null
 
-    if (!slotOpen) {
-      await request.put(`${portalAPI}/api/v1/admin/events/${markingEventID}/capture-credits/config`, {
-        headers: { Authorization: 'Bearer portal-admin-token', 'Content-Type': 'application/json' },
-        data: { limit: 0 },
-      })
-      await expect(page.getByRole('button', { name: /search/i })).toBeDisabled({ timeout: 15_000 })
-    } else {
+    // Exhaust the credit the real way when a teaching slot is open — that path
+    // is the point of the test and only exists between 08:00 and 18:15 IST.
+    if (slotOpen) {
       await searchMark(page, firstCreditRoll)
       await expect(page.getByRole('status')).toBeVisible()
       await expect(page.getByRole('button', { name: /search/i })).toBeDisabled({ timeout: 15_000 })
     }
+
+    // Then drop the cap to zero UNCONDITIONALLY. Outside teaching hours this is
+    // the only way to reach "exhausted"; inside them the credit is already spent
+    // and this is a no-op on the button state. Either way it runs, and that is
+    // deliberate: the number of capture-credit config writes this journey makes
+    // must not depend on the wall clock, because a CI step asserts that count.
+    // While this sat inside the `else`, the journey wrote two config rows during
+    // teaching hours and three outside them, and the audit-conservation gate —
+    // which hardcodes one of those numbers — was therefore red roughly fourteen
+    // hours a day for reasons that had nothing to do with the change under test.
+    await request.put(`${portalAPI}/api/v1/admin/events/${markingEventID}/capture-credits/config`, {
+      headers: { Authorization: 'Bearer portal-admin-token', 'Content-Type': 'application/json' },
+      data: { limit: 0 },
+    })
+    await expect(page.getByRole('button', { name: /search/i })).toBeDisabled({ timeout: 15_000 })
 
     const raise = await request.put(`${portalAPI}/api/v1/admin/events/${markingEventID}/capture-credits/config`, {
       headers: { Authorization: 'Bearer portal-admin-token', 'Content-Type': 'application/json' },

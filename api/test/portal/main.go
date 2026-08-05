@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
@@ -24,17 +25,20 @@ import (
 	handlercardtoken "github.com/Shruhath/OD-Amrita/api/internal/handler/cardtoken"
 	handlerevent "github.com/Shruhath/OD-Amrita/api/internal/handler/event"
 	handlerodrecord "github.com/Shruhath/OD-Amrita/api/internal/handler/od_record"
+	handlerpublicattendance "github.com/Shruhath/OD-Amrita/api/internal/handler/publicattendance"
 	handlerstudent "github.com/Shruhath/OD-Amrita/api/internal/handler/student"
 	handlerteacher "github.com/Shruhath/OD-Amrita/api/internal/handler/teacher"
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
 	corsmw "github.com/Shruhath/OD-Amrita/api/internal/middleware/cors"
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
+	"github.com/Shruhath/OD-Amrita/api/internal/middleware/ratelimit"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	svccardtoken "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
 	svcmarking "github.com/Shruhath/OD-Amrita/api/internal/service/marking"
 	svcodrecord "github.com/Shruhath/OD-Amrita/api/internal/service/od_record"
+	svcpublicattendance "github.com/Shruhath/OD-Amrita/api/internal/service/publicattendance"
 	svcstudent "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 	svcteacher "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
 	svcuser "github.com/Shruhath/OD-Amrita/api/internal/service/user"
@@ -72,6 +76,34 @@ const (
 	markingEventID    = "93000000-0000-4000-8000-000000000001"
 	markingCategoryID = "94000000-0000-4000-8000-000000000001"
 	markingEventName  = "Browser Marking Event"
+)
+
+// The Story 0.10 public-dashboard fixtures.
+//
+// This journey READS and never marks, so unlike every other marking fixture
+// these od_records have to be pre-seeded — and seeded LAST, after both of
+// seed()'s od_records deletes (the CB.SC.U4CSE%/ECE% sweep near the top and the
+// marking-event sweep near the bottom), or they are wiped before the first test.
+//
+// Both events are dated TODAY on purpose. The dashboard groups by event date, so
+// putting them on the same day is what makes one twelve-slot list rather than
+// two — which is both the realistic shape (a festival day with two events) and
+// what keeps "the row for slot N" unambiguous.
+//
+// The students are disjoint from every pool another spec owns: 24001-003 belong
+// to coordinator-marking, 24004-005 to capture-credits, 24006-007 to
+// teacher-admin-attendance. Story 0.9 lost CI rounds to exactly this collision.
+const (
+	publicEventID          = "93000000-0000-4000-8000-000000000002"
+	publicCategoryID       = "94000000-0000-4000-8000-000000000002"
+	publicEventName        = "Browser Public Event"
+	publicArchivedEventID  = "93000000-0000-4000-8000-000000000003"
+	publicArchivedCategory = "94000000-0000-4000-8000-000000000003"
+	publicArchivedName     = "Browser Public Archived Event"
+	publicStudentID        = "95000000-0000-4000-8000-000000000009"
+	publicStudentRoll      = "CB.SC.U4CSE24008"
+	publicUnmarkedID       = "95000000-0000-4000-8000-000000000010"
+	publicUnmarkedRoll     = "CB.SC.U4CSE24009"
 )
 
 // teacherFixtureEmail is the student-role row the teacher-profile browser
@@ -203,6 +235,25 @@ func main() {
 	handlerteacher.RegisterAdminRoutes(admin, teacherService)
 	handlerstudent.RegisterAdminRoutes(admin, studentService)
 	handlercardtoken.RegisterAdminRoutes(admin, cardTokenService)
+
+	// The UNAUTHENTICATED public dashboard (Story 0.10), composed EXACTLY as
+	// cmd/api composes it: a group off the ROOT router, never a child of `api`.
+	// If this harness mounted it anywhere else, the real-stack spec's "answers an
+	// anonymous request" assertion would be testing the harness's arrangement
+	// rather than production's.
+	//
+	// The limit is raised far above the production default here on purpose: the
+	// portal-integration job runs every spec from ONE client IP, so a realistic
+	// 30/minute would let one suite's debounced typing throttle another's
+	// assertions. The limiter's real behaviour is proven deterministically in
+	// api/internal/middleware/ratelimit with an injected clock.
+	publicLimiter, err := ratelimit.New(ratelimit.Config{PerMinute: 6000, Burst: 600})
+	if err != nil {
+		log.Fatal(err)
+	}
+	publicGroup := router.Group("/api/v1/public")
+	publicGroup.Use(publicLimiter.Middleware())
+	handlerpublicattendance.RegisterPublicRoutes(publicGroup, studentService, svcpublicattendance.NewSQLCService(runtimePool))
 
 	port := os.Getenv("PORTAL_API_PORT")
 	if port == "" {
@@ -518,8 +569,104 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("clear marking capture credit config: %w", err)
 	}
 
+	if err := seedPublicDashboard(ctx, tx, today); err != nil {
+		return err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit transaction: %w", err)
+	}
+	return nil
+}
+
+// seedPublicDashboard seeds the read-only Story 0.10 fixtures.
+//
+// Called at the END of seed(), after every od_records delete, because this
+// journey never marks: its records must already exist when the first assertion
+// runs, and an earlier insert would be swept by the CB.SC.U4CSE% cleanup.
+//
+// Slots 1, 2 and 4 of the public event are present and slot 3 is deliberately
+// EMPTY. That gap is PRD Journey 3 verbatim — a student sees slots 1, 2 and 4
+// and notices 3 is missing — and it is the whole reason the screen renders all
+// twelve slots instead of only the marked ones.
+func seedPublicDashboard(ctx context.Context, tx pgx.Tx, eventDate time.Time) error {
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO students (id, roll_no, name, branch_id, section, batch)
+		VALUES
+			($1, $2, 'Public Dashboard Student', '91000000-0000-4000-8000-000000000001', 'A', '2024'),
+			($3, $4, 'Public Unmarked Student', '91000000-0000-4000-8000-000000000001', 'A', '2024')
+		ON CONFLICT (id) DO UPDATE
+		SET roll_no = EXCLUDED.roll_no, name = EXCLUDED.name, branch_id = EXCLUDED.branch_id,
+		    section = EXCLUDED.section, batch = EXCLUDED.batch
+	`, publicStudentID, publicStudentRoll, publicUnmarkedID, publicUnmarkedRoll); err != nil {
+		return fmt.Errorf("upsert public dashboard student fixtures: %w", err)
+	}
+
+	// Both events are reset to ACTIVE first. The archived one is archived again
+	// at the end: `events` blocks child mutations on an archived event, so its
+	// od_records row has to be inserted while it is still active. seed() runs as
+	// od_migrator, which the guard exempts, but the archive-state CHECK
+	// constraint applies to every role — which is why status, archived_at and
+	// archived_by_user_id always move together below.
+	for _, event := range []struct{ id, name, categoryID, categoryName string }{
+		{publicEventID, publicEventName, publicCategoryID, "Procession"},
+		{publicArchivedEventID, publicArchivedName, publicArchivedCategory, "Cultural"},
+	} {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO events (id, name, event_date, status)
+			VALUES ($1, $2, $3, 'active')
+			ON CONFLICT (id) DO UPDATE
+			SET name = EXCLUDED.name, event_date = EXCLUDED.event_date,
+			    status = 'active', archived_at = NULL, archived_by_user_id = NULL
+		`, event.id, event.name, eventDate); err != nil {
+			return fmt.Errorf("upsert public event %s: %w", event.name, err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO event_branches (event_id, branch_id)
+			VALUES ($1, '91000000-0000-4000-8000-000000000001')
+			ON CONFLICT DO NOTHING
+		`, event.id); err != nil {
+			return fmt.Errorf("associate public event branch %s: %w", event.name, err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO categories (id, event_id, name)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+		`, event.categoryID, event.id, event.categoryName); err != nil {
+			return fmt.Errorf("upsert public category %s: %w", event.name, err)
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM od_records WHERE event_id = $1`, event.id); err != nil {
+			return fmt.Errorf("clear public od records %s: %w", event.name, err)
+		}
+	}
+
+	// Slot 3 is absent on purpose — see the doc comment.
+	for _, record := range []struct {
+		eventID    string
+		categoryID string
+		slot       int
+	}{
+		{publicEventID, publicCategoryID, 1},
+		{publicEventID, publicCategoryID, 2},
+		{publicEventID, publicCategoryID, 4},
+		{publicArchivedEventID, publicArchivedCategory, 5},
+	} {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO od_records
+				(student_id, event_id, category_id, slot, status, capture_method, actor_user_id, actor_role, server_received_at)
+			VALUES ($1, $2, $3, $4, 'present', 'nfc', '90000000-0000-4000-8000-000000000003', 'coordinator', now())
+		`, publicStudentID, record.eventID, record.categoryID, record.slot); err != nil {
+			return fmt.Errorf("seed public od record slot %d: %w", record.slot, err)
+		}
+	}
+
+	// Archived LAST, once its record exists.
+	if _, err := tx.Exec(ctx, `
+		UPDATE events
+		SET status = 'archived', archived_at = now(), archived_by_user_id = '90000000-0000-4000-8000-000000000001'
+		WHERE id = $1
+	`, publicArchivedEventID); err != nil {
+		return fmt.Errorf("archive public event: %w", err)
 	}
 	return nil
 }

@@ -1976,10 +1976,16 @@ tbody tr:hover {
   margin: 4px auto 18px;
 }
 
-:root[data-theme='dark'] .public-brand {
-  /* Matches .auth-brand: the lockup is dark ink on transparent, so it needs
-     inverting to stay legible on the dark backdrop. */
-  filter: invert(1) brightness(1.6);
+/* The lockup is fixed artwork drawn for white paper, and the backdrop is a dark
+   photograph in BOTH themes — so it needs the light ground in both, not only in
+   dark. A filter is not an option: invert() turns the university crimson mint
+   green, and the crimson is the one colour in this app that is not ours to
+   change. This is the treatment .auth-brand already documents and uses. */
+.public-brand {
+  background: rgb(255 255 255 / 0.93);
+  border-radius: 12px;
+  padding: 12px 16px;
+  box-sizing: content-box;
 }
 
 .public-header h1 {
@@ -1991,7 +1997,10 @@ tbody tr:hover {
 
 .public-lede {
   margin: 0;
-  color: var(--gray-600);
+  /* On the backdrop, not on a surface — --gray-600 is #4b5563 and sits at about
+     1.9:1 against the dark photograph in BOTH themes. Every other on-backdrop
+     lede in this file uses the token made for it. */
+  color: var(--on-backdrop-muted);
   line-height: 1.55;
 }
 
@@ -2142,7 +2151,11 @@ tbody tr:hover {
 /* Present and absent must be distinguishable WITHOUT relying on colour alone:
    the left rule differs in weight, the absent row is dashed and dimmed, and the
    text itself says "No record". */
-.public-slot.is-present { border-left: 4px solid var(--success, #1a7f4b); }
+/* --ring-success, not an invented --success: the latter is defined nowhere, so
+   the hardcoded fallback always won and the rule stayed a fixed dark green on
+   the dark-theme surface. --ring-success is a real token with a value in both
+   themes. */
+.public-slot.is-present { border-left: 4px solid var(--ring-success); }
 
 .public-slot.is-absent {
   border-left: 4px dashed var(--surface-border);
@@ -2167,16 +2180,31 @@ tbody tr:hover {
   overflow-wrap: anywhere;
 }
 
+/* A slot can hold more than one mark — two events on the same day each own
+   their own (student, event, slot) row. Separated so two marks never read as
+   one run-on record. */
+.public-slot-mark {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.public-slot-mark + .public-slot-mark {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--surface-border);
+}
+
 .public-slot-detail strong { color: var(--foreground); }
 .public-slot-empty { color: var(--gray-600); font-style: italic; }
 
 .public-alert {
   margin: 12px 0 0;
   padding: 12px 14px;
-  border: 1px solid var(--danger-border, var(--surface-border));
-  border-left: 4px solid var(--danger, #b3261e);
+  border: 1px solid var(--ring-error);
+  border-left: 4px solid var(--ring-error);
   border-radius: var(--radius-md);
-  background: var(--surface);
+  background: var(--fill-error);
 }
 
 .public-alert p { margin: 0 0 10px; line-height: 1.5; }

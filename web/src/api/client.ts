@@ -179,14 +179,14 @@ export function createPublicApi() {
      * fixed server-side at 10. The query is trimmed here so the URL carries what
      * the visitor meant; the server trims and bounds again and owns the minimum.
      */
-    async searchStudents(query: string) {
+    async publicSearchStudents(query: string) {
       return unwrap(await client.GET('/api/v1/public/students/search', {
         params: { query: { q: query.trim() } },
       }))
     },
 
     /** One student's OD records, already grouped by day and ordered by the server. */
-    async studentRecords(studentID: string) {
+    async publicStudentRecords(studentID: string) {
       return unwrap(await client.GET('/api/v1/public/students/{student_id}/od-records', {
         params: { path: { student_id: studentID } },
       }))

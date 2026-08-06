@@ -117,6 +117,24 @@ WHERE e.status = 'active'
       JOIN user_branches ub ON ub.branch_id = markable_eb.branch_id
       WHERE markable_eb.event_id = e.id
         AND ub.user_id = @user_id
-  )
+)
 GROUP BY e.id
 ORDER BY e.event_date ASC, e.created_at ASC, e.id ASC;
+
+-- name: ListPublicEvents :many
+SELECT
+    e.id,
+    e.name,
+    e.event_date,
+    COALESCE(
+        jsonb_agg(
+            jsonb_build_object('id', c.id, 'name', c.name)
+            ORDER BY c.name ASC, c.id ASC
+        ) FILTER (WHERE c.id IS NOT NULL),
+        '[]'::jsonb
+    )::text AS categories_json
+FROM events e
+LEFT JOIN categories c ON c.event_id = e.id
+GROUP BY e.id
+ORDER BY e.event_date DESC, e.created_at DESC, e.id DESC
+LIMIT @row_limit::bigint;

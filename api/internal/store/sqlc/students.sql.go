@@ -64,6 +64,43 @@ func (q *Queries) GetBranchByCode(ctx context.Context, code string) (GetBranchBy
 	return i, err
 }
 
+const getStudentByRollNo = `-- name: GetStudentByRollNo :one
+SELECT
+    s.id,
+    s.roll_no,
+    s.name,
+    b.code AS branch,
+    s.section,
+    s.batch
+FROM students s
+JOIN branches b ON b.id = s.branch_id
+WHERE s.roll_no = $1
+LIMIT 1
+`
+
+type GetStudentByRollNoRow struct {
+	ID      pgtype.UUID `json:"id"`
+	RollNo  string      `json:"roll_no"`
+	Name    string      `json:"name"`
+	Branch  string      `json:"branch"`
+	Section string      `json:"section"`
+	Batch   string      `json:"batch"`
+}
+
+func (q *Queries) GetStudentByRollNo(ctx context.Context, rollNo string) (GetStudentByRollNoRow, error) {
+	row := q.db.QueryRow(ctx, getStudentByRollNo, rollNo)
+	var i GetStudentByRollNoRow
+	err := row.Scan(
+		&i.ID,
+		&i.RollNo,
+		&i.Name,
+		&i.Branch,
+		&i.Section,
+		&i.Batch,
+	)
+	return i, err
+}
+
 const insertStudentRosterImport = `-- name: InsertStudentRosterImport :one
 INSERT INTO student_roster_imports (
     source_filename,

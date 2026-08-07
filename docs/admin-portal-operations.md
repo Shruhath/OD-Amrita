@@ -2,13 +2,21 @@
 
 The web portal serves the authenticated event administration routes at
 `/portal/events` (the events list), `/portal/events/:event_id` (one event, its
-categories, and its coordinators), and `/portal/teachers` (the teacher roster).
+categories, and its coordinators), `/portal/teachers` (the teacher roster), and
+`/portal/disputes` (teacher/admin missed-slot dispute review).
 It uses Supabase only to broker Microsoft sign-in and obtain a session JWT; all
 authorization and event/teacher data decisions remain server-side.
 
 The same app also serves the **coordinator marking surface** at the root route
 `/mark`, which is coordinator-only and deliberately outside `/portal`. See
 [Coordinator marking surface](#coordinator-marking-surface).
+
+The unauthenticated `/attendance` dashboard also includes a missed-slot dispute
+form. It shows the selected student's roll number, name, branch, section and
+batch from the roster response as read-only text. The visitor types only their
+university email plus the event/category/day/slot and optional coordinator/name
+notes. Public dispute responses do not echo the submitted email, user ids, card
+tokens, resolution notes or any other dispute content.
 
 ## Browser environment
 
@@ -41,6 +49,17 @@ Run the portal with:
 ```bash
 pnpm --filter od-amrita-web dev
 ```
+
+The public dispute write has its own API-side limiter in addition to the public
+read limiter. Defaults apply when unset:
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `PUBLIC_DISPUTE_RATE_LIMIT_PER_MINUTE` | `5` | Per-client sustained budget for `POST /api/v1/public/disputes`. |
+| `PUBLIC_DISPUTE_RATE_LIMIT_BURST` | `3` | Per-client burst budget for that public write. |
+
+These are deliberately tighter than the public read budget because the dispute
+endpoint writes a database row and an audit row.
 
 ## Identity prerequisite
 
@@ -311,6 +330,54 @@ SELECT s.roll_no, s.name, t.version, t.created_at
 FROM student_card_tokens AS t
 JOIN students AS s ON s.id = t.student_id
 ORDER BY s.roll_no;
+```
+
+## Missed-slot disputes
+
+Students file disputes from `/attendance` without signing in. The form binds to
+the student record already selected on the public dashboard and submits both the
+displayed `student_id` and the typed email. The backend lowercases the email,
+requires it to be in the configured `amrita.edu` family, derives the roll number
+from the email local-part, and resolves that roll against `students.roll_no`.
+For example, `cb.sc.u4cse24124@cb.students.amrita.edu` resolves to
+`CB.SC.U4CSE24124`.
+
+If the email is outside the university domain, does not resolve to a roster row,
+or resolves to a different student than the one on screen, the API returns the
+same `DISPUTE_IDENTITY_UNVERIFIED` response. Operators should not treat that
+response as proof that an address exists or does not exist. A student whose
+institutional email does not follow the roll-number local-part convention cannot
+file through this MVP flow; staff must handle that case manually until an
+approved identity source exists.
+
+Teachers and admins review open disputes at `/portal/disputes`. A teacher sees
+only disputes for students in that teacher's assigned branches; admins see all.
+Each row expands to the student, submitted email, event, category, disputed day,
+slot, optional coordinator name and student note. Resolving a dispute stores the
+resolution note, resolver and timestamp, and writes `dispute.resolved` to the
+audit log in the same transaction.
+
+Resolving does **not** correct the OD record, create a missing mark, delete a
+wrong mark or award credit. It records the decision so staff can perform the
+record correction in the separate correction workflow.
+
+Verify disputes as the migrator/database owner:
+
+```sql
+SELECT dispute.id,
+       student.roll_no,
+       event.name AS event_name,
+       category.name AS category_name,
+       dispute.od_date,
+       dispute.slot,
+       dispute.status,
+       dispute.created_at,
+       dispute.resolved_at
+FROM disputes AS dispute
+JOIN students AS student ON student.id = dispute.student_id
+JOIN events AS event ON event.id = dispute.event_id
+JOIN categories AS category ON category.id = dispute.category_id
+ORDER BY dispute.created_at DESC, dispute.id DESC;
 ```
 
 ## Coordinator marking surface

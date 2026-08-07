@@ -1,7 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { ApiFailure, createPublicApi, type PublicODDay, type PublicStudent } from '../../api/client'
+import {
+  ApiFailure,
+  createPublicApi,
+  type PublicDisputeReceipt,
+  type PublicEvent,
+  type PublicODDay,
+  type PublicStudent,
+} from '../../api/client'
 import { ThemeToggle } from '../../components/ThemeToggle'
 
 /**
@@ -28,6 +35,7 @@ const SEARCH_DEBOUNCE_MS = 250
 const MIN_SEARCH_RUNES = 3
 const MAX_SEARCH_RUNES = 64
 const SLOT_VALUES = Array.from({ length: 12 }, (_, index) => index + 1)
+const DISPUTE_CONFIRMATION = 'Your dispute has been submitted. A teacher will review it.'
 
 // One client for the whole screen, created at module scope: it holds no session
 // and no per-render state, so rebuilding it on every render would only churn the
@@ -38,6 +46,7 @@ export default function PublicAttendanceScreen() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [disputeDraft, setDisputeDraft] = useState<{ day: string; slot: number } | null>(null)
 
   // The selected student lives in the URL rather than in component state so a
   // reload, a back button and a link shared over WhatsApp all reopen the same
@@ -91,6 +100,7 @@ export default function PublicAttendanceScreen() {
   }
 
   const clearStudent = () => setSearchParams({})
+  const closeDispute = () => setDisputeDraft(null)
 
   return (
     <main className="public-page">
@@ -199,17 +209,36 @@ export default function PublicAttendanceScreen() {
                   {records.data.student.roll_no} · {records.data.student.branch}-{records.data.student.section}
                   {' · '}Batch {records.data.student.batch}
                 </p>
-                <p className="public-asof" role="status">
+                <p className="public-asof">
                   As of {formatTime(records.data.generated_at)}
                 </p>
               </div>
 
               {records.data.days.length === 0 ? (
-                <p className="public-empty">
-                  No OD records found for this student yet.
-                </p>
+                <div className="public-empty">
+                  <p>No OD records found for this student yet.</p>
+                  <button type="button" onClick={() => setDisputeDraft({ day: '', slot: 1 })}>
+                    Report a missed slot
+                  </button>
+                </div>
               ) : (
-                records.data.days.map((day) => <DaySlots key={day.event_date} day={day} />)
+                records.data.days.map((day) => (
+                  <DaySlots
+                    key={day.event_date}
+                    day={day}
+                    onReport={(slot) => setDisputeDraft({ day: day.event_date, slot })}
+                  />
+                ))
+              )}
+
+              {disputeDraft && (
+                <PublicDisputeForm
+                  student={records.data.student}
+                  days={records.data.days}
+                  initialDay={disputeDraft.day}
+                  initialSlot={disputeDraft.slot}
+                  onClose={closeDispute}
+                />
               )}
             </>
           )}
@@ -226,7 +255,7 @@ export default function PublicAttendanceScreen() {
  * a nesting list item would make every "which slot row is this" locator match
  * the day wrapper too.
  */
-function DaySlots({ day }: { day: PublicODDay }) {
+function DaySlots({ day, onReport }: { day: PublicODDay; onReport(slot: number): void }) {
   // A slot holds a LIST, not a single record. Uniqueness in the database is
   // (student_id, event_id, slot) — per event — while a day here is a calendar
   // date, so two events on one date can each hold a mark at the same slot for
@@ -269,7 +298,12 @@ function DaySlots({ day }: { day: PublicODDay }) {
                   ))}
                 </span>
               ) : (
-                <span className="public-slot-detail public-slot-empty">No record</span>
+                <span className="public-slot-detail public-slot-empty">
+                  <span>No record</span>
+                  <button type="button" className="secondary" onClick={() => onReport(slot)}>
+                    Report a missed slot
+                  </button>
+                </span>
               )}
             </li>
           )
@@ -277,6 +311,217 @@ function DaySlots({ day }: { day: PublicODDay }) {
       </ul>
     </section>
   )
+}
+
+function PublicDisputeForm({
+  student,
+  days,
+  initialDay,
+  initialSlot,
+  onClose,
+}: {
+  student: PublicStudent
+  days: PublicODDay[]
+  initialDay: string
+  initialSlot: number
+  onClose(): void
+}) {
+  const fallbackEvents = useQuery({
+    queryKey: ['public', 'events'],
+    queryFn: () => api.publicEvents(),
+    enabled: days.length === 0,
+    gcTime: 0,
+  })
+  const recordEvents = useMemo(() => eventsFromRecords(days), [days])
+  const fallbackEventData = fallbackEvents.data?.data
+  const eventOptions = useMemo(
+    () => recordEvents.length > 0 ? recordEvents : fallbackEventData ?? [],
+    [fallbackEventData, recordEvents],
+  )
+  const [eventID, setEventID] = useState('')
+  const [categoryID, setCategoryID] = useState('')
+  const [odDate, setODDate] = useState(initialDay)
+  const [slot, setSlot] = useState(String(initialSlot))
+  const [email, setEmail] = useState('')
+  const [coordinator, setCoordinator] = useState('')
+  const [note, setNote] = useState('')
+  const [failure, setFailure] = useState<string | null>(null)
+  const [receipt, setReceipt] = useState<PublicDisputeReceipt | null>(null)
+
+  const selectedEvent = eventOptions.find((event) => event.event_id === eventID) ?? eventOptions[0]
+  const categoryOptions = useMemo(() => selectedEvent?.categories ?? [], [selectedEvent])
+  const dayOptions = useMemo(() => selectedEvent ? [selectedEvent.event_date] : initialDay ? [initialDay] : [], [initialDay, selectedEvent])
+
+  useEffect(() => {
+    if (!selectedEvent) return
+    if (!eventOptions.some((event) => event.event_id === eventID)) {
+      setEventID(selectedEvent.event_id)
+    }
+  }, [eventID, eventOptions, selectedEvent])
+
+  useEffect(() => {
+    if (!selectedEvent) return
+    if (!categoryOptions.some((category) => category.id === categoryID)) {
+      setCategoryID(categoryOptions[0]?.id ?? '')
+    }
+    if (!dayOptions.includes(odDate)) {
+      setODDate(dayOptions[0] ?? '')
+    }
+  }, [categoryID, categoryOptions, dayOptions, odDate, selectedEvent])
+
+  const submit = useMutation({
+    mutationFn: () =>
+      api.publicSubmitDispute({
+        student_id: student.student_id,
+        submitted_email: email.trim(),
+        event_id: eventID,
+        category_id: categoryID,
+        od_date: odDate,
+        slot: Number(slot),
+        claimed_coordinator_name: coordinator.trim() === '' ? null : coordinator.trim(),
+        student_note: note.trim() === '' ? null : note.trim(),
+      }),
+    onSuccess(result) {
+      setFailure(null)
+      setReceipt(result)
+    },
+    onError(cause) {
+      setFailure(disputeFailureMessage(cause))
+    },
+  })
+
+  const submitDisabled = submit.isPending || !email.trim() || !eventID || !categoryID || !odDate
+
+  const onSubmit = (event: FormEvent) => {
+    event.preventDefault()
+    if (submitDisabled) return
+    setFailure(null)
+    submit.mutate()
+  }
+
+  if (receipt) {
+    return (
+      <section className="public-dispute-panel" aria-label="Dispute receipt">
+        <p className="public-success" role="status">
+          {DISPUTE_CONFIRMATION} Reference {receipt.reference}.
+        </p>
+      </section>
+    )
+  }
+
+  return (
+    <form className="public-dispute-panel" aria-label="Report a missed slot dispute" role="form" onSubmit={onSubmit} noValidate>
+      <div className="public-dispute-heading">
+        <div>
+          <h3>Report a missed slot</h3>
+          <p>Resolving this report records a decision. Correcting the OD record is a separate staff action.</p>
+        </div>
+        <button type="button" className="text-button" onClick={onClose} disabled={submit.isPending}>Close</button>
+      </div>
+
+      <dl className="public-readonly-fields" aria-label="Student details">
+        <div><dt>Roll number</dt><dd>{student.roll_no}</dd></div>
+        <div><dt>Name</dt><dd>{student.display_name}</dd></div>
+        <div><dt>Branch</dt><dd>{student.branch}</dd></div>
+        <div><dt>Section</dt><dd>{student.section}</dd></div>
+        <div><dt>Batch</dt><dd>{student.batch}</dd></div>
+      </dl>
+
+      {fallbackEvents.isPending && days.length === 0 && <p className="public-hint" role="status">Loading events…</p>}
+      {fallbackEvents.isError && (
+        <RetryableAlert
+          message="Events could not be loaded right now. Please try again."
+          onRetry={() => void fallbackEvents.refetch()}
+        />
+      )}
+
+      <label className="public-field" htmlFor="public-dispute-email">
+        <span>University email</span>
+        <input
+          id="public-dispute-email"
+          type="email"
+          autoComplete="email"
+          value={email}
+          maxLength={320}
+          onChange={(event) => setEmail(event.target.value)}
+        />
+      </label>
+
+      <label className="public-field" htmlFor="public-dispute-event">
+        <span>Event</span>
+        <select id="public-dispute-event" value={eventID} onChange={(event) => { setEventID(event.target.value); setFailure(null) }}>
+          {eventOptions.map((event) => <option value={event.event_id} key={event.event_id}>{event.name}</option>)}
+        </select>
+      </label>
+
+      <label className="public-field" htmlFor="public-dispute-category">
+        <span>Category</span>
+        <select id="public-dispute-category" value={categoryID} onChange={(event) => { setCategoryID(event.target.value); setFailure(null) }} disabled={categoryOptions.length === 0}>
+          {categoryOptions.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}
+        </select>
+      </label>
+
+      <label className="public-field" htmlFor="public-dispute-day">
+        <span>Day</span>
+        <select id="public-dispute-day" value={odDate} onChange={(event) => { setODDate(event.target.value); setFailure(null) }}>
+          {dayOptions.map((value) => <option value={value} key={value}>{formatDate(value)} ({value})</option>)}
+        </select>
+      </label>
+
+      <label className="public-field" htmlFor="public-dispute-slot">
+        <span>Slot</span>
+        <select id="public-dispute-slot" value={slot} onChange={(event) => { setSlot(event.target.value); setFailure(null) }}>
+          {SLOT_VALUES.map((value) => <option value={value} key={value}>Slot {value}</option>)}
+        </select>
+      </label>
+
+      <label className="public-field" htmlFor="public-dispute-coordinator">
+        <span>Coordinator name (optional)</span>
+        <input
+          id="public-dispute-coordinator"
+          value={coordinator}
+          maxLength={200}
+          onChange={(event) => setCoordinator(event.target.value)}
+        />
+      </label>
+
+      <label className="public-field" htmlFor="public-dispute-note">
+        <span>Student note (optional)</span>
+        <textarea
+          id="public-dispute-note"
+          value={note}
+          maxLength={1000}
+          onChange={(event) => setNote(event.target.value)}
+          rows={3}
+        />
+      </label>
+
+      <button className="primary" type="submit" disabled={submitDisabled}>Submit dispute</button>
+      {submit.isPending && <p className="public-hint">Submitting dispute…</p>}
+      {failure && <p className="public-alert" role="alert">{failure}</p>}
+    </form>
+  )
+}
+
+function eventsFromRecords(days: PublicODDay[]): PublicEvent[] {
+  const byEvent = new Map<string, PublicEvent>()
+  for (const day of days) {
+    for (const record of day.records) {
+      const existing = byEvent.get(record.event_id)
+      const category = { id: record.category_id, name: record.category_name }
+      if (existing) {
+        if (!existing.categories.some((item) => item.id === category.id)) existing.categories.push(category)
+        continue
+      }
+      byEvent.set(record.event_id, {
+        event_id: record.event_id,
+        name: record.event_name,
+        event_date: record.event_date,
+        categories: [category],
+      })
+    }
+  }
+  return Array.from(byEvent.values())
 }
 
 /**
@@ -326,6 +571,31 @@ function recordsFailureMessage(error: unknown): string {
     if (error.status >= 500) return 'The server could not load these records right now. This is our problem, not yours — please try again.'
   }
   return 'These records could not be loaded. Check your connection and try again.'
+}
+
+function disputeFailureMessage(error: unknown): string {
+  if (error instanceof ApiFailure) {
+    if (error.body.code === 'DISPUTE_IDENTITY_UNVERIFIED') {
+      return 'We could not verify that email against the roster. Check that you used your university address.'
+    }
+    if (error.body.code === 'DISPUTE_ALREADY_OPEN') {
+      return error.body.message || 'You already reported this slot.'
+    }
+    if (error.body.code === 'RATE_LIMITED' || error.status === 429) {
+      return 'Too many dispute submissions from this connection. Please slow down and try again in a moment.'
+    }
+    if (error.body.code === 'CATEGORY_NOT_FOUND') {
+      return 'That category no longer belongs to the selected event. Choose the event and category again.'
+    }
+    if (error.body.code === 'EVENT_NOT_FOUND') {
+      return 'That event is no longer available for this report.'
+    }
+    if (error.body.code === 'VALIDATION_FAILED') {
+      return error.body.message || 'Check the dispute details and try again.'
+    }
+    if (error.status >= 500) return 'The server could not submit this dispute right now. This is our problem, not yours — please try again.'
+  }
+  return 'The dispute could not be submitted. Check your connection and try again.'
 }
 
 /** Counts Unicode code points, the unit the Go service bounds on. */

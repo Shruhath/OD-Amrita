@@ -40,6 +40,16 @@ export type PublicODRecord = components['schemas']['PublicODRecord']
 export type PublicODDay = components['schemas']['PublicODDay']
 export type PublicODRecordCollection = components['schemas']['PublicODRecordCollection']
 export type PublicStudentSearchResults = components['schemas']['PublicStudentSearchResults']
+export type PublicEventCategory = components['schemas']['PublicEventCategory']
+export type PublicEvent = components['schemas']['PublicEvent']
+export type PublicEventCollection = components['schemas']['PublicEventCollection']
+export type PublicDisputeRequest = components['schemas']['PublicDisputeRequest']
+export type PublicDisputeReceipt = components['schemas']['PublicDisputeReceipt']
+
+// Authenticated teacher/admin dispute inbox.
+export type Dispute = components['schemas']['Dispute']
+export type DisputeCollection = components['schemas']['DisputeCollection']
+export type DisputeResolutionRequest = components['schemas']['DisputeResolutionRequest']
 
 // Coordinator marking surface.
 export type StudentSearchResults = components['schemas']['StudentSearchResults']
@@ -190,6 +200,16 @@ export function createPublicApi() {
       return unwrap(await client.GET('/api/v1/public/students/{student_id}/od-records', {
         params: { path: { student_id: studentID } },
       }))
+    },
+
+    /** Minimal public event/category options for a student with no OD records yet. */
+    async publicEvents() {
+      return unwrap(await client.GET('/api/v1/public/events'))
+    },
+
+    /** Unauthenticated missed-slot dispute submission. Sends no Authorization header. */
+    async publicSubmitDispute(input: PublicDisputeRequest) {
+      return unwrap(await client.POST('/api/v1/public/disputes', { body: input }))
     },
   }
 }
@@ -396,6 +416,19 @@ export function createEventApi(session: SessionPort) {
      */
     async mark(input: MarkAttendanceInput) {
       return unwrap(await client.POST('/api/v1/mark', { body: input }))
+    },
+
+    async disputes(page = 1, pageSize = 20, status: 'open' | 'resolved' | 'all' = 'open') {
+      return unwrap(await client.GET('/api/v1/disputes', {
+        params: { query: { page, page_size: pageSize, status } },
+      }))
+    },
+
+    async resolveDispute(disputeID: string, input: DisputeResolutionRequest) {
+      return unwrap(await client.POST('/api/v1/disputes/{dispute_id}/resolution', {
+        params: { path: { dispute_id: disputeID } },
+        body: input,
+      }))
     },
   }
 }

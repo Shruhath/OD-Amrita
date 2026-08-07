@@ -6,6 +6,7 @@ import CardPopulatorRoute from './routes/portal/card-populator/CardPopulatorRout
 import EventsRoute from './routes/portal/events/EventsRoute'
 import EventDetailRoute from './routes/portal/events/EventDetailRoute'
 import TeacherAdminMarkRoute from './routes/portal/mark/TeacherAdminMarkRoute'
+import DisputesRoute from './routes/portal/disputes/DisputesRoute'
 import StudentsRoute from './routes/portal/students/StudentsRoute'
 import TeachersRoute from './routes/portal/teachers/TeachersRoute'
 
@@ -16,6 +17,7 @@ const routes = [
   // here rather than in an expandable list row.
   { path: '/portal/events/:event_id', Component: EventDetailRoute },
   { path: '/portal/mark', Component: TeacherAdminMarkRoute },
+  { path: '/portal/disputes', Component: DisputesRoute },
   { path: '/portal/teachers', Component: TeachersRoute },
   { path: '/portal/students', Component: StudentsRoute },
   // The pre-event card-writing surface. Admin-only through SessionBoundary,

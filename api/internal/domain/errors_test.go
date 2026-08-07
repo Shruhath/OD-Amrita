@@ -63,6 +63,10 @@ var codeStatusCases = []struct {
 	{contracts.ErrorCodeSTUDENTNOTFOUND, []int{404}},     // 0.3: no students row matches the supplied id — pinned 404
 	{contracts.ErrorCodeROLEALREADYASSIGNED, []int{409}}, // 2.3: non-student role is a state conflict — pinned 409
 	{contracts.ErrorCodeCOORDINATORASSIGNMENTEXISTS, []int{409}},
+	{contracts.ErrorCodeDISPUTEIDENTITYUNVERIFIED, []int{400}},
+	{contracts.ErrorCodeDISPUTEALREADYOPEN, []int{409}},
+	{contracts.ErrorCodeDISPUTENOTFOUND, []int{404}},
+	{contracts.ErrorCodeDISPUTEALREADYRESOLVED, []int{409}},
 	{contracts.ErrorCodeINTERNAL, []int{500}}, // arch: 5xx internal
 }
 

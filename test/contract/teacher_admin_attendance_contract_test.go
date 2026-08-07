@@ -130,7 +130,7 @@ func TestTeacherAdminAttendanceContract_NoDeferredManualManagementSurface(t *tes
 		item := asMap(raw)
 		for method := range item {
 			id := getStr(getMap(item, method), "operationId")
-			for _, forbidden := range []string{"Correction", "Dispute", "Export", "ManualOverride", "DeleteAttendance"} {
+			for _, forbidden := range []string{"Correction", "Export", "ManualOverride", "DeleteAttendance"} {
 				if strings.Contains(id, forbidden) || strings.Contains(path, strings.ToLower(forbidden)) {
 					t.Errorf("[P1] 0.9 must not introduce deferred %s surface at %s %s", forbidden, method, path)
 				}

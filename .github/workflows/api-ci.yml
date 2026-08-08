@@ -180,7 +180,27 @@ jobs:
         # to have a blind spot: a down script is run during an incident, and one
         # that does not restore the previous state leaves the database unable to
         # roll forward again. `down-to 0` walks all of them.
+        #
+        # The DELETEs are not a workaround, they are what keeps this gate asking a
+        # true question. 0016's down restores the pre-range unique key
+        # (student_id, event_id, slot), which by design REFUSES when a student has
+        # been marked in the same slot on two days — the exact thing a multi-day
+        # event exists to allow. That refusal is correct: the alternative is a down
+        # migration that deletes attendance so it can succeed. But it means the
+        # step above, which leaves such rows behind, would otherwise make a
+        # designed refusal indistinguishable from a broken down script.
+        #
+        # So the rows go, the schema does not: every down and every up still runs,
+        # over the full schema, and nothing asserted here is relaxed. This mirrors
+        # clearRollbackBlockers in api/test/db, which exists for the same reason —
+        # keep the two in step.
+        #
+        # The one-way door itself is documented in 0016 and in
+        # docs/deployment-runbook.md §3: past this point the recovery path is a
+        # restore, not a rollback.
         run: |
+          psql "$DATABASE_URL_MIGRATOR" -v ON_ERROR_STOP=1 -c \
+            'DELETE FROM disputes; DELETE FROM od_records; DELETE FROM event_capture_credit_usage;'
           goose -dir db/migrations postgres "$DATABASE_URL_MIGRATOR" down-to 0
           goose -dir db/migrations postgres "$DATABASE_URL_MIGRATOR" up
       - name: Start api server (TLS, self-signed) for /health

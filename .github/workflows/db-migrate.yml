@@ -1,0 +1,97 @@
+# Apply pending goose migrations to a hosted database (Neon).
+#
+# WHY THIS EXISTS AS A WORKFLOW RATHER THAN A LAPTOP COMMAND
+#   Neon speaks Postgres on port 5432 and nothing else. Campus wifi — the network
+#   this project is developed on — permits 80/443 outbound only, so `make -C api
+#   migrate-up` simply cannot reach production from a dev machine. A GitHub runner
+#   has open egress, so this is the one host that can always apply a migration.
+#   It also puts the migrator credential in exactly one place (a repo secret)
+#   instead of on whichever laptop happened to be on an unblocked network.
+#
+# MANUAL TRIGGER ONLY — deliberately never `on: push`.
+#   Schema changes against a database holding real attendance must be a decision
+#   someone makes, not a side effect of merging. There is also no `down` here at
+#   all: 0016's Down is a documented one-way door once a multi-day event has been
+#   marked (it refuses rather than deleting attendance), and a rollback button on
+#   a public page is how that gets pressed by accident. Roll back by hand, with
+#   docs/deployment-runbook.md open.
+name: db-migrate
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "migrate" to confirm — this writes to the live database'
+        required: true
+        type: string
+
+# Never let two migrations run at once. goose takes no lock across processes, and
+# two concurrent `up` runs against the same database interleave into a partially
+# applied schema. `cancel-in-progress: false` because the safe resolution of an
+# overlap is to QUEUE, never to kill a run that may be mid-statement.
+concurrency:
+  group: db-migrate
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: apply pending migrations
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation
+        # Fails before the credential is ever read, so a mistyped run cannot even
+        # open a connection.
+        if: inputs.confirm != 'migrate'
+        run: |
+          echo "confirmation was '${{ inputs.confirm }}', expected 'migrate' — nothing was applied"
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Install database migration tool
+        # Pinned to the same version api/Makefile pins. An unpinned @latest here
+        # would mean production's schema was applied by a tool no local run and no
+        # CI job has ever exercised.
+        run: go install github.com/pressly/goose/v3/cmd/goose@v3.27.2
+
+      - name: Show the version before
+        env:
+          DATABASE_URL_MIGRATOR: ${{ secrets.DATABASE_URL_MIGRATOR }}
+        run: |
+          if [ -z "$DATABASE_URL_MIGRATOR" ]; then
+            echo "the DATABASE_URL_MIGRATOR repository secret is not set"
+            exit 1
+          fi
+          goose -dir api/db/migrations postgres "$DATABASE_URL_MIGRATOR" status
+
+      - name: Apply pending migrations
+        env:
+          DATABASE_URL_MIGRATOR: ${{ secrets.DATABASE_URL_MIGRATOR }}
+        run: goose -dir api/db/migrations postgres "$DATABASE_URL_MIGRATOR" up
+
+      - name: Show the version after
+        env:
+          DATABASE_URL_MIGRATOR: ${{ secrets.DATABASE_URL_MIGRATOR }}
+        run: goose -dir api/db/migrations postgres "$DATABASE_URL_MIGRATOR" status
+
+      - name: Assert nothing is left pending
+        # `goose up` exits 0 when it applies nothing, so a run that silently did
+        # not see the migration directory looks identical to a successful one.
+        # Compare the applied version against the highest file on disk instead.
+        env:
+          DATABASE_URL_MIGRATOR: ${{ secrets.DATABASE_URL_MIGRATOR }}
+        run: |
+          latest_on_disk="$(ls api/db/migrations/*.sql \
+            | sed -E 's#.*/0*([0-9]+)_.*#\1#' \
+            | sort -n | tail -1)"
+          applied="$(goose -dir api/db/migrations postgres "$DATABASE_URL_MIGRATOR" version 2>&1 \
+            | sed -E 's/.*version: *([0-9]+).*/\1/')"
+          echo "highest migration on disk: $latest_on_disk, applied: $applied"
+          [ "$latest_on_disk" = "$applied" ] || {
+            echo "the database is at $applied but the repository ships $latest_on_disk"
+            exit 1
+          }

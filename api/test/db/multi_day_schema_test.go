@@ -532,3 +532,97 @@ func violatesConstraint(err error, sqlstate, constraint string) bool {
 func containsIdentifier(definition, identifier string) bool {
 	return strings.Contains(strings.ToLower(definition), strings.ToLower(identifier))
 }
+
+// The 0016 backfill CLAMPS a legacy row into its event's range.
+//
+// This is the one migration step whose correctness depends on real rows, and
+// nothing else in the suite exercises it: TestMigrationsRoundTrip_Idempotent
+// resets and re-applies against an EMPTY database, so the UPDATE runs over zero
+// rows and proves nothing.
+//
+// The hazard is specific. Story 0.9's teacher/admin search-mark is exempt from
+// slot windows, is the documented correction path, and before this story had NO
+// date check at all — so a correction typed the morning after a one-day event is
+// a row that already exists and whose `server_received_at` falls OUTSIDE the
+// event. Backfilled unclamped, it becomes permanently illegal data: the range
+// trigger validates new writes only and never revalidates existing rows, so the
+// row would sit there unreachable from the admin day filter (which enumerates
+// only event_date..end_date), rendered on the public dashboard under a day the
+// event never had, and raising 23514 on any later UPDATE of event_id/od_date.
+//
+// Drives goose down to 0015 (dropping od_date), plants exactly that legacy row,
+// then migrates up and asserts the clamp — the same rule ClampToEventRange
+// applies in Go.
+func TestMultiDaySchema_BackfillClampsALegacyRowIntoTheEventRange(t *testing.T) {
+	requireGoose(t)
+	ctx := testCtx(t)
+	migratorDSN := dsnOrSkip(t, envMigratorDSN)
+	pool := connect(t, ctx, migratorDSN)
+
+	// Whatever happens, leave the schema fully migrated for every later test.
+	t.Cleanup(func() { runGoose(t, migratorDSN, "up") })
+
+	// RESET, not a bare `down-to`. Rolling back over live data is exactly what
+	// 0016's and 0017's Down halves cannot do once the feature has been used:
+	// the narrower unique index and the two-column primary key both raise 23505
+	// on the very rows the Up halves exist to permit. A `down-to 15` therefore
+	// fails against any database where a coordinator has spent credits on two
+	// days — which is a correct, documented one-way door, but makes it useless
+	// as a test primitive. `reset` drops the tables outright, so this test
+	// depends on no prior state and leaves none behind.
+	//
+	// TestMigrationsRoundTrip_Idempotent in this same package already resets the
+	// database, so this is the established posture here rather than a new one.
+	clearRollbackBlockers(t, ctx, pool)
+	runGoose(t, migratorDSN, "reset")
+	runGoose(t, migratorDSN, "up-to", "15")
+
+	// Seeded AT version 15 — the shape the legacy row was written in, with
+	// end_date present (0015) and od_date not yet added (0016).
+	fixture := seedRangeFixture(t, ctx, pool, "2026-08-10", "2026-08-10")
+
+	var hasODDate bool
+	if err := pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.columns
+			WHERE table_name = 'od_records' AND column_name = 'od_date'
+		)`).Scan(&hasODDate); err != nil {
+		t.Fatalf("check od_date after down-to 15: %v", err)
+	}
+	if hasODDate {
+		t.Fatal("[P0] od_records.od_date still exists after down-to 15; 0016's Down did not drop it")
+	}
+
+	// The correction: received three days AFTER a one-day event, exactly as a
+	// teacher fixing Monday on Thursday morning produces.
+	recordID := uuid.NewString()
+	mustExec(t, ctx, pool, "seed legacy correction", `
+		INSERT INTO od_records
+			(id, student_id, event_id, category_id, slot, status, capture_method,
+			 actor_user_id, actor_role, server_received_at)
+		VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 5, 'present', 'search',
+		        $5::uuid, 'teacher', '2026-08-13 04:30:00+00'::timestamptz)`,
+		recordID, fixture.studentID, fixture.eventID, fixture.categoryID, fixture.actorID)
+
+	runGoose(t, migratorDSN, "up")
+
+	var odDate string
+	if err := pool.QueryRow(ctx, `
+		SELECT od_date::text FROM od_records WHERE id = $1::uuid`, recordID).Scan(&odDate); err != nil {
+		t.Fatalf("read backfilled od_date: %v", err)
+	}
+
+	// 2026-08-13 IST is the receipt day and is OUTSIDE the event. Clamped to the
+	// event's only day.
+	if odDate != "2026-08-10" {
+		t.Fatalf("[P0] backfilled od_date = %s, want 2026-08-10 (clamped into the event range); "+
+			"an unclamped backfill writes the receipt day and creates a row the range trigger would refuse", odDate)
+	}
+
+	// And the clamped row must satisfy the guard the same migration installed —
+	// the property that makes it legal data rather than merely differently wrong.
+	if _, err := pool.Exec(ctx, `
+		UPDATE od_records SET od_date = od_date WHERE id = $1::uuid`, recordID); err != nil {
+		t.Fatalf("[P0] the backfilled row does not satisfy its own range guard: %v", err)
+	}
+}

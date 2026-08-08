@@ -11,13 +11,30 @@ ALTER TABLE od_records
     ADD COLUMN od_date date;
 
 -- (timestamptz AT TIME ZONE 'Asia/Kolkata')::date converts an absolute instant to
--- the campus wall-clock date. Correct for existing rows because they are live
--- coordinator marks, where the day the OD belongs to and the day it was received
--- coincide. Never use this at READ time: the two facts diverge the moment a
--- teacher files a correction the next morning.
-UPDATE od_records
-SET od_date = (server_received_at AT TIME ZONE 'Asia/Kolkata')::date
-WHERE od_date IS NULL;
+-- the campus wall-clock date. Never use this at READ time: the two facts diverge
+-- the moment a teacher files a correction the next morning.
+--
+-- CLAMPED into the owning event's range, for the same reason and by the same rule
+-- the Go clamp uses (ClampToEventRange in service/od_record/schedule.go). The
+-- receipt day equals the belonged-to day only for live coordinator marks. Story
+-- 0.9's teacher/admin search-mark is exempt from slot windows and had NO date
+-- check at all before this story, so a correction typed the morning after a
+-- one-day event is a real, already-writable row whose receipt date falls outside
+-- the event entirely.
+--
+-- Unclamped, such a row would be permanently illegal data: the trigger created
+-- below validates new writes only and never revalidates existing rows, so it
+-- would sit there unreachable from the admin day filter (which enumerates only
+-- event_date..end_date), rendered on the public dashboard under a day the event
+-- never had, and would raise 23514 on any later UPDATE of event_id or od_date.
+UPDATE od_records r
+SET od_date = GREATEST(
+        e.event_date,
+        LEAST(e.end_date, (r.server_received_at AT TIME ZONE 'Asia/Kolkata')::date)
+    )
+FROM events e
+WHERE e.id = r.event_id
+  AND r.od_date IS NULL;
 
 ALTER TABLE od_records
     ALTER COLUMN od_date SET NOT NULL;
@@ -112,6 +129,20 @@ CREATE INDEX od_records_actor_event_slot_idx
 
 DROP INDEX uq_od_records_present_student_event_date_slot;
 
+-- ⚠️ ONE-WAY DOOR ONCE THE FEATURE HAS BEEN USED.
+--
+-- This restores the narrower single-day key. It succeeds only while no student
+-- has been marked in the same slot on two different days — which is precisely
+-- what the Up half exists to permit. After the first multi-day festival this
+-- CREATE raises 23505 and goose rolls the whole step back.
+--
+-- That failure is SAFE (the transaction aborts cleanly, the database keeps the
+-- multi-day key) but it means rollback past 0016 stops being available the
+-- moment real multi-day data exists. Deliberately not "fixed" by deleting or
+-- collapsing the offending rows: a Down migration that destroys attendance
+-- records to make itself succeed is far worse than one that refuses.
+--
+-- To roll back after that point, reconcile the duplicates by hand first.
 CREATE UNIQUE INDEX uq_od_records_present_student_event_slot
     ON od_records (student_id, event_id, slot)
     WHERE status = 'present';

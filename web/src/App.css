@@ -749,6 +749,13 @@ tbody tr:hover {
 .status-badge.active { color: var(--green-600); }
 .status-badge.archived { color: var(--gray-500); }
 
+/* Dispute statuses. Without these the badge inherited body colour in BOTH
+   themes, so "Open" and "Resolved" rendered identically and the badge carried
+   no information at all. --amber-700/--green-600 are the tokens the populator
+   statuses above already use, so both themes resolve. */
+.status-badge.open { color: var(--amber-700); }
+.status-badge.resolved { color: var(--green-600); }
+
 /* ------------------------------------------------- auth surfaces (glass) */
 
 /* These sit alone on the backdrop with no chrome around them, so the card is

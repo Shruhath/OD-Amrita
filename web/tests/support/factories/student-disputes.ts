@@ -20,6 +20,7 @@
  * would test a form nobody can open.
  */
 
+import type { Dispute } from '../../../src/api/client'
 import { publicStudent, publicStudentID, publicStudentRoll } from './public-attendance'
 
 export const disputeRoute = '/attendance'
@@ -40,8 +41,8 @@ export const disputeCategoryID = '94000000-0000-4000-8000-000000000001'
 /**
  * The day the disputed OD belongs to.
  *
- * Required on the submission by the 2026-08-06 amendment in epics.md and
- * sprint-status.yaml (the 0.11 story file predates it). Story 0.12a turns an
+ * Required on the submission by the 2026-08-06 multi-day amendment
+ * (docs/multi-day-events-plan.md §7). The multi-day change turns an
  * event into a real date range, after which "I was missed in slot 8" is ambiguous
  * across thirty days — so the form carries the day, constrained to the event's
  * range, and the column exists from the moment the table is created. Today an
@@ -72,24 +73,17 @@ export type PublicDisputeReceipt = {
   student: ReturnType<typeof publicStudent>
 }
 
-export type PortalDispute = {
-  dispute_id: string
-  status: 'open' | 'resolved'
-  submitted_email: string
-  submitted_at: string
-  slot: number
-  event_id: string
-  event_name: string
-  event_date: string
-  category_id: string
-  category_name: string
-  claimed_coordinator_name: string | null
-  student_note: string | null
-  student: ReturnType<typeof publicStudent>
-  resolution_note: string | null
-  resolved_by_name: string | null
-  resolved_at: string | null
-}
+/**
+ * The authenticated inbox row, typed from the CONTRACT rather than by hand.
+ *
+ * The hand-written version had drifted: it declared `resolved_by_name` (which the
+ * API never sends) and omitted `reference` and `od_date` (both required on
+ * `Dispute`). The component papered over the gap with `row.reference || …` and
+ * `row.od_date || row.event_date` fallbacks, so the mocked tests never exercised
+ * the server-supplied reference (T19) or the disputed day at all — a server that
+ * stopped sending either would still have rendered plausibly.
+ */
+export type PortalDispute = Dispute
 
 export function publicEvent(overrides: Partial<PublicEvent> = {}): PublicEvent {
   return {
@@ -148,8 +142,10 @@ export function portalDispute(overrides: Partial<PortalDispute> = {}): PortalDis
     student_note: 'I was at the procession but my card did not scan.',
     student: publicStudent(),
     resolution_note: null,
-    resolved_by_name: null,
+    resolved_by_user_id: null,
     resolved_at: null,
+    reference: disputeReference,
+    od_date: '2026-07-28',
     ...overrides,
   }
 }

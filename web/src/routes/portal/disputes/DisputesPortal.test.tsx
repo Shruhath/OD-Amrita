@@ -50,6 +50,7 @@ function installPortalDisputeBackend(
     listStatus?: number
     resolveStatus?: number
     resolveBody?: unknown
+    pages?: Record<number, ReturnType<typeof portalDisputeCollection>>
   } = {},
 ): Installed {
   const role = options.role ?? 'teacher'
@@ -70,6 +71,12 @@ function installPortalDisputeBackend(
       if (options.listStatus && options.listStatus !== 200) {
         return HttpResponse.json(disputeError('RBAC_FORBIDDEN', 'Forbidden.'), { status: options.listStatus })
       }
+      // Serve the page the client actually asked for, so a component pinned to
+      // page 1 cannot pass a pagination test by accident.
+      const page = Number(new URL(request.url).searchParams.get('page') ?? '1')
+      if (options.pages) {
+        return HttpResponse.json(options.pages[page] ?? { data: [], total: 0, page, page_size: 20 })
+      }
       return HttpResponse.json(options.disputes ?? portalDisputeCollection())
     }),
     http.post('*/api/v1/disputes/:disputeID/resolution', async ({ params, request }) => {
@@ -82,7 +89,15 @@ function installPortalDisputeBackend(
         return HttpResponse.json(options.resolveBody ?? disputeError('DISPUTE_ALREADY_RESOLVED', 'Already resolved.'), { status })
       }
       return HttpResponse.json(
-        portalDispute({ status: 'resolved', resolution_note: 'Corrected on the register.', resolved_at: '2026-07-29T04:00:00Z', resolved_by_name: 'Portal teacher' }),
+        // resolved_by_user_id, not resolved_by_name: the API returns the actor's
+        // id, and the factory's hand-written type had invented a field the
+        // server never sends.
+        portalDispute({
+          status: 'resolved',
+          resolution_note: 'Corrected on the register.',
+          resolved_at: '2026-07-29T04:00:00Z',
+          resolved_by_user_id: '90000000-0000-4000-8000-000000000004',
+        }),
       )
     }),
   )
@@ -145,6 +160,11 @@ describe('portal dispute inbox', () => {
       ['slot', /slot\s*3\b/i],
       ['student note', /card did not scan/i],
       ['status', /open/i],
+      // AC 11 lists "status and submitted time". submitted_at was on the wire and
+      // required by the contract, and simply never rendered — and this list,
+      // which is the assertion for FR36's "expandable to full detail", omitted
+      // it too, so the gap was invisible from both sides.
+      ['submitted time', /july 2026|2026/i],
     ] as const) {
       expect(detail, `the expanded dispute does not show its ${label} (FR36)`).toHaveTextContent(value)
     }
@@ -237,11 +257,20 @@ describe('portal dispute inbox', () => {
 
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(pattern)
+    // Assert on the STATUS value and on the success paragraph, not on the whole
+    // region's text. `/^resolved$/` is anchored against the region's entire
+    // normalised textContent — a long run of labels and values — so it could
+    // never match, before the bug or after it.
+    const statusValue = within(detail).getByText(/^open$/i)
     expect(
-      detail,
+      statusValue,
       'the dispute is showing as resolved after a refused resolution. Green only after a server 2xx — 0.6 ' +
         'settled that rule and 0.7 settled that failures stay sticky rather than being silently cleared',
-    ).not.toHaveTextContent(/^resolved$/i)
+    ).toHaveTextContent(/^open$/i)
+    expect(
+      within(detail).queryByText(/^Resolved:/),
+      'the resolved-note panel rendered after a REFUSED resolution',
+    ).not.toBeInTheDocument()
   })
 
   // 0.11-PORTAL-006 — a coordinator is refused, and the refusal is legible (AC 11).
@@ -261,6 +290,29 @@ describe('portal dispute inbox', () => {
     expect(screen.queryByText(/cb\.sc\.u4cse24101@/i)).not.toBeInTheDocument()
   })
 
+  // 0.11-PORTAL-006b — the SERVICE's 403 is legible too (AC 11).
+  //
+  // The test above proves the ROUTE refuses a coordinator, and it proves only
+  // that: SessionBoundary allowedRoles={['teacher','admin']} renders "Access
+  // denied" before any request is made, so its `listStatus: 403` was never
+  // reached and listFailureMessage's 403 branch — the thing its comment claimed
+  // to be testing — went entirely unexercised. markAPI carries RequirePrincipal
+  // but no role gate, so a teacher whose scope the service rejects gets a real
+  // 403 over the wire, and it must not render as a blank list.
+  test('[P0] a service-side 403 is named rather than shown as an empty inbox', async () => {
+    installPortalDisputeBackend({ listStatus: 403 })
+
+    renderDisputesPortal()
+
+    const alert = await screen.findByRole('alert')
+    expect(
+      alert,
+      'a 403 from the dispute service rendered without naming the reason; an empty inbox reads as "no ' +
+        'disputes" rather than "you are not allowed to see them"',
+    ).toHaveTextContent(/not allowed|permission|denied/i)
+    expect(screen.queryByText(/no open disputes/i)).not.toBeInTheDocument()
+  })
+
   // 0.11-PORTAL-007 — the rendered order matches the SQL order (created_at DESC,
   // id DESC).
   //
@@ -268,23 +320,69 @@ describe('portal dispute inbox', () => {
   // a row jumped position the moment the list refetched. Asserted with two rows
   // whose ordering is unambiguous.
   test('[P0] disputes render newest-first, matching the server ordering', async () => {
+    // DISTINCT reference prefixes. Both fixtures previously derived their
+    // reference from a 97000000-… uuid, and the assertion's `|9700000`
+    // alternative matched either of them — so reversing the server's order left
+    // the test green.
+    const newerID = '98000000-0000-4000-8000-000000000002'
+    const olderID = '99000000-0000-4000-8000-000000000003'
     const newer = portalDispute({
-      dispute_id: '97000000-0000-4000-8000-000000000002',
+      dispute_id: newerID,
+      reference: newerID.slice(0, 8),
       submitted_at: '2026-07-29T09:00:00Z',
       slot: 5,
     })
-    const older = portalDispute({ submitted_at: '2026-07-28T17:05:00Z', slot: 3 })
+    const older = portalDispute({
+      dispute_id: olderID,
+      reference: olderID.slice(0, 8),
+      submitted_at: '2026-07-28T17:05:00Z',
+      slot: 3,
+    })
     installPortalDisputeBackend({ disputes: portalDisputeCollection([newer, older]) })
 
     renderDisputesPortal()
     await screen.findByRole('heading', { name: /dispute/i })
 
-    const rows = await screen.findAllByRole('button', { name: /^9700000/i })
+    const rows = await screen.findAllByRole('button', { name: /^9[89]000000/i })
     expect(rows.length).toBeGreaterThanOrEqual(2)
     expect(
       rows[0].textContent ?? '',
-      'the first row is not the newest dispute. The SQL orders created_at DESC, id DESC; any client-side ' +
-        'ordering must match it or rows move on every refetch (0.7)',
-    ).toMatch(/97000000-0000-4000-8000-000000000002|9700000/i)
+      'the first row is not the newest dispute. The SQL orders created_at DESC, id DESC; the rendered order ' +
+        'must match it or rows move on every refetch (0.7)',
+    ).toContain(newerID.slice(0, 8))
+    expect(rows[1].textContent ?? '').toContain(olderID.slice(0, 8))
+  })
+})
+
+// 0.11-PORTAL-008 — the inbox can reach past the first page (AC 11).
+//
+// The list was hard-pinned to page 1 with a frozen query key, and `total` was
+// fetched and never rendered — so a teacher with 21 open disputes could not see
+// number 21 and nothing on screen suggested it existed. FR36's inbox is only an
+// inbox if it holds everything.
+describe('portal dispute inbox paging', () => {
+  test('[P0] a second page of disputes is reachable', async () => {
+    const user = userEvent.setup()
+    const firstID = '98000000-0000-4000-8000-000000000021'
+    const secondID = '99000000-0000-4000-8000-000000000022'
+    const installed = installPortalDisputeBackend({
+      pages: {
+        1: { data: [portalDispute({ dispute_id: firstID, reference: firstID.slice(0, 8) })], total: 21, page: 1, page_size: 20 },
+        2: { data: [portalDispute({ dispute_id: secondID, reference: secondID.slice(0, 8) })], total: 21, page: 2, page_size: 20 },
+      },
+    })
+
+    renderDisputesPortal()
+    await screen.findByRole('button', { name: new RegExp(firstID.slice(0, 8), 'i') })
+
+    const next = await screen.findByRole('button', { name: /next/i })
+    await user.click(next)
+
+    expect(
+      await screen.findByRole('button', { name: new RegExp(secondID.slice(0, 8), 'i') }),
+      'the inbox never requested page 2; it was pinned to page 1 with a frozen query key, so disputes past ' +
+        'the twentieth were unreachable with nothing on screen saying so',
+    ).toBeInTheDocument()
+    expect(installed.listRequests.some((url) => url.searchParams.get('page') === '2')).toBe(true)
   })
 })

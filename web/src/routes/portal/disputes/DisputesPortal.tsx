@@ -6,42 +6,61 @@ import { PortalShell } from '../../../components/PortalShell'
 import { useAuth } from '../../../features/auth/context'
 
 const pageSize = 20
-const queryKey = ['portal', 'disputes', 'open', 1, pageSize] as const
 
 export default function DisputesPortal() {
   const { api } = useAuth()
   const queryClient = useQueryClient()
   const [openID, setOpenID] = useState<string | null>(null)
   const [notes, setNotes] = useState<Record<string, string>>({})
-  const [failure, setFailure] = useState<string | null>(null)
+  // Keyed BY DISPUTE. A single shared string meant a 409 raised for one dispute
+  // was rendered above the whole list with nothing naming it, and was erased the
+  // moment the teacher typed in any other row's textarea.
+  const [failures, setFailures] = useState<Record<string, string>>({})
+  // The inbox was pinned to page 1 with `total` fetched and never used, so a
+  // teacher with more than 20 open disputes could not reach number 21 and
+  // nothing on screen said more existed.
+  const [page, setPage] = useState(1)
+
+  const queryKey = ['portal', 'disputes', 'open', page, pageSize] as const
 
   const disputes = useQuery({
     queryKey,
-    queryFn: () => api.disputes(1, pageSize, 'open'),
+    queryFn: () => api.disputes(page, pageSize, 'open'),
   })
   const rows = useMemo(() => disputes.data?.data ?? [], [disputes.data])
+  const total = disputes.data?.total ?? 0
+  const lastPage = Math.max(1, Math.ceil(total / pageSize))
+
+  const setFailureFor = (disputeID: string, message: string | null) => {
+    setFailures((current) => {
+      const next = { ...current }
+      if (message === null) delete next[disputeID]
+      else next[disputeID] = message
+      return next
+    })
+  }
 
   const resolve = useMutation({
     mutationFn: (row: Dispute) => api.resolveDispute(row.dispute_id, { resolution_note: (notes[row.dispute_id] ?? '').trim() }),
     onSuccess(resolved) {
-      setFailure(null)
+      setFailureFor(resolved.dispute_id, null)
       queryClient.setQueryData(queryKey, (current: DisputeCollection | undefined) => {
         if (!current) return current
         return { ...current, data: current.data.map((row) => row.dispute_id === resolved.dispute_id ? resolved : row) }
       })
     },
-    onError(cause) {
-      setFailure(resolveFailureMessage(cause))
+    onError(cause, row) {
+      setFailureFor(row.dispute_id, resolveFailureMessage(cause))
     },
   })
 
   const submitResolution = (row: Dispute) => {
     const note = (notes[row.dispute_id] ?? '').trim()
     if (note === '') {
-      setFailure('A resolution note is required before marking a dispute resolved.')
+      setFailureFor(row.dispute_id, 'A resolution note is required before marking a dispute resolved.')
       return
     }
-    setFailure(null)
+    setFailureFor(row.dispute_id, null)
     resolve.mutate(row)
   }
 
@@ -62,7 +81,6 @@ export default function DisputesPortal() {
           <button type="button" onClick={() => void disputes.refetch()}>Try again</button>
         </div>
       )}
-      {failure && <p className="notice error" role="alert">{failure}</p>}
 
       {disputes.isSuccess && rows.length === 0 && (
         <section className="empty-state">
@@ -78,7 +96,11 @@ export default function DisputesPortal() {
           <ul className="dispute-list">
             {rows.map((row) => {
               const expanded = openID === row.dispute_id
-              const displayReference = row.reference || reference(row.dispute_id)
+              // `reference` is required on the contract. The `|| reference(...)`
+              // fallback that used to sit here existed only because the test
+              // factory had drifted and stopped sending it, so the mocked suite
+              // never once exercised the server-supplied reference (T19).
+              const displayReference = row.reference
               return (
                 <li key={row.dispute_id}>
                   <button
@@ -103,11 +125,13 @@ export default function DisputesPortal() {
                         <div><dt>Submitted email</dt><dd>{row.submitted_email}</dd></div>
                         <div><dt>Event</dt><dd>{row.event_name}</dd></div>
                         <div><dt>Category</dt><dd>{row.category_name}</dd></div>
-                        <div><dt>Day</dt><dd>{formatDate(row.od_date || row.event_date)}</dd></div>
+                        <div><dt>Day</dt><dd>{formatDate(row.od_date)}</dd></div>
                         <div><dt>Slot </dt><dd>{row.slot} </dd></div>
                         <div><dt>Coordinator</dt><dd>{row.claimed_coordinator_name ?? 'Not provided'}</dd></div>
                         <div><dt>Student note</dt><dd>{row.student_note ?? 'No note provided'}</dd></div>
                         <div><dt>Status</dt><dd>{titleCase(row.status)}</dd></div>
+                        {/* AC 11 lists "status and submitted time" — the time was on the wire and never rendered. */}
+                        <div><dt>Submitted</dt><dd>{formatDateTime(row.submitted_at)}</dd></div>
                       </dl>
 
                       <p className="empty-note">Resolving this records the decision only. Correcting the OD record is a separate action.</p>
@@ -121,17 +145,23 @@ export default function DisputesPortal() {
                             value={notes[row.dispute_id] ?? ''}
                             onChange={(event) => {
                               setNotes((current) => ({ ...current, [row.dispute_id]: event.target.value }))
-                              setFailure(null)
+                              setFailureFor(row.dispute_id, null)
                             }}
                           />
                           <button
                             className="primary"
                             type="button"
-                            disabled={resolve.isPending}
+                            // Scoped to THIS row. One shared isPending greyed out
+                            // every "Mark resolved" button in the inbox whenever
+                            // any single resolution was in flight.
+                            disabled={resolve.isPending && resolve.variables?.dispute_id === row.dispute_id}
                             onClick={() => submitResolution(row)}
                           >
                             Mark resolved
                           </button>
+                          {failures[row.dispute_id] && (
+                            <p className="notice error" role="alert">{failures[row.dispute_id]}</p>
+                          )}
                         </div>
                       ) : (
                         <p className="notice success" role="status">Resolved: {row.resolution_note}</p>
@@ -142,6 +172,17 @@ export default function DisputesPortal() {
               )
             })}
           </ul>
+          {lastPage > 1 && (
+            <nav className="pagination" aria-label="Dispute pages">
+              <button type="button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>
+                Previous
+              </button>
+              <span>Page {page} of {lastPage} · {total} open</span>
+              <button type="button" disabled={page >= lastPage} onClick={() => setPage((current) => Math.min(lastPage, current + 1))}>
+                Next
+              </button>
+            </nav>
+          )}
         </section>
       )}
     </PortalShell>
@@ -165,6 +206,14 @@ function resolveFailureMessage(error: unknown): string {
   return 'The dispute could not be resolved.'
 }
 
+function formatDateTime(value: string): string {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return parsed.toLocaleString(undefined, {
+    day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  })
+}
+
 function formatDate(value: string): string {
   const parsed = new Date(`${value}T00:00:00`)
   if (Number.isNaN(parsed.getTime())) return value
@@ -173,8 +222,4 @@ function formatDate(value: string): string {
 
 function titleCase(value: string): string {
   return value.slice(0, 1).toUpperCase() + value.slice(1)
-}
-
-function reference(id: string): string {
-  return id.replaceAll('-', '').slice(0, 8).toUpperCase()
 }

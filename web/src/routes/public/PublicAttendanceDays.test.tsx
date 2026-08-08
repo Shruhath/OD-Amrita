@@ -36,6 +36,29 @@ import {
   publicEventCollection,
 } from '../../../tests/support/factories/student-disputes'
 
+/**
+ * Formats a YYYY-MM-DD exactly as PublicAttendanceScreen does.
+ *
+ * The screen renders dates in the VISITOR's locale — `toLocaleDateString(undefined, …)` —
+ * which is correct for the product and makes any hard-coded English wording a test that
+ * depends on the runner. "19 August 2026" on an en-GB machine is "Wednesday, August 19,
+ * 2026" on the en-US CI runner, which is exactly how these assertions passed locally and
+ * failed in CI. Playwright was pinned to en-GB for this reason; the unit suite never was.
+ *
+ * Deriving the expected string from the same formatter keeps the assertion on what this
+ * suite is actually about — WHICH day each group is keyed on, and in what order — which is
+ * what the comment on 0.12a-WEB-005 already says it must not trade away for wording.
+ */
+function dayHeading(iso: string): RegExp {
+  const formatted = new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+  return new RegExp(formatted.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+}
+
 function anonymousSession(): SessionPort {
   return {
     accessToken: vi.fn(async () => null),
@@ -79,16 +102,16 @@ describe('the public dashboard across a multi-day event', () => {
     // "19 Aug 2026". Asserting the portal's format here would fail on the
     // wording rather than on the grouping, which is the failure this suite must
     // never report.
-    for (const heading of [/19 August 2026/i, /12 August 2026/i, /10 August 2026/i]) {
+    for (const heading of [dayHeading('2026-08-19'), dayHeading('2026-08-12'), dayHeading('2026-08-10')]) {
       expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument()
     }
 
     // Newest first, as 0.10 established and this story must not disturb.
-    const headings = await screen.findAllByRole('heading', { name: /\d{1,2} \w+ 2026/i })
+    const headings = await screen.findAllByRole('heading', { name: /2026/ })
     expect(headings.map((node) => node.textContent)).toEqual([
-      expect.stringMatching(/19 August 2026/i),
-      expect.stringMatching(/12 August 2026/i),
-      expect.stringMatching(/10 August 2026/i),
+      expect.stringMatching(dayHeading('2026-08-19')),
+      expect.stringMatching(dayHeading('2026-08-12')),
+      expect.stringMatching(dayHeading('2026-08-10')),
     ])
   })
 
@@ -102,7 +125,7 @@ describe('the public dashboard across a multi-day event', () => {
     renderDashboard()
     const user = userEvent.setup()
 
-    const dayOne = (await screen.findByRole('heading', { name: /10 August 2026/i })).closest('section')
+    const dayOne = (await screen.findByRole('heading', { name: dayHeading('2026-08-10') })).closest('section')
     expect(dayOne).not.toBeNull()
 
     await user.click(within(dayOne as HTMLElement).getAllByRole('button', { name: /report|missed|dispute/i })[0])

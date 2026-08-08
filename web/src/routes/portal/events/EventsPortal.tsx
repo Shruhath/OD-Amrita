@@ -6,7 +6,7 @@ import { BranchChip } from '../../../components/BranchChip'
 import { PortalShell } from '../../../components/PortalShell'
 import { ApiFailure } from '../../../api/client'
 import { useAuth } from '../../../features/auth/context'
-import { formatDate, messageOf, titleCase } from './format'
+import { formatDateRange, messageOf, titleCase } from './format'
 
 const branchKey = ['admin', 'branches'] as const
 const eventKeyRoot = ['admin', 'events', 'all'] as const
@@ -87,7 +87,7 @@ export default function EventsPortal() {
                 {eventData.map((event) => (
                   <tr key={event.id} className={event.status === 'archived' ? 'archived-row' : undefined}>
                     <th scope="row"><Link to={`/portal/events/${event.id}`}>{event.name}</Link></th>
-                    <td>{formatDate(event.event_date)}</td>
+                    <td>{formatDateRange(event.event_date, event.end_date)}</td>
                     <td><div className="branch-list">{event.branches.map((branch) => <BranchChip branch={branch} key={branch.id} />)}</div></td>
                     <td><span className={`status-badge ${event.status}`}><span aria-hidden="true">{event.status === 'active' ? '●' : '✓'}</span><span>{titleCase(event.status)}</span></span></td>
                     <td className="row-action">
@@ -143,6 +143,11 @@ function CreateDialog({ branches, onClose, onCreated }: { branches: Branch[]; on
   const { api } = useAuth()
   const [name, setName] = useState('')
   const [date, setDate] = useState('')
+  // The end date FOLLOWS the start until the admin moves it themselves. Making
+  // it a second required control would cost every ordinary one-day event two
+  // extra clicks for a range almost none of them use.
+  const [endDate, setEndDate] = useState('')
+  const [endDateTouched, setEndDateTouched] = useState(false)
   const [selected, setSelected] = useState<string[]>([])
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState<string | null>(null)
@@ -155,12 +160,16 @@ function CreateDialog({ branches, onClose, onCreated }: { branches: Branch[]; on
     const errors: Record<string, string> = {}
     if (!name.trim()) errors.name = 'Enter an event name'
     if (!date) errors.event_date = 'Choose an event date'
+    if (endDate && endDate < date) errors.end_date = 'The end date cannot be before the start date'
     if (selected.length === 0) errors.branch_ids = 'Select at least one branch'
     setFieldErrors(errors)
     setFormError(null)
     if (Object.keys(errors).length > 0) return
 
-    create.mutate({ name: name.trim(), event_date: date, branch_ids: selected }, {
+    // Always sent, because the control always shows a value the admin can see.
+    // Omitting it would let the server default silently to a day that differs
+    // from the one on screen.
+    create.mutate({ name: name.trim(), event_date: date, end_date: endDate || date, branch_ids: selected }, {
       onError(cause) {
         setFormError(messageOf(cause, 'The event could not be created'))
         if (cause instanceof ApiFailure && cause.body.code === 'VALIDATION_FAILED' && 'details' in cause.body && Array.isArray(cause.body.details)) {
@@ -179,9 +188,36 @@ function CreateDialog({ branches, onClose, onCreated }: { branches: Branch[]; on
         <input id="event-name" value={name} onChange={(event) => setName(event.target.value)} aria-invalid={Boolean(fieldErrors.name)} aria-describedby={fieldErrors.name ? 'event-name-error' : undefined} />
         {fieldErrors.name && <p className="field-error" id="event-name-error">{fieldErrors.name}</p>}
 
-        <label htmlFor="event-date">Event date</label>
-        <input id="event-date" type="date" value={date} onChange={(event) => setDate(event.target.value)} aria-invalid={Boolean(fieldErrors.event_date)} aria-describedby={fieldErrors.event_date ? 'event-date-error' : undefined} />
+        <label htmlFor="event-date">Start date</label>
+        <input
+          id="event-date"
+          type="date"
+          value={date}
+          onChange={(event) => {
+            setDate(event.target.value)
+            if (!endDateTouched) setEndDate(event.target.value)
+          }}
+          aria-invalid={Boolean(fieldErrors.event_date)}
+          aria-describedby={fieldErrors.event_date ? 'event-date-error' : undefined}
+        />
         {fieldErrors.event_date && <p className="field-error" id="event-date-error">{fieldErrors.event_date}</p>}
+
+        <label htmlFor="event-end-date">End date</label>
+        <input
+          id="event-end-date"
+          type="date"
+          value={endDate}
+          min={date || undefined}
+          onChange={(event) => {
+            setEndDateTouched(true)
+            setEndDate(event.target.value)
+          }}
+          aria-invalid={Boolean(fieldErrors.end_date)}
+          aria-describedby={fieldErrors.end_date ? 'event-end-date-error' : 'event-end-date-hint'}
+        />
+        {fieldErrors.end_date
+          ? <p className="field-error" id="event-end-date-error">{fieldErrors.end_date}</p>
+          : <p className="field-hint" id="event-end-date-hint">Leave it on the start date for a single-day event.</p>}
 
         <fieldset aria-describedby={fieldErrors.branch_ids ? 'branch-error' : undefined}>
           <legend>Branches</legend>

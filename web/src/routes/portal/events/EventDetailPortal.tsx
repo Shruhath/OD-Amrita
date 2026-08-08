@@ -7,7 +7,7 @@ import { PortalShell } from '../../../components/PortalShell'
 import { ApiFailure } from '../../../api/client'
 import { useAuth } from '../../../features/auth/context'
 import { EventAttendanceSection } from './EventAttendanceSection'
-import { formatDate, messageOf, titleCase } from './format'
+import { formatDateRange, messageOf, titleCase } from './format'
 
 // The event is read by ID through the contract's item endpoint.
 //
@@ -430,7 +430,7 @@ export default function EventDetailPortal() {
             )}
             {creditFormError && <p className="notice error" role="alert">{creditFormError}</p>}
           </section>
-          <EventAttendanceSection eventID={eventID} categories={categoryData} />
+          <EventAttendanceSection eventID={eventID} categories={categoryData} eventDate={event.event_date} endDate={event.end_date} />
           {resetCandidate && (
             <div className="dialog-backdrop" role="presentation">
               <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="reset-credit-title">
@@ -492,7 +492,7 @@ function CreditUsageRow({
 function EventSummary({ event }: { event: EventRecord }) {
   return (
     <dl className="event-summary">
-      <div><dt>Date</dt><dd>{formatDate(event.event_date)}</dd></div>
+      <div><dt>Date</dt><dd>{formatDateRange(event.event_date, event.end_date)}</dd></div>
       <div>
         <dt>Status</dt>
         <dd>

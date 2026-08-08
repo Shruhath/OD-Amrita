@@ -671,6 +671,12 @@ function useSlotClock(
   if (!status) return { value: '—', label: 'Slot' }
   if (!status.slot) {
     // The explicit no-slot state. Never 00:00, which reads as "about to open".
+    //
+    // This is ALSO the state for a day outside a multi-day event's range: the
+    // server answers `slot: null` there too, and deliberately so. It must not
+    // grow a second, scarier branch — a coordinator opening the app the day
+    // before a festival should see that nothing is on, not a red failure they
+    // will try to debug at the venue.
     return { value: 'No slot is open right now', label: 'Marks are rejected until the next slot' }
   }
 

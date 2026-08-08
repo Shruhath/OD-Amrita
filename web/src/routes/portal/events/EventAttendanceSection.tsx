@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { CategoryRecord, AttendanceRecordCollection } from '../../../api/client'
 import { useAuth } from '../../../features/auth/context'
-import { messageOf } from './format'
+import { enumerateDays, formatDate, messageOf } from './format'
 
 const ATTENDANCE_POLL_MS = 5_000
 const SLOT_VALUES = Array.from({ length: 12 }, (_, index) => index + 1)
@@ -10,18 +10,28 @@ const SLOT_VALUES = Array.from({ length: 12 }, (_, index) => index + 1)
 export function EventAttendanceSection({
   eventID,
   categories,
+  eventDate,
+  endDate,
 }: {
   eventID: string
   categories: CategoryRecord[]
+  eventDate: string
+  endDate: string
 }) {
   const { api } = useAuth()
   const [categoryID, setCategoryID] = useState('')
   const [slot, setSlot] = useState('')
+  const [odDate, setODDate] = useState('')
   const [page, setPage] = useState(1)
+
+  // Bounded to the event's own days, like every other filter here. A free date
+  // input would let an admin ask for a day the event never covered and get an
+  // empty table that looks like "nobody was marked".
+  const dayOptions = useMemo(() => enumerateDays(eventDate, endDate), [endDate, eventDate])
 
   useEffect(() => {
     setPage(1)
-  }, [categoryID, slot])
+  }, [categoryID, slot, odDate])
 
   useEffect(() => {
     if (categories.length === 0) return
@@ -31,10 +41,11 @@ export function EventAttendanceSection({
   }, [categoryID, categories])
 
   const attendance = useQuery({
-    queryKey: ['admin', 'attendance', eventID, categoryID || 'all', slot || 'all', page],
+    queryKey: ['admin', 'attendance', eventID, categoryID || 'all', slot || 'all', odDate || 'all', page],
     queryFn: () => api.adminAttendance(eventID, {
       categoryID: categoryID || undefined,
       slot: slot ? Number(slot) : undefined,
+      odDate: odDate || undefined,
       page,
       pageSize: 20,
     }),
@@ -52,7 +63,7 @@ export function EventAttendanceSection({
   return (
     <section className="detail-section">
       <h2>Attendance</h2>
-      <p>Review present marks for this event, filter by category or slot, and watch for new rows to appear.</p>
+      <p>Review present marks for this event, filter by day, category or slot, and watch for new rows to appear.</p>
 
       <div className="category-form" style={{ marginBottom: 18 }}>
         <label htmlFor="attendance-category">Category</label>
@@ -62,6 +73,16 @@ export function EventAttendanceSection({
             <option key={category.id} value={category.id}>{category.name}</option>
           ))}
         </select>
+
+        {dayOptions.length > 1 && (
+          <>
+            <label htmlFor="attendance-day">Day</label>
+            <select id="attendance-day" value={odDate} onChange={(event) => setODDate(event.target.value)}>
+              <option value="">All days</option>
+              {dayOptions.map((value) => <option key={value} value={value}>{formatDate(value)}</option>)}
+            </select>
+          </>
+        )}
 
         <label htmlFor="attendance-slot">Slot</label>
         <select id="attendance-slot" value={slot} onChange={(event) => setSlot(event.target.value)}>
@@ -92,6 +113,7 @@ export function EventAttendanceSection({
               <tr>
                 <th>Student</th>
                 <th>Category</th>
+                <th>Day</th>
                 <th>Slot</th>
                 <th>Marked by</th>
                 <th>Role</th>
@@ -109,6 +131,7 @@ export function EventAttendanceSection({
                       <small>{row.student.roll_no} · {row.student.branch} · {row.student.section}</small>
                     </th>
                     <td>{row.category.name}</td>
+                    <td>{formatDate(row.od_date)}</td>
                     <td>{row.slot}</td>
                     <td>
                       <div>{markedBy}</div>

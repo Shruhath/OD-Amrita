@@ -67,6 +67,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Public event/category options for dispute submission
+         * @description Minimal unauthenticated event list for a student who has no OD records yet but still needs to report a missed slot. The cap and ordering are fixed server-side; the caller supplies no filters, status, page or limit. Archived events are included because a dispute is commonly filed after the event has closed. The response deliberately carries no branch, coordinator, email, counts, credit or archive metadata.
+         */
+        get: operations["listPublicEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/disputes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit a missed-slot dispute without authentication
+         * @description First unauthenticated write in the API. The submitted email is verified against the configured Amrita domain family, its local-part is resolved to a roster roll number, and that resolved student must match the selected public student id. Domain rejection, unknown roll and email/student mismatch all return the same non-disclosing DISPUTE_IDENTITY_UNVERIFIED validation envelope. The write co-commits a dispute.submitted audit row and is guarded by both the public group limiter and a stricter route-level dispute limiter.
+         */
+        post: operations["submitPublicDispute"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/disputes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Teacher/admin dispute inbox
+         * @description Authenticated inbox for missed-slot disputes. Admins see all disputes; teachers see only disputes for students in their assigned branches, scoped in SQL. Coordinators and students are refused with RBAC_FORBIDDEN.
+         */
+        get: operations["listDisputes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/disputes/{dispute_id}/resolution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve a dispute with an annotation only
+         * @description Marks an open dispute resolved with a non-empty note and co-commits a dispute.resolved audit row. This does not create, correct or delete an OD record; manual record repair belongs to the later record-management surface.
+         */
+        post: operations["resolveDispute"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/scans": {
         parameters: {
             query?: never;
@@ -829,6 +909,95 @@ export interface components {
         PublicStudentSearchResults: {
             data: components["schemas"]["PublicStudent"][];
         };
+        /** @description Minimal public category option for dispute submission. Carries no event metadata, branch, coordinator or attendance counts. */
+        PublicEventCategory: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+        };
+        /** @description Minimal public event option for dispute submission. Deliberately omits branches, archive state, coordinators, counts and credits; the public dispute form only needs the event id, name, day and categories. */
+        PublicEvent: {
+            /** Format: uuid */
+            event_id: string;
+            name: string;
+            /** Format: date */
+            event_date: string;
+            categories: components["schemas"]["PublicEventCategory"][];
+        };
+        /** @description Fixed-cap public event options. No page, total or limit appears because the open internet supplies no knobs for this read. */
+        PublicEventCollection: {
+            data: components["schemas"]["PublicEvent"][];
+        };
+        /** @description Public missed-slot dispute submission. The request carries both the selected public student id and the submitted university email; the backend resolves the email local-part to a roster roll number and refuses any mismatch with the same non-disclosing identity envelope. This public input must never carry student display fields, user ids, card material, resolution notes or another dispute's content. */
+        PublicDisputeRequest: {
+            /** Format: uuid */
+            student_id: string;
+            /** @description Lowercased for storage after domain validation; never echoed on public responses. */
+            submitted_email: string;
+            /** Format: uuid */
+            event_id: string;
+            /** Format: uuid */
+            category_id: string;
+            /**
+             * Format: date
+             * @description The day the disputed OD belongs to, not the row write time.
+             */
+            od_date: string;
+            slot: number;
+            /** @description Optional free text; no public coordinator roster is exposed. */
+            claimed_coordinator_name?: string | null;
+            student_note?: string | null;
+        };
+        /** @description Public creation receipt. It proves server-side roster auto-population by returning the resolved public student display shape, but deliberately never echoes submitted_email, user ids, card material, dispute content or resolution fields. */
+        PublicDisputeReceipt: {
+            /** Format: uuid */
+            dispute_id: string;
+            reference: string;
+            /** @enum {string} */
+            status: "open";
+            /** Format: date-time */
+            submitted_at: string;
+            student: components["schemas"]["PublicStudent"];
+        };
+        /** @description Authenticated teacher/admin dispute row. This shape includes submitted email and resolution fields, so no public schema may reference it. */
+        Dispute: {
+            /** Format: uuid */
+            dispute_id: string;
+            reference: string;
+            student: components["schemas"]["PublicStudent"];
+            submitted_email: string;
+            /** Format: uuid */
+            event_id: string;
+            event_name: string;
+            /** Format: date */
+            event_date: string;
+            /** Format: uuid */
+            category_id: string;
+            category_name: string;
+            /** Format: date */
+            od_date: string;
+            slot: number;
+            claimed_coordinator_name: string | null;
+            student_note: string | null;
+            /** @enum {string} */
+            status: "open" | "resolved";
+            /** Format: date-time */
+            submitted_at: string;
+            resolution_note: string | null;
+            /** Format: uuid */
+            resolved_by_user_id: string | null;
+            /** Format: date-time */
+            resolved_at: string | null;
+        };
+        DisputeCollection: {
+            data: components["schemas"]["Dispute"][];
+            page: number;
+            page_size: number;
+            total: number;
+        };
+        DisputeResolutionRequest: {
+            resolution_note: string;
+        };
         /** @description Everything the marking screen needs that the client must not compute for itself. `slot: null` is the explicit "no slot is open" state — never slot 0 — and `server_time` shares one clock read with the slot decision. */
         MarkStatus: {
             /** Format: date-time */
@@ -946,7 +1115,7 @@ export interface components {
              * @description Canonical SCREAMING_SNAKE error code. This enum is the WIRE source of truth; the Go `errors.go` const registry mirrors it. Do not invent free-text codes.
              * @enum {string}
              */
-            code: "AUTH_DOMAIN_REJECTED" | "AUTH_TOKEN_INVALID" | "RBAC_FORBIDDEN" | "SCAN_DUPLICATE" | "SLOT_CLOSED" | "CARD_NOT_RECOGNIZED" | "CAPTURE_CREDIT_LIMIT_REACHED" | "QR_LIMIT_REACHED" | "RATE_LIMITED" | "INVALID_SCAN_ID" | "VALIDATION_FAILED" | "EVENT_NOT_FOUND" | "EVENT_ARCHIVED" | "CATEGORY_NOT_FOUND" | "USER_NOT_FOUND" | "STUDENT_NOT_FOUND" | "ROLE_ALREADY_ASSIGNED" | "COORDINATOR_ASSIGNMENT_EXISTS" | "INTERNAL";
+            code: "AUTH_DOMAIN_REJECTED" | "AUTH_TOKEN_INVALID" | "RBAC_FORBIDDEN" | "SCAN_DUPLICATE" | "SLOT_CLOSED" | "CARD_NOT_RECOGNIZED" | "CAPTURE_CREDIT_LIMIT_REACHED" | "QR_LIMIT_REACHED" | "RATE_LIMITED" | "INVALID_SCAN_ID" | "VALIDATION_FAILED" | "EVENT_NOT_FOUND" | "EVENT_ARCHIVED" | "CATEGORY_NOT_FOUND" | "USER_NOT_FOUND" | "STUDENT_NOT_FOUND" | "ROLE_ALREADY_ASSIGNED" | "COORDINATOR_ASSIGNMENT_EXISTS" | "DISPUTE_IDENTITY_UNVERIFIED" | "DISPUTE_ALREADY_OPEN" | "DISPUTE_NOT_FOUND" | "DISPUTE_ALREADY_RESOLVED" | "INTERNAL";
             /** @description Human-readable message. For diagnostics/display only — branch on `code`. */
             message: string;
             /** @description Optional, freeform context for generic errors. Typed validation failures use ValidationError.details (a typed array) instead. */
@@ -1183,6 +1352,253 @@ export interface operations {
             };
             /** @description Rate limited (RATE_LIMITED); carries a Retry-After header. */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listPublicEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fixed-cap event/category options, most recent event_date first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicEventCollection"];
+                };
+            };
+            /** @description Rate limited (RATE_LIMITED); carries a Retry-After header. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    submitPublicDispute: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicDisputeRequest"];
+            };
+        };
+        responses: {
+            /** @description Dispute created and audit row co-committed. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicDisputeReceipt"];
+                };
+            };
+            /** @description Field validation failed (VALIDATION_FAILED, with typed details) or the non-disclosing identity refusal (DISPUTE_IDENTITY_UNVERIFIED, which carries no details by design so the three refusal paths stay byte-identical). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"] | components["schemas"]["Error"];
+                };
+            };
+            /** @description Event or category not found (EVENT_NOT_FOUND or CATEGORY_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description A matching open dispute already exists (DISPUTE_ALREADY_OPEN). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Rate limited (RATE_LIMITED); carries a Retry-After header. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listDisputes: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+                status?: "open" | "resolved" | "all";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Branch-scoped dispute rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DisputeCollection"];
+                };
+            };
+            /** @description Query validation failed. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a teacher or admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    resolveDispute: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dispute_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DisputeResolutionRequest"];
+            };
+        };
+        responses: {
+            /** @description Dispute resolved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dispute"];
+                };
+            };
+            /** @description Validation failed. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller cannot resolve this dispute. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Dispute not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Dispute already resolved. */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

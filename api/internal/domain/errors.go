@@ -78,6 +78,10 @@ var codeToStatus = map[contracts.ErrorCode]int{
 	contracts.ErrorCodeSTUDENTNOTFOUND:             404,
 	contracts.ErrorCodeROLEALREADYASSIGNED:         409,
 	contracts.ErrorCodeCOORDINATORASSIGNMENTEXISTS: 409,
+	contracts.ErrorCodeDISPUTEIDENTITYUNVERIFIED:   400,
+	contracts.ErrorCodeDISPUTEALREADYOPEN:          409,
+	contracts.ErrorCodeDISPUTENOTFOUND:             404,
+	contracts.ErrorCodeDISPUTEALREADYRESOLVED:      409,
 	contracts.ErrorCodeINTERNAL:                    500,
 }
 

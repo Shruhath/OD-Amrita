@@ -46,6 +46,16 @@ test.describe('real stack teacher/admin search marking', () => {
     await expect(page.getByRole('button', { name: /tap|nfc/i })).toHaveCount(0)
     await expect(page.getByRole('button', { name: /camera|scan/i })).toHaveCount(0)
 
+    // Pin the event EXPLICITLY rather than accepting whichever one the select
+    // defaults to. The markable-events query orders by `event_date ASC`, so the
+    // default is simply the teacher's earliest active event — and every story
+    // that seeds another active event in the CSE branch silently moves it. This
+    // test marks on one event and then asserts against a DIFFERENT event's
+    // attendance view (MARKING_EVENT_ID); leaving the selection implicit made
+    // those two the same event only by luck. Selecting it here makes the two
+    // ends agree by construction, which is the property the test is really about.
+    await page.getByRole('combobox', { name: /event/i }).selectOption(MARKING_EVENT_ID)
+
     await page.getByRole('combobox', { name: /slot/i }).selectOption('4')
     await page.getByRole('searchbox', { name: /student/i }).fill(roll)
     await page.getByRole('option', { name: new RegExp(roll.replace(/\./g, '\\.'), 'i') }).click()

@@ -46,6 +46,23 @@ type Category struct {
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
+type Dispute struct {
+	ID                     pgtype.UUID        `json:"id"`
+	StudentID              pgtype.UUID        `json:"student_id"`
+	EventID                pgtype.UUID        `json:"event_id"`
+	CategoryID             pgtype.UUID        `json:"category_id"`
+	OdDate                 pgtype.Date        `json:"od_date"`
+	Slot                   int32              `json:"slot"`
+	SubmittedEmail         string             `json:"submitted_email"`
+	ClaimedCoordinatorName pgtype.Text        `json:"claimed_coordinator_name"`
+	StudentNote            pgtype.Text        `json:"student_note"`
+	Status                 string             `json:"status"`
+	ResolutionNote         pgtype.Text        `json:"resolution_note"`
+	ResolvedByUserID       pgtype.UUID        `json:"resolved_by_user_id"`
+	ResolvedAt             pgtype.Timestamptz `json:"resolved_at"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+}
+
 type Event struct {
 	ID               pgtype.UUID        `json:"id"`
 	Name             string             `json:"name"`

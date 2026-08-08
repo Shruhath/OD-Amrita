@@ -69,6 +69,9 @@ type Config struct {
 	// down at the next deploy. Tuning them live is the venue-day lever — a
 	// `flyctl secrets set` rather than a redeploy.
 	PublicRateLimit PublicRateLimit
+	// PublicDisputeRateLimit bounds the unauthenticated dispute POST only. It is
+	// intentionally stricter than the public read budget.
+	PublicDisputeRateLimit PublicRateLimit
 }
 
 // PublicRateLimit is the token-bucket tuning for the public group.
@@ -157,6 +160,11 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	cfg.PublicRateLimit = publicRateLimit
+	publicDisputeRateLimit, err := parsePublicDisputeRateLimit()
+	if err != nil {
+		return nil, err
+	}
+	cfg.PublicDisputeRateLimit = publicDisputeRateLimit
 	if err := validateAuth(cfg.Auth, cfg.AppEnv); err != nil {
 		return nil, err
 	}
@@ -192,6 +200,18 @@ func parsePublicRateLimit() (PublicRateLimit, error) {
 	return PublicRateLimit{PerMinute: perMinute, Burst: burst}, nil
 }
 
+func parsePublicDisputeRateLimit() (PublicRateLimit, error) {
+	perMinute, err := positiveIntDefault("PUBLIC_DISPUTE_RATE_LIMIT_PER_MINUTE", 5)
+	if err != nil {
+		return PublicRateLimit{}, err
+	}
+	burst, err := positiveIntDefault("PUBLIC_DISPUTE_RATE_LIMIT_BURST", 3)
+	if err != nil {
+		return PublicRateLimit{}, err
+	}
+	return PublicRateLimit{PerMinute: perMinute, Burst: burst}, nil
+}
+
 // positiveIntDefault returns def when the variable is absent or blank, and
 // fails when it is present but not a positive integer.
 func positiveIntDefault(key string, def int) (int, error) {
@@ -202,6 +222,9 @@ func positiveIntDefault(key string, def int) (int, error) {
 	value, err := strconv.Atoi(raw)
 	if err != nil || value <= 0 {
 		return 0, fmt.Errorf("config: %s must be a positive integer, got %q", key, raw)
+	}
+	if value > 10_000 {
+		return 0, fmt.Errorf("config: %s must be at most 10000, got %q", key, raw)
 	}
 	return value, nil
 }

@@ -749,6 +749,13 @@ tbody tr:hover {
 .status-badge.active { color: var(--green-600); }
 .status-badge.archived { color: var(--gray-500); }
 
+/* Dispute statuses. Without these the badge inherited body colour in BOTH
+   themes, so "Open" and "Resolved" rendered identically and the badge carried
+   no information at all. --amber-700/--green-600 are the tokens the populator
+   statuses above already use, so both themes resolve. */
+.status-badge.open { color: var(--amber-700); }
+.status-badge.resolved { color: var(--green-600); }
+
 /* ------------------------------------------------- auth surfaces (glass) */
 
 /* These sit alone on the backdrop with no chrome around them, so the card is
@@ -2030,7 +2037,9 @@ tbody tr:hover {
   color: var(--gray-600);
 }
 
-.public-field input {
+.public-field input,
+.public-field select,
+.public-field textarea {
   width: 100%;
   /* Without an explicit min-width, a flex/grid child refuses to shrink below
      its intrinsic size and pushes the page sideways on a narrow phone. */
@@ -2046,7 +2055,15 @@ tbody tr:hover {
   font-size: 16px;
 }
 
-.public-field input:focus-visible {
+.public-field textarea {
+  min-height: 92px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.public-field input:focus-visible,
+.public-field select:focus-visible,
+.public-field textarea:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 1px;
 }
@@ -2110,12 +2127,19 @@ tbody tr:hover {
 }
 
 .public-empty {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
   margin: 18px 0 0;
   padding: 16px;
   border: 1px dashed var(--surface-border);
   border-radius: var(--radius-md);
   text-align: center;
   color: var(--gray-600);
+}
+
+.public-empty p {
+  margin: 0;
 }
 
 .public-day { margin-top: 22px; }
@@ -2196,7 +2220,184 @@ tbody tr:hover {
 }
 
 .public-slot-detail strong { color: var(--foreground); }
-.public-slot-empty { color: var(--gray-600); font-style: italic; }
+.public-slot-empty {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--gray-600);
+  font-style: italic;
+}
+
+.public-dispute-panel {
+  display: grid;
+  gap: 16px;
+  margin-top: 22px;
+  padding: clamp(18px, 4vw, 24px);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-quiet);
+  color: var(--foreground);
+}
+
+.public-dispute-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.public-dispute-heading h3 {
+  margin: 0 0 4px;
+  font-size: 19px;
+}
+
+.public-dispute-heading p {
+  margin: 0;
+  color: var(--gray-600);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.public-readonly-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.public-readonly-fields div {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--surface-line);
+}
+
+.public-readonly-fields dt {
+  margin: 0 0 4px;
+  color: var(--gray-500);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.public-readonly-fields dd {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.public-success {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: var(--fill-success);
+  box-shadow: inset 0 0 0 1px var(--ring-success);
+  color: var(--green-700);
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+/* --------------------------------------------------------- dispute inbox */
+
+.dispute-list {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dispute-list > li {
+  border: 1px solid var(--surface-line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.dispute-summary {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.7fr) minmax(160px, 1.2fr) minmax(180px, 1.2fr) auto;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.dispute-summary:hover:not(:disabled) {
+  background: var(--surface-quiet);
+}
+
+.dispute-summary span {
+  min-width: 0;
+  color: var(--gray-600);
+  overflow-wrap: anywhere;
+}
+
+.dispute-detail {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border-top: 1px solid var(--surface-line);
+}
+
+.dispute-detail dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.dispute-detail dt {
+  margin: 0 0 3px;
+  color: var(--gray-500);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.dispute-detail dd {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.resolution-form {
+  display: grid;
+  gap: 8px;
+}
+
+.resolution-form label {
+  color: var(--gray-600);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.resolution-form textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 92px;
+  padding: 10px 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  background: var(--control-bg);
+  color: var(--foreground);
+  font-size: 15px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.resolution-form button {
+  justify-self: start;
+}
 
 .public-alert {
   margin: 12px 0 0;

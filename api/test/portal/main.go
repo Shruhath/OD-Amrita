@@ -23,6 +23,7 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/domain"
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
 	handlercardtoken "github.com/Shruhath/OD-Amrita/api/internal/handler/cardtoken"
+	handlerdispute "github.com/Shruhath/OD-Amrita/api/internal/handler/dispute"
 	handlerevent "github.com/Shruhath/OD-Amrita/api/internal/handler/event"
 	handlerodrecord "github.com/Shruhath/OD-Amrita/api/internal/handler/od_record"
 	handlerpublicattendance "github.com/Shruhath/OD-Amrita/api/internal/handler/publicattendance"
@@ -35,6 +36,7 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	svccardtoken "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
+	svcdispute "github.com/Shruhath/OD-Amrita/api/internal/service/dispute"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
 	svcmarking "github.com/Shruhath/OD-Amrita/api/internal/service/marking"
 	svcodrecord "github.com/Shruhath/OD-Amrita/api/internal/service/od_record"
@@ -104,6 +106,11 @@ const (
 	publicStudentRoll      = "CB.SC.U4CSE24008"
 	publicUnmarkedID       = "95000000-0000-4000-8000-000000000010"
 	publicUnmarkedRoll     = "CB.SC.U4CSE24009"
+	disputeEventID         = "93000000-0000-4000-8000-000000000004"
+	disputeCategoryID      = "94000000-0000-4000-8000-000000000004"
+	disputeEventName       = "Browser Dispute Event"
+	disputeStudentID       = "95000000-0000-4000-8000-000000000011"
+	disputeStudentRoll     = "CB.SC.U4CSE24010"
 )
 
 // teacherFixtureEmail is the student-role row the teacher-profile browser
@@ -195,6 +202,9 @@ func main() {
 		creditLedger,
 	)
 	studentService.WithSearchReader(svcstudent.NewSQLCSearchReader(runtimePool))
+	publicAttendanceService := svcpublicattendance.NewSQLCService(runtimePool)
+	disputeRepo := svcdispute.NewSQLCRepository(runtimePool)
+	disputeService := svcdispute.NewService(disputeRepo, disputeRepo, st, "amrita.edu")
 	markingReads := svcmarking.NewReadService(
 		markingPolicy,
 		eventReader,
@@ -219,6 +229,7 @@ func main() {
 	markAPI.Use(rbac.RequirePrincipal(principalLoader))
 	handlerodrecord.RegisterRoutes(markAPI, markService)
 	handlerodrecord.RegisterPortalMarkRoutes(markAPI, portalMarkReads)
+	handlerdispute.RegisterRoutes(markAPI, disputeService)
 	// Shared with cmd/api, exactly like the admin routes below: a harness that
 	// mounts the marking reads on a different group than production turns a real
 	// route-composition bug into a browser-journey 404 that reads as a frontend
@@ -253,7 +264,15 @@ func main() {
 	}
 	publicGroup := router.Group("/api/v1/public")
 	publicGroup.Use(publicLimiter.Middleware())
-	handlerpublicattendance.RegisterPublicRoutes(publicGroup, studentService, svcpublicattendance.NewSQLCService(runtimePool))
+	handlerpublicattendance.RegisterPublicRoutes(publicGroup, studentService, publicAttendanceService)
+	publicDisputeLimiter, err := ratelimit.New(ratelimit.Config{PerMinute: 6000, Burst: 600})
+	if err != nil {
+		log.Fatal(err)
+	}
+	handlerdispute.RegisterPublicRoutes(publicGroup, portalPublicDisputeSurface{
+		submitter: disputeService,
+		events:    publicAttendanceService,
+	}, publicDisputeLimiter.Middleware())
 
 	port := os.Getenv("PORTAL_API_PORT")
 	if port == "" {
@@ -335,6 +354,15 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("delete event coordinator assignments: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
+		DELETE FROM disputes
+		WHERE event_id IN (
+			SELECT id FROM events
+			WHERE name LIKE ANY (SELECT prefix || '%' FROM unnest($1::text[]) AS prefix)
+		)
+	`, fixtureEventPrefixes); err != nil {
+		return fmt.Errorf("delete event dispute fixtures: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
 		DELETE FROM event_branches
 		WHERE event_id IN (
 			SELECT id FROM events
@@ -378,6 +406,14 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 	// refuses to start — if a previous run's populator journey sealed a card or
 	// a marking journey wrote a record. Clear the dependents first so the
 	// harness is restartable after any journey, not only after a clean one.
+	if _, err := tx.Exec(ctx, `
+			DELETE FROM disputes
+			WHERE student_id IN (
+				SELECT id FROM students WHERE roll_no LIKE 'CB.SC.U4CSE%' OR roll_no LIKE 'CB.SC.U4ECE%'
+			)
+		`); err != nil {
+		return fmt.Errorf("delete student dispute fixtures: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `
 			DELETE FROM od_records
 			WHERE student_id IN (
@@ -572,9 +608,81 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 	if err := seedPublicDashboard(ctx, tx, today); err != nil {
 		return err
 	}
+	if err := seedDisputeJourney(ctx, tx); err != nil {
+		return err
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit transaction: %w", err)
+	}
+	return nil
+}
+
+type portalPublicDisputeSurface struct {
+	submitter interface {
+		Submit(context.Context, svcdispute.SubmitInput) (svcdispute.Receipt, error)
+	}
+	events interface {
+		PublicEvents(context.Context) (svcpublicattendance.EventCollection, error)
+	}
+}
+
+func (s portalPublicDisputeSurface) Submit(ctx context.Context, input svcdispute.SubmitInput) (svcdispute.Receipt, error) {
+	return s.submitter.Submit(ctx, input)
+}
+
+func (s portalPublicDisputeSurface) PublicEvents(ctx context.Context) (svcpublicattendance.EventCollection, error) {
+	return s.events.PublicEvents(ctx)
+}
+
+func seedDisputeJourney(ctx context.Context, tx pgx.Tx) error {
+	eventDate := time.Date(2026, 7, 28, 0, 0, 0, 0, time.UTC)
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO students (id, roll_no, name, branch_id, section, batch)
+		VALUES ($1, $2, 'Browser Dispute Student', '91000000-0000-4000-8000-000000000001', 'A', '2024')
+		ON CONFLICT (id) DO UPDATE
+		SET roll_no = EXCLUDED.roll_no, name = EXCLUDED.name, branch_id = EXCLUDED.branch_id,
+		    section = EXCLUDED.section, batch = EXCLUDED.batch
+	`, disputeStudentID, disputeStudentRoll); err != nil {
+		return fmt.Errorf("upsert dispute student fixture: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO events (id, name, event_date, status)
+		VALUES ($1, $2, $3, 'active')
+		ON CONFLICT (id) DO UPDATE
+		SET name = EXCLUDED.name, event_date = EXCLUDED.event_date,
+		    status = 'active', archived_at = NULL, archived_by_user_id = NULL
+	`, disputeEventID, disputeEventName, eventDate); err != nil {
+		return fmt.Errorf("upsert dispute event fixture: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO event_branches (event_id, branch_id)
+		VALUES ($1, '91000000-0000-4000-8000-000000000001')
+		ON CONFLICT DO NOTHING
+	`, disputeEventID); err != nil {
+		return fmt.Errorf("associate dispute event branch: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO categories (id, event_id, name)
+		VALUES ($1, $2, 'Procession')
+		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+	`, disputeCategoryID, disputeEventID); err != nil {
+		return fmt.Errorf("upsert dispute category fixture: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM disputes WHERE event_id = $1`, disputeEventID); err != nil {
+		return fmt.Errorf("clear dispute rows fixture: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM od_records WHERE event_id = $1`, disputeEventID); err != nil {
+		return fmt.Errorf("clear dispute event od records: %w", err)
+	}
+	for _, slot := range []int{1, 2, 4} {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO od_records
+				(student_id, event_id, category_id, slot, status, capture_method, actor_user_id, actor_role, server_received_at)
+			VALUES ($1, $2, $3, $4, 'present', 'search', '90000000-0000-4000-8000-000000000004', 'teacher', now())
+		`, disputeStudentID, disputeEventID, disputeCategoryID, slot); err != nil {
+			return fmt.Errorf("seed dispute od record slot %d: %w", slot, err)
+		}
 	}
 	return nil
 }

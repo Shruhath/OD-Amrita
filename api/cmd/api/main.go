@@ -25,6 +25,7 @@ import (
 	handleradmin "github.com/Shruhath/OD-Amrita/api/internal/handler/admin"
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
 	handlercardtoken "github.com/Shruhath/OD-Amrita/api/internal/handler/cardtoken"
+	handlerdispute "github.com/Shruhath/OD-Amrita/api/internal/handler/dispute"
 	handlerevent "github.com/Shruhath/OD-Amrita/api/internal/handler/event"
 	"github.com/Shruhath/OD-Amrita/api/internal/handler/health"
 	handlerodrecord "github.com/Shruhath/OD-Amrita/api/internal/handler/od_record"
@@ -38,6 +39,7 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	svccardtoken "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
+	svcdispute "github.com/Shruhath/OD-Amrita/api/internal/service/dispute"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
 	svcmarking "github.com/Shruhath/OD-Amrita/api/internal/service/marking"
 	svcodrecord "github.com/Shruhath/OD-Amrita/api/internal/service/od_record"
@@ -88,6 +90,14 @@ func run() error {
 		// front of this process to overwrite it. FLY_APP_NAME is set by the Fly
 		// runtime and by nothing else, so it answers "am I behind the edge"
 		// without inventing a secret an operator has to remember to set.
+		TrustEdgeHeader: os.Getenv("FLY_APP_NAME") != "",
+	})
+	if err != nil {
+		return err
+	}
+	publicDisputeLimiter, err := ratelimit.New(ratelimit.Config{
+		PerMinute:       cfg.PublicDisputeRateLimit.PerMinute,
+		Burst:           cfg.PublicDisputeRateLimit.Burst,
 		TrustEdgeHeader: os.Getenv("FLY_APP_NAME") != "",
 	})
 	if err != nil {
@@ -170,16 +180,24 @@ func run() error {
 	// search; the search reader is an add-on rather than a second service.
 	studentSvc := svcstudent.NewService(svcstudent.NewSQLCReader(pool), st, svcstudent.NewSQLCWriter())
 	studentSvc.WithSearchReader(svcstudent.NewSQLCSearchReader(pool))
+	publicAttendanceSvc := svcpublicattendance.NewSQLCService(pool)
+	disputeRepo := svcdispute.NewSQLCRepository(pool)
+	disputeSvc := svcdispute.NewService(disputeRepo, disputeRepo, st, cfg.Auth.AllowedDomain)
 	// The public dashboard's two reads. The SAME student service serves the
 	// anonymous search — PublicSearch is a separate, actor-less, hard-capped
 	// method on it, not a relaxation of the authenticated Search.
-	handlerpublicattendance.RegisterPublicRoutes(publicGroup, studentSvc, svcpublicattendance.NewSQLCService(pool))
+	handlerpublicattendance.RegisterPublicRoutes(publicGroup, studentSvc, publicAttendanceSvc)
+	handlerdispute.RegisterPublicRoutes(publicGroup, publicDisputeSurface{
+		submitter: disputeSvc,
+		events:    publicAttendanceSvc,
+	}, publicDisputeLimiter.Middleware())
 	handlerodrecord.RegisterMarkingReadRoutes(markAPI, svcmarking.NewReadService(
 		markingPolicy,
 		eventReader,
 		studentSvc,
 		svcodrecord.NewStatusService(svcodrecord.NewSQLCReader(pool), svcodrecord.NewSQLCCounter(pool), creditLedger, nil),
 	))
+	handlerdispute.RegisterRoutes(markAPI, disputeSvc)
 
 	admin := newAdminGroup(api, principalLoader)
 	admin.POST("/users/:user_id/sessions/revoke", handleradmin.RevokeSessionsHandler(revSvc))
@@ -284,4 +302,21 @@ func tlsMinVersion(v string) uint16 {
 		return tls.VersionTLS13
 	}
 	return tls.VersionTLS12
+}
+
+type publicDisputeSurface struct {
+	submitter interface {
+		Submit(context.Context, svcdispute.SubmitInput) (svcdispute.Receipt, error)
+	}
+	events interface {
+		PublicEvents(context.Context) (svcpublicattendance.EventCollection, error)
+	}
+}
+
+func (s publicDisputeSurface) Submit(ctx context.Context, input svcdispute.SubmitInput) (svcdispute.Receipt, error) {
+	return s.submitter.Submit(ctx, input)
+}
+
+func (s publicDisputeSurface) PublicEvents(ctx context.Context) (svcpublicattendance.EventCollection, error) {
+	return s.events.PublicEvents(ctx)
 }

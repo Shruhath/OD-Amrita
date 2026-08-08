@@ -82,6 +82,24 @@ func (e CaptureMethod) Valid() bool {
 	}
 }
 
+// Defines values for DisputeStatus.
+const (
+	DisputeStatusOpen     DisputeStatus = "open"
+	DisputeStatusResolved DisputeStatus = "resolved"
+)
+
+// Valid indicates whether the value is a known member of the DisputeStatus enum.
+func (e DisputeStatus) Valid() bool {
+	switch e {
+	case DisputeStatusOpen:
+		return true
+	case DisputeStatusResolved:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ErrorCode.
 const (
 	ErrorCodeAUTHDOMAINREJECTED          ErrorCode = "AUTH_DOMAIN_REJECTED"
@@ -90,6 +108,10 @@ const (
 	ErrorCodeCARDNOTRECOGNIZED           ErrorCode = "CARD_NOT_RECOGNIZED"
 	ErrorCodeCATEGORYNOTFOUND            ErrorCode = "CATEGORY_NOT_FOUND"
 	ErrorCodeCOORDINATORASSIGNMENTEXISTS ErrorCode = "COORDINATOR_ASSIGNMENT_EXISTS"
+	ErrorCodeDISPUTEALREADYOPEN          ErrorCode = "DISPUTE_ALREADY_OPEN"
+	ErrorCodeDISPUTEALREADYRESOLVED      ErrorCode = "DISPUTE_ALREADY_RESOLVED"
+	ErrorCodeDISPUTEIDENTITYUNVERIFIED   ErrorCode = "DISPUTE_IDENTITY_UNVERIFIED"
+	ErrorCodeDISPUTENOTFOUND             ErrorCode = "DISPUTE_NOT_FOUND"
 	ErrorCodeEVENTARCHIVED               ErrorCode = "EVENT_ARCHIVED"
 	ErrorCodeEVENTNOTFOUND               ErrorCode = "EVENT_NOT_FOUND"
 	ErrorCodeINTERNAL                    ErrorCode = "INTERNAL"
@@ -119,6 +141,14 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeCATEGORYNOTFOUND:
 		return true
 	case ErrorCodeCOORDINATORASSIGNMENTEXISTS:
+		return true
+	case ErrorCodeDISPUTEALREADYOPEN:
+		return true
+	case ErrorCodeDISPUTEALREADYRESOLVED:
+		return true
+	case ErrorCodeDISPUTEIDENTITYUNVERIFIED:
+		return true
+	case ErrorCodeDISPUTENOTFOUND:
 		return true
 	case ErrorCodeEVENTARCHIVED:
 		return true
@@ -220,6 +250,21 @@ func (e MarkAttendanceRequestCaptureMethod) Valid() bool {
 	case MarkAttendanceRequestCaptureMethodNfc:
 		return true
 	case MarkAttendanceRequestCaptureMethodSearch:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PublicDisputeReceiptStatus.
+const (
+	PublicDisputeReceiptStatusOpen PublicDisputeReceiptStatus = "open"
+)
+
+// Valid indicates whether the value is a known member of the PublicDisputeReceiptStatus enum.
+func (e PublicDisputeReceiptStatus) Valid() bool {
+	switch e {
+	case PublicDisputeReceiptStatusOpen:
 		return true
 	default:
 		return false
@@ -337,6 +382,27 @@ func (e ListAdminEventsParamsStatus) Valid() bool {
 	case ListAdminEventsParamsStatusAll:
 		return true
 	case ListAdminEventsParamsStatusArchived:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListDisputesParamsStatus.
+const (
+	ListDisputesParamsStatusAll      ListDisputesParamsStatus = "all"
+	ListDisputesParamsStatusOpen     ListDisputesParamsStatus = "open"
+	ListDisputesParamsStatusResolved ListDisputesParamsStatus = "resolved"
+)
+
+// Valid indicates whether the value is a known member of the ListDisputesParamsStatus enum.
+func (e ListDisputesParamsStatus) Valid() bool {
+	switch e {
+	case ListDisputesParamsStatusAll:
+		return true
+	case ListDisputesParamsStatusOpen:
+		return true
+	case ListDisputesParamsStatusResolved:
 		return true
 	default:
 		return false
@@ -516,6 +582,46 @@ type CreateTeacherProfileRequest struct {
 	Email string `json:"email"`
 }
 
+// Dispute Authenticated teacher/admin dispute row. This shape includes submitted email and resolution fields, so no public schema may reference it.
+type Dispute struct {
+	CategoryId             openapi_types.UUID  `json:"category_id"`
+	CategoryName           string              `json:"category_name"`
+	ClaimedCoordinatorName *string             `json:"claimed_coordinator_name"`
+	DisputeId              openapi_types.UUID  `json:"dispute_id"`
+	EventDate              openapi_types.Date  `json:"event_date"`
+	EventId                openapi_types.UUID  `json:"event_id"`
+	EventName              string              `json:"event_name"`
+	OdDate                 openapi_types.Date  `json:"od_date"`
+	Reference              string              `json:"reference"`
+	ResolutionNote         *string             `json:"resolution_note"`
+	ResolvedAt             *time.Time          `json:"resolved_at"`
+	ResolvedByUserId       *openapi_types.UUID `json:"resolved_by_user_id"`
+	Slot                   int                 `json:"slot"`
+	Status                 DisputeStatus       `json:"status"`
+
+	// Student A student as the public dashboard shows them: display fields only. The `students` table has no email column and card material lives in `student_card_tokens`, which no public query joins, so this shape cannot be widened by accident — only deliberately.
+	Student        PublicStudent `json:"student"`
+	StudentNote    *string       `json:"student_note"`
+	SubmittedAt    time.Time     `json:"submitted_at"`
+	SubmittedEmail string        `json:"submitted_email"`
+}
+
+// DisputeStatus defines model for Dispute.Status.
+type DisputeStatus string
+
+// DisputeCollection defines model for DisputeCollection.
+type DisputeCollection struct {
+	Data     []Dispute `json:"data"`
+	Page     int       `json:"page"`
+	PageSize int       `json:"page_size"`
+	Total    int       `json:"total"`
+}
+
+// DisputeResolutionRequest defines model for DisputeResolutionRequest.
+type DisputeResolutionRequest struct {
+	ResolutionNote string `json:"resolution_note"`
+}
+
 // Error Standard error envelope for all non-2xx responses. Clients branch on `code`, never on `message`.
 type Error struct {
 	// Code Canonical SCREAMING_SNAKE error code. This enum is the WIRE source of truth; the Go `errors.go` const registry mirrors it. Do not invent free-text codes.
@@ -644,6 +750,57 @@ type MarkedStudent struct {
 	RollNo      string             `json:"roll_no"`
 	Section     string             `json:"section"`
 	StudentId   openapi_types.UUID `json:"student_id"`
+}
+
+// PublicDisputeReceipt Public creation receipt. It proves server-side roster auto-population by returning the resolved public student display shape, but deliberately never echoes submitted_email, user ids, card material, dispute content or resolution fields.
+type PublicDisputeReceipt struct {
+	DisputeId openapi_types.UUID         `json:"dispute_id"`
+	Reference string                     `json:"reference"`
+	Status    PublicDisputeReceiptStatus `json:"status"`
+
+	// Student A student as the public dashboard shows them: display fields only. The `students` table has no email column and card material lives in `student_card_tokens`, which no public query joins, so this shape cannot be widened by accident — only deliberately.
+	Student     PublicStudent `json:"student"`
+	SubmittedAt time.Time     `json:"submitted_at"`
+}
+
+// PublicDisputeReceiptStatus defines model for PublicDisputeReceipt.Status.
+type PublicDisputeReceiptStatus string
+
+// PublicDisputeRequest Public missed-slot dispute submission. The request carries both the selected public student id and the submitted university email; the backend resolves the email local-part to a roster roll number and refuses any mismatch with the same non-disclosing identity envelope. This public input must never carry student display fields, user ids, card material, resolution notes or another dispute's content.
+type PublicDisputeRequest struct {
+	CategoryId openapi_types.UUID `json:"category_id"`
+
+	// ClaimedCoordinatorName Optional free text; no public coordinator roster is exposed.
+	ClaimedCoordinatorName *string            `json:"claimed_coordinator_name,omitempty"`
+	EventId                openapi_types.UUID `json:"event_id"`
+
+	// OdDate The day the disputed OD belongs to, not the row write time.
+	OdDate      openapi_types.Date `json:"od_date"`
+	Slot        int                `json:"slot"`
+	StudentId   openapi_types.UUID `json:"student_id"`
+	StudentNote *string            `json:"student_note,omitempty"`
+
+	// SubmittedEmail Lowercased for storage after domain validation; never echoed on public responses.
+	SubmittedEmail string `json:"submitted_email"`
+}
+
+// PublicEvent Minimal public event option for dispute submission. Deliberately omits branches, archive state, coordinators, counts and credits; the public dispute form only needs the event id, name, day and categories.
+type PublicEvent struct {
+	Categories []PublicEventCategory `json:"categories"`
+	EventDate  openapi_types.Date    `json:"event_date"`
+	EventId    openapi_types.UUID    `json:"event_id"`
+	Name       string                `json:"name"`
+}
+
+// PublicEventCategory Minimal public category option for dispute submission. Carries no event metadata, branch, coordinator or attendance counts.
+type PublicEventCategory struct {
+	Id   openapi_types.UUID `json:"id"`
+	Name string             `json:"name"`
+}
+
+// PublicEventCollection Fixed-cap public event options. No page, total or limit appears because the open internet supplies no knobs for this read.
+type PublicEventCollection struct {
+	Data []PublicEvent `json:"data"`
 }
 
 // PublicODDay One day's records. The grouping key is the EVENT's date, not the mark's receipt time — `od_records` has no date column, and one event is one day in this model.
@@ -912,6 +1069,16 @@ type ListAdminTeachersParams struct {
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
+// ListDisputesParams defines parameters for ListDisputes.
+type ListDisputesParams struct {
+	Page     *int                      `form:"page,omitempty" json:"page,omitempty"`
+	PageSize *int                      `form:"page_size,omitempty" json:"page_size,omitempty"`
+	Status   *ListDisputesParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// ListDisputesParamsStatus defines parameters for ListDisputes.
+type ListDisputesParamsStatus string
+
 // ListMarkableEventsParams defines parameters for ListMarkableEvents.
 type ListMarkableEventsParams struct {
 	Page     *int `form:"page,omitempty" json:"page,omitempty"`
@@ -928,6 +1095,11 @@ type GetMarkStatusParams struct {
 type ListPortalMarkEventsParams struct {
 	Page     *int `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+}
+
+// SubmitPublicDispute400JSONResponseBody defines parameters for SubmitPublicDispute.
+type SubmitPublicDispute400JSONResponseBody struct {
+	union json.RawMessage
 }
 
 // SearchPublicStudentsParams defines parameters for SearchPublicStudents.
@@ -969,8 +1141,14 @@ type CreateAdminTeacherProfileJSONRequestBody = CreateTeacherProfileRequest
 // RevokeUserSessionsJSONRequestBody defines body for RevokeUserSessions for application/json ContentType.
 type RevokeUserSessionsJSONRequestBody = RevokeSessionsRequest
 
+// ResolveDisputeJSONRequestBody defines body for ResolveDispute for application/json ContentType.
+type ResolveDisputeJSONRequestBody = DisputeResolutionRequest
+
 // MarkAttendanceJSONRequestBody defines body for MarkAttendance for application/json ContentType.
 type MarkAttendanceJSONRequestBody = MarkAttendanceRequest
+
+// SubmitPublicDisputeJSONRequestBody defines body for SubmitPublicDispute for application/json ContentType.
+type SubmitPublicDisputeJSONRequestBody = PublicDisputeRequest
 
 // SubmitScansJSONRequestBody defines body for SubmitScans for application/json ContentType.
 type SubmitScansJSONRequestBody = ScanBatchRequest
@@ -1132,5 +1310,67 @@ func (t *MarkAttendanceRequest) UnmarshalJSON(b []byte) error {
 		}
 	}
 
+	return err
+}
+
+// AsValidationError returns the union data inside the SubmitPublicDispute400JSONResponseBody as a ValidationError
+func (t SubmitPublicDispute400JSONResponseBody) AsValidationError() (ValidationError, error) {
+	var body ValidationError
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromValidationError overwrites any union data inside the SubmitPublicDispute400JSONResponseBody as the provided ValidationError
+func (t *SubmitPublicDispute400JSONResponseBody) FromValidationError(v ValidationError) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeValidationError performs a merge with any union data inside the SubmitPublicDispute400JSONResponseBody, using the provided ValidationError
+func (t *SubmitPublicDispute400JSONResponseBody) MergeValidationError(v ValidationError) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsError returns the union data inside the SubmitPublicDispute400JSONResponseBody as a Error
+func (t SubmitPublicDispute400JSONResponseBody) AsError() (Error, error) {
+	var body Error
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromError overwrites any union data inside the SubmitPublicDispute400JSONResponseBody as the provided Error
+func (t *SubmitPublicDispute400JSONResponseBody) FromError(v Error) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeError performs a merge with any union data inside the SubmitPublicDispute400JSONResponseBody, using the provided Error
+func (t *SubmitPublicDispute400JSONResponseBody) MergeError(v Error) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t SubmitPublicDispute400JSONResponseBody) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *SubmitPublicDispute400JSONResponseBody) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
 	return err
 }

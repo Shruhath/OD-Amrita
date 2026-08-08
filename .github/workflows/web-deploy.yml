@@ -343,6 +343,57 @@ jobs:
             echo "the public dashboard wrote $audits audit rows; a public read has no actor to attribute and no state change to record"
             exit 1
           }
+      - name: Verify dispute write audit conservation
+        # This is separate from the public dashboard invariant above. The public
+        # dashboard must stay a pure read, while the dispute journey is the one
+        # unauthenticated write path. Prove the browser dispute spec ran, then
+        # assert the slot-3 browser submission wrote exactly one dispute and
+        # exactly one dispute.submitted audit row for that same dispute.
+        run: |
+          report="web/playwright-integration-report.json"
+          [ -f "$report" ] || {
+            echo "no Playwright integration report at $report — cannot prove the dispute journey ran"
+            exit 1
+          }
+          passed="$(jq '[.suites[]? | recurse(.suites[]?)
+            | .specs[]? | select(.file | test("student-disputes"))
+            | select(.ok)] | length' "$report")"
+          [ "${passed:-0}" -gt 0 ] || {
+            echo "no student dispute specs passed, so the dispute write conservation check is unproven"
+            exit 1
+          }
+          echo "student dispute specs passed: $passed"
+
+          event_id="93000000-0000-4000-8000-000000000004"
+          student_id="95000000-0000-4000-8000-000000000011"
+          dispute_id="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT id
+            FROM disputes
+            WHERE event_id = '$event_id'
+              AND student_id = '$student_id'
+              AND od_date = DATE '2026-07-28'
+              AND slot = 3")"
+          if [ -z "$dispute_id" ]; then
+            echo "the browser dispute journey did not create its slot-3 fixture dispute"
+            exit 1
+          fi
+          disputes="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT count(*)
+            FROM disputes
+            WHERE event_id = '$event_id'
+              AND student_id = '$student_id'
+              AND od_date = DATE '2026-07-28'
+              AND slot = 3")"
+          audits="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
+            SELECT count(*)
+            FROM audit_log
+            WHERE action = 'dispute.submitted'
+              AND target_table = 'disputes'
+              AND target_id = '$dispute_id'")"
+          [ "$disputes" = "1" ] && [ "$audits" = "1" ] || {
+            echo "expected one slot-3 dispute and one matching dispute.submitted row for $dispute_id, got $disputes and $audits"
+            exit 1
+          }
       - name: Verify teacher audit conservation
         # The fixture is a STABLE, non-suffixed email (unlike the events/
         # categories fixtures above): D2 makes a repeat elevation a 409 that

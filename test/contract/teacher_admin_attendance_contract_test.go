@@ -118,6 +118,29 @@ func TestTeacherAdminAttendanceContract_AttendanceSchemas(t *testing.T) {
 	}
 }
 
+// deliberateDisputeOperations are the ONLY dispute operations allowed past the
+// deferred-surface guard below. The missed-slot dispute surface is now built, so
+// "Dispute" can no longer be a blanket forbidden token — but deleting the token
+// outright (as this change first did) also stops catching the dispute surfaces
+// that ARE still deferred: a dispute-driven record correction, a dispute export,
+// a bulk resolution. Naming the four built operations keeps the guard sharp —
+// anything else carrying "Dispute" still fails here.
+var deliberateDisputeOperations = map[string]string{
+	"submitPublicDispute": "the public missed-slot submission",
+	"listPublicEvents":    "its event/category option read",
+	"listDisputes":        "the teacher/admin inbox",
+	"resolveDispute":      "the annotate-only resolution",
+}
+
+// disputeSurfacePaths are the paths those operations hang on. The guard also
+// substring-matches the PATH, so the built dispute routes must be exempted by
+// path as well or they trip the token they legitimately carry.
+var disputeSurfacePaths = map[string]bool{
+	"/api/v1/public/disputes":                  true,
+	"/api/v1/disputes":                         true,
+	"/api/v1/disputes/{dispute_id}/resolution": true,
+}
+
 func TestTeacherAdminAttendanceContract_NoDeferredManualManagementSurface(t *testing.T) {
 	requireTeacherAdminAttendanceATDD(t)
 
@@ -131,10 +154,43 @@ func TestTeacherAdminAttendanceContract_NoDeferredManualManagementSurface(t *tes
 		for method := range item {
 			id := getStr(getMap(item, method), "operationId")
 			for _, forbidden := range []string{"Correction", "Dispute", "Export", "ManualOverride", "DeleteAttendance"} {
+				if forbidden == "Dispute" {
+					if _, built := deliberateDisputeOperations[id]; built {
+						continue
+					}
+					if disputeSurfacePaths[path] {
+						continue
+					}
+				}
 				if strings.Contains(id, forbidden) || strings.Contains(path, strings.ToLower(forbidden)) {
-					t.Errorf("[P1] 0.9 must not introduce deferred %s surface at %s %s", forbidden, method, path)
+					t.Errorf("[P1] must not introduce deferred %s surface at %s %s", forbidden, method, path)
 				}
 			}
+		}
+	}
+}
+
+// The exemption list is only honest if every name in it still exists. A renamed
+// or removed operation would otherwise silently exempt nothing while the guard
+// above kept reporting green — the "test that cannot fail" shape this codebase
+// has now been bitten by three times.
+func TestTeacherAdminAttendanceContract_DisputeExemptionsAllExist(t *testing.T) {
+	requireTeacherAdminAttendanceATDD(t)
+
+	doc := loadSpec(t, repoRoot(t))
+	paths := getMap(doc, "paths")
+	found := map[string]bool{}
+	for _, raw := range paths {
+		item := asMap(raw)
+		for method := range item {
+			if _, ok := deliberateDisputeOperations[getStr(getMap(item, method), "operationId")]; ok {
+				found[getStr(getMap(item, method), "operationId")] = true
+			}
+		}
+	}
+	for id, why := range deliberateDisputeOperations {
+		if !found[id] {
+			t.Errorf("[P1] dispute exemption %q (%s) matches no operation — the guard is exempting nothing", id, why)
 		}
 	}
 }

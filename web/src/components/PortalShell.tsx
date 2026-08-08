@@ -6,6 +6,7 @@ import { ThemeToggle } from './ThemeToggle'
 
 const sections = [
   { to: '/portal/events', label: 'Events' },
+  { to: '/portal/disputes', label: 'Disputes' },
   { to: '/portal/teachers', label: 'Teachers' },
   { to: '/portal/students', label: 'Students' },
   { to: '/portal/card-populator', label: 'Card populator' },

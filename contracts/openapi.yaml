@@ -181,6 +181,233 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/public/events:
+    get:
+      operationId: listPublicEvents
+      summary: Public event/category options for dispute submission
+      description: >-
+        Minimal unauthenticated event list for a student who has no OD records
+        yet but still needs to report a missed slot. The cap and ordering are
+        fixed server-side; the caller supplies no filters, status, page or
+        limit. Archived events are included because a dispute is commonly filed
+        after the event has closed. The response deliberately carries no branch,
+        coordinator, email, counts, credit or archive metadata.
+      responses:
+        "200":
+          description: Fixed-cap event/category options, most recent event_date first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicEventCollection"
+        "429":
+          description: Rate limited (RATE_LIMITED); carries a Retry-After header.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/public/disputes:
+    post:
+      operationId: submitPublicDispute
+      summary: Submit a missed-slot dispute without authentication
+      description: >-
+        First unauthenticated write in the API. The submitted email is verified
+        against the configured Amrita domain family, its local-part is resolved
+        to a roster roll number, and that resolved student must match the
+        selected public student id. Domain rejection, unknown roll and
+        email/student mismatch all return the same non-disclosing
+        DISPUTE_IDENTITY_UNVERIFIED validation envelope. The write co-commits a
+        dispute.submitted audit row and is guarded by both the public group
+        limiter and a stricter route-level dispute limiter.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicDisputeRequest"
+      responses:
+        "201":
+          description: Dispute created and audit row co-committed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicDisputeReceipt"
+        "400":
+          description: >-
+            Field validation failed (VALIDATION_FAILED, with typed details) or the
+            non-disclosing identity refusal (DISPUTE_IDENTITY_UNVERIFIED, which
+            carries no details by design so the three refusal paths stay
+            byte-identical).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ValidationError"
+                  - $ref: "#/components/schemas/Error"
+        "404":
+          description: Event or category not found (EVENT_NOT_FOUND or CATEGORY_NOT_FOUND).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: A matching open dispute already exists (DISPUTE_ALREADY_OPEN).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited (RATE_LIMITED); carries a Retry-After header.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/disputes:
+    get:
+      operationId: listDisputes
+      summary: Teacher/admin dispute inbox
+      description: >-
+        Authenticated inbox for missed-slot disputes. Admins see all disputes;
+        teachers see only disputes for students in their assigned branches,
+        scoped in SQL. Coordinators and students are refused with RBAC_FORBIDDEN.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [open, resolved, all]
+            default: open
+      responses:
+        "200":
+          description: Branch-scoped dispute rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DisputeCollection"
+        "400":
+          description: Query validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a teacher or admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/disputes/{dispute_id}/resolution:
+    post:
+      operationId: resolveDispute
+      summary: Resolve a dispute with an annotation only
+      description: >-
+        Marks an open dispute resolved with a non-empty note and co-commits a
+        dispute.resolved audit row. This does not create, correct or delete an
+        OD record; manual record repair belongs to the later record-management
+        surface.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: dispute_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DisputeResolutionRequest"
+      responses:
+        "200":
+          description: Dispute resolved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dispute"
+        "400":
+          description: Validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller cannot resolve this dispute.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Dispute not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Dispute already resolved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/scans:
     post:
       operationId: submitScans
@@ -2520,6 +2747,231 @@ components:
           items:
             $ref: "#/components/schemas/PublicStudent"
 
+    PublicEventCategory:
+      type: object
+      description: >-
+        Minimal public category option for dispute submission. Carries no event
+        metadata, branch, coordinator or attendance counts.
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+
+    PublicEvent:
+      type: object
+      description: >-
+        Minimal public event option for dispute submission. Deliberately omits
+        branches, archive state, coordinators, counts and credits; the public
+        dispute form only needs the event id, name, day and categories.
+      required: [event_id, name, event_date, categories]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+        event_date:
+          type: string
+          format: date
+        categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicEventCategory"
+
+    PublicEventCollection:
+      type: object
+      description: >-
+        Fixed-cap public event options. No page, total or limit appears because
+        the open internet supplies no knobs for this read.
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicEvent"
+
+    PublicDisputeRequest:
+      type: object
+      description: >-
+        Public missed-slot dispute submission. The request carries both the
+        selected public student id and the submitted university email; the
+        backend resolves the email local-part to a roster roll number and refuses
+        any mismatch with the same non-disclosing identity envelope. This public
+        input must never carry student display fields, user ids, card material,
+        resolution notes or another dispute's content.
+      required: [student_id, submitted_email, event_id, category_id, od_date, slot]
+      properties:
+        student_id:
+          type: string
+          format: uuid
+        submitted_email:
+          type: string
+          maxLength: 320
+          description: Lowercased for storage after domain validation; never echoed on public responses.
+        event_id:
+          type: string
+          format: uuid
+        category_id:
+          type: string
+          format: uuid
+        od_date:
+          type: string
+          format: date
+          description: The day the disputed OD belongs to, not the row write time.
+        slot:
+          type: integer
+          minimum: 1
+          maximum: 12
+        claimed_coordinator_name:
+          type: string
+          nullable: true
+          maxLength: 200
+          description: Optional free text; no public coordinator roster is exposed.
+        student_note:
+          type: string
+          nullable: true
+          maxLength: 1000
+
+    PublicDisputeReceipt:
+      type: object
+      description: >-
+        Public creation receipt. It proves server-side roster auto-population by
+        returning the resolved public student display shape, but deliberately
+        never echoes submitted_email, user ids, card material, dispute content or
+        resolution fields.
+      required: [dispute_id, reference, status, submitted_at, student]
+      properties:
+        dispute_id:
+          type: string
+          format: uuid
+        reference:
+          type: string
+          minLength: 1
+          maxLength: 16
+        status:
+          type: string
+          enum: [open]
+        submitted_at:
+          type: string
+          format: date-time
+        student:
+          $ref: "#/components/schemas/PublicStudent"
+
+    Dispute:
+      type: object
+      description: >-
+        Authenticated teacher/admin dispute row. This shape includes submitted
+        email and resolution fields, so no public schema may reference it.
+      required:
+        - dispute_id
+        - reference
+        - student
+        - submitted_email
+        - event_id
+        - event_name
+        - event_date
+        - category_id
+        - category_name
+        - od_date
+        - slot
+        - claimed_coordinator_name
+        - student_note
+        - status
+        - submitted_at
+        - resolution_note
+        - resolved_by_user_id
+        - resolved_at
+      properties:
+        dispute_id:
+          type: string
+          format: uuid
+        reference:
+          type: string
+        student:
+          $ref: "#/components/schemas/PublicStudent"
+        submitted_email:
+          type: string
+          maxLength: 320
+        event_id:
+          type: string
+          format: uuid
+        event_name:
+          type: string
+        event_date:
+          type: string
+          format: date
+        category_id:
+          type: string
+          format: uuid
+        category_name:
+          type: string
+        od_date:
+          type: string
+          format: date
+        slot:
+          type: integer
+          minimum: 1
+          maximum: 12
+        claimed_coordinator_name:
+          type: string
+          nullable: true
+          maxLength: 200
+        student_note:
+          type: string
+          nullable: true
+          maxLength: 1000
+        status:
+          type: string
+          enum: [open, resolved]
+        submitted_at:
+          type: string
+          format: date-time
+        resolution_note:
+          type: string
+          nullable: true
+          maxLength: 2000
+        resolved_by_user_id:
+          type: string
+          format: uuid
+          nullable: true
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    DisputeCollection:
+      type: object
+      required: [data, page, page_size, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Dispute"
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
+
+    DisputeResolutionRequest:
+      type: object
+      required: [resolution_note]
+      properties:
+        resolution_note:
+          type: string
+          minLength: 1
+          maxLength: 2000
+
     MarkStatus:
       type: object
       description: >-
@@ -2830,6 +3282,10 @@ components:
             - STUDENT_NOT_FOUND
             - ROLE_ALREADY_ASSIGNED
             - COORDINATOR_ASSIGNMENT_EXISTS
+            - DISPUTE_IDENTITY_UNVERIFIED
+            - DISPUTE_ALREADY_OPEN
+            - DISPUTE_NOT_FOUND
+            - DISPUTE_ALREADY_RESOLVED
             - INTERNAL
         message:
           type: string

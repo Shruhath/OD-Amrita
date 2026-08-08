@@ -17,6 +17,7 @@ package publicattendance
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -39,6 +40,11 @@ import (
 // is over forty event-days for one student — far beyond any realistic history,
 // while still bounding the response of an endpoint anyone can call.
 const maxRecordRows = 500
+
+// MaxPublicEventRows is exported so the integration suite can seed PAST the cap
+// and assert it. It was unexported and the cap was therefore unasserted —
+// deleting the LIMIT from ListPublicEvents left every test green.
+const MaxPublicEventRows = 100
 
 // Student is the display identity the dashboard shows. No email: `students` has
 // no such column, and the shape must stay unable to carry one.
@@ -81,6 +87,22 @@ type RecordCollection struct {
 	Student     Student
 	Days        []Day
 	GeneratedAt time.Time
+}
+
+type EventCategory struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type Event struct {
+	EventID    string
+	Name       string
+	EventDate  string
+	Categories []EventCategory
+}
+
+type EventCollection struct {
+	Data []Event
 }
 
 // Service reads the public attendance view.
@@ -149,6 +171,27 @@ func (s *Service) Records(ctx context.Context, studentID string) (RecordCollecti
 		Days:        groupByDay(rows),
 		GeneratedAt: s.now().UTC(),
 	}, nil
+}
+
+func (s *Service) PublicEvents(ctx context.Context) (EventCollection, error) {
+	rows, err := s.queries.ListPublicEvents(ctx, MaxPublicEventRows)
+	if err != nil {
+		return EventCollection{}, err
+	}
+	data := make([]Event, 0, len(rows))
+	for _, row := range rows {
+		var categories []EventCategory
+		if err := json.Unmarshal([]byte(row.CategoriesJson), &categories); err != nil {
+			return EventCollection{}, err
+		}
+		data = append(data, Event{
+			EventID:    uuid.UUID(row.ID.Bytes).String(),
+			Name:       row.Name,
+			EventDate:  row.EventDate.Time.Format(time.DateOnly),
+			Categories: categories,
+		})
+	}
+	return EventCollection{Data: data}, nil
 }
 
 // groupByDay folds the ordered rows into days, PRESERVING SQL order.

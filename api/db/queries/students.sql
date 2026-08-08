@@ -116,3 +116,16 @@ ORDER BY
     lower(s.name) ASC,
     s.id ASC
 LIMIT @result_limit::bigint;
+
+-- name: GetStudentByRollNo :one
+SELECT
+    s.id,
+    s.roll_no,
+    s.name,
+    b.code AS branch,
+    s.section,
+    s.batch
+FROM students s
+JOIN branches b ON b.id = s.branch_id
+WHERE s.roll_no = @roll_no
+LIMIT 1;

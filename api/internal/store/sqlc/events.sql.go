@@ -287,6 +287,57 @@ func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]ListE
 	return items, nil
 }
 
+const listPublicEvents = `-- name: ListPublicEvents :many
+SELECT
+    e.id,
+    e.name,
+    e.event_date,
+    COALESCE(
+        jsonb_agg(
+            jsonb_build_object('id', c.id, 'name', c.name)
+            ORDER BY c.name ASC, c.id ASC
+        ) FILTER (WHERE c.id IS NOT NULL),
+        '[]'::jsonb
+    )::text AS categories_json
+FROM events e
+LEFT JOIN categories c ON c.event_id = e.id
+GROUP BY e.id
+ORDER BY e.event_date DESC, e.created_at DESC, e.id DESC
+LIMIT $1::bigint
+`
+
+type ListPublicEventsRow struct {
+	ID             pgtype.UUID `json:"id"`
+	Name           string      `json:"name"`
+	EventDate      pgtype.Date `json:"event_date"`
+	CategoriesJson string      `json:"categories_json"`
+}
+
+func (q *Queries) ListPublicEvents(ctx context.Context, rowLimit int64) ([]ListPublicEventsRow, error) {
+	rows, err := q.db.Query(ctx, listPublicEvents, rowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPublicEventsRow
+	for rows.Next() {
+		var i ListPublicEventsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.EventDate,
+			&i.CategoriesJson,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTeacherPortalMarkEvents = `-- name: ListTeacherPortalMarkEvents :many
 SELECT
     e.id,
@@ -312,7 +363,7 @@ WHERE e.status = 'active'
       JOIN user_branches ub ON ub.branch_id = markable_eb.branch_id
       WHERE markable_eb.event_id = e.id
         AND ub.user_id = $1
-  )
+)
 GROUP BY e.id
 ORDER BY e.event_date ASC, e.created_at ASC, e.id ASC
 `

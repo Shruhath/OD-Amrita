@@ -31,6 +31,7 @@ const (
 	ActionAuthDomainRejected Action = "auth.domain_rejected"
 	ActionScanBlocked        Action = "scan.blocked"
 	ActionDisputeSubmitted   Action = "dispute.submitted"
+	ActionDisputeResolved    Action = "dispute.resolved"
 	ActionUserProvisioned    Action = "user.provisioned"
 	// ActionAuthSessionRevoked is the SETTLED forced-logout / session-revocation
 	// event (Story 1.5c). Story 1.7 owns the broader auth-event audit family and
@@ -66,6 +67,7 @@ var AllActions = []Action{
 	ActionAuthDomainRejected,
 	ActionScanBlocked,
 	ActionDisputeSubmitted,
+	ActionDisputeResolved,
 	ActionUserProvisioned,
 	ActionAuthSessionRevoked,
 	ActionEventCreated,

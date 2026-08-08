@@ -41,6 +41,7 @@ func TestAllActions_MatchesDeclaredConstants(t *testing.T) {
 		ActionAuthDomainRejected:      "auth.domain_rejected",
 		ActionScanBlocked:             "scan.blocked",
 		ActionDisputeSubmitted:        "dispute.submitted",
+		ActionDisputeResolved:         "dispute.resolved",
 		ActionUserProvisioned:         "user.provisioned",
 		ActionAuthSessionRevoked:      "auth.session_revoked",
 		ActionEventCreated:            "event.created",

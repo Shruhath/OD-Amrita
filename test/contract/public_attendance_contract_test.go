@@ -268,10 +268,22 @@ func TestPublicAttendanceContract_PublicSchemasNeverRefAnAuthenticatedSchema(t *
 // path would be waved past the bearer requirement by the very table that exists
 // to enumerate what may skip it — while the package doc insists no write may
 // exist in this group at all.
+// Story 0.11 adds the two entries below, and they are the first WRITE and the
+// first non-student-scoped read on this list. Both are argued for in the story's
+// locked decisions: the write is identity-verified against the roster (T1/T2),
+// rate limited by a second stricter bucket of its own (T14), duplicate-guarded by
+// a database constraint (T11) and audited under the submitter's own email (T13);
+// the event read returns four fields per event and no branch, coordinator, count
+// or archive metadata (T7). A third entry is a disclosure decision that belongs
+// here with a reason, exactly like these.
 var deliberatelyUnauthenticated = map[string]string{
 	"get /health":              "liveness probe on the bare router, outside /api/v1",
 	"get " + publicSearchPath:  "public dashboard search (FR38)",
 	"get " + publicRecordsPath: "public dashboard records read (FR39)",
+	"post " + publicDisputePath: "student dispute submission — the ONLY unauthenticated write in the system " +
+		"(FR41-FR43); identity-verified, audited, and behind its own stricter limiter",
+	"get " + publicEventsPath: "the four-field event list a never-marked student needs to name what they " +
+		"are disputing (T7); no branches, coordinators, counts or archive metadata",
 }
 
 // 0.10-CONTRACT-006 — the regression this story makes possible: every operation

@@ -48,13 +48,15 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/service/publicattendance"
 )
 
-// 0.10-INT-001 — records are grouped by the EVENT's date, most recent day first,
-// and ordered by slot ascending inside each day (AC 4).
+// 0.10-INT-001 — records are grouped by od_records.od_date, most recent day
+// first, and ordered by slot ascending inside each day (AC 4).
 //
-// T5 is the whole point: od_records has NO date column. Grouping by
-// server_received_at would file a teacher's next-morning correction under the
-// wrong day, which on this screen reads to the student as "I was not marked".
-func TestPublicAttendance_GroupsByEventDateNewestFirstAndSlotAscending(t *testing.T) {
+// The grouping key MOVED under Story 0.12a: it was events.event_date, which was
+// correct only while one event meant one day, and would now collapse a thirty-day
+// festival onto its first heading. It is still not server_received_at — that
+// would file a teacher's next-morning correction under the wrong day, which on
+// this screen reads to the student as "I was not marked".
+func TestPublicAttendance_GroupsByODDateNewestFirstAndSlotAscending(t *testing.T) {
 	ctx := testCtx(t)
 	migrator := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_MIGRATOR"))
 	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
@@ -67,9 +69,9 @@ func TestPublicAttendance_GroupsByEventDateNewestFirstAndSlotAscending(t *testin
 	// Deliberately inserted out of order — slot 7 before slot 2 on the later day,
 	// and the earlier day's row first of all. An already-sorted fixture cannot
 	// prove that anything sorted it.
-	seedPublicRecord(t, ctx, migrator, fixture.studentID, earlier.eventID, earlier.categoryID, 5, fixture.coordinatorID, "coordinator")
-	seedPublicRecord(t, ctx, migrator, fixture.studentID, fixture.eventID, fixture.categoryID, 7, fixture.coordinatorID, "coordinator")
-	seedPublicRecord(t, ctx, migrator, fixture.studentID, fixture.eventID, fixture.categoryID, 2, fixture.coordinatorID, "coordinator")
+	seedPublicRecord(t, ctx, migrator, fixture.studentID, earlier.eventID, earlier.categoryID, 5, fixture.coordinatorID, "coordinator", "2026-08-01")
+	seedPublicRecord(t, ctx, migrator, fixture.studentID, fixture.eventID, fixture.categoryID, 7, fixture.coordinatorID, "coordinator", "2026-08-03")
+	seedPublicRecord(t, ctx, migrator, fixture.studentID, fixture.eventID, fixture.categoryID, 2, fixture.coordinatorID, "coordinator", "2026-08-03")
 
 	collection, err := publicattendance.NewSQLCService(runtime).Records(ctx, fixture.studentID)
 	if err != nil {
@@ -79,11 +81,11 @@ func TestPublicAttendance_GroupsByEventDateNewestFirstAndSlotAscending(t *testin
 	if len(collection.Days) != 2 {
 		t.Fatalf("[P0] got %d days, want 2 (2026-08-03 and 2026-08-01)", len(collection.Days))
 	}
-	if got := collection.Days[0].EventDate; got != "2026-08-03" {
+	if got := collection.Days[0].ODDate; got != "2026-08-03" {
 		t.Errorf("[P0] first day = %q, want 2026-08-03 — most recent day first, or a student opening the "+
 			"page at 10pm scrolls past last month to find today", got)
 	}
-	if got := collection.Days[1].EventDate; got != "2026-08-01" {
+	if got := collection.Days[1].ODDate; got != "2026-08-01" {
 		t.Errorf("[P0] second day = %q, want 2026-08-01", got)
 	}
 
@@ -128,7 +130,7 @@ func TestPublicAttendance_ArchivedEventRecordsAreStillReturned(t *testing.T) {
 	// child mutations on an archived event, so seeding in the other order fails —
 	// a trap worth stating out loud because the error surfaces as a confusing
 	// permission-shaped failure on the INSERT rather than on the archive.
-	seedPublicRecord(t, ctx, migrator, fixture.studentID, archived.eventID, archived.categoryID, 3, fixture.coordinatorID, "coordinator")
+	seedPublicRecord(t, ctx, migrator, fixture.studentID, archived.eventID, archived.categoryID, 3, fixture.coordinatorID, "coordinator", "2026-07-28")
 	// archived_by_user_id is NOT optional here: events_archive_state_ck requires
 	// status/archived_at/archived_by_user_id to move together, so an UPDATE that
 	// sets only the first two is rejected by the constraint rather than by
@@ -146,7 +148,7 @@ func TestPublicAttendance_ArchivedEventRecordsAreStillReturned(t *testing.T) {
 
 	found := false
 	for _, day := range collection.Days {
-		if day.EventDate == "2026-07-28" {
+		if day.ODDate == "2026-07-28" {
 			found = true
 		}
 	}
@@ -176,7 +178,7 @@ func TestPublicAttendance_MarkerNameIsShownAndSurvivesActorDeletion(t *testing.T
 		doomedID, "atdd-doomed-"+doomedID); err != nil {
 		t.Fatalf("seed doomed actor: %v", err)
 	}
-	seedPublicRecord(t, ctx, migrator, fixture.studentID, fixture.eventID, fixture.categoryID, 4, doomedID, "teacher")
+	seedPublicRecord(t, ctx, migrator, fixture.studentID, fixture.eventID, fixture.categoryID, 4, doomedID, "teacher", "2026-08-03")
 
 	svc := publicattendance.NewSQLCService(runtime)
 
@@ -260,7 +262,7 @@ func TestPublicAttendance_ReadsWriteNoAuditAndNoRecords(t *testing.T) {
 	migrator := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_MIGRATOR"))
 	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
 	fixture := seedMarkFixture(t, ctx, migrator)
-	seedPublicRecord(t, ctx, migrator, fixture.studentID, fixture.eventID, fixture.categoryID, 6, fixture.coordinatorID, "coordinator")
+	seedPublicRecord(t, ctx, migrator, fixture.studentID, fixture.eventID, fixture.categoryID, 6, fixture.coordinatorID, "coordinator", "2026-08-03")
 
 	beforeAudit := countRows(t, ctx, migrator, "audit_log")
 	beforeRecords := countRows(t, ctx, migrator, "od_records")
@@ -301,8 +303,8 @@ func seedPublicEvent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, name
 	t.Helper()
 	fixture := publicEventFixture{eventID: uuid.NewString(), categoryID: uuid.NewString()}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO events (id, name, event_date, status)
-		VALUES ($1, $2, $3::date, 'active')`, fixture.eventID, name, eventDate); err != nil {
+		INSERT INTO events (id, name, event_date, end_date, status)
+		VALUES ($1, $2, $3::date, $3::date, 'active')`, fixture.eventID, name, eventDate); err != nil {
 		t.Fatalf("seed public event %q: %v", name, err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -318,16 +320,20 @@ func seedPublicEvent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, name
 // Distinct from seedAttendanceRecord (teacher_admin_attendance_integration_test.go),
 // which creates a new student per call: these tests need MANY records for ONE
 // student, which is the whole shape of a per-student public read.
+// odDate is passed EXPLICITLY rather than derived from the event or from now():
+// the grouping key under test is od_records.od_date, and a fixture that let the
+// database or the clock choose it would make every day assertion below agree
+// with whatever the code did.
 func seedPublicRecord(
 	t *testing.T, ctx context.Context, pool *pgxpool.Pool,
-	studentID, eventID, categoryID string, slot int, actorUserID, actorRole string,
+	studentID, eventID, categoryID string, slot int, actorUserID, actorRole, odDate string,
 ) {
 	t.Helper()
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO od_records
-			(id, student_id, event_id, category_id, slot, status, capture_method, actor_user_id, actor_role, server_received_at)
-		VALUES ($1, $2, $3, $4, $5, 'present', 'search', $6, $7, now())`,
-		uuid.NewString(), studentID, eventID, categoryID, slot, actorUserID, actorRole); err != nil {
+			(id, student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role, server_received_at)
+		VALUES ($1, $2, $3, $4, $5, $8::date, 'present', 'search', $6, $7, now())`,
+		uuid.NewString(), studentID, eventID, categoryID, slot, actorUserID, actorRole, odDate); err != nil {
 		t.Fatalf("seed public od record (slot %d): %v", slot, err)
 	}
 }

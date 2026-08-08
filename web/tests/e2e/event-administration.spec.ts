@@ -335,7 +335,7 @@ test.describe('Admin event administration E2E journeys (ATDD red phase)', () => 
     await page.getByRole('button', { name: 'New event' }).click()
     const dialog = page.getByRole('dialog', { name: 'New event' })
     await dialog.getByLabel('Event name').fill('Community Outreach Day')
-    await dialog.getByLabel('Event date').fill('2026-09-05')
+    await dialog.getByLabel('Start date').fill('2026-09-05')
     await dialog.getByRole('checkbox', { name: 'Computer Science and Engineering' }).check()
     await dialog.getByRole('checkbox', { name: 'Electronics and Communication Engineering' }).check()
 
@@ -343,9 +343,14 @@ test.describe('Admin event administration E2E journeys (ATDD red phase)', () => 
       request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/admin/events')
     await dialog.getByRole('button', { name: 'Create event' }).click()
     const request = await createRequest
+    // `end_date` follows the start date until the admin moves it, so a one-day
+    // event sends the two dates equal rather than omitting the second. Kept an
+    // exact `toEqual`: this is the gate that forces a new request field to be a
+    // decision instead of a drift.
     expect(request.postDataJSON()).toEqual({
       name: 'Community Outreach Day',
       event_date: '2026-09-05',
+      end_date: '2026-09-05',
       branch_ids: [computerScience.id, electronics.id],
     })
 
@@ -472,7 +477,7 @@ test.describe('Admin event administration E2E journeys (ATDD red phase)', () => 
     const dialog = page.getByRole('dialog', { name: 'New event' })
     const name = dialog.getByLabel('Event name')
     await name.fill('Innovation Day')
-    await dialog.getByLabel('Event date').fill('2026-08-15')
+    await dialog.getByLabel('Start date').fill('2026-08-15')
     await dialog.getByRole('checkbox', { name: 'Computer Science and Engineering' }).check()
     await dialog.getByRole('button', { name: 'Create event' }).click()
 
@@ -502,7 +507,7 @@ test.describe('Admin event administration E2E journeys (ATDD red phase)', () => 
     const createDialog = page.getByRole('dialog', { name: 'New event' })
     await expect(createDialog.getByLabel('Event name')).toBeFocused()
     await createDialog.getByLabel('Event name').fill('Keyboard Event')
-    await createDialog.getByLabel('Event date').fill('2026-10-12')
+    await createDialog.getByLabel('Start date').fill('2026-10-12')
     const branch = createDialog.getByRole('checkbox', { name: 'Computer Science and Engineering' })
     await branch.focus()
     await page.keyboard.press('Space')

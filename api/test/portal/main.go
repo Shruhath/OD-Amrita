@@ -71,9 +71,14 @@ const (
 // The marking fixtures. The coordinator surface needs a principal that
 // production never creates on its own — every first-time user is provisioned as
 // `student`, and Story 0.7 is the supported way to elevate one — plus an event
-// dated TODAY, because odrecord.ActiveSlot compares against events.event_date in
-// Asia/Kolkata. An event dated any other day makes every slot assertion
-// vacuously "no slot open", which is a suite that passes while proving nothing.
+// whose RANGE covers today, because odrecord.ActiveSlot asks whether today falls
+// between events.event_date and events.end_date in Asia/Kolkata. An event whose
+// range excludes today makes every slot assertion vacuously "no slot open",
+// which is a suite that passes while proving nothing.
+//
+// The range is yesterday -> tomorrow rather than today -> today on purpose: a
+// single-day event would still pass if containment were implemented as the old
+// date equality, so the harness would not notice the feature was missing.
 const (
 	markingEventID    = "93000000-0000-4000-8000-000000000001"
 	markingCategoryID = "94000000-0000-4000-8000-000000000001"
@@ -111,6 +116,20 @@ const (
 	disputeEventName       = "Browser Dispute Event"
 	disputeStudentID       = "95000000-0000-4000-8000-000000000011"
 	disputeStudentRoll     = "CB.SC.U4CSE24010"
+
+	// The multi-day fixtures own their OWN event id and their OWN student, both
+	// disjoint from every pool above.
+	//
+	// A separate event rather than a reuse of the public-dashboard one because
+	// web-deploy.yml asserts an EXACT record count for the two Story 0.10 event
+	// ids: adding this journey's rows to those events would turn a conservation
+	// gate red for a reason that has nothing to do with what it guards, and the
+	// tempting fix would be to loosen the number.
+	multiDayEventID     = "93000000-0000-4000-8000-000000000006"
+	multiDayCategoryID  = "94000000-0000-4000-8000-000000000006"
+	multiDayEventName   = "Browser Multi Day Event"
+	multiDayStudentID   = "95000000-0000-4000-8000-000000000012"
+	multiDayStudentRoll = "CB.SC.U4CSE24011"
 )
 
 // teacherFixtureEmail is the student-role row the teacher-profile browser
@@ -558,12 +577,15 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 	// spec says so explicitly rather than pretending otherwise.
 	campusNow := time.Now().In(campusLocation())
 	today := time.Date(campusNow.Year(), campusNow.Month(), campusNow.Day(), 0, 0, 0, 0, time.UTC)
+	rangeStart := today.AddDate(0, 0, -1)
+	rangeEnd := today.AddDate(0, 0, 1)
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO events (id, name, event_date, status)
-		VALUES ($1, $2, $3, 'active')
+		INSERT INTO events (id, name, event_date, end_date, status)
+		VALUES ($1, $2, $3, $4, 'active')
 		ON CONFLICT (id) DO UPDATE
-		SET name = EXCLUDED.name, event_date = EXCLUDED.event_date, status = 'active', archived_at = NULL
-	`, markingEventID, markingEventName, today); err != nil {
+		SET name = EXCLUDED.name, event_date = EXCLUDED.event_date, end_date = EXCLUDED.end_date,
+		    status = 'active', archived_at = NULL
+	`, markingEventID, markingEventName, rangeStart, rangeEnd); err != nil {
 		return fmt.Errorf("upsert marking event: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
@@ -611,6 +633,9 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 	if err := seedDisputeJourney(ctx, tx); err != nil {
 		return err
 	}
+	if err := seedMultiDayJourney(ctx, tx, today); err != nil {
+		return err
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit transaction: %w", err)
@@ -647,10 +672,10 @@ func seedDisputeJourney(ctx context.Context, tx pgx.Tx) error {
 		return fmt.Errorf("upsert dispute student fixture: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO events (id, name, event_date, status)
-		VALUES ($1, $2, $3, 'active')
+		INSERT INTO events (id, name, event_date, end_date, status)
+		VALUES ($1, $2, $3, $3, 'active')
 		ON CONFLICT (id) DO UPDATE
-		SET name = EXCLUDED.name, event_date = EXCLUDED.event_date,
+		SET name = EXCLUDED.name, event_date = EXCLUDED.event_date, end_date = EXCLUDED.end_date,
 		    status = 'active', archived_at = NULL, archived_by_user_id = NULL
 	`, disputeEventID, disputeEventName, eventDate); err != nil {
 		return fmt.Errorf("upsert dispute event fixture: %w", err)
@@ -678,10 +703,81 @@ func seedDisputeJourney(ctx context.Context, tx pgx.Tx) error {
 	for _, slot := range []int{1, 2, 4} {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO od_records
-				(student_id, event_id, category_id, slot, status, capture_method, actor_user_id, actor_role, server_received_at)
-			VALUES ($1, $2, $3, $4, 'present', 'search', '90000000-0000-4000-8000-000000000004', 'teacher', now())
-		`, disputeStudentID, disputeEventID, disputeCategoryID, slot); err != nil {
+				(student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role, server_received_at)
+			VALUES ($1, $2, $3, $4, $5, 'present', 'search', '90000000-0000-4000-8000-000000000004', 'teacher', now())
+		`, disputeStudentID, disputeEventID, disputeCategoryID, slot, eventDate); err != nil {
 			return fmt.Errorf("seed dispute od record slot %d: %w", slot, err)
+		}
+	}
+	return nil
+}
+
+// seedMultiDayJourney seeds one event spanning THREE days and one student
+// marked on each of them.
+//
+// Three days rather than two because two is the smallest number that can be
+// produced by accident: a grouping still keyed on the event would collapse all
+// three to one heading, and a grouping keyed on receipt time would collapse them
+// to one as well (the seed runs in a single transaction), so only a grouping on
+// od_date yields three. The days are explicit, never derived from now(), or the
+// assertion agrees with whatever the code chose.
+//
+// Runs LAST, after the CB.SC.U4CSE%% sweep and after every od_records delete
+// above, for the same reason seedPublicDashboard does.
+func seedMultiDayJourney(ctx context.Context, tx pgx.Tx, today time.Time) error {
+	// The range brackets today so the event is live while the journey runs, and
+	// every seeded day falls inside it — od_records carries a database trigger
+	// that refuses a day outside the event's range.
+	rangeStart := today.AddDate(0, 0, -1)
+	rangeEnd := today.AddDate(0, 0, 1)
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO students (id, roll_no, name, branch_id, section, batch)
+		VALUES ($1, $2, 'Multi Day Student', '91000000-0000-4000-8000-000000000001', 'A', '2024')
+		ON CONFLICT (id) DO UPDATE
+		SET roll_no = EXCLUDED.roll_no, name = EXCLUDED.name, branch_id = EXCLUDED.branch_id,
+		    section = EXCLUDED.section, batch = EXCLUDED.batch
+	`, multiDayStudentID, multiDayStudentRoll); err != nil {
+		return fmt.Errorf("upsert multi-day student fixture: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO events (id, name, event_date, end_date, status)
+		VALUES ($1, $2, $3, $4, 'active')
+		ON CONFLICT (id) DO UPDATE
+		SET name = EXCLUDED.name, event_date = EXCLUDED.event_date, end_date = EXCLUDED.end_date,
+		    status = 'active', archived_at = NULL, archived_by_user_id = NULL
+	`, multiDayEventID, multiDayEventName, rangeStart, rangeEnd); err != nil {
+		return fmt.Errorf("upsert multi-day event fixture: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO event_branches (event_id, branch_id)
+		VALUES ($1, '91000000-0000-4000-8000-000000000001')
+		ON CONFLICT DO NOTHING
+	`, multiDayEventID); err != nil {
+		return fmt.Errorf("associate multi-day event branch: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO categories (id, event_id, name)
+		VALUES ($1, $2, 'Multi Day Procession')
+		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+	`, multiDayCategoryID, multiDayEventID); err != nil {
+		return fmt.Errorf("upsert multi-day category: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM od_records WHERE event_id = $1`, multiDayEventID); err != nil {
+		return fmt.Errorf("clear multi-day od records: %w", err)
+	}
+
+	// The SAME slot on all three days. That is the FR10 change stated as a
+	// fixture: before this story the unique index refused the second and third
+	// rows outright, so a seed that varied the slot would still load against the
+	// old schema and prove nothing.
+	for _, day := range []time.Time{rangeStart, today, rangeEnd} {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO od_records
+				(student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role, server_received_at)
+			VALUES ($1, $2, $3, 6, $4, 'present', 'nfc', '90000000-0000-4000-8000-000000000003', 'coordinator', now())
+		`, multiDayStudentID, multiDayEventID, multiDayCategoryID, day); err != nil {
+			return fmt.Errorf("seed multi-day od record for %s: %w", day.Format("2006-01-02"), err)
 		}
 	}
 	return nil
@@ -721,10 +817,10 @@ func seedPublicDashboard(ctx context.Context, tx pgx.Tx, eventDate time.Time) er
 		{publicArchivedEventID, publicArchivedName, publicArchivedCategory, "Cultural"},
 	} {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO events (id, name, event_date, status)
-			VALUES ($1, $2, $3, 'active')
+			INSERT INTO events (id, name, event_date, end_date, status)
+			VALUES ($1, $2, $3, $3, 'active')
 			ON CONFLICT (id) DO UPDATE
-			SET name = EXCLUDED.name, event_date = EXCLUDED.event_date,
+			SET name = EXCLUDED.name, event_date = EXCLUDED.event_date, end_date = EXCLUDED.end_date,
 			    status = 'active', archived_at = NULL, archived_by_user_id = NULL
 		`, event.id, event.name, eventDate); err != nil {
 			return fmt.Errorf("upsert public event %s: %w", event.name, err)
@@ -761,9 +857,9 @@ func seedPublicDashboard(ctx context.Context, tx pgx.Tx, eventDate time.Time) er
 	} {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO od_records
-				(student_id, event_id, category_id, slot, status, capture_method, actor_user_id, actor_role, server_received_at)
-			VALUES ($1, $2, $3, $4, 'present', 'nfc', '90000000-0000-4000-8000-000000000003', 'coordinator', now())
-		`, publicStudentID, record.eventID, record.categoryID, record.slot); err != nil {
+				(student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role, server_received_at)
+			VALUES ($1, $2, $3, $4, $5, 'present', 'nfc', '90000000-0000-4000-8000-000000000003', 'coordinator', now())
+		`, publicStudentID, record.eventID, record.categoryID, record.slot, eventDate); err != nil {
 			return fmt.Errorf("seed public od record slot %d: %w", record.slot, err)
 		}
 	}

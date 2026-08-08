@@ -6,16 +6,28 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
 
+	"github.com/Shruhath/OD-Amrita/api/internal/campus"
 	"github.com/Shruhath/OD-Amrita/api/internal/domain"
 	eventsvc "github.com/Shruhath/OD-Amrita/api/internal/service/event"
 	"github.com/Shruhath/OD-Amrita/api/internal/store"
 )
+
+// campusToday is the day the admin credit surface acts on.
+//
+// Computed the same way the service does — campus-local midnight in
+// Asia/Kolkata — rather than as the test host's date, which differs from the
+// campus date for five and a half hours of every day and would make these
+// fixtures fail overnight in CI.
+func campusToday() time.Time {
+	return campus.Date(time.Now())
+}
 
 func TestCaptureCreditAdminSummary_ListsAssignedCoordinatorsOnly(t *testing.T) {
 	ctx := testContext(t)
@@ -24,14 +36,19 @@ func TestCaptureCreditAdminSummary_ListsAssignedCoordinatorsOnly(t *testing.T) {
 	otherEvent := seedActiveEvent(t, ctx, migrator, "Other Credit Event")
 	otherCoord := seedUser(t, ctx, migrator, "other-credit-coord@amrita.edu", "coordinator")
 	insertCoordinatorAssignment(t, ctx, migrator, otherEvent, otherCoord, fixture.adminID)
+	// The pool is per DAY, and the admin surface reads TODAY's — a live cap
+	// intervention can only ever be about the day in progress. Seeded at the
+	// campus date rather than at whatever `now()` would default to, so the read
+	// below asserts against a day this test named.
+	today := campusToday()
 	if _, err := migrator.Exec(ctx, `
-		INSERT INTO event_capture_credit_usage (event_id, user_id, consumed)
-		VALUES ($1, $2, 3)`, otherEvent, otherCoord); err != nil {
+		INSERT INTO event_capture_credit_usage (event_id, user_id, usage_date, consumed)
+		VALUES ($1, $2, $3, 3)`, otherEvent, otherCoord, today); err != nil {
 		t.Fatalf("seed other usage: %v", err)
 	}
 	if _, err := migrator.Exec(ctx, `
-		INSERT INTO event_capture_credit_usage (event_id, user_id, consumed)
-		VALUES ($1, $2, 4)`, fixture.eventID, fixture.coordinatorA); err != nil {
+		INSERT INTO event_capture_credit_usage (event_id, user_id, usage_date, consumed)
+		VALUES ($1, $2, $3, 4)`, fixture.eventID, fixture.coordinatorA, today); err != nil {
 		t.Fatalf("seed usage: %v", err)
 	}
 
@@ -84,9 +101,12 @@ func TestCaptureCreditAdminReset_ResetAuditsExactlyOnce(t *testing.T) {
 	ctx := testContext(t)
 	migrator, runtime, _ := isolatedCategoryDatabase(t, ctx)
 	fixture := seedCaptureCreditAdminFixture(t, ctx, migrator)
+	// Today's pool: a reset acts on the day in progress, so a row dated any
+	// other day would leave nothing for it to zero and the assertion would pass
+	// against an untouched database.
 	if _, err := migrator.Exec(ctx, `
-		INSERT INTO event_capture_credit_usage (event_id, user_id, consumed)
-		VALUES ($1, $2, 3)`, fixture.eventID, fixture.coordinatorA); err != nil {
+		INSERT INTO event_capture_credit_usage (event_id, user_id, usage_date, consumed)
+		VALUES ($1, $2, $3, 3)`, fixture.eventID, fixture.coordinatorA, campusToday()); err != nil {
 		t.Fatalf("seed usage: %v", err)
 	}
 

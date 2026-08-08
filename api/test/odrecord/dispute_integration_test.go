@@ -332,15 +332,20 @@ func TestDispute_SameSlotOnADifferentDayIsADifferentDispute(t *testing.T) {
 	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
 	fixture := seedMarkFixture(t, ctx, migrator)
 
-	// A second day inside the event. Until 0.12a lands an event is a single day,
-	// so widen this fixture event's range rather than inventing a second event —
-	// two events would pass even with od_date missing from the key, which would
-	// make this test prove nothing.
+	// A second day inside the event. Widen this fixture event's range rather than
+	// inventing a second event — two events would pass even with od_date missing
+	// from the key, which would make this test prove nothing.
+	//
+	// UN-SKIPPED under Story 0.12a (T21). This used to t.Skipf when the UPDATE
+	// failed, because an event was a single day and `events.end_date` did not
+	// exist. It does now, and this is the test that proves the multi-day duplicate
+	// rule actually works — re-skipping it or deleting it is weakening a gate.
 	if _, err := migrator.Exec(ctx, `
 		UPDATE events SET end_date = $2::date WHERE id = $1`, fixture.eventID, "2026-08-04"); err != nil {
-		t.Skipf("events has no end_date yet (Story 0.12a adds it): %v.\n"+
-			"This test still matters NOW — od_date must be in the table and in the unique index from "+
-			"CREATION (amended 2026-08-06). Un-skip it as soon as 0.12a widens the event.", err)
+		t.Fatalf("[P0] widening the fixture event to a real range failed: %v.\n"+
+			"`events.end_date` is added by migration 0015 (T4). Until it exists this test cannot run at all — "+
+			"and it is the one that proves a student missed in slot 8 on two different days has two genuine "+
+			"grievances rather than one duplicate.", err)
 	}
 
 	roll := "CB.SC.U4CSE24807"
@@ -808,8 +813,9 @@ func TestDispute_PublicEventsCapIsEnforcedByTheServer(t *testing.T) {
 	for i := 0; i < need; i++ {
 		id := uuid.NewString()
 		if _, err := migrator.Exec(ctx, `
-			INSERT INTO events (id, name, event_date, status)
-			VALUES ($1, $2, DATE '2026-06-01' + ($3::int || ' days')::interval, 'active')`,
+			INSERT INTO events (id, name, event_date, end_date, status)
+			VALUES ($1, $2, DATE '2026-06-01' + ($3::int || ' days')::interval,
+			        DATE '2026-06-01' + ($3::int || ' days')::interval, 'active')`,
 			id, fmt.Sprintf("ATDD Dispute Cap Event %d", i), int32(i)); err != nil {
 			t.Fatalf("seed cap event %d: %v", i, err)
 		}

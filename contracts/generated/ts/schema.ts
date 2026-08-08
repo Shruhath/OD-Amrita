@@ -683,8 +683,16 @@ export interface components {
             /** Format: uuid */
             id: string;
             name: string;
-            /** Format: date */
+            /**
+             * Format: date
+             * @description FIRST day of the event's range. Deliberately not renamed to `start_date`; `end_date` is the last day.
+             */
             event_date: string;
+            /**
+             * Format: date
+             * @description Last day of the event's range, equal to `event_date` for a one-day event. Required because the server always has one — every event predating the range was backfilled to a single day.
+             */
+            end_date: string;
             status: components["schemas"]["EventStatus"];
             branches: components["schemas"]["BranchSummary"][];
             /** Format: date-time */
@@ -695,8 +703,16 @@ export interface components {
         CreateEventRequest: {
             /** @description Trimmed, nonblank event name. */
             name: string;
-            /** Format: date */
+            /**
+             * Format: date
+             * @description First day of the event's range.
+             */
             event_date: string;
+            /**
+             * Format: date
+             * @description Last day of the event's range. OPTIONAL, and omitting it creates a one-day event — which is what makes "an event created with a single day behaves exactly as before" true at the API boundary. Must not be before `event_date`; the range is bounded at 90 days inclusive.
+             */
+            end_date?: string;
             branch_ids: string[];
         };
         EventCollection: {
@@ -873,8 +889,16 @@ export interface components {
             /** Format: uuid */
             event_id: string;
             event_name: string;
-            /** Format: date */
+            /**
+             * Format: date
+             * @description The EVENT's first day, kept alongside `od_date` because the dispute form builds its event options from it. Not the day this OD belongs to — that is `od_date`, and on a multi-day event they differ.
+             */
             event_date: string;
+            /**
+             * Format: date
+             * @description The day this OD belongs to. Never the day the row was written: a teacher's next-morning correction files under the day it fixes.
+             */
+            od_date: string;
             /** Format: uuid */
             category_id: string;
             category_name: string;
@@ -887,10 +911,13 @@ export interface components {
              */
             marked_at: string;
         };
-        /** @description One day's records. The grouping key is the EVENT's date, not the mark's receipt time — `od_records` has no date column, and one event is one day in this model. */
+        /** @description One day's records. The grouping key is `od_records.od_date` — the day the OD belongs to — and NOT the event's first day, which would collapse a thirty-day festival onto one heading, nor the mark's receipt time, which would file a next-morning correction under the wrong day. */
         PublicODDay: {
-            /** Format: date */
-            event_date: string;
+            /**
+             * Format: date
+             * @description Renamed from `event_date`: the key must name the fact it holds, and on a multi-day event those are different days.
+             */
+            od_date: string;
             /** @description Present records for this day, ordered by slot ascending. */
             records: components["schemas"]["PublicODRecord"][];
         };
@@ -915,13 +942,21 @@ export interface components {
             id: string;
             name: string;
         };
-        /** @description Minimal public event option for dispute submission. Deliberately omits branches, archive state, coordinators, counts and credits; the public dispute form only needs the event id, name, day and categories. */
+        /** @description Minimal public event option for dispute submission. Deliberately omits branches, archive state, coordinators, counts and credits; the public dispute form only needs the event id, name, days and categories. */
         PublicEvent: {
             /** Format: uuid */
             event_id: string;
             name: string;
-            /** Format: date */
+            /**
+             * Format: date
+             * @description First day of the event's range.
+             */
             event_date: string;
+            /**
+             * Format: date
+             * @description Last day of the event's range. The dispute form enumerates `event_date … end_date` as its bounded day options, so without it a student could not report a missed slot on day 2 of a festival.
+             */
+            end_date: string;
             categories: components["schemas"]["PublicEventCategory"][];
         };
         /** @description Fixed-cap public event options. No page, total or limit appears because the open internet supplies no knobs for this read. */
@@ -1083,6 +1118,11 @@ export interface components {
             event_id: string;
             category: components["schemas"]["Category"];
             slot: number;
+            /**
+             * Format: date
+             * @description The day this OD belongs to. Without it a thirty-day event's list interleaves thirty days of the same slot with nothing on screen distinguishing them.
+             */
+            od_date: string;
             capture_method: components["schemas"]["CaptureMethod"];
             marked_by: components["schemas"]["AttendanceActor"];
             /** @enum {string} */
@@ -1999,6 +2039,8 @@ export interface operations {
             query?: {
                 category_id?: string;
                 slot?: number;
+                /** @description Narrow the list to one day of a multi-day event. Optional: the unfiltered read across the whole range stays the default. */
+                od_date?: string;
                 page?: number;
                 page_size?: number;
             };

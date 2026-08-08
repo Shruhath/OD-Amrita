@@ -62,14 +62,18 @@ const (
 var publicDisputeSchemaAllowlists = map[string][]string{
 	"PublicDisputeRequest": {"student_id", "submitted_email", "event_id", "category_id", "od_date", "slot", "claimed_coordinator_name", "student_note"},
 	"PublicDisputeReceipt": {"dispute_id", "reference", "status", "submitted_at", "student"},
-	// PublicEvent gains "end_date" under Story 0.12a, when an event becomes a real
-	// date range and the form's day picker has more than one option to offer. It is
-	// deliberately NOT declared now: `events` has no such column yet, and a
-	// contract that promises a field the database cannot produce is worse than one
-	// that grows by a reviewed line later. Add it to this allowlist in the SAME
-	// change that adds the column — the exact-match assertion below is what forces
-	// that to be a decision rather than a drift.
-	"PublicEvent":           {"event_id", "name", "event_date", "categories"},
+	// `end_date` was added under Story 0.12a, honouring the instruction this
+	// comment used to carry: an event is now a real date range, and the dispute
+	// form's day picker enumerates event_date..end_date. Without the range on the
+	// wire the picker has exactly one option and a student missed on day 17 of a
+	// festival cannot report it at all.
+	//
+	// It discloses nothing a visitor could not already read: the event's start
+	// date has been on this schema since 0.11, and the end date of a public campus
+	// festival is not a secret. What it DOES do is bound the day control — which is
+	// the point of T23, since an unbounded <input type="date"> lets an anonymous
+	// submitter file against any day in history.
+	"PublicEvent":           {"event_id", "name", "event_date", "end_date", "categories"},
 	"PublicEventCategory":   {"id", "name"},
 	"PublicEventCollection": {"data"},
 }

@@ -34,9 +34,21 @@ const (
 // argued for here, which is the only form of this test that protects an
 // open-internet response (AC 5).
 var publicSchemaAllowlists = map[string][]string{
-	"PublicStudent":              {"student_id", "roll_no", "display_name", "branch", "section", "batch"},
-	"PublicODRecord":             {"record_id", "slot", "event_id", "event_name", "event_date", "category_id", "category_name", "marked_by_name", "marked_by_role", "marked_at"},
-	"PublicODDay":                {"event_date", "records"},
+	"PublicStudent": {"student_id", "roll_no", "display_name", "branch", "section", "batch"},
+	// `od_date` joins both shapes under Story 0.12a, and the two dates are NOT
+	// redundant. On the RECORD, `event_date` stays the event's FIRST day because
+	// eventsFromRecords() builds the dispute form's event options from it, while
+	// `od_date` is the day this particular OD belongs to. On the DAY group,
+	// `event_date` is RENAMED to `od_date` rather than supplemented: the grouping
+	// key must not lie about which fact it holds, or a thirty-day festival
+	// collapses onto one heading and reads as twenty-nine days of missing
+	// attendance.
+	//
+	// Both are disclosure decisions like every other entry here — a date is the
+	// one field on this response that says when a named student was physically
+	// somewhere, and it is served to the open internet.
+	"PublicODRecord":             {"record_id", "slot", "event_id", "event_name", "event_date", "od_date", "category_id", "category_name", "marked_by_name", "marked_by_role", "marked_at"},
+	"PublicODDay":                {"od_date", "records"},
 	"PublicODRecordCollection":   {"student", "days", "generated_at"},
 	"PublicStudentSearchResults": {"data"},
 }

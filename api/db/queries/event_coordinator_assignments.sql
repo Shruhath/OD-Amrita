@@ -46,6 +46,7 @@ SELECT
     e.id,
     e.name,
     e.event_date,
+    e.end_date,
     e.status,
     e.archived_at,
     e.created_at,

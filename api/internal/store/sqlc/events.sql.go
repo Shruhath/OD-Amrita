@@ -65,32 +65,35 @@ func (q *Queries) CountEvents(ctx context.Context, status string) (int64, error)
 }
 
 const createEvent = `-- name: CreateEvent :one
-INSERT INTO events (name, event_date)
-VALUES ($1, $2)
-RETURNING id, name, event_date, status, archived_at, created_at
+INSERT INTO events (name, event_date, end_date)
+VALUES ($1, $2, $3)
+RETURNING id, name, event_date, end_date, status, archived_at, created_at
 `
 
 type CreateEventParams struct {
 	Name      string      `json:"name"`
 	EventDate pgtype.Date `json:"event_date"`
+	EndDate   pgtype.Date `json:"end_date"`
 }
 
 type CreateEventRow struct {
 	ID         pgtype.UUID        `json:"id"`
 	Name       string             `json:"name"`
 	EventDate  pgtype.Date        `json:"event_date"`
+	EndDate    pgtype.Date        `json:"end_date"`
 	Status     string             `json:"status"`
 	ArchivedAt pgtype.Timestamptz `json:"archived_at"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }
 
 func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) (CreateEventRow, error) {
-	row := q.db.QueryRow(ctx, createEvent, arg.Name, arg.EventDate)
+	row := q.db.QueryRow(ctx, createEvent, arg.Name, arg.EventDate, arg.EndDate)
 	var i CreateEventRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
 		&i.EventDate,
+		&i.EndDate,
 		&i.Status,
 		&i.ArchivedAt,
 		&i.CreatedAt,
@@ -103,6 +106,7 @@ SELECT
     e.id,
     e.name,
     e.event_date,
+    e.end_date,
     e.status,
     e.archived_at,
     e.created_at,
@@ -124,6 +128,7 @@ type GetEventRow struct {
 	ID           pgtype.UUID        `json:"id"`
 	Name         string             `json:"name"`
 	EventDate    pgtype.Date        `json:"event_date"`
+	EndDate      pgtype.Date        `json:"end_date"`
 	Status       string             `json:"status"`
 	ArchivedAt   pgtype.Timestamptz `json:"archived_at"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
@@ -137,6 +142,7 @@ func (q *Queries) GetEvent(ctx context.Context, eventID pgtype.UUID) (GetEventRo
 		&i.ID,
 		&i.Name,
 		&i.EventDate,
+		&i.EndDate,
 		&i.Status,
 		&i.ArchivedAt,
 		&i.CreatedAt,
@@ -163,6 +169,7 @@ SELECT
     e.id,
     e.name,
     e.event_date,
+    e.end_date,
     e.status,
     e.archived_at,
     e.created_at,
@@ -185,6 +192,7 @@ type ListAdminPortalMarkEventsRow struct {
 	ID           pgtype.UUID        `json:"id"`
 	Name         string             `json:"name"`
 	EventDate    pgtype.Date        `json:"event_date"`
+	EndDate      pgtype.Date        `json:"end_date"`
 	Status       string             `json:"status"`
 	ArchivedAt   pgtype.Timestamptz `json:"archived_at"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
@@ -204,6 +212,7 @@ func (q *Queries) ListAdminPortalMarkEvents(ctx context.Context) ([]ListAdminPor
 			&i.ID,
 			&i.Name,
 			&i.EventDate,
+			&i.EndDate,
 			&i.Status,
 			&i.ArchivedAt,
 			&i.CreatedAt,
@@ -224,6 +233,7 @@ SELECT
     e.id,
     e.name,
     e.event_date,
+    e.end_date,
     e.status,
     e.archived_at,
     e.created_at,
@@ -253,6 +263,7 @@ type ListEventsRow struct {
 	ID           pgtype.UUID        `json:"id"`
 	Name         string             `json:"name"`
 	EventDate    pgtype.Date        `json:"event_date"`
+	EndDate      pgtype.Date        `json:"end_date"`
 	Status       string             `json:"status"`
 	ArchivedAt   pgtype.Timestamptz `json:"archived_at"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
@@ -272,6 +283,7 @@ func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]ListE
 			&i.ID,
 			&i.Name,
 			&i.EventDate,
+			&i.EndDate,
 			&i.Status,
 			&i.ArchivedAt,
 			&i.CreatedAt,
@@ -292,6 +304,7 @@ SELECT
     e.id,
     e.name,
     e.event_date,
+    e.end_date,
     COALESCE(
         jsonb_agg(
             jsonb_build_object('id', c.id, 'name', c.name)
@@ -310,6 +323,7 @@ type ListPublicEventsRow struct {
 	ID             pgtype.UUID `json:"id"`
 	Name           string      `json:"name"`
 	EventDate      pgtype.Date `json:"event_date"`
+	EndDate        pgtype.Date `json:"end_date"`
 	CategoriesJson string      `json:"categories_json"`
 }
 
@@ -326,6 +340,7 @@ func (q *Queries) ListPublicEvents(ctx context.Context, rowLimit int64) ([]ListP
 			&i.ID,
 			&i.Name,
 			&i.EventDate,
+			&i.EndDate,
 			&i.CategoriesJson,
 		); err != nil {
 			return nil, err
@@ -343,6 +358,7 @@ SELECT
     e.id,
     e.name,
     e.event_date,
+    e.end_date,
     e.status,
     e.archived_at,
     e.created_at,
@@ -372,6 +388,7 @@ type ListTeacherPortalMarkEventsRow struct {
 	ID           pgtype.UUID        `json:"id"`
 	Name         string             `json:"name"`
 	EventDate    pgtype.Date        `json:"event_date"`
+	EndDate      pgtype.Date        `json:"end_date"`
 	Status       string             `json:"status"`
 	ArchivedAt   pgtype.Timestamptz `json:"archived_at"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
@@ -391,6 +408,7 @@ func (q *Queries) ListTeacherPortalMarkEvents(ctx context.Context, userID pgtype
 			&i.ID,
 			&i.Name,
 			&i.EventDate,
+			&i.EndDate,
 			&i.Status,
 			&i.ArchivedAt,
 			&i.CreatedAt,

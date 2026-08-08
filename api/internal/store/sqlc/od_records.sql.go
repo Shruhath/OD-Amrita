@@ -40,16 +40,23 @@ WHERE r.event_id = $1
   AND r.status = 'present'
   AND ($2::uuid IS NULL OR r.category_id = $2)
   AND ($3::integer IS NULL OR r.slot = $3)
+  AND ($4::date IS NULL OR r.od_date = $4)
 `
 
 type CountAttendanceRecordsParams struct {
 	EventID    pgtype.UUID `json:"event_id"`
 	CategoryID pgtype.UUID `json:"category_id"`
 	Slot       pgtype.Int4 `json:"slot"`
+	OdDate     pgtype.Date `json:"od_date"`
 }
 
 func (q *Queries) CountAttendanceRecords(ctx context.Context, arg CountAttendanceRecordsParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countAttendanceRecords, arg.EventID, arg.CategoryID, arg.Slot)
+	row := q.db.QueryRow(ctx, countAttendanceRecords,
+		arg.EventID,
+		arg.CategoryID,
+		arg.Slot,
+		arg.OdDate,
+	)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -62,6 +69,7 @@ SELECT
 FROM od_records
 WHERE event_id = $2
   AND category_id = $3
+  AND od_date = $4
   AND status = 'present'
 `
 
@@ -69,6 +77,7 @@ type CountMarksForCategoryParams struct {
 	ActorUserID pgtype.UUID `json:"actor_user_id"`
 	EventID     pgtype.UUID `json:"event_id"`
 	CategoryID  pgtype.UUID `json:"category_id"`
+	OdDate      pgtype.Date `json:"od_date"`
 }
 
 type CountMarksForCategoryRow struct {
@@ -84,8 +93,17 @@ type CountMarksForCategoryRow struct {
 // a denormalised counter, and a tally row is a second source of truth that can
 // drift from od_records — the very thing the audit trail exists to prevent.
 // od_records_event_category_slot_idx covers the scope predicate.
+//
+// SCOPED TO ONE DAY. Both figures are read by a coordinator as "today", so on a
+// thirty-day festival an unscoped count would show a running cumulative total
+// under a label that says otherwise.
 func (q *Queries) CountMarksForCategory(ctx context.Context, arg CountMarksForCategoryParams) (CountMarksForCategoryRow, error) {
-	row := q.db.QueryRow(ctx, countMarksForCategory, arg.ActorUserID, arg.EventID, arg.CategoryID)
+	row := q.db.QueryRow(ctx, countMarksForCategory,
+		arg.ActorUserID,
+		arg.EventID,
+		arg.CategoryID,
+		arg.OdDate,
+	)
 	var i CountMarksForCategoryRow
 	err := row.Scan(&i.CategoryTotal, &i.Mine)
 	return i, err
@@ -115,7 +133,7 @@ func (q *Queries) GetMarkCategoryForEvent(ctx context.Context, arg GetMarkCatego
 }
 
 const getMarkEvent = `-- name: GetMarkEvent :one
-SELECT id, event_date, status
+SELECT id, event_date, end_date, status
 FROM events
 WHERE id = $1
 `
@@ -123,13 +141,21 @@ WHERE id = $1
 type GetMarkEventRow struct {
 	ID        pgtype.UUID `json:"id"`
 	EventDate pgtype.Date `json:"event_date"`
+	EndDate   pgtype.Date `json:"end_date"`
 	Status    string      `json:"status"`
 }
 
+// event_date is the FIRST day of the range and end_date the last; the slot gate
+// is range containment, not a date equality.
 func (q *Queries) GetMarkEvent(ctx context.Context, eventID pgtype.UUID) (GetMarkEventRow, error) {
 	row := q.db.QueryRow(ctx, getMarkEvent, eventID)
 	var i GetMarkEventRow
-	err := row.Scan(&i.ID, &i.EventDate, &i.Status)
+	err := row.Scan(
+		&i.ID,
+		&i.EventDate,
+		&i.EndDate,
+		&i.Status,
+	)
 	return i, err
 }
 
@@ -175,6 +201,7 @@ INSERT INTO od_records (
     event_id,
     category_id,
     slot,
+    od_date,
     capture_method,
     actor_user_id,
     actor_role,
@@ -187,9 +214,10 @@ INSERT INTO od_records (
     $5,
     $6,
     $7,
-    $8
+    $8,
+    $9
 )
-RETURNING id, student_id, event_id, category_id, slot, capture_method, server_received_at
+RETURNING id, student_id, event_id, category_id, slot, od_date, capture_method, server_received_at
 `
 
 type InsertODPresentRecordParams struct {
@@ -197,6 +225,7 @@ type InsertODPresentRecordParams struct {
 	EventID          pgtype.UUID        `json:"event_id"`
 	CategoryID       pgtype.UUID        `json:"category_id"`
 	Slot             int32              `json:"slot"`
+	OdDate           pgtype.Date        `json:"od_date"`
 	CaptureMethod    string             `json:"capture_method"`
 	ActorUserID      pgtype.UUID        `json:"actor_user_id"`
 	ActorRole        string             `json:"actor_role"`
@@ -209,16 +238,20 @@ type InsertODPresentRecordRow struct {
 	EventID          pgtype.UUID        `json:"event_id"`
 	CategoryID       pgtype.UUID        `json:"category_id"`
 	Slot             int32              `json:"slot"`
+	OdDate           pgtype.Date        `json:"od_date"`
 	CaptureMethod    string             `json:"capture_method"`
 	ServerReceivedAt pgtype.Timestamptz `json:"server_received_at"`
 }
 
+// od_date is the day the OD BELONGS to and is always derived server-side; it is
+// never the same fact as server_received_at, which is when the row arrived.
 func (q *Queries) InsertODPresentRecord(ctx context.Context, arg InsertODPresentRecordParams) (InsertODPresentRecordRow, error) {
 	row := q.db.QueryRow(ctx, insertODPresentRecord,
 		arg.StudentID,
 		arg.EventID,
 		arg.CategoryID,
 		arg.Slot,
+		arg.OdDate,
 		arg.CaptureMethod,
 		arg.ActorUserID,
 		arg.ActorRole,
@@ -231,6 +264,7 @@ func (q *Queries) InsertODPresentRecord(ctx context.Context, arg InsertODPresent
 		&i.EventID,
 		&i.CategoryID,
 		&i.Slot,
+		&i.OdDate,
 		&i.CaptureMethod,
 		&i.ServerReceivedAt,
 	)
@@ -251,6 +285,7 @@ SELECT
     c.name AS category_name,
     c.created_at AS category_created_at,
     r.slot,
+    r.od_date,
     r.capture_method,
     r.actor_user_id,
     u.email AS actor_email,
@@ -266,14 +301,16 @@ WHERE r.event_id = $1
   AND r.status = 'present'
   AND ($2::uuid IS NULL OR r.category_id = $2)
   AND ($3::integer IS NULL OR r.slot = $3)
-ORDER BY r.slot ASC, r.server_received_at DESC, s.roll_no ASC, r.id ASC
-LIMIT $5::bigint OFFSET $4::bigint
+  AND ($4::date IS NULL OR r.od_date = $4)
+ORDER BY r.od_date DESC, r.slot ASC, r.server_received_at DESC, s.roll_no ASC, r.id ASC
+LIMIT $6::bigint OFFSET $5::bigint
 `
 
 type ListAttendanceRecordsParams struct {
 	EventID    pgtype.UUID `json:"event_id"`
 	CategoryID pgtype.UUID `json:"category_id"`
 	Slot       pgtype.Int4 `json:"slot"`
+	OdDate     pgtype.Date `json:"od_date"`
 	PageOffset int64       `json:"page_offset"`
 	PageSize   int64       `json:"page_size"`
 }
@@ -291,6 +328,7 @@ type ListAttendanceRecordsRow struct {
 	CategoryName      string             `json:"category_name"`
 	CategoryCreatedAt pgtype.Timestamptz `json:"category_created_at"`
 	Slot              int32              `json:"slot"`
+	OdDate            pgtype.Date        `json:"od_date"`
 	CaptureMethod     string             `json:"capture_method"`
 	ActorUserID       pgtype.UUID        `json:"actor_user_id"`
 	ActorEmail        pgtype.Text        `json:"actor_email"`
@@ -304,6 +342,7 @@ func (q *Queries) ListAttendanceRecords(ctx context.Context, arg ListAttendanceR
 		arg.EventID,
 		arg.CategoryID,
 		arg.Slot,
+		arg.OdDate,
 		arg.PageOffset,
 		arg.PageSize,
 	)
@@ -327,6 +366,7 @@ func (q *Queries) ListAttendanceRecords(ctx context.Context, arg ListAttendanceR
 			&i.CategoryName,
 			&i.CategoryCreatedAt,
 			&i.Slot,
+			&i.OdDate,
 			&i.CaptureMethod,
 			&i.ActorUserID,
 			&i.ActorEmail,
@@ -351,6 +391,7 @@ SELECT
     r.event_id,
     e.name       AS event_name,
     e.event_date AS event_date,
+    r.od_date    AS od_date,
     c.id         AS category_id,
     c.name       AS category_name,
     u.name       AS marked_by_name,
@@ -362,7 +403,7 @@ JOIN categories c ON c.id = r.category_id
 LEFT JOIN users u ON u.id = r.actor_user_id
 WHERE r.student_id = $1
   AND r.status = 'present'
-ORDER BY e.event_date DESC, r.slot ASC, r.server_received_at ASC, r.id ASC
+ORDER BY r.od_date DESC, r.slot ASC, r.server_received_at ASC, r.id ASC
 LIMIT $2::bigint
 `
 
@@ -377,6 +418,7 @@ type ListPublicStudentODRecordsRow struct {
 	EventID          pgtype.UUID        `json:"event_id"`
 	EventName        string             `json:"event_name"`
 	EventDate        pgtype.Date        `json:"event_date"`
+	OdDate           pgtype.Date        `json:"od_date"`
 	CategoryID       pgtype.UUID        `json:"category_id"`
 	CategoryName     string             `json:"category_name"`
 	MarkedByName     pgtype.Text        `json:"marked_by_name"`
@@ -387,10 +429,16 @@ type ListPublicStudentODRecordsRow struct {
 // One student's present OD records for the UNAUTHENTICATED public dashboard
 // (Story 0.10, FR39).
 //
-// GROUPING KEY IS events.event_date, NOT server_received_at. od_records has no
-// date column at all, and one event is one day in this model. Deriving the day
+// GROUPING KEY IS od_records.od_date, NOT server_received_at and no longer
+// events.event_date. An event spans a range of days, so the event's first day
+// would collapse a thirty-day festival onto one heading; and deriving the day
 // from the receipt time would file a teacher's next-morning correction under the
 // wrong day, which on this screen reads to the student as "I was not marked".
+// od_date is the day the OD belongs to, which is the only one of the three that
+// is the fact this screen is about.
+//
+// e.event_date is STILL selected alongside it: the record's event_date is the
+// event's first day, and the dispute form's event options are built from it.
 //
 // NO events.status FILTER, deliberately (T6). Archiving is an administrative act
 // on the event, not a retraction of the student's attendance; filtering active
@@ -427,6 +475,7 @@ func (q *Queries) ListPublicStudentODRecords(ctx context.Context, arg ListPublic
 			&i.EventID,
 			&i.EventName,
 			&i.EventDate,
+			&i.OdDate,
 			&i.CategoryID,
 			&i.CategoryName,
 			&i.MarkedByName,

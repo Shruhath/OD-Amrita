@@ -426,7 +426,10 @@ type AttendanceRecord struct {
 	EventId  openapi_types.UUID `json:"event_id"`
 
 	// MarkedBy Actor display snapshot for an OD record. All fields are required but nullable so records remain renderable after the referenced user row is removed through ON DELETE SET NULL.
-	MarkedBy         AttendanceActor    `json:"marked_by"`
+	MarkedBy AttendanceActor `json:"marked_by"`
+
+	// OdDate The day this OD belongs to. Without it a thirty-day event's list interleaves thirty days of the same slot with nothing on screen distinguishing them.
+	OdDate           openapi_types.Date `json:"od_date"`
 	RecordId         openapi_types.UUID `json:"record_id"`
 	ServerReceivedAt time.Time          `json:"server_received_at"`
 	Slot             int                `json:"slot"`
@@ -568,7 +571,12 @@ type CreateCoordinatorAssignmentRequest struct {
 // CreateEventRequest defines model for CreateEventRequest.
 type CreateEventRequest struct {
 	BranchIds []openapi_types.UUID `json:"branch_ids"`
-	EventDate openapi_types.Date   `json:"event_date"`
+
+	// EndDate Last day of the event's range. OPTIONAL, and omitting it creates a one-day event — which is what makes "an event created with a single day behaves exactly as before" true at the API boundary. Must not be before `event_date`; the range is bounded at 90 days inclusive.
+	EndDate *openapi_types.Date `json:"end_date,omitempty"`
+
+	// EventDate First day of the event's range.
+	EventDate openapi_types.Date `json:"event_date"`
 
 	// Name Trimmed, nonblank event name.
 	Name string `json:"name"`
@@ -639,13 +647,18 @@ type ErrorCode string
 
 // Event defines model for Event.
 type Event struct {
-	ArchivedAt *time.Time         `json:"archived_at"`
-	Branches   []BranchSummary    `json:"branches"`
-	CreatedAt  time.Time          `json:"created_at"`
-	EventDate  openapi_types.Date `json:"event_date"`
-	Id         openapi_types.UUID `json:"id"`
-	Name       string             `json:"name"`
-	Status     EventStatus        `json:"status"`
+	ArchivedAt *time.Time      `json:"archived_at"`
+	Branches   []BranchSummary `json:"branches"`
+	CreatedAt  time.Time       `json:"created_at"`
+
+	// EndDate Last day of the event's range, equal to `event_date` for a one-day event. Required because the server always has one — every event predating the range was backfilled to a single day.
+	EndDate openapi_types.Date `json:"end_date"`
+
+	// EventDate FIRST day of the event's range. Deliberately not renamed to `start_date`; `end_date` is the last day.
+	EventDate openapi_types.Date `json:"event_date"`
+	Id        openapi_types.UUID `json:"id"`
+	Name      string             `json:"name"`
+	Status    EventStatus        `json:"status"`
 }
 
 // EventCollection defines model for EventCollection.
@@ -784,12 +797,17 @@ type PublicDisputeRequest struct {
 	SubmittedEmail string `json:"submitted_email"`
 }
 
-// PublicEvent Minimal public event option for dispute submission. Deliberately omits branches, archive state, coordinators, counts and credits; the public dispute form only needs the event id, name, day and categories.
+// PublicEvent Minimal public event option for dispute submission. Deliberately omits branches, archive state, coordinators, counts and credits; the public dispute form only needs the event id, name, days and categories.
 type PublicEvent struct {
 	Categories []PublicEventCategory `json:"categories"`
-	EventDate  openapi_types.Date    `json:"event_date"`
-	EventId    openapi_types.UUID    `json:"event_id"`
-	Name       string                `json:"name"`
+
+	// EndDate Last day of the event's range. The dispute form enumerates `event_date … end_date` as its bounded day options, so without it a student could not report a missed slot on day 2 of a festival.
+	EndDate openapi_types.Date `json:"end_date"`
+
+	// EventDate First day of the event's range.
+	EventDate openapi_types.Date `json:"event_date"`
+	EventId   openapi_types.UUID `json:"event_id"`
+	Name      string             `json:"name"`
 }
 
 // PublicEventCategory Minimal public category option for dispute submission. Carries no event metadata, branch, coordinator or attendance counts.
@@ -803,9 +821,10 @@ type PublicEventCollection struct {
 	Data []PublicEvent `json:"data"`
 }
 
-// PublicODDay One day's records. The grouping key is the EVENT's date, not the mark's receipt time — `od_records` has no date column, and one event is one day in this model.
+// PublicODDay One day's records. The grouping key is `od_records.od_date` — the day the OD belongs to — and NOT the event's first day, which would collapse a thirty-day festival onto one heading, nor the mark's receipt time, which would file a next-morning correction under the wrong day.
 type PublicODDay struct {
-	EventDate openapi_types.Date `json:"event_date"`
+	// OdDate Renamed from `event_date`: the key must name the fact it holds, and on a multi-day event those are different days.
+	OdDate openapi_types.Date `json:"od_date"`
 
 	// Records Present records for this day, ordered by slot ascending.
 	Records []PublicODRecord `json:"records"`
@@ -815,16 +834,21 @@ type PublicODDay struct {
 type PublicODRecord struct {
 	CategoryId   openapi_types.UUID `json:"category_id"`
 	CategoryName string             `json:"category_name"`
-	EventDate    openapi_types.Date `json:"event_date"`
-	EventId      openapi_types.UUID `json:"event_id"`
-	EventName    string             `json:"event_name"`
+
+	// EventDate The EVENT's first day, kept alongside `od_date` because the dispute form builds its event options from it. Not the day this OD belongs to — that is `od_date`, and on a multi-day event they differ.
+	EventDate openapi_types.Date `json:"event_date"`
+	EventId   openapi_types.UUID `json:"event_id"`
+	EventName string             `json:"event_name"`
 
 	// MarkedAt The server receipt time of the mark (`server_received_at`).
 	MarkedAt     time.Time                  `json:"marked_at"`
 	MarkedByName *string                    `json:"marked_by_name"`
 	MarkedByRole PublicODRecordMarkedByRole `json:"marked_by_role"`
-	RecordId     openapi_types.UUID         `json:"record_id"`
-	Slot         int                        `json:"slot"`
+
+	// OdDate The day this OD belongs to. Never the day the row was written: a teacher's next-morning correction files under the day it fixes.
+	OdDate   openapi_types.Date `json:"od_date"`
+	RecordId openapi_types.UUID `json:"record_id"`
+	Slot     int                `json:"slot"`
 }
 
 // PublicODRecordMarkedByRole defines model for PublicODRecord.MarkedByRole.
@@ -1045,8 +1069,11 @@ type ListAdminEventsParamsStatus string
 type ListAdminEventAttendanceParams struct {
 	CategoryId *openapi_types.UUID `form:"category_id,omitempty" json:"category_id,omitempty"`
 	Slot       *int                `form:"slot,omitempty" json:"slot,omitempty"`
-	Page       *int                `form:"page,omitempty" json:"page,omitempty"`
-	PageSize   *int                `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// OdDate Narrow the list to one day of a multi-day event. Optional: the unfiltered read across the whole range stays the default.
+	OdDate   *openapi_types.Date `form:"od_date,omitempty" json:"od_date,omitempty"`
+	Page     *int                `form:"page,omitempty" json:"page,omitempty"`
+	PageSize *int                `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
 // ListAdminStudentsParams defines parameters for ListAdminStudents.

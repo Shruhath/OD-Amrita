@@ -239,11 +239,17 @@ paths:
               schema:
                 $ref: "#/components/schemas/PublicDisputeReceipt"
         "400":
-          description: Validation failed, including the non-disclosing identity refusal.
+          description: >-
+            Field validation failed (VALIDATION_FAILED, with typed details) or the
+            non-disclosing identity refusal (DISPUTE_IDENTITY_UNVERIFIED, which
+            carries no details by design so the three refusal paths stay
+            byte-identical).
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ValidationError"
+                oneOf:
+                  - $ref: "#/components/schemas/ValidationError"
+                  - $ref: "#/components/schemas/Error"
         "404":
           description: Event or category not found (EVENT_NOT_FOUND or CATEGORY_NOT_FOUND).
           content:

@@ -1097,6 +1097,11 @@ type ListPortalMarkEventsParams struct {
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
+// SubmitPublicDispute400JSONResponseBody defines parameters for SubmitPublicDispute.
+type SubmitPublicDispute400JSONResponseBody struct {
+	union json.RawMessage
+}
+
 // SearchPublicStudentsParams defines parameters for SearchPublicStudents.
 type SearchPublicStudentsParams struct {
 	// Q Roll-number or name prefix, trimmed before length is judged. The bounds mirror the authenticated search's exported constants.
@@ -1305,5 +1310,67 @@ func (t *MarkAttendanceRequest) UnmarshalJSON(b []byte) error {
 		}
 	}
 
+	return err
+}
+
+// AsValidationError returns the union data inside the SubmitPublicDispute400JSONResponseBody as a ValidationError
+func (t SubmitPublicDispute400JSONResponseBody) AsValidationError() (ValidationError, error) {
+	var body ValidationError
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromValidationError overwrites any union data inside the SubmitPublicDispute400JSONResponseBody as the provided ValidationError
+func (t *SubmitPublicDispute400JSONResponseBody) FromValidationError(v ValidationError) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeValidationError performs a merge with any union data inside the SubmitPublicDispute400JSONResponseBody, using the provided ValidationError
+func (t *SubmitPublicDispute400JSONResponseBody) MergeValidationError(v ValidationError) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsError returns the union data inside the SubmitPublicDispute400JSONResponseBody as a Error
+func (t SubmitPublicDispute400JSONResponseBody) AsError() (Error, error) {
+	var body Error
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromError overwrites any union data inside the SubmitPublicDispute400JSONResponseBody as the provided Error
+func (t *SubmitPublicDispute400JSONResponseBody) FromError(v Error) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeError performs a merge with any union data inside the SubmitPublicDispute400JSONResponseBody, using the provided Error
+func (t *SubmitPublicDispute400JSONResponseBody) MergeError(v Error) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t SubmitPublicDispute400JSONResponseBody) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *SubmitPublicDispute400JSONResponseBody) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
 	return err
 }

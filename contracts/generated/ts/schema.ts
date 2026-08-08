@@ -1430,13 +1430,13 @@ export interface operations {
                     "application/json": components["schemas"]["PublicDisputeReceipt"];
                 };
             };
-            /** @description Validation failed, including the non-disclosing identity refusal. */
+            /** @description Field validation failed (VALIDATION_FAILED, with typed details) or the non-disclosing identity refusal (DISPUTE_IDENTITY_UNVERIFIED, which carries no details by design so the three refusal paths stay byte-identical). */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ValidationError"];
+                    "application/json": components["schemas"]["ValidationError"] | components["schemas"]["Error"];
                 };
             };
             /** @description Event or category not found (EVENT_NOT_FOUND or CATEGORY_NOT_FOUND). */

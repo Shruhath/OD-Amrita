@@ -52,8 +52,8 @@ const (
 // the address resolved, which is precisely the oracle T3 spends a whole locked
 // decision closing.
 //
-// `od_date` is on the request because of the 2026-08-06 amendment in epics.md and
-// sprint-status.yaml, NOT because of the story file (which predates it): Story
+// `od_date` is on the request because of the 2026-08-06 multi-day amendment
+// (docs/multi-day-events-plan.md §7), not because of the original spec: the
 // 0.12a turns an event into a real date range, after which "I was missed in slot
 // 8" is ambiguous across thirty days. The column has to exist when the table is
 // CREATED — a nullable date added later never collides in a Postgres unique index,
@@ -158,12 +158,43 @@ func TestDisputeContract_PublicWriteShapeAndResponseFamily(t *testing.T) {
 
 	assertResponseFamily(t, doc, op, map[string]string{
 		"201": "#/components/schemas/PublicDisputeReceipt",
-		"400": "#/components/schemas/ValidationError",
 		"404": "#/components/schemas/Error",
 		"409": "#/components/schemas/Error",
 		"429": "#/components/schemas/Error",
 		"500": "#/components/schemas/Error",
 	})
+
+	// The 400 is a UNION, and it has to be. This operation emits two different
+	// 400 bodies: a field failure (VALIDATION_FAILED, with typed details) and the
+	// non-disclosing identity refusal (DISPUTE_IDENTITY_UNVERIFIED, with NO
+	// details, so the three refusal paths stay byte-identical). Declaring
+	// ValidationError alone was untrue of the second: that schema pins
+	// `code` to the single value VALIDATION_FAILED and REQUIRES `details`, so
+	// every identity refusal the API actually sends failed its own contract.
+	badRequest := jsonResponseSchema(doc, op, "400")
+	variants, _ := badRequest["oneOf"].([]any)
+	if len(variants) != 2 {
+		t.Fatalf("[P0] status 400 on POST %s must be a oneOf of ValidationError and Error, got %v. "+
+			"DISPUTE_IDENTITY_UNVERIFIED cannot validate against ValidationError, whose code enum is "+
+			"[VALIDATION_FAILED] and whose `details` is required (T3, AC 3)", publicDisputePath, badRequest)
+	}
+	wantVariants := map[string]bool{
+		"#/components/schemas/ValidationError": false,
+		"#/components/schemas/Error":           false,
+	}
+	for _, raw := range variants {
+		ref := getStr(asMap(raw), "$ref")
+		if _, ok := wantVariants[ref]; !ok {
+			t.Errorf("[P0] status 400 oneOf carries unexpected variant %q", ref)
+			continue
+		}
+		wantVariants[ref] = true
+	}
+	for ref, seen := range wantVariants {
+		if !seen {
+			t.Errorf("[P0] status 400 oneOf is missing %q", ref)
+		}
+	}
 
 	// 201, not 200. The receipt names a row that now exists, and NFR50's
 	// confirmation copy is the visitor's only evidence of it — there is no
@@ -295,8 +326,8 @@ func TestDisputeContract_PublicSchemaAllowlists(t *testing.T) {
 		// in the partial unique index and lets duplicates back in.
 		odDate := resolveSchema(doc, getMap(props, "od_date"))
 		if odDate == nil {
-			t.Errorf("[P0] PublicDisputeRequest has no od_date. Amended 2026-08-06 in epics.md and " +
-				"sprint-status.yaml: `disputes` must carry `od_date date NOT NULL` from CREATION, because 0.12a " +
+			t.Errorf("[P0] PublicDisputeRequest has no od_date. Amended 2026-08-06 by the multi-day plan " +
+				"(docs/multi-day-events-plan.md §7): `disputes` must carry `od_date date NOT NULL` from CREATION, because the range change " +
 				"makes an event span a date range and \"I was missed in slot 8\" is then ambiguous across thirty " +
 				"days. The story FILE predates this amendment — the planning artifacts win")
 		} else if got := getStr(odDate, "format"); got != "date" {

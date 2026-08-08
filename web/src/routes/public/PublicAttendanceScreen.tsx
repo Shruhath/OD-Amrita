@@ -10,6 +10,7 @@ import {
   type PublicStudent,
 } from '../../api/client'
 import { ThemeToggle } from '../../components/ThemeToggle'
+import { enumerateDays } from './days'
 
 /**
  * The public attendance dashboard — the only screen in this app that a visitor
@@ -395,6 +396,13 @@ function PublicDisputeForm({
     () => mergeEventOptions(recordEvents, publicEventData ?? []),
     [publicEventData, recordEvents],
   )
+  // Which events carry a REAL end_date. An event rebuilt from a record has its
+  // end_date set to the event's first day (eventsFromRecords), so its range is a
+  // placeholder and must not be used to reject a day.
+  const publicEventIDs = useMemo(
+    () => new Set((publicEventData ?? []).map((event) => event.event_id)),
+    [publicEventData],
+  )
   const [eventID, setEventID] = useState(initialEventID)
   const [categoryID, setCategoryID] = useState(initialCategoryID)
   const [odDate, setODDate] = useState(initialDay)
@@ -426,11 +434,25 @@ function PublicDisputeForm({
     // carrying it across an event change would offer a day of festival A while
     // event B is selected, and the database's range guard would refuse that
     // submission after the student had already filled the form.
+    //
+    // The push is ALSO skipped when the event's authoritative range is known and
+    // excludes the day. `end_date` is only trustworthy for an event that came
+    // from the public events list; one rebuilt from a record has end_date set to
+    // its own first day, and for that case the union above is exactly the point.
+    // Where the real range IS known, offering a day outside it would walk the
+    // student through the whole form only to have the database's range guard
+    // refuse the submission — the same failure this comment already avoids for a
+    // different event, arrived at from a different direction.
     if (initialDay && selectedEvent.event_id === initialEventID && !days.includes(initialDay)) {
-      days.push(initialDay)
+      const rangeIsAuthoritative = publicEventIDs.has(selectedEvent.event_id)
+      const insideRange =
+        initialDay >= selectedEvent.event_date && initialDay <= selectedEvent.end_date
+      if (!rangeIsAuthoritative || insideRange) {
+        days.push(initialDay)
+      }
     }
     return days.sort()
-  }, [initialDay, initialEventID, selectedEvent])
+  }, [initialDay, initialEventID, publicEventIDs, selectedEvent])
 
   useEffect(() => {
     if (!selectedEvent) return
@@ -767,41 +789,6 @@ function runeCount(value: string): number {
   return [...value].length
 }
 
-/**
- * Every day from `start` to `end` inclusive, as YYYY-MM-DD strings.
- *
- * Bounds the dispute form's day picker to the event's real range. Local to this
- * screen for the same reason `formatDate` below is: the public bundle is served
- * to the open internet and does not pull in the authenticated portal's helpers.
- * routes/portal/events/format.ts carries the portal's copy — change both
- * together.
- *
- * Walks the calendar from the date PARTS rather than `new Date('2026-08-15')`,
- * which is midnight UTC and rolls back a day west of Greenwich — that would
- * offer a student a day the event never had.
- */
-function enumerateDays(start: string, end: string): string[] {
-  if (!start) return []
-  const [year, month, day] = start.split('-').map(Number)
-  const cursor = new Date(year ?? 0, (month ?? 1) - 1, day ?? 1)
-  if (Number.isNaN(cursor.getTime())) return [start]
-  const last = end && end > start ? end : start
-  const days: string[] = []
-  // Bounded well above the service's own 90-day range cap. A malformed or
-  // hostile end date must not spin here: this runs in a browser, on a public
-  // page, against a value that arrived over the wire.
-  for (let guard = 0; guard < 200; guard += 1) {
-    const value = [
-      String(cursor.getFullYear()).padStart(4, '0'),
-      String(cursor.getMonth() + 1).padStart(2, '0'),
-      String(cursor.getDate()).padStart(2, '0'),
-    ].join('-')
-    days.push(value)
-    if (value >= last) break
-    cursor.setDate(cursor.getDate() + 1)
-  }
-  return days
-}
 
 /** Renders a YYYY-MM-DD event date in the campus timezone-free way it is stored. */
 function formatDate(value: string): string {

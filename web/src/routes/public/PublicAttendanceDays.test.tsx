@@ -15,6 +15,8 @@ import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test, vi } from 'vitest'
 import { Application } from '../../Application'
+import { enumerateDays as portalEnumerateDays } from '../portal/events/format'
+import { enumerateDays as publicEnumerateDays } from './days'
 import type { SessionPort } from '../../features/auth/session'
 import { createPortalMemoryRouter } from '../../router'
 import { server } from '../../test/server'
@@ -185,5 +187,49 @@ describe('the public dashboard across a multi-day event', () => {
     await waitFor(() => {
       expect(within(dayControl as HTMLElement).getAllByRole('option').length).toBeLessThan(multiDayDisputeDayCount)
     })
+  })
+})
+
+/**
+ * The two `enumerateDays` implementations must not drift.
+ *
+ * The public bundle keeps its own copy on purpose — it is served to the open
+ * internet and deliberately imports nothing from the authenticated portal, the
+ * same way it keeps its own `formatDate`. Both copies carry a comment saying
+ * "change both together", and a comment is not a mechanism: this codebase's own
+ * T8 reasoning is that a string literal kept in sync by prose eventually is not.
+ *
+ * These two functions bound two different controls — an admin's attendance day
+ * filter and an ANONYMOUS public write path — so a divergence would show up as
+ * a student being offered a day the database then refuses.
+ */
+describe('the two enumerateDays implementations agree', () => {
+  test('agree across single days, ranges, boundaries and degenerate input', () => {
+    const cases: Array<[string, string]> = [
+      ['2026-08-15', '2026-08-15'],
+      ['2026-08-15', '2026-08-16'],
+      ['2026-08-10', '2026-09-08'],
+      ['2026-02-27', '2026-03-02'],
+      ['2024-02-27', '2024-03-02'],
+      ['2026-12-30', '2027-01-02'],
+      ['2026-08-15', ''],
+      ['2026-08-15', '2026-08-14'],
+      ['', '2026-08-15'],
+    ]
+
+    for (const [start, end] of cases) {
+      expect(
+        publicEnumerateDays(start, end),
+        `enumerateDays drifted between the public and portal bundles for ${start}..${end}`,
+      ).toEqual(portalEnumerateDays(start, end))
+    }
+  })
+
+  test('a full-length event enumerates every day of the range', () => {
+    const days = publicEnumerateDays('2026-08-10', '2026-11-07')
+    expect(days).toHaveLength(90)
+    expect(days[0]).toBe('2026-08-10')
+    expect(days[days.length - 1]).toBe('2026-11-07')
+    expect(days).toEqual(portalEnumerateDays('2026-08-10', '2026-11-07'))
   })
 })

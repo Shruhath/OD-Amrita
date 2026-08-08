@@ -202,7 +202,11 @@ func TestActiveSlotCampusScheduleBoundaries(t *testing.T) {
 		{name: "wrong event date rejected", now: time.Date(2026, 8, 4, 8, 25, 0, 0, loc), ok: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			slot, _, ok := ActiveSlot(tc.now, eventDate)
+			// A one-day event is start == end, which is what this suite has always
+			// described: the "wrong event date rejected" case below is now rejected
+			// by range containment rather than by date equality, and must stay red
+			// for a day outside the range either way.
+			slot, _, ok := ActiveSlot(tc.now, eventDate, eventDate)
 			if ok != tc.ok || slot != tc.slot {
 				t.Fatalf("ActiveSlot() = %d, %v; want %d, %v", slot, ok, tc.slot, tc.ok)
 			}

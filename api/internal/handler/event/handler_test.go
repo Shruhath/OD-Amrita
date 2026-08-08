@@ -188,6 +188,23 @@ func TestCreateReturnsFieldSpecificGeneratedTypeValidationBeforeService(t *testi
 		{name: "missing date", body: `{"name":"Event","branch_ids":["` + branchID + `"]}`, field: "event_date", code: "required"},
 		{name: "invalid date", body: `{"name":"Event","event_date":"2026-02-31","branch_ids":["` + branchID + `"]}`, field: "event_date", code: "invalid_format"},
 		{name: "invalid branch uuid", body: `{"name":"Event","event_date":"2026-08-15","branch_ids":["not-a-uuid"]}`, field: "branch_ids[0]", code: "invalid_format"},
+		// end_date is OPTIONAL, so the generated struct makes it a POINTER and an
+		// absent key is legal. A key that is PRESENT but unusable is the case T17
+		// calls out: the generated unmarshaller would collapse each of these into
+		// an undifferentiated JSON error, or — the bug 0.4's review actually
+		// found — be dereferenced into a nil panic.
+		//
+		// These exercise bindCreateRequest's raw-shape guard, which is the real
+		// client-facing boundary. The service-level suite in
+		// service/event/date_range_test.go asserts strings such as "next friday"
+		// that the handler can never produce, because it reformats a parsed
+		// time.Time — so before these cases the guard itself had no coverage at
+		// all anywhere in the repo.
+		{name: "null end date", body: `{"name":"Event","event_date":"2026-08-15","end_date":null,"branch_ids":["` + branchID + `"]}`, field: "end_date", code: "invalid_format"},
+		{name: "empty end date", body: `{"name":"Event","event_date":"2026-08-15","end_date":"","branch_ids":["` + branchID + `"]}`, field: "end_date", code: "invalid_format"},
+		{name: "non-string end date", body: `{"name":"Event","event_date":"2026-08-15","end_date":20260815,"branch_ids":["` + branchID + `"]}`, field: "end_date", code: "invalid_format"},
+		{name: "impossible end date", body: `{"name":"Event","event_date":"2026-08-15","end_date":"2026-02-31","branch_ids":["` + branchID + `"]}`, field: "end_date", code: "invalid_format"},
+		{name: "day-first end date", body: `{"name":"Event","event_date":"2026-08-15","end_date":"15-08-2026","branch_ids":["` + branchID + `"]}`, field: "end_date", code: "invalid_format"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			svc := &fakeService{}

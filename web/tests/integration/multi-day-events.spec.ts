@@ -45,6 +45,13 @@ const MARKING_EVENT_ID = '93000000-0000-4000-8000-000000000001'
  */
 const MULTIDAY_STUDENT_ID = process.env.PORTAL_MULTIDAY_STUDENT_ID ?? '95000000-0000-4000-8000-000000000012'
 
+/**
+ * The event that student is marked against — its own id, so the Story 0.10
+ * conservation gates that assert an exact record count for the public-dashboard
+ * events stay untouched.
+ */
+const MULTIDAY_EVENT_ID = '93000000-0000-4000-8000-000000000006'
+
 function isoDay(offsetDays: number) {
   const now = new Date()
   now.setDate(now.getDate() + offsetDays)
@@ -232,18 +239,36 @@ test.describe('the multi-day event, end to end', () => {
   })
 
   // 0.12a-INT-E2E-007 — the admin attendance day filter narrows a real query.
+  //
+  // Deliberately asked of the MULTI-DAY event, not the marking event. The
+  // marking event carries a single record dated today, so an unfiltered and a
+  // filtered read return the identical row: `filtered <= all` and "every row is
+  // today" both hold even if the server drops the od_date parameter on the
+  // floor. That is a test that cannot fail, which is the defect shape this
+  // codebase has been bitten by repeatedly.
+  //
+  // The multi-day event is seeded with the same student in the same slot on
+  // three consecutive days, so the counts are exact and the narrowing is
+  // strict: 3 unfiltered, 1 for a single day. Drop the filter server-side and
+  // this goes red on the first assertion.
   test('0.12a-INT-E2E-007 the attendance day filter narrows the real read', async ({ page }) => {
     const headers = { Authorization: 'Bearer portal-admin-token' }
 
     const all = await page.request.get(
-      `${portalAPI}/api/v1/admin/events/${MARKING_EVENT_ID}/attendance?page_size=100`,
+      `${portalAPI}/api/v1/admin/events/${MULTIDAY_EVENT_ID}/attendance?page_size=100`,
       { headers },
     )
     expect(all.ok(), await all.text()).toBeTruthy()
     const allBody = await all.json()
 
+    expect(
+      allBody.total,
+      'the multi-day fixture is one student marked in one slot on three consecutive days',
+    ).toBe(3)
+    expect(new Set(allBody.data.map((record: { od_date: string }) => record.od_date)).size).toBe(3)
+
     const filtered = await page.request.get(
-      `${portalAPI}/api/v1/admin/events/${MARKING_EVENT_ID}/attendance?page_size=100&od_date=${isoDay(0)}`,
+      `${portalAPI}/api/v1/admin/events/${MULTIDAY_EVENT_ID}/attendance?page_size=100&od_date=${isoDay(0)}`,
       { headers },
     )
     expect(filtered.ok(), await filtered.text()).toBeTruthy()
@@ -251,8 +276,9 @@ test.describe('the multi-day event, end to end', () => {
 
     expect(
       filteredBody.total,
-      'the od_date filter must narrow the read, never widen it',
-    ).toBeLessThanOrEqual(allBody.total)
+      'one day of a three-day event is exactly one record — a filter that is ignored returns three',
+    ).toBe(1)
+    expect(filteredBody.data).toHaveLength(1)
     for (const record of filteredBody.data) {
       expect(record.od_date).toBe(isoDay(0))
     }

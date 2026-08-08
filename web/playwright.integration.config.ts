@@ -19,6 +19,13 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     ...devices['Desktop Chrome'],
+    // Pinned for the same reason as playwright.config.ts, and AFTER the device
+    // spread so it is not overwritten by it. The public dashboard renders dates
+    // in the visitor's locale, so any date assertion here would otherwise depend
+    // on the runner rather than on the code — and this is the config that runs
+    // the real-stack multi-day journeys, which are the date-heaviest specs in
+    // the repo.
+    locale: 'en-GB',
   },
   webServer: {
     command: 'pnpm dev --host 127.0.0.1 --port 4174',

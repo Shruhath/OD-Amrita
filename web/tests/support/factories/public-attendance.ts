@@ -57,16 +57,19 @@ export type PublicODRecord = {
  * event's start date, a thirty-day festival collapses onto one heading and reads
  * to the student as twenty-nine days of missing attendance.
  *
- * `event_date` is kept here TEMPORARILY, marked deprecated, so the 0.10 and 0.11
- * suites stay green while the screen is migrated. Delete it in the same change
- * that switches PublicAttendanceScreen.tsx to `day.od_date` — the contract's
- * exact-match allowlist (publicSchemaAllowlists) is what forces that to happen.
+ * `event_date` is GONE from this type, deleted in the same change that switched
+ * PublicAttendanceScreen.tsx to `day.od_date`, exactly as the deprecation note
+ * here instructed. Keeping it would have left every fixture emitting both keys
+ * with the same value, so the 0.10 and 0.11 suites would pass whether the
+ * screen read `od_date` or `event_date` — a test that cannot fail, and the
+ * defect shape this codebase has been bitten by repeatedly.
+ *
+ * The server cannot produce the field either: `PublicODDay` in the contract is
+ * exactly `{od_date, records}`, enforced by the exact-match allowlist in
+ * publicSchemaAllowlists.
  */
 export type PublicODDay = {
   od_date: string
-  /** @deprecated Renamed to `od_date`, and OPTIONAL so a fixture can omit it.
-   *  `publicMultiDayCollection()` does exactly that — see its comment. */
-  event_date?: string
   records: PublicODRecord[]
 }
 
@@ -114,10 +117,9 @@ export function publicRecord(slot: number, overrides: Partial<PublicODRecord> = 
  * so every fixture that omits the gap tests a screen that cannot show it.
  */
 export function publicDay(overrides: Partial<PublicODDay> = {}): PublicODDay {
-  const odDate = overrides.od_date ?? overrides.event_date ?? '2026-07-28'
+  const odDate = overrides.od_date ?? '2026-07-28'
   return {
     od_date: odDate,
-    event_date: odDate,
     records: [publicRecord(1, { od_date: odDate }), publicRecord(2, { od_date: odDate }), publicRecord(4, { od_date: odDate })],
     ...overrides,
   }

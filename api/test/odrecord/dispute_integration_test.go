@@ -55,8 +55,8 @@ import (
 // fixtureODDate is seedMarkFixture's event date — the day a dispute against that
 // event belongs to.
 //
-// od_date is required from CREATION by the 2026-08-06 amendment in epics.md and
-// sprint-status.yaml (the story file predates it). Story 0.12a turns an event into
+// od_date is required from CREATION by the 2026-08-06 multi-day amendment
+// (docs/multi-day-events-plan.md §7). The multi-day change turns an event into
 // a real date range, at which point uniqueness must be
 // (student_id, event_id, od_date, slot); adding the column later, against a table
 // already holding student submissions, is the migration the amendment exists to
@@ -784,15 +784,110 @@ func TestDispute_RuntimeRoleCanInsertUpdateSelectButNotDelete(t *testing.T) {
 	}
 }
 
-// disputeRowsForEvent is a small readability helper for the counts above.
-func disputeRowsForEvent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID string) int {
-	t.Helper()
-	var count int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM disputes WHERE event_id = $1`, eventID).Scan(&count); err != nil {
-		t.Fatalf("count disputes for event %s: %v", eventID, err)
+// 0.11-INT-010 — the public event cap is enforced by the SERVER, proven by
+// seeding past it (AC 8).
+//
+// The sibling test's own doc comment said "the only way to prove the cap exists
+// is to seed past it", and then did not: it asserted ordering and field shape
+// only, so deleting `LIMIT @row_limit` from ListPublicEvents left it green. This
+// endpoint is unauthenticated and takes no caller `limit`, so the cap is the
+// only thing bounding the response.
+func TestDispute_PublicEventsCapIsEnforcedByTheServer(t *testing.T) {
+	ctx := testCtx(t)
+	migrator := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_MIGRATOR"))
+	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
+
+	var before int
+	if err := migrator.QueryRow(ctx, `SELECT count(*) FROM events`).Scan(&before); err != nil {
+		t.Fatalf("count events: %v", err)
 	}
-	return count
+
+	// Seed strictly past the cap, counting whatever the database already holds.
+	need := svcpublicattendance.MaxPublicEventRows - before + 5
+	seeded := make([]string, 0, max(need, 0))
+	for i := 0; i < need; i++ {
+		id := uuid.NewString()
+		if _, err := migrator.Exec(ctx, `
+			INSERT INTO events (id, name, event_date, status)
+			VALUES ($1, $2, DATE '2026-06-01' + ($3::int || ' days')::interval, 'active')`,
+			id, fmt.Sprintf("ATDD Dispute Cap Event %d", i), int32(i)); err != nil {
+			t.Fatalf("seed cap event %d: %v", i, err)
+		}
+		seeded = append(seeded, id)
+	}
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		for _, id := range seeded {
+			if _, err := migrator.Exec(cleanupCtx, `DELETE FROM events WHERE id = $1`, id); err != nil {
+				t.Logf("cleanup cap event %s: %v", id, err)
+			}
+		}
+	})
+
+	var total int
+	if err := migrator.QueryRow(ctx, `SELECT count(*) FROM events`).Scan(&total); err != nil {
+		t.Fatalf("count events: %v", err)
+	}
+	if total <= svcpublicattendance.MaxPublicEventRows {
+		t.Fatalf("the fixture did not seed past the cap (%d events, cap %d); the assertion below would pass "+
+			"for the wrong reason", total, svcpublicattendance.MaxPublicEventRows)
+	}
+
+	collection, err := svcpublicattendance.NewSQLCService(runtime).PublicEvents(ctx)
+	if err != nil {
+		t.Fatalf("[P0] PublicEvents: %v", err)
+	}
+	if len(collection.Data) > svcpublicattendance.MaxPublicEventRows {
+		t.Errorf("[P0] PublicEvents returned %d events with %d in the database; the server cap of %d is not "+
+			"applied. This endpoint takes no caller limit and anyone can call it, so the LIMIT in "+
+			"ListPublicEvents is the ONLY bound on the response size (AC 8)",
+			len(collection.Data), total, svcpublicattendance.MaxPublicEventRows)
+	}
 }
 
-var _ = fmt.Sprintf
-var _ = disputeRowsForEvent
+// 0.11-INT-011 — a category that belongs to a DIFFERENT event is refused with
+// CATEGORY_NOT_FOUND (AC 4).
+//
+// The composite FK (event_id, category_id) -> categories(event_id, id) is what
+// makes "this category belongs to this event" a database guarantee rather than a
+// handler check, and the mapping from its 23503 to CATEGORY_NOT_FOUND existed
+// with nothing exercising it. Without this, a mismatched pair would surface as
+// the generic EVENT_NOT_FOUND — telling a student their event does not exist
+// when it plainly does.
+func TestDispute_CategoryFromAnotherEventIsRefused(t *testing.T) {
+	ctx := testCtx(t)
+	migrator := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_MIGRATOR"))
+	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
+	fixture := seedMarkFixture(t, ctx, migrator)
+
+	roll := "CB.SC.U4CSE24811"
+	studentID := seedDisputeStudent(t, ctx, migrator, roll, "91000000-0000-4000-8000-000000000001")
+
+	// A second event with its own category. The pair below is internally valid
+	// on each side and invalid together, which is precisely what a handler check
+	// on either id alone cannot catch.
+	other := seedPublicEvent(t, ctx, migrator, "ATDD Dispute Foreign Event", "2026-07-19")
+
+	beforeDisputes := countRows(t, ctx, migrator, "disputes")
+	beforeAudit := countRows(t, ctx, migrator, "audit_log")
+
+	svc := newDisputeService(t, runtime)
+	_, err := svc.Submit(ctx, disputeSubmitInput(studentID, emailForRoll(roll), fixture.eventID, other.categoryID, 4))
+
+	var domainErr domain.DomainError
+	if !errors.As(err, &domainErr) {
+		t.Fatalf("[P0] a category from another event returned %v, want a typed domain error", err)
+	}
+	if domainErr.Code != contracts.ErrorCodeCATEGORYNOTFOUND {
+		t.Errorf("[P0] code = %q, want CATEGORY_NOT_FOUND. The composite FK is the guarantee; its 23503 must "+
+			"map to the category answer, not to the generic EVENT_NOT_FOUND, or a student is told their event "+
+			"does not exist when the category is what is wrong (AC 4)", domainErr.Code)
+	}
+	if got := countRows(t, ctx, migrator, "disputes"); got != beforeDisputes {
+		t.Errorf("[P0] a refused submission wrote a dispute row (%d -> %d)", beforeDisputes, got)
+	}
+	if got := countRows(t, ctx, migrator, "audit_log"); got != beforeAudit {
+		t.Errorf("[P0] a refused submission wrote an audit row (%d -> %d); WithAudit must roll BOTH back",
+			beforeAudit, got)
+	}
+}

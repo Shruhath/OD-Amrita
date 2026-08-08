@@ -42,19 +42,24 @@ import (
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	"github.com/Shruhath/OD-Amrita/api/internal/service/dispute"
 	"github.com/Shruhath/OD-Amrita/api/internal/service/publicattendance"
-	svcstudent "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 )
 
 const (
 	// gin's registered form of the two paths this story adds on each side.
-	publicDisputeRoute   = "/api/v1/public/disputes"
-	publicEventsRoute    = "/api/v1/public/events"
-	disputeListRoute     = "/api/v1/disputes"
-	disputeResolveRoute  = "/api/v1/disputes/:dispute_id/resolution"
+	publicDisputeRoute  = "/api/v1/public/disputes"
+	publicEventsRoute   = "/api/v1/public/events"
+	disputeListRoute    = "/api/v1/disputes"
+	disputeResolveRoute = "/api/v1/disputes/:dispute_id/resolution"
+	// A COMPLETE body. It previously omitted od_date, which the handler tolerated
+	// by binding the zero date and carrying 0001-01-01 all the way to the
+	// database — so this fixture was itself evidence that required fields were
+	// not bounded at the edge. Reachability must be proven with a body the
+	// endpoint actually accepts.
 	anonymousDisputeBody = `{"student_id":"00000000-0000-4000-8000-000000000000",` +
 		`"submitted_email":"cb.sc.u4cse24101@cb.students.amrita.edu",` +
 		`"event_id":"00000000-0000-4000-8000-000000000001",` +
-		`"category_id":"00000000-0000-4000-8000-000000000002","slot":3}`
+		`"category_id":"00000000-0000-4000-8000-000000000002",` +
+		`"od_date":"2026-08-03","slot":3}`
 )
 
 // reachingDisputeService stands in for the dispute service on both sides, so a
@@ -420,4 +425,81 @@ func (s submitOnlyService) PublicEvents(_ context.Context) (publicattendance.Eve
 // Keeps the student-service import honest: the public dispute path resolves a
 // student from an email, and it must do so through the dispute service's own
 // roll lookup rather than by widening the roster search 0.10 hard-capped.
-var _ = svcstudent.PublicSearchLimit
+
+// 0.11-ROUTE-008 — the write bucket is keyed per client, and a caller cannot mint
+// a second bucket by forging a header (AC 9).
+//
+// Task 8 named four limiter properties for the NEW instance; only burst-then-
+// refusal and read/write independence were covered, all from a single client
+// key. The forged-header half is the load-bearing one: no SetTrustedProxies call
+// exists anywhere in this codebase, so gin's ClientIP()/X-Forwarded-For remain
+// attacker-controlled, and Fly-Client-IP is only meaningful behind the edge.
+// A limiter that keys on either is a limiter anyone can step around.
+func TestDisputeWriteLimiterKeysPerClientAndIgnoresForgedHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := composeDisputeRouter(t, &reachCounter{}, &refusingLoader{}, 600, 1)
+
+	const exhausted = "203.0.113.90:5000"
+	const other = "203.0.113.91:5000"
+
+	if code := postDispute(router, exhausted).Code; code == http.StatusTooManyRequests {
+		t.Fatalf("[P0] the first submission was already limited (%d)", code)
+	}
+	if code := postDispute(router, exhausted).Code; code != http.StatusTooManyRequests {
+		t.Fatalf("[P0] the second submission from the same client answered %d, want 429", code)
+	}
+
+	// Per-key isolation: a DIFFERENT client must still be served.
+	if code := postDispute(router, other).Code; code == http.StatusTooManyRequests {
+		t.Errorf("[P0] a different client was refused because an unrelated client exhausted its bucket; " +
+			"one abusive submitter would lock out the whole event (AC 9)")
+	}
+
+	// Forged headers from the EXHAUSTED key must not create a second bucket.
+	for _, forged := range []struct{ header, value string }{
+		{"X-Forwarded-For", "198.51.100.7"},
+		{"X-Real-IP", "198.51.100.8"},
+		{"Fly-Client-IP", "198.51.100.9"},
+	} {
+		request := httptest.NewRequest(http.MethodPost, publicDisputeRoute, strings.NewReader(anonymousDisputeBody))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set(forged.header, forged.value)
+		request.RemoteAddr = exhausted
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusTooManyRequests {
+			t.Errorf("[P0] %s: %s bought a fresh budget (status %d, want 429). The limiter must key on the "+
+				"TCP peer — or on Fly-Client-IP only when TrustEdgeHeader is set from FLY_APP_NAME, which it "+
+				"is not here — never on a header the caller controls", forged.header, forged.value, recorder.Code)
+		}
+	}
+}
+
+// 0.11-ROUTE-009 — the write bucket refills.
+//
+// A limiter that refuses correctly but never refills is a limiter that bricks
+// the form for the rest of the event, which at the venue is worse than no
+// limiter at all.
+func TestDisputeWriteLimiterRefills(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// 10000/minute is the limiter's configured ceiling — one token every 6ms —
+	// so a short sleep is a real refill rather than a fake clock.
+	router := composeDisputeRouter(t, &reachCounter{}, &refusingLoader{}, 600, 1)
+	const client = "203.0.113.92:5000"
+
+	postDispute(router, client)
+	if code := postDispute(router, client).Code; code != http.StatusTooManyRequests {
+		t.Fatalf("[P0] the bucket did not refuse a second submission (%d)", code)
+	}
+
+	refilled := composeDisputeRouter(t, &reachCounter{}, &refusingLoader{}, 600, 10000)
+	postDispute(refilled, client)
+	time.Sleep(50 * time.Millisecond)
+	if code := postDispute(refilled, client).Code; code == http.StatusTooManyRequests {
+		t.Errorf("[P0] the write bucket never refilled; a student refused once could not submit again for the " +
+			"rest of the event (AC 9)")
+	}
+}

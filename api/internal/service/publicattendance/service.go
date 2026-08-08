@@ -40,7 +40,11 @@ import (
 // is over forty event-days for one student — far beyond any realistic history,
 // while still bounding the response of an endpoint anyone can call.
 const maxRecordRows = 500
-const maxPublicEventRows = 100
+
+// MaxPublicEventRows is exported so the integration suite can seed PAST the cap
+// and assert it. It was unexported and the cap was therefore unasserted —
+// deleting the LIMIT from ListPublicEvents left every test green.
+const MaxPublicEventRows = 100
 
 // Student is the display identity the dashboard shows. No email: `students` has
 // no such column, and the shape must stay unable to carry one.
@@ -170,7 +174,7 @@ func (s *Service) Records(ctx context.Context, studentID string) (RecordCollecti
 }
 
 func (s *Service) PublicEvents(ctx context.Context) (EventCollection, error) {
-	rows, err := s.queries.ListPublicEvents(ctx, maxPublicEventRows)
+	rows, err := s.queries.ListPublicEvents(ctx, MaxPublicEventRows)
 	if err != nil {
 		return EventCollection{}, err
 	}

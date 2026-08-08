@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -116,7 +118,16 @@ type Repository interface {
 	OpenForSlot(ctx context.Context, studentID, eventID, odDate string, slot int) (Record, error)
 	ListForAdmin(ctx context.Context, filter ListFilter) ([]Record, int, error)
 	ListForTeacher(ctx context.Context, actorUserID string, filter ListFilter) ([]Record, int, error)
-	ForResolution(ctx context.Context, actor Actor, disputeID string) (Record, error)
+	// ForResolution reads one dispute. tx may be nil (pool read); passing the
+	// transaction keeps the post-write read inside the same transaction, so a
+	// resolve that COMMITTED can no longer be reported to the teacher as a
+	// failure because a follow-up read happened to fail.
+	ForResolution(ctx context.Context, tx pgx.Tx, actor Actor, disputeID string) (Record, error)
+	// LockedStatus reads the dispute's status under `FOR UPDATE` inside tx. It
+	// is what disambiguates "already resolved" (409) from "no such dispute"
+	// (404) after a guarded UPDATE matched zero rows, without racing a
+	// concurrent resolver between the update and the answer.
+	LockedStatus(ctx context.Context, tx pgx.Tx, disputeID string) (string, bool, error)
 	Resolve(ctx context.Context, tx pgx.Tx, write ResolveWrite) (int64, error)
 }
 
@@ -180,16 +191,20 @@ func (s *Service) Submit(ctx context.Context, input SubmitInput) (Receipt, error
 	targetTable := "disputes"
 	targetID := ""
 	actorRole := "student"
-	payload := submitPayload(write)
+	// PayloadFunc ONLY — store.WithAudit prefers it whenever it is non-nil, so
+	// also setting Payload left one of the two permanently dead. It runs after
+	// the insert, which is what lets the payload carry the row's own id and
+	// server timestamp: FR51 requires the form contents, the selected
+	// event/category/slot AND the timestamp, and the timestamp is not knowable
+	// before the write.
 	evt := store.AuditEvent{
 		Action:       domain.ActionDisputeSubmitted,
 		ActorAccount: &email,
 		ActorRole:    &actorRole,
 		TargetTable:  &targetTable,
 		TargetID:     &targetID,
-		Payload:      payload,
 		PayloadFunc: func() ([]byte, error) {
-			return submitPayload(write), nil
+			return submitPayload(write, inserted), nil
 		},
 	}
 	err = s.audited.WithAudit(ctx, evt, func(ctx context.Context, tx pgx.Tx) (bool, error) {
@@ -212,8 +227,16 @@ func (s *Service) Submit(ctx context.Context, input SubmitInput) (Receipt, error
 		return Receipt{}, err
 	}
 
+	// No defaulting here. This block used to mint a random uuid when the
+	// repository returned an empty record, which would hand the student a
+	// reference matching no row while the audit row's target_id stayed "" — a
+	// loud bug converted into a silent one, on the single handle a student has
+	// for a dispute they cannot look up.
 	if inserted.DisputeID == "" {
-		inserted.DisputeID = uuid.NewString()
+		return Receipt{}, domain.DomainError{
+			Code:    contracts.ErrorCodeINTERNAL,
+			Message: "The submission could not be recorded. Please try again.",
+		}
 	}
 	if inserted.Reference == "" {
 		inserted.Reference = reference(inserted.DisputeID)
@@ -261,6 +284,14 @@ func (s *Service) Resolve(ctx context.Context, actor Actor, disputeID, note stri
 	if actor.Role != "teacher" && actor.Role != "admin" {
 		return Record{}, forbidden()
 	}
+	// The resolver is recorded on the row and in the audit ledger. An unparseable
+	// or blank user id silently becomes NULL in pgtype (uuidParam swallows the
+	// parse error), and disputes_resolved_state_ck does NOT require
+	// resolved_by_user_id — so a malformed principal could resolve a dispute
+	// with no resolver attached and pass every constraint.
+	if _, err := uuid.Parse(strings.TrimSpace(actor.UserID)); err != nil {
+		return Record{}, forbidden()
+	}
 	if strings.TrimSpace(disputeID) == "" {
 		return Record{}, validation("dispute_id", "required", "Dispute id is required.")
 	}
@@ -268,11 +299,14 @@ func (s *Service) Resolve(ctx context.Context, actor Actor, disputeID, note stri
 		return Record{}, validation("dispute_id", "invalid_format", "Dispute id must be a UUID.")
 	}
 	trimmedNote := strings.TrimSpace(note)
-	if trimmedNote == "" {
+	if trimmedNote == "" || !hasVisibleCharacter(trimmedNote) {
 		return Record{}, validation("resolution_note", "required", "Resolution note is required.")
 	}
-	if len(trimmedNote) > 2000 {
+	if utf8.RuneCountInString(trimmedNote) > 2000 {
 		return Record{}, validation("resolution_note", "too_long", "Resolution note must be at most 2000 characters.")
+	}
+	if hasControlCharacter(trimmedNote) {
+		return Record{}, validation("resolution_note", "invalid_characters", "Resolution note must not contain control characters.")
 	}
 
 	resolvedAt := s.now()
@@ -297,7 +331,12 @@ func (s *Service) Resolve(ctx context.Context, actor Actor, disputeID, note stri
 		Payload:      payload,
 	}
 
-	var changed bool
+	var (
+		changed      bool
+		resolved     Record
+		lockedStatus string
+		lockedFound  bool
+	)
 	err := s.audited.WithAudit(ctx, evt, func(ctx context.Context, tx pgx.Tx) (bool, error) {
 		rows, err := s.repo.Resolve(ctx, tx, ResolveWrite{
 			Actor:      actor,
@@ -308,66 +347,139 @@ func (s *Service) Resolve(ctx context.Context, actor Actor, disputeID, note stri
 		if err != nil {
 			return false, err
 		}
-		changed = rows > 0
-		return changed, nil
+		if rows == 0 {
+			// The UPDATE is guarded on status='open', so zero rows means either
+			// already-resolved or gone. Read it back under the row lock, in this
+			// transaction, rather than guessing or re-reading after commit.
+			lockedStatus, lockedFound, err = s.repo.LockedStatus(ctx, tx, targetID)
+			if err != nil {
+				return false, err
+			}
+			return false, nil
+		}
+		// Read the resolved row inside the SAME transaction that wrote it.
+		record, err := s.repo.ForResolution(ctx, tx, actor, targetID)
+		if err != nil {
+			return false, err
+		}
+		resolved = record
+		changed = true
+		return true, nil
 	})
 	if err != nil {
 		return Record{}, err
 	}
 	if !changed {
-		record, err := s.repo.ForResolution(ctx, actor, targetID)
-		if err != nil {
-			var de domain.DomainError
-			if errors.As(err, &de) {
-				return Record{}, de
-			}
-			return Record{}, disputeNotFound()
-		}
-		if record.Status == "resolved" {
+		if lockedFound && lockedStatus == "resolved" {
 			return Record{}, disputeAlreadyResolved()
 		}
 		return Record{}, disputeNotFound()
 	}
-	return s.repo.ForResolution(ctx, actor, targetID)
+	return resolved, nil
+}
+
+// hasControlCharacter reports whether v carries a C0/C1 control character. A NUL
+// is the sharp case: Postgres rejects U+0000 in `text` with SQLSTATE 22021 from
+// INSIDE the insert, which would reach an anonymous caller as a 500 for input
+// they fully control. service/event/category.go rejects these for exactly this
+// reason; this is the same guard on the public write.
+func hasControlCharacter(v string) bool {
+	for _, r := range v {
+		if r != '\n' && r != '\r' && r != '\t' && unicode.IsControl(r) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasVisibleCharacter reports whether v contains anything a human can see.
+// strings.TrimSpace does NOT strip U+200B (zero-width space), U+2060 or U+FEFF,
+// so a note made only of those passes a `!= ""` check, satisfies the database's
+// `length BETWEEN 1 AND 2000`, and resolves a dispute with a blank decision.
+func hasVisibleCharacter(v string) bool {
+	for _, r := range v {
+		// U+200B, U+2060 and U+FEFF are all General_Category=Cf, so the Cf test
+		// covers every zero-width form strings.TrimSpace leaves behind.
+		if unicode.IsSpace(r) || unicode.Is(unicode.Cf, r) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func validateSubmitInput(input SubmitInput, now time.Time) error {
-	for field, value := range map[string]string{
-		"student_id":      input.StudentID,
-		"event_id":        input.EventID,
-		"category_id":     input.CategoryID,
-		"submitted_email": input.SubmittedEmail,
-		"od_date":         input.ODDate,
+	// Ordered slices, not maps: Go randomises map iteration order, so a body
+	// missing two required fields named a different one on each run. 0.4's
+	// review already landed "make required-field errors deterministic" once.
+	for _, required := range []struct{ field, value string }{
+		{"student_id", input.StudentID},
+		{"submitted_email", input.SubmittedEmail},
+		{"event_id", input.EventID},
+		{"category_id", input.CategoryID},
+		{"od_date", input.ODDate},
 	} {
-		if strings.TrimSpace(value) == "" {
-			return validation(field, "required", field+" is required.")
+		if strings.TrimSpace(required.value) == "" {
+			return validation(required.field, "required", required.field+" is required.")
 		}
 	}
-	for field, value := range map[string]string{
-		"student_id":  input.StudentID,
-		"event_id":    input.EventID,
-		"category_id": input.CategoryID,
+	for _, id := range []struct{ field, value string }{
+		{"student_id", input.StudentID},
+		{"event_id", input.EventID},
+		{"category_id", input.CategoryID},
 	} {
-		if _, err := uuid.Parse(strings.TrimSpace(value)); err != nil {
-			return validation(field, "invalid_format", field+" must be a UUID.")
+		parsed, err := uuid.Parse(strings.TrimSpace(id.value))
+		if err != nil {
+			return validation(id.field, "invalid_format", id.field+" must be a UUID.")
+		}
+		// The nil UUID parses cleanly and then reaches pgtype as NULL, which is
+		// how an absent id used to surface as EVENT_NOT_FOUND instead of a typed
+		// validation failure.
+		if parsed == uuid.Nil {
+			return validation(id.field, "invalid_format", id.field+" must be a non-nil UUID.")
 		}
 	}
 	if input.Slot < 1 || input.Slot > 12 {
 		return validation("slot", "out_of_range", "Slot must be between 1 and 12.")
 	}
-	if len(strings.TrimSpace(input.SubmittedEmail)) > 320 {
+	// Counted in RUNES, not bytes. The contract's maxLength, the database CHECK
+	// (`length(...)`) and the browser's maxLength all count characters, so a
+	// byte count refused a 400-character Malayalam note as "at most 1000
+	// characters". PublicAttendanceScreen.tsx's runeCount() helper documents
+	// this as "the unit the Go service bounds on" — now true again.
+	if utf8.RuneCountInString(strings.TrimSpace(input.SubmittedEmail)) > 320 {
 		return validation("submitted_email", "too_long", "Email must be at most 320 characters.")
 	}
-	if input.StudentNote != nil && len(strings.TrimSpace(*input.StudentNote)) > 1000 {
-		return validation("student_note", "too_long", "Student note must be at most 1000 characters.")
+	if hasControlCharacter(input.SubmittedEmail) {
+		return validation("submitted_email", "invalid_characters", "Email must not contain control characters.")
 	}
-	if input.ClaimedCoordinatorName != nil && len(strings.TrimSpace(*input.ClaimedCoordinatorName)) > 200 {
-		return validation("claimed_coordinator_name", "too_long", "Coordinator name must be at most 200 characters.")
+	if input.StudentNote != nil {
+		note := strings.TrimSpace(*input.StudentNote)
+		if utf8.RuneCountInString(note) > 1000 {
+			return validation("student_note", "too_long", "Student note must be at most 1000 characters.")
+		}
+		if hasControlCharacter(note) {
+			return validation("student_note", "invalid_characters", "Student note must not contain control characters.")
+		}
+	}
+	if input.ClaimedCoordinatorName != nil {
+		name := strings.TrimSpace(*input.ClaimedCoordinatorName)
+		if utf8.RuneCountInString(name) > 200 {
+			return validation("claimed_coordinator_name", "too_long", "Coordinator name must be at most 200 characters.")
+		}
+		if hasControlCharacter(name) {
+			return validation("claimed_coordinator_name", "invalid_characters", "Coordinator name must not contain control characters.")
+		}
 	}
 	odDate, err := time.Parse("2006-01-02", strings.TrimSpace(input.ODDate))
 	if err != nil {
 		return validation("od_date", "invalid_format", "OD date must be YYYY-MM-DD.")
 	}
+	// This is a plausibility bound, NOT the event-range check: the range is a
+	// database constraint (T22) because the day arrives from an anonymous
+	// submitter and a handler check is not a guarantee. A day more than 24h
+	// ahead cannot belong to any event that has already happened, so it is worth
+	// refusing before it costs a transaction.
 	if odDate.After(now.Add(24 * time.Hour)) {
 		return validation("od_date", "out_of_range", "OD date must be within the event range.")
 	}
@@ -418,8 +530,13 @@ func trimOptional(value *string) *string {
 	return &trimmed
 }
 
-func submitPayload(write InsertWrite) []byte {
+// submitPayload builds the FR51 audit payload: the form contents, the selected
+// event/category/slot, and the timestamp. `inserted` is the row the write just
+// produced, so dispute_id and submitted_at are the row's own values rather than
+// anything re-derived.
+func submitPayload(write InsertWrite, inserted Record) []byte {
 	payload, _ := json.Marshal(map[string]any{
+		"dispute_id":               inserted.DisputeID,
 		"student_id":               write.StudentID,
 		"submitted_email":          write.SubmittedEmail,
 		"event_id":                 write.EventID,
@@ -428,6 +545,7 @@ func submitPayload(write InsertWrite) []byte {
 		"slot":                     write.Slot,
 		"claimed_coordinator_name": write.ClaimedCoordinatorName,
 		"student_note":             write.StudentNote,
+		"submitted_at":             inserted.SubmittedAt.UTC().Format(time.RFC3339Nano),
 	})
 	return payload
 }

@@ -3,6 +3,7 @@ package dispute
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -73,10 +74,26 @@ func (r *SQLCRepository) Insert(ctx context.Context, tx pgx.Tx, write InsertWrit
 				return Record{}, domain.DomainError{Code: contracts.ErrorCodeDISPUTEALREADYOPEN, Message: "A dispute is already open for this slot."}
 			case pgErr.Code == "23503" && pgErr.ConstraintName == "disputes_category_event_fk":
 				return Record{}, domain.DomainError{Code: contracts.ErrorCodeCATEGORYNOTFOUND, Message: "Category not found for this event."}
+			case pgErr.Code == "23503" && pgErr.ConstraintName == "disputes_student_id_fkey":
+				// The roster row vanished between the identity lookup and the
+				// insert. Telling the submitter their EVENT does not exist would
+				// be a wrong answer to a race; 0.7's review settled that a
+				// vanished-actor race is internal, not a caller-facing 404.
+				return Record{}, domain.DomainError{Code: contracts.ErrorCodeINTERNAL, Message: "The submission could not be recorded. Please try again."}
 			case pgErr.Code == "23503":
 				return Record{}, domain.DomainError{Code: contracts.ErrorCodeEVENTNOTFOUND, Message: "Event or referenced row not found."}
 			case pgErr.Code == "23514" && pgErr.ConstraintName == "disputes_od_date_event_range_ck":
 				return Record{}, validation("od_date", "out_of_range", "OD date must be within the event range.")
+			case pgErr.Code == "23502":
+				// A NOT NULL violation means a required value arrived as NULL —
+				// caller input, not a server fault. The handler now rejects the
+				// absent/nil forms at the edge, so this is the backstop rather
+				// than the primary guard, and it must not surface as a 500.
+				return Record{}, validation(strings.TrimSpace(pgErr.ColumnName), "required", "A required field was missing.")
+			case pgErr.Code == "22021" || pgErr.Code == "22P05":
+				// Invalid byte sequence / untranslatable character: a NUL or
+				// other control byte in free text. Also caller input.
+				return Record{}, validation("student_note", "invalid_characters", "Text fields must not contain control characters.")
 			}
 		}
 		return Record{}, err
@@ -107,17 +124,39 @@ func (r *SQLCRepository) OpenForSlot(ctx context.Context, studentID, eventID, od
 	return Record{DisputeID: id, Reference: reference(id), Status: "open", SubmittedAt: row.CreatedAt.Time}, nil
 }
 
+// pageOffset is the same overflow guard service/event/reader.go uses, and for
+// the same reason: `(page-1)*pageSize` evaluated in `int` wraps NEGATIVE for a
+// large page, and Postgres answers a negative OFFSET with an error, so a caller
+// could turn `?page=9223372036854775807` into a 500. Counting first and
+// rejecting an out-of-range page keeps the arithmetic in int64 and never asks
+// the database for a page that cannot exist.
+func pageOffset(total int64, page, pageSize int) (int64, bool) {
+	if total <= 0 || page < 1 || pageSize < 1 {
+		return 0, false
+	}
+	pageIndex := int64(page - 1)
+	size := int64(pageSize)
+	if pageIndex > (total-1)/size {
+		return 0, false
+	}
+	return pageIndex * size, true
+}
+
 func (r *SQLCRepository) ListForAdmin(ctx context.Context, filter ListFilter) ([]Record, int, error) {
 	filter = normalizeFilter(filter)
-	rows, err := r.queries.ListDisputesForAdmin(ctx, sqlc.ListDisputesForAdminParams{
-		Status:     filter.Status,
-		PageOffset: int64((filter.Page - 1) * filter.PageSize),
-		PageSize:   int64(filter.PageSize),
-	})
+	total, err := r.queries.CountDisputesForAdmin(ctx, filter.Status)
 	if err != nil {
 		return nil, 0, err
 	}
-	total, err := r.queries.CountDisputesForAdmin(ctx, filter.Status)
+	offset, ok := pageOffset(total, filter.Page, filter.PageSize)
+	if !ok {
+		return []Record{}, int(total), nil
+	}
+	rows, err := r.queries.ListDisputesForAdmin(ctx, sqlc.ListDisputesForAdminParams{
+		Status:     filter.Status,
+		PageOffset: offset,
+		PageSize:   int64(filter.PageSize),
+	})
 	if err != nil {
 		return nil, 0, err
 	}
@@ -130,18 +169,22 @@ func (r *SQLCRepository) ListForAdmin(ctx context.Context, filter ListFilter) ([
 
 func (r *SQLCRepository) ListForTeacher(ctx context.Context, actorUserID string, filter ListFilter) ([]Record, int, error) {
 	filter = normalizeFilter(filter)
-	rows, err := r.queries.ListDisputesForTeacher(ctx, sqlc.ListDisputesForTeacherParams{
+	total, err := r.queries.CountDisputesForTeacher(ctx, sqlc.CountDisputesForTeacherParams{
 		TeacherUserID: uuidParam(actorUserID),
 		Status:        filter.Status,
-		PageOffset:    int64((filter.Page - 1) * filter.PageSize),
-		PageSize:      int64(filter.PageSize),
 	})
 	if err != nil {
 		return nil, 0, err
 	}
-	total, err := r.queries.CountDisputesForTeacher(ctx, sqlc.CountDisputesForTeacherParams{
+	offset, ok := pageOffset(total, filter.Page, filter.PageSize)
+	if !ok {
+		return []Record{}, int(total), nil
+	}
+	rows, err := r.queries.ListDisputesForTeacher(ctx, sqlc.ListDisputesForTeacherParams{
 		TeacherUserID: uuidParam(actorUserID),
 		Status:        filter.Status,
+		PageOffset:    offset,
+		PageSize:      int64(filter.PageSize),
 	})
 	if err != nil {
 		return nil, 0, err
@@ -153,10 +196,14 @@ func (r *SQLCRepository) ListForTeacher(ctx context.Context, actorUserID string,
 	return out, int(total), nil
 }
 
-func (r *SQLCRepository) ForResolution(ctx context.Context, actor Actor, disputeID string) (Record, error) {
+func (r *SQLCRepository) ForResolution(ctx context.Context, tx pgx.Tx, actor Actor, disputeID string) (Record, error) {
+	q := r.queries
+	if tx != nil {
+		q = sqlc.New(tx)
+	}
 	id := uuidParam(disputeID)
 	if actor.Role == "teacher" {
-		ok, err := r.queries.TeacherCanResolveDispute(ctx, sqlc.TeacherCanResolveDisputeParams{
+		ok, err := q.TeacherCanResolveDispute(ctx, sqlc.TeacherCanResolveDisputeParams{
 			TeacherUserID: uuidParam(actor.UserID),
 			DisputeID:     id,
 		})
@@ -167,7 +214,7 @@ func (r *SQLCRepository) ForResolution(ctx context.Context, actor Actor, dispute
 			return Record{}, domain.DomainError{Code: contracts.ErrorCodeRBACFORBIDDEN, Message: "Teacher may resolve only disputes in assigned branches."}
 		}
 	}
-	row, err := r.queries.GetDisputeByID(ctx, id)
+	row, err := q.GetDisputeByID(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Record{}, disputeNotFound()
 	}
@@ -175,6 +222,25 @@ func (r *SQLCRepository) ForResolution(ctx context.Context, actor Actor, dispute
 		return Record{}, err
 	}
 	return recordFromGet(row), nil
+}
+
+// LockedStatus uses GetDisputeForResolution — the `FOR UPDATE OF d` query the
+// query file has always declared. It was generated and then never called, so the
+// row lock the resolve path documents did not actually exist; the 409-vs-404
+// answer was decided by a re-read after the transaction had already committed.
+func (r *SQLCRepository) LockedStatus(ctx context.Context, tx pgx.Tx, disputeID string) (string, bool, error) {
+	q := r.queries
+	if tx != nil {
+		q = sqlc.New(tx)
+	}
+	row, err := q.GetDisputeForResolution(ctx, uuidParam(disputeID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return row.Status, true, nil
 }
 
 func (r *SQLCRepository) Resolve(ctx context.Context, tx pgx.Tx, write ResolveWrite) (int64, error) {

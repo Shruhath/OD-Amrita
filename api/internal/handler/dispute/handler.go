@@ -39,20 +39,87 @@ func RegisterRoutes(group gin.IRouter, svc AuthenticatedService) {
 	group.POST("/disputes/:dispute_id/resolution", ResolveDisputeHandler(svc))
 }
 
+// maxDisputeRequestBytes bounds both dispute request bodies before the decoder
+// allocates. Every other POST in this package tree already does this
+// (handler/event, handler/od_record, handler/cardtoken, handler/teacher,
+// handler/student); the public dispute POST is the one route the whole internet
+// can reach, so it is the last place the convention should have been skipped.
+// The rate limiter counts requests, not bytes, and ReadTimeout allows a large
+// transfer per connection.
+const maxDisputeRequestBytes = 1 << 20
+
+// submitPublicDisputeBody mirrors contracts.PublicDisputeRequest with POINTER
+// fields. The generated struct uses value types and carries no binding tags, so
+// an absent or JSON-null required field decodes to the zero value: uuid.Nil
+// (which parses cleanly and reaches the database as NULL) or 0001-01-01. That
+// is how a missing event_id surfaced as EVENT_NOT_FOUND (404) and a missing
+// od_date as an unmapped NOT NULL violation, instead of the typed
+// VALIDATION_FAILED the contract promises. A nil pointer here is unambiguously
+// "absent".
+type submitPublicDisputeBody struct {
+	StudentId              *openapi_types.UUID `json:"student_id"`
+	SubmittedEmail         *string             `json:"submitted_email"`
+	EventId                *openapi_types.UUID `json:"event_id"`
+	CategoryId             *openapi_types.UUID `json:"category_id"`
+	OdDate                 *openapi_types.Date `json:"od_date"`
+	Slot                   *int                `json:"slot"`
+	ClaimedCoordinatorName *string             `json:"claimed_coordinator_name"`
+	StudentNote            *string             `json:"student_note"`
+}
+
 func SubmitPublicDisputeHandler(svc PublicService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var body contracts.PublicDisputeRequest
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxDisputeRequestBytes)
+		var body submitPublicDisputeBody
 		if err := c.ShouldBindJSON(&body); err != nil {
 			fail(c, validation("$", "invalid_json", "Request body is invalid."))
 			return
 		}
+		// Presence is checked in a FIXED order so two missing fields always name
+		// the same one. The service's own required-field loop ranged over a map,
+		// whose iteration order Go randomises per run.
+		for _, required := range []struct {
+			name    string
+			present bool
+		}{
+			{"student_id", body.StudentId != nil},
+			{"submitted_email", body.SubmittedEmail != nil},
+			{"event_id", body.EventId != nil},
+			{"category_id", body.CategoryId != nil},
+			{"od_date", body.OdDate != nil},
+			{"slot", body.Slot != nil},
+		} {
+			if !required.present {
+				fail(c, validation(required.name, "required", required.name+" is required."))
+				return
+			}
+		}
+		// A well-formed but nil UUID is "absent" spelled differently: it parses,
+		// so the service's uuid.Parse check passes, and pgtype maps it to NULL.
+		for _, id := range []struct {
+			name  string
+			value openapi_types.UUID
+		}{
+			{"student_id", *body.StudentId},
+			{"event_id", *body.EventId},
+			{"category_id", *body.CategoryId},
+		} {
+			if id.value == uuid.Nil {
+				fail(c, validation(id.name, "invalid_format", id.name+" must be a non-nil UUID."))
+				return
+			}
+		}
+		if body.OdDate.Time.IsZero() {
+			fail(c, validation("od_date", "invalid_format", "od_date must be YYYY-MM-DD."))
+			return
+		}
 		input := svcdispute.SubmitInput{
 			StudentID:              body.StudentId.String(),
-			SubmittedEmail:         body.SubmittedEmail,
+			SubmittedEmail:         *body.SubmittedEmail,
 			EventID:                body.EventId.String(),
 			CategoryID:             body.CategoryId.String(),
 			ODDate:                 body.OdDate.Time.Format(time.DateOnly),
-			Slot:                   body.Slot,
+			Slot:                   *body.Slot,
 			ClaimedCoordinatorName: body.ClaimedCoordinatorName,
 			StudentNote:            body.StudentNote,
 		}
@@ -153,6 +220,7 @@ func ResolveDisputeHandler(svc AuthenticatedService) gin.HandlerFunc {
 			fail(c, validation("dispute_id", "invalid_format", "dispute_id must be a UUID."))
 			return
 		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxDisputeRequestBytes)
 		var body contracts.DisputeResolutionRequest
 		if err := c.ShouldBindJSON(&body); err != nil {
 			fail(c, validation("$", "invalid_json", "Request body is invalid."))

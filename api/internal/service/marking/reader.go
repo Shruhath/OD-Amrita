@@ -97,6 +97,10 @@ func fromServiceEvent(row svcevent.Event) (Event, error) {
 	if err != nil {
 		return Event{}, err
 	}
+	endDate, err := time.ParseInLocation("2006-01-02", row.EndDate, time.UTC)
+	if err != nil {
+		return Event{}, err
+	}
 	branches := make([]Branch, 0, len(row.Branches))
 	for _, branch := range row.Branches {
 		branches = append(branches, Branch{ID: branch.ID, Code: branch.Code, Name: branch.Name})
@@ -105,6 +109,7 @@ func fromServiceEvent(row svcevent.Event) (Event, error) {
 		EventID:    row.ID,
 		Name:       row.Name,
 		EventDate:  eventDate,
+		EndDate:    endDate,
 		Status:     string(row.Status),
 		Branches:   branches,
 		CreatedAt:  row.CreatedAt,

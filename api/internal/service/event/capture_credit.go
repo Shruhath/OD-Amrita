@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/Shruhath/OD-Amrita/api/internal/campus"
 	"github.com/Shruhath/OD-Amrita/api/internal/domain"
 	"github.com/Shruhath/OD-Amrita/api/internal/store"
 )
@@ -57,16 +58,24 @@ type CaptureCreditConfigWriteResult struct {
 type CaptureCreditResetWrite struct {
 	EventID uuid.UUID
 	UserID  uuid.UUID
+	// UsageDate is the day whose pool is being reset. The credit pool is per day
+	// from Story 0.12a; a reset with no day would zero one arbitrary row.
+	UsageDate time.Time
 }
 
 type CaptureCreditResetWriteResult struct {
 	PreviousConsumed int
 }
 
+// CaptureCreditReader reads the cap and the per-day usage.
+//
+// GetCaptureCreditConfig takes NO day: the cap is per event and stays that way,
+// which is what keeps a mid-festival cap raise one call covering every remaining
+// day. The two usage reads take one, because usage is per day.
 type CaptureCreditReader interface {
 	GetCaptureCreditConfig(context.Context, uuid.UUID) (CaptureCreditConfig, error)
-	ListCaptureCreditUsageByEvent(context.Context, uuid.UUID) ([]CaptureCreditUsage, error)
-	GetCaptureCreditUsageForCoordinator(context.Context, uuid.UUID, uuid.UUID) (CaptureCreditUsage, error)
+	ListCaptureCreditUsageByEvent(context.Context, uuid.UUID, time.Time) ([]CaptureCreditUsage, error)
+	GetCaptureCreditUsageForCoordinator(context.Context, uuid.UUID, uuid.UUID, time.Time) (CaptureCreditUsage, error)
 }
 
 type CaptureCreditWriter interface {
@@ -96,7 +105,11 @@ func (s *Service) ListCaptureCredits(ctx context.Context, actor Actor, rawEventI
 	if err != nil {
 		return CaptureCreditSummary{}, err
 	}
-	rows, err := s.creditReader.ListCaptureCreditUsageByEvent(ctx, eventID)
+	// The admin surface acts on TODAY. A live cap intervention is only ever about
+	// the day in progress, and no day parameter is offered on these endpoints: an
+	// admin choosing a past day would be asking to change a number that can no
+	// longer affect a mark.
+	rows, err := s.creditReader.ListCaptureCreditUsageByEvent(ctx, eventID, s.campusToday())
 	if err != nil {
 		return CaptureCreditSummary{}, err
 	}
@@ -200,6 +213,10 @@ func (s *Service) ResetCaptureCredits(ctx context.Context, actor Actor, rawEvent
 		return CaptureCreditUsage{}, fmt.Errorf("event: invalid principal id: %w", err)
 	}
 
+	// One campus-date read serves the reset write, its audit payload and the read
+	// back below, so all three name the same day.
+	usageDate := s.campusToday()
+
 	actorAccount := strings.ToLower(strings.TrimSpace(actor.Email))
 	actorRole := actor.Role
 	targetTable := "event_capture_credit_usage"
@@ -216,6 +233,7 @@ func (s *Service) ResetCaptureCredits(ctx context.Context, actor Actor, rawEvent
 				"event_id":          eventID.String(),
 				"user_id":           userID.String(),
 				"actor_user_id":     actorID.String(),
+				"usage_date":        usageDate.Format("2006-01-02"),
 				"previous_consumed": previousConsumed,
 				"new_consumed":      0,
 			})
@@ -223,7 +241,11 @@ func (s *Service) ResetCaptureCredits(ctx context.Context, actor Actor, rawEvent
 	}
 
 	err = s.store.WithAudit(ctx, evt, func(ctx context.Context, tx pgx.Tx) (bool, error) {
-		written, changed, writeErr := s.creditWriter.ResetCaptureCreditUsage(ctx, tx, CaptureCreditResetWrite{EventID: eventID, UserID: userID})
+		written, changed, writeErr := s.creditWriter.ResetCaptureCreditUsage(ctx, tx, CaptureCreditResetWrite{
+			EventID:   eventID,
+			UserID:    userID,
+			UsageDate: usageDate,
+		})
 		if writeErr != nil {
 			return false, writeErr
 		}
@@ -233,7 +255,12 @@ func (s *Service) ResetCaptureCredits(ctx context.Context, actor Actor, rawEvent
 	if err != nil {
 		return CaptureCreditUsage{}, mapCaptureCreditWriteError(err)
 	}
-	return s.creditReader.GetCaptureCreditUsageForCoordinator(ctx, eventID, userID)
+	return s.creditReader.GetCaptureCreditUsageForCoordinator(ctx, eventID, userID, usageDate)
+}
+
+// campusToday is the day the admin credit surface acts on.
+func (s *Service) campusToday() time.Time {
+	return campus.Date(time.Now())
 }
 
 func mapCaptureCreditWriteError(err error) error {

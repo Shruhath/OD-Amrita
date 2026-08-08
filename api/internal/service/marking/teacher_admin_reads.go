@@ -37,7 +37,7 @@ func (s *PortalMarkReadService) Events(ctx context.Context, actor Actor) ([]Even
 		}
 		events := make([]Event, 0, len(rows))
 		for _, row := range rows {
-			event, mapErr := eventFromPortalRow(row.ID, row.Name, row.EventDate, row.Status, row.ArchivedAt, row.CreatedAt, row.BranchesJson)
+			event, mapErr := eventFromPortalRow(row.ID, row.Name, row.EventDate, row.EndDate, row.Status, row.ArchivedAt, row.CreatedAt, row.BranchesJson)
 			if mapErr != nil {
 				return nil, mapErr
 			}
@@ -55,7 +55,7 @@ func (s *PortalMarkReadService) Events(ctx context.Context, actor Actor) ([]Even
 	}
 	events := make([]Event, 0, len(rows))
 	for _, row := range rows {
-		event, mapErr := eventFromPortalRow(row.ID, row.Name, row.EventDate, row.Status, row.ArchivedAt, row.CreatedAt, row.BranchesJson)
+		event, mapErr := eventFromPortalRow(row.ID, row.Name, row.EventDate, row.EndDate, row.Status, row.ArchivedAt, row.CreatedAt, row.BranchesJson)
 		if mapErr != nil {
 			return nil, mapErr
 		}
@@ -102,7 +102,13 @@ func (s *PortalMarkReadService) Categories(ctx context.Context, actor Actor, eve
 	return categoriesFromTeacherRows(rows)
 }
 
-func (s *PortalMarkReadService) Attendance(ctx context.Context, actor Actor, eventID string, categoryID *string, slot *int, page, pageSize int) (AttendancePage, error) {
+// Attendance is the admin verification read.
+//
+// odDate is OPTIONAL and narrows the list to one day of a multi-day event. A nil
+// odDate must return every day: every caller written before the range existed
+// passes nil, and defaulting to today would silently hide the rest of a
+// festival from the surface whose whole job is to show it.
+func (s *PortalMarkReadService) Attendance(ctx context.Context, actor Actor, eventID string, categoryID *string, slot *int, odDate *string, page, pageSize int) (AttendancePage, error) {
 	if actor.Role != "admin" {
 		return AttendancePage{}, forbiddenPortal("Administrator access is required for attendance review.")
 	}
@@ -139,10 +145,21 @@ func (s *PortalMarkReadService) Attendance(ctx context.Context, actor Actor, eve
 		parsedSlot = pgtype.Int4{Int32: int32(*slot), Valid: true}
 	}
 
+	var parsedODDate pgtype.Date
+	if odDate != nil && strings.TrimSpace(*odDate) != "" {
+		trimmed := strings.TrimSpace(*odDate)
+		day, parseErr := time.Parse(time.DateOnly, trimmed)
+		if parseErr != nil || day.Format(time.DateOnly) != trimmed {
+			return AttendancePage{}, portalValidation("od_date", "invalid_format", "od_date must be a valid YYYY-MM-DD date.")
+		}
+		parsedODDate = pgtype.Date{Time: day, Valid: true}
+	}
+
 	total, err := s.queries.CountAttendanceRecords(ctx, sqlc.CountAttendanceRecordsParams{
 		EventID:    dbUUID(parsedEvent),
 		CategoryID: parsedCategory,
 		Slot:       parsedSlot,
+		OdDate:     parsedODDate,
 	})
 	if err != nil {
 		return AttendancePage{}, err
@@ -151,6 +168,7 @@ func (s *PortalMarkReadService) Attendance(ctx context.Context, actor Actor, eve
 		EventID:    dbUUID(parsedEvent),
 		CategoryID: parsedCategory,
 		Slot:       parsedSlot,
+		OdDate:     parsedODDate,
 		PageOffset: int64((page - 1) * pageSize),
 		PageSize:   int64(pageSize),
 	})
@@ -189,8 +207,10 @@ func portalValidation(field, code, message string) domain.DomainError {
 	}
 }
 
-func eventFromPortalRow(id pgtype.UUID, name string, eventDate pgtype.Date, status string, archivedAt, createdAt pgtype.Timestamptz, branchesJSON string) (Event, error) {
-	if !id.Valid || !eventDate.Valid || !createdAt.Valid {
+func eventFromPortalRow(id pgtype.UUID, name string, eventDate, endDate pgtype.Date, status string, archivedAt, createdAt pgtype.Timestamptz, branchesJSON string) (Event, error) {
+	// endDate is checked as strictly as eventDate: a zero value would make range
+	// containment empty and close the slot gate on the event rather than fail.
+	if !id.Valid || !eventDate.Valid || !endDate.Valid || !createdAt.Valid {
 		return Event{}, errors.New("marking: portal event row contains invalid required values")
 	}
 	var raw []Branch
@@ -209,6 +229,7 @@ func eventFromPortalRow(id pgtype.UUID, name string, eventDate pgtype.Date, stat
 		EventID:    uuid.UUID(id.Bytes).String(),
 		Name:       name,
 		EventDate:  eventDate.Time,
+		EndDate:    endDate.Time,
 		Status:     status,
 		Branches:   branches,
 		CreatedAt:  createdAt.Time,
@@ -253,7 +274,7 @@ func portalCategory(id, eventID pgtype.UUID, name string, createdAt pgtype.Times
 }
 
 func attendanceRecordFromRow(row sqlc.ListAttendanceRecordsRow) (AttendanceRecord, error) {
-	if !row.ID.Valid || !row.StudentID.Valid || !row.EventID.Valid || !row.CategoryID.Valid || !row.CategoryCreatedAt.Valid || !row.ServerReceivedAt.Valid {
+	if !row.ID.Valid || !row.StudentID.Valid || !row.EventID.Valid || !row.CategoryID.Valid || !row.CategoryCreatedAt.Valid || !row.OdDate.Valid || !row.ServerReceivedAt.Valid {
 		return AttendanceRecord{}, errors.New("marking: attendance row contains invalid required values")
 	}
 
@@ -289,6 +310,7 @@ func attendanceRecordFromRow(row sqlc.ListAttendanceRecordsRow) (AttendanceRecor
 			CreatedAt:  row.CategoryCreatedAt.Time,
 		},
 		Slot:             int(row.Slot),
+		ODDate:           row.OdDate.Time.Format(time.DateOnly),
 		CaptureMethod:    row.CaptureMethod,
 		MarkedBy:         markedBy,
 		ActorRole:        row.ActorRole,

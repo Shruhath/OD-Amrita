@@ -135,8 +135,17 @@ func CreateEventHandler(svc Service) gin.HandlerFunc {
 		for index, id := range body.BranchIds {
 			branchIDs[index] = id.String()
 		}
+		// end_date is OPTIONAL in the contract, so oapi-codegen emits it as a
+		// pointer. Nil is passed straight through as nil: the service defaults it
+		// to the start date, and dereferencing here would be the nil-deref 0.4's
+		// review found on exactly this shape.
+		var endDate *string
+		if body.EndDate != nil {
+			value := body.EndDate.Time.Format("2006-01-02")
+			endDate = &value
+		}
 		created, err := svc.Create(c.Request.Context(), actor, eventsvc.CreateInput{
-			Name: body.Name, EventDate: body.EventDate.Time.Format("2006-01-02"), BranchIDs: branchIDs,
+			Name: body.Name, EventDate: body.EventDate.Time.Format("2006-01-02"), EndDate: endDate, BranchIDs: branchIDs,
 		})
 		if err != nil {
 			fail(c, err)
@@ -153,6 +162,7 @@ func CreateEventHandler(svc Service) gin.HandlerFunc {
 
 type createRequestShape struct {
 	EventDate json.RawMessage   `json:"event_date"`
+	EndDate   json.RawMessage   `json:"end_date"`
 	BranchIDs []json.RawMessage `json:"branch_ids"`
 }
 
@@ -182,6 +192,21 @@ func bindCreateRequest(c *gin.Context, body *contracts.CreateEventRequest) error
 	parsed, err := time.Parse("2006-01-02", date)
 	if err != nil || parsed.Format("2006-01-02") != date {
 		return requestValidation("event_date", "invalid_format", "Event date must be a valid YYYY-MM-DD date.")
+	}
+	// end_date is optional, so an ABSENT key is legal and means a one-day event.
+	// A key that is present must still be a well-formed date string: a JSON null,
+	// a number, or "2026-13-45" are all a client sending something it meant, and
+	// the generated unmarshaller would collapse each of them into an
+	// undifferentiated JSON error rather than a failure on this field.
+	if len(shape.EndDate) > 0 {
+		var endDate string
+		if err := json.Unmarshal(shape.EndDate, &endDate); err != nil {
+			return requestValidation("end_date", "invalid_format", "End date must be a valid YYYY-MM-DD date.")
+		}
+		parsedEnd, err := time.Parse("2006-01-02", endDate)
+		if err != nil || parsedEnd.Format("2006-01-02") != endDate {
+			return requestValidation("end_date", "invalid_format", "End date must be a valid YYYY-MM-DD date.")
+		}
 	}
 	for index, raw := range shape.BranchIDs {
 		var value string
@@ -455,6 +480,11 @@ func eventContract(value eventsvc.Event) (contracts.Event, error) {
 		return contracts.Event{}, fmt.Errorf("event: map date: %w", err)
 	}
 	result.EventDate.Time = date
+	endDate, err := time.Parse("2006-01-02", value.EndDate)
+	if err != nil {
+		return contracts.Event{}, fmt.Errorf("event: map end date: %w", err)
+	}
+	result.EndDate.Time = endDate
 	return result, nil
 }
 

@@ -185,7 +185,7 @@ type stubCounts struct {
 	err           error
 }
 
-func (s *stubCounts) CountMarks(_ context.Context, actorUserID, eventID, categoryID string) (int, int, error) {
+func (s *stubCounts) CountMarks(_ context.Context, actorUserID, eventID, categoryID string, _ time.Time) (int, int, error) {
 	s.scopes = append(s.scopes, [3]string{actorUserID, eventID, categoryID})
 	return s.mine, s.categoryTotal, s.err
 }
@@ -333,7 +333,10 @@ func (r scaffoldReader) EventForMark(_ context.Context, eventID string) (Event, 
 	if eventID != scaffoldEventID {
 		return Event{}, ErrEventNotFound
 	}
-	return Event{EventID: scaffoldEventID, EventDate: r.eventDate, Status: "active"}, nil
+	// A one-day event: EndDate == EventDate is the shape every pre-existing
+	// event was backfilled to, so these scaffolds keep asserting the unchanged
+	// single-day behaviour.
+	return Event{EventID: scaffoldEventID, EventDate: r.eventDate, EndDate: r.eventDate, Status: "active"}, nil
 }
 
 func (r scaffoldReader) CategoryForEvent(_ context.Context, eventID, categoryID string) (Category, error) {
@@ -425,7 +428,7 @@ type fixedCreditLedger struct {
 	err    error
 }
 
-func (l *fixedCreditLedger) Debit(context.Context, pgx.Tx, string, string) (FallbackCreditState, error) {
+func (l *fixedCreditLedger) Debit(context.Context, pgx.Tx, string, string, time.Time) (FallbackCreditState, error) {
 	l.debits++
 	if l.err != nil {
 		return FallbackCreditState{}, l.err
@@ -433,7 +436,7 @@ func (l *fixedCreditLedger) Debit(context.Context, pgx.Tx, string, string) (Fall
 	return l.state, nil
 }
 
-func (l *fixedCreditLedger) State(context.Context, string, string) (FallbackCreditState, error) {
+func (l *fixedCreditLedger) State(context.Context, string, string, time.Time) (FallbackCreditState, error) {
 	if l.err != nil {
 		return FallbackCreditState{}, l.err
 	}

@@ -96,7 +96,7 @@ func TestHandlersReturnGeneratedSuccessShapes(t *testing.T) {
 	svc := &fakeService{
 		branches: []eventsvc.Branch{{ID: branchID, Code: "CSE", Name: "Computer Science"}},
 		event: eventsvc.Event{
-			ID: eventID, Name: "Innovation Day", EventDate: "2026-08-15", Status: eventsvc.StatusActive,
+			ID: eventID, Name: "Innovation Day", EventDate: "2026-08-15", EndDate: "2026-08-15", Status: eventsvc.StatusActive,
 			Branches: []eventsvc.Branch{{ID: branchID, Code: "CSE", Name: "Computer Science"}}, CreatedAt: createdAt,
 		},
 	}
@@ -130,7 +130,7 @@ func TestGetEventHandlerRendersTheGeneratedEventAndItsFailureShapes(t *testing.T
 	eventID := uuid.NewString()
 	branchID := uuid.NewString()
 	svc := &fakeService{event: eventsvc.Event{
-		ID: eventID, Name: "Innovation Day", EventDate: "2026-08-15", Status: eventsvc.StatusActive,
+		ID: eventID, Name: "Innovation Day", EventDate: "2026-08-15", EndDate: "2026-08-15", Status: eventsvc.StatusActive,
 		Branches:  []eventsvc.Branch{{ID: branchID, Code: "CSE", Name: "Computer Science"}},
 		CreatedAt: time.Date(2026, 7, 20, 3, 0, 0, 0, time.UTC),
 	}}

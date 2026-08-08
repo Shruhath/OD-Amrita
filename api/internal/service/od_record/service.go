@@ -55,8 +55,12 @@ type MarkInput struct {
 }
 
 type Event struct {
-	EventID   string
+	EventID string
+	// EventDate is the FIRST day of the range and EndDate the last; they are
+	// equal for a one-day event. Both are needed to decide whether a slot is open
+	// and to clamp a correction back inside the event.
 	EventDate time.Time
+	EndDate   time.Time
 	Status    string
 }
 
@@ -75,11 +79,15 @@ type Student struct {
 }
 
 type RecordInput struct {
-	Student          Student
-	StudentID        string
-	EventID          string
-	CategoryID       string
-	Slot             int
+	Student    Student
+	StudentID  string
+	EventID    string
+	CategoryID string
+	Slot       int
+	// ODDate is the day the OD BELONGS to, derived server-side in campus time and
+	// never accepted from a client. ServerReceivedAt is when the row arrived, and
+	// on the correction path the two are different days.
+	ODDate           time.Time
 	CaptureMethod    CaptureMethod
 	ActorUserID      string
 	ActorRole        string
@@ -92,6 +100,7 @@ type MarkResult struct {
 	EventID          string
 	CategoryID       string
 	Slot             int
+	ODDate           time.Time
 	CaptureMethod    CaptureMethod
 	ServerReceivedAt time.Time
 }
@@ -251,7 +260,7 @@ func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkR
 		}
 	}
 
-	slot, serverReceivedAt, err := s.slotFor(actor, input, event)
+	slot, odDate, serverReceivedAt, err := s.slotFor(actor, input, event)
 	if err != nil {
 		var de domain.DomainError
 		if errors.As(err, &de) && de.Code == contracts.ErrorCodeSLOTCLOSED {
@@ -268,6 +277,7 @@ func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkR
 		EventID:          input.EventID,
 		CategoryID:       input.CategoryID,
 		Slot:             slot,
+		ODDate:           odDate,
 		CaptureMethod:    input.CaptureMethod,
 		ActorUserID:      actor.UserID,
 		ActorRole:        actor.Role,
@@ -361,31 +371,48 @@ func validateIdentityCapturePair(input MarkInput) error {
 	return nil
 }
 
-func (s *Service) slotFor(actor Actor, input MarkInput, event Event) (int, time.Time, error) {
+// slotFor resolves the slot AND the day the OD belongs to from ONE clock read.
+//
+// The day is returned alongside the slot rather than derived later because the
+// counters, the credit debit and the record write must all agree about which day
+// it is; two clock reads either side of midnight would not.
+func (s *Service) slotFor(actor Actor, input MarkInput, event Event) (int, time.Time, time.Time, error) {
 	now := s.clock.Now()
+	today := CampusDate(now)
 	switch actor.Role {
 	case "coordinator":
 		if input.Slot != nil {
-			return 0, now, validation("slot", "forbidden", "coordinator marks use server-derived slot only.")
+			return 0, today, now, validation("slot", "forbidden", "coordinator marks use server-derived slot only.")
 		}
-		slot, _, ok := ActiveSlot(now, event.EventDate)
+		slot, _, ok := ActiveSlot(now, event.EventDate, event.EndDate)
 		if !ok {
-			return 0, now, slotClosed()
+			return 0, today, now, slotClosed()
 		}
-		return slot, now, nil
+		// ActiveSlot already proved today is inside the range, so the campus date
+		// needs no clamp here — and must not get one: a live mark files under the
+		// day it happened or not at all.
+		return slot, today, now, nil
 	case "teacher", "admin":
 		if input.CaptureMethod != CaptureMethodSearch {
-			return 0, now, forbidden("Teacher and admin MVP marks are search-only.")
+			return 0, today, now, forbidden("Teacher and admin MVP marks are search-only.")
 		}
 		if input.Slot == nil {
-			return 0, now, validation("slot", "required", "slot is required for teacher and admin search marks.")
+			return 0, today, now, validation("slot", "required", "slot is required for teacher and admin search marks.")
 		}
 		if *input.Slot < 1 || *input.Slot > 12 {
-			return 0, now, validation("slot", "range", "slot must be between 1 and 12.")
+			return 0, today, now, validation("slot", "range", "slot must be between 1 and 12.")
 		}
-		return *input.Slot, now, nil
+		// The CORRECTION path: exempt from slot windows, so it legitimately runs
+		// the morning after — or days after a one-day event. Campus today would
+		// then be outside the range and the database's range guard would refuse a
+		// correction the teacher is entitled to make, so it is clamped to the
+		// nearest bound.
+		//
+		// Story 0.12b replaces this default with a day the teacher picks, which is
+		// the only way to file a Tuesday correction under Monday.
+		return *input.Slot, ClampToEventRange(today, event.EventDate, event.EndDate), now, nil
 	default:
-		return 0, now, forbidden("Coordinator, teacher, or admin role required.")
+		return 0, today, now, forbidden("Coordinator, teacher, or admin role required.")
 	}
 }
 
@@ -416,6 +443,7 @@ func (s *Service) writePresent(ctx context.Context, actor Actor, record RecordIn
 			"event_id":           record.EventID,
 			"category_id":        record.CategoryID,
 			"slot":               record.Slot,
+			"od_date":            record.ODDate.Format("2006-01-02"),
 			"capture_method":     string(record.CaptureMethod),
 			"actor_user_id":      actor.UserID,
 			"actor_email":        actorAccount,
@@ -426,7 +454,7 @@ func (s *Service) writePresent(ctx context.Context, actor Actor, record RecordIn
 	}
 	err := s.audited.WithAudit(ctx, evt, func(ctx context.Context, tx pgx.Tx) (bool, error) {
 		if consumesFallbackCredit(actor, record.CaptureMethod) {
-			if _, err := s.credits.Debit(ctx, tx, record.EventID, actor.UserID); err != nil {
+			if _, err := s.credits.Debit(ctx, tx, record.EventID, actor.UserID, record.ODDate); err != nil {
 				return false, err
 			}
 		}

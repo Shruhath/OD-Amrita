@@ -156,6 +156,11 @@ func PublicEventsHandler(svc PublicService) gin.HandlerFunc {
 				fail(c, err)
 				return
 			}
+			endDate, err := parseDate(event.EndDate)
+			if err != nil {
+				fail(c, err)
+				return
+			}
 			categories := make([]contracts.PublicEventCategory, 0, len(event.Categories))
 			for _, category := range event.Categories {
 				categoryID, err := uuid.Parse(category.ID)
@@ -169,6 +174,7 @@ func PublicEventsHandler(svc PublicService) gin.HandlerFunc {
 				EventId:    eventID,
 				Name:       event.Name,
 				EventDate:  eventDate,
+				EndDate:    endDate,
 				Categories: categories,
 			})
 		}

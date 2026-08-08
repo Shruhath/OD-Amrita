@@ -357,6 +357,7 @@ func eventContract(event marking.Event) (contracts.Event, error) {
 		ArchivedAt: event.ArchivedAt,
 	}
 	rendered.EventDate.Time = event.EventDate
+	rendered.EndDate.Time = event.EndDate
 	return rendered, nil
 }
 

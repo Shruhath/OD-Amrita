@@ -16,6 +16,7 @@ import (
 const (
 	sqlstateUniqueViolation              = "23505"
 	sqlstateForeignKeyViolation          = "23503"
+	sqlstateCheckViolation               = "23514"
 	sqlstateObjectNotInPrerequisiteState = "55000"
 )
 
@@ -55,6 +56,7 @@ func (w *SQLCWriter) InsertPresent(ctx context.Context, tx pgx.Tx, input RecordI
 		EventID:          dbUUID(eventID),
 		CategoryID:       dbUUID(categoryID),
 		Slot:             int32(input.Slot),
+		OdDate:           pgtype.Date{Time: input.ODDate, Valid: true},
 		CaptureMethod:    string(input.CaptureMethod),
 		ActorUserID:      dbUUID(actorUserID),
 		ActorRole:        input.ActorRole,
@@ -63,7 +65,7 @@ func (w *SQLCWriter) InsertPresent(ctx context.Context, tx pgx.Tx, input RecordI
 	if err != nil {
 		return MarkResult{}, mapPgError(err)
 	}
-	if !row.ID.Valid || !row.EventID.Valid || !row.CategoryID.Valid || !row.ServerReceivedAt.Valid {
+	if !row.ID.Valid || !row.EventID.Valid || !row.CategoryID.Valid || !row.OdDate.Valid || !row.ServerReceivedAt.Valid {
 		return MarkResult{}, invalidRowError("od_record")
 	}
 	return MarkResult{
@@ -72,6 +74,7 @@ func (w *SQLCWriter) InsertPresent(ctx context.Context, tx pgx.Tx, input RecordI
 		EventID:          uuid.UUID(row.EventID.Bytes).String(),
 		CategoryID:       uuid.UUID(row.CategoryID.Bytes).String(),
 		Slot:             int(row.Slot),
+		ODDate:           row.OdDate.Time,
 		CaptureMethod:    CaptureMethod(row.CaptureMethod),
 		ServerReceivedAt: row.ServerReceivedAt.Time,
 	}, nil
@@ -84,8 +87,21 @@ func mapPgError(err error) error {
 	}
 	switch pgErr.Code {
 	case sqlstateUniqueViolation:
-		if pgErr.ConstraintName == "uq_od_records_present_student_event_slot" {
+		// Keyed on od_date since the event became a range. The name is matched as
+		// a literal, so renaming the index without changing this line turns the
+		// FR11 duplicate path from a 409 into an unmapped 500 — while a test that
+		// only asserts "the second write failed" stays green, because the row
+		// still fails to insert.
+		if pgErr.ConstraintName == "uq_od_records_present_student_event_date_slot" {
 			return ErrDuplicatePresentRecord
+		}
+	case sqlstateCheckViolation:
+		// The database's range guard. Unreachable for a coordinator mark by
+		// construction — ActiveSlot already proved today is inside the range — but
+		// Story 0.12b lets a teacher pick the day, and this is the mapping that
+		// makes a bad pick a 400 on the field rather than a 500.
+		if pgErr.ConstraintName == "od_records_od_date_event_range_ck" {
+			return validation("od_date", "outside_event_range", "The OD date must fall inside the event's date range.")
 		}
 	case sqlstateObjectNotInPrerequisiteState:
 		return ErrEventArchived

@@ -233,7 +233,7 @@ func newServiceFixture(t *testing.T, now time.Time) serviceFixture {
 		categoryID: categoryID,
 		studentID:  studentID,
 		reader: &fakeReader{
-			event:    Event{EventID: eventID, EventDate: now, Status: "active"},
+			event:    Event{EventID: eventID, EventDate: now, EndDate: now, Status: "active"},
 			category: Category{CategoryID: categoryID, EventID: eventID},
 			student:  student,
 		},
@@ -329,7 +329,7 @@ type atddCreditLedger struct {
 	err    error
 }
 
-func (l *atddCreditLedger) Debit(context.Context, pgx.Tx, string, string) (FallbackCreditState, error) {
+func (l *atddCreditLedger) Debit(context.Context, pgx.Tx, string, string, time.Time) (FallbackCreditState, error) {
 	l.debits++
 	if l.err != nil {
 		return FallbackCreditState{}, l.err
@@ -337,7 +337,7 @@ func (l *atddCreditLedger) Debit(context.Context, pgx.Tx, string, string) (Fallb
 	return l.state, nil
 }
 
-func (l *atddCreditLedger) State(context.Context, string, string) (FallbackCreditState, error) {
+func (l *atddCreditLedger) State(context.Context, string, string, time.Time) (FallbackCreditState, error) {
 	if l.err != nil {
 		return FallbackCreditState{}, l.err
 	}

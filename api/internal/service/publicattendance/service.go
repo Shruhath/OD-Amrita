@@ -59,10 +59,14 @@ type Student struct {
 
 // Record is one present OD row as a student sees it.
 type Record struct {
-	RecordID     string
-	EventID      string
-	EventName    string
+	RecordID  string
+	EventID   string
+	EventName string
+	// EventDate is the EVENT's first day; ODDate is the day this record belongs
+	// to. On a multi-day event they differ, and the dispute form builds its event
+	// options from the former while the screen groups on the latter.
 	EventDate    string
+	ODDate       string
 	CategoryID   string
 	CategoryName string
 	Slot         int
@@ -74,12 +78,14 @@ type Record struct {
 	MarkedAt     time.Time
 }
 
-// Day groups one event date's records.
+// Day groups one day's records.
 type Day struct {
-	// EventDate is YYYY-MM-DD — the calendar day the OD was for, taken from the
-	// event, never from the mark's receipt time.
-	EventDate string
-	Records   []Record
+	// ODDate is YYYY-MM-DD — the day the OD belongs to, taken from the record.
+	// Not the event's first day, which would collapse a thirty-day festival onto
+	// one heading, and not the mark's receipt time, which would file a
+	// next-morning correction under the wrong day.
+	ODDate  string
+	Records []Record
 }
 
 // RecordCollection is the whole public view of one student.
@@ -95,9 +101,11 @@ type EventCategory struct {
 }
 
 type Event struct {
-	EventID    string
-	Name       string
+	EventID string
+	Name    string
+	// EventDate and EndDate bound the days the dispute form may offer.
 	EventDate  string
+	EndDate    string
 	Categories []EventCategory
 }
 
@@ -188,6 +196,7 @@ func (s *Service) PublicEvents(ctx context.Context) (EventCollection, error) {
 			EventID:    uuid.UUID(row.ID.Bytes).String(),
 			Name:       row.Name,
 			EventDate:  row.EventDate.Time.Format(time.DateOnly),
+			EndDate:    row.EndDate.Time.Format(time.DateOnly),
 			Categories: categories,
 		})
 	}
@@ -198,17 +207,17 @@ func (s *Service) PublicEvents(ctx context.Context) (EventCollection, error) {
 //
 // A single pass that opens a new day whenever the date changes — not a map,
 // which would lose the ordering the query established and force a re-sort here.
-// The query already returns event_date DESC, slot ASC; re-deriving that order in
+// The query already returns od_date DESC, slot ASC; re-deriving that order in
 // Go (or, worse, in the browser) is how the two drift apart.
 func groupByDay(rows []sqlc.ListPublicStudentODRecordsRow) []Day {
 	days := make([]Day, 0, len(rows))
 	for _, row := range rows {
 		record := mapRecord(row)
-		if n := len(days); n > 0 && days[n-1].EventDate == record.EventDate {
+		if n := len(days); n > 0 && days[n-1].ODDate == record.ODDate {
 			days[n-1].Records = append(days[n-1].Records, record)
 			continue
 		}
-		days = append(days, Day{EventDate: record.EventDate, Records: []Record{record}})
+		days = append(days, Day{ODDate: record.ODDate, Records: []Record{record}})
 	}
 	return days
 }
@@ -228,6 +237,7 @@ func mapRecord(row sqlc.ListPublicStudentODRecordsRow) Record {
 		EventID:      uuid.UUID(row.EventID.Bytes).String(),
 		EventName:    row.EventName,
 		EventDate:    row.EventDate.Time.Format(time.DateOnly),
+		ODDate:       row.OdDate.Time.Format(time.DateOnly),
 		CategoryID:   uuid.UUID(row.CategoryID.Bytes).String(),
 		CategoryName: row.CategoryName,
 		Slot:         int(row.Slot),

@@ -77,7 +77,10 @@ func run() error {
 	router := gin.New()
 	router.Use(gin.Recovery())
 	router.Use(errormw.Handler())
-	router.Use(corsmw.Middleware(cfg.PortalAllowedOrigins))
+	// The router is passed to itself on purpose: the preflight's allowed-methods
+	// header is read back off the routes actually registered below, so a method
+	// this API serves can never go unadvertised to the browser.
+	router.Use(corsmw.Middleware(cfg.PortalAllowedOrigins, router))
 	router.GET("/health", health.Handler(pool))
 
 	// The UNAUTHENTICATED public dashboard (Story 0.10). Built here, BEFORE the

@@ -308,8 +308,9 @@ is keyed `(student_id, event_id, od_date, slot)`), **T22** (a database range gua
 asserting the day falls inside the event — the anonymous-submitter analogue of Step
 2's `od_records` guard, and explicitly *not* the active-event trigger T9 forbids),
 and **T23** (the dispute form's day is a control bounded by the event's range, not
-a value derived from `event_date`). Red-phase scaffolds asserting all four are in
-`_bmad-output/test-artifacts/atdd-checklist-0-11-student-dispute-submission-resolution.md`.
+a value derived from `event_date`). All four are asserted by the dispute suites in
+`api/test/odrecord/dispute_integration_test.go`, `test/contract/dispute_contract_test.go`
+and `web/src/routes/public/PublicDisputeForm.test.tsx`.
 
 When this story lands, two follow-ups fall out of that work:
 

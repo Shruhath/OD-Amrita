@@ -61,6 +61,24 @@ read limiter. Defaults apply when unset:
 These are deliberately tighter than the public read budget because the dispute
 endpoint writes a database row and an audit row.
 
+> **Event-day warning — "per client" means per IP address.** The limiter keys on
+> the caller's network address (the `Fly-Client-IP` the edge supplies in
+> production, the TCP peer otherwise), never on a header a caller can forge and
+> never on the student. Every device behind one campus NAT therefore shares a
+> single budget, so at the default the whole campus gets **5 dispute submissions
+> per minute between them** — and the minutes right after an event end are
+> exactly when disputes are filed. If students report `429`/"too many
+> submissions" at the venue, raise it live without a redeploy:
+>
+> ```
+> flyctl secrets set PUBLIC_DISPUTE_RATE_LIMIT_PER_MINUTE=120 PUBLIC_DISPUTE_RATE_LIMIT_BURST=40
+> ```
+>
+> Both are validated as positive integers up to 10000 and the app refuses to
+> boot on a bad value, so a typo fails loudly at deploy rather than silently
+> disabling the limit. Duplicate submissions are guarded by a database unique
+> index, not by this limiter, so raising it does not admit duplicate disputes.
+
 ## Identity prerequisite
 
 An authenticated user must have a provisioned `users` row whose stored base

@@ -121,7 +121,10 @@ test.describe('public dispute form', () => {
     await form.getByRole('textbox', { name: /email/i }).fill(disputeEmail)
     await form.getByRole('button', { name: /submit|send|report/i }).click()
 
-    const status = page.getByRole('status')
+    // Scoped to the receipt panel. A bare getByRole('status') matches 0.10's
+    // "As of" live region too — that collision was previously resolved by
+    // DELETING 0.10's role, which silently removed an announcement it shipped.
+    const status = page.getByRole('region', { name: /dispute receipt/i }).getByRole('status')
     await expect(status).toContainText(disputeConfirmationCopy)
     await expect(status).toContainText(new RegExp(disputeReference, 'i'))
 
@@ -181,7 +184,9 @@ test.describe('public dispute form', () => {
     const form = page.getByRole('form', { name: /report a missed slot|dispute/i })
     await form.getByRole('textbox', { name: /email/i }).fill(disputeEmail)
     await form.getByRole('button', { name: /submit|send|report/i }).click()
-    await expect(page.getByRole('status')).toContainText(disputeConfirmationCopy)
+    await expect(
+      page.getByRole('region', { name: /dispute receipt/i }).getByRole('status'),
+    ).toContainText(disputeConfirmationCopy)
 
     expect(seen.authorization.length).toBeGreaterThan(0)
     expect(seen.authorization.every((value) => value === null || value === undefined)).toBe(true)

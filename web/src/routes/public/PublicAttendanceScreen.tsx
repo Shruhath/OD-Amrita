@@ -46,7 +46,14 @@ export default function PublicAttendanceScreen() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
-  const [disputeDraft, setDisputeDraft] = useState<{ day: string; slot: number } | null>(null)
+  // The draft carries the EVENT the visitor clicked, not only the day and slot.
+  // Deriving the event from `eventOptions[0]` picked the first event across ALL
+  // days, so a student with records on two dates who reported a slot on the
+  // second one had the form silently re-scoped to the first — including the day,
+  // which an effect rewrote to that other event's date. 0.10's own comment in
+  // this file warns that one day can hold records from several events, which is
+  // exactly why "which event am I disputing" must come from the clicked row.
+  const [disputeDraft, setDisputeDraft] = useState<DisputeDraft | null>(null)
 
   // The selected student lives in the URL rather than in component state so a
   // reload, a back button and a link shared over WhatsApp all reopen the same
@@ -94,12 +101,17 @@ export default function PublicAttendanceScreen() {
   const selectStudent = (student: PublicStudent) => {
     setQuery('')
     setDebouncedQuery('')
+    // A draft belongs to the student it was opened for.
+    setDisputeDraft(null)
     // Replaces the whole query string rather than merging, so `student` is the
     // only key that can ever be present.
     setSearchParams({ student: student.student_id })
   }
 
-  const clearStudent = () => setSearchParams({})
+  const clearStudent = () => {
+    setDisputeDraft(null)
+    setSearchParams({})
+  }
   const closeDispute = () => setDisputeDraft(null)
 
   return (
@@ -209,7 +221,14 @@ export default function PublicAttendanceScreen() {
                   {records.data.student.roll_no} · {records.data.student.branch}-{records.data.student.section}
                   {' · '}Batch {records.data.student.batch}
                 </p>
-                <p className="public-asof">
+                {/*
+                  role="status" is 0.10's, and it stays. It was removed while
+                  adding the dispute form so a new findByRole('status') locator
+                  would not match two elements — silently deleting a live-region
+                  announcement to make a test unambiguous. The dispute success
+                  is scoped by its own panel label instead.
+                */}
+                <p className="public-asof" role="status">
                   As of {formatTime(records.data.generated_at)}
                 </p>
               </div>
@@ -217,7 +236,7 @@ export default function PublicAttendanceScreen() {
               {records.data.days.length === 0 ? (
                 <div className="public-empty">
                   <p>No OD records found for this student yet.</p>
-                  <button type="button" onClick={() => setDisputeDraft({ day: '', slot: 1 })}>
+                  <button type="button" onClick={() => setDisputeDraft({ day: '', slot: 1, eventID: '', categoryID: '' })}>
                     Report a missed slot
                   </button>
                 </div>
@@ -226,17 +245,26 @@ export default function PublicAttendanceScreen() {
                   <DaySlots
                     key={day.event_date}
                     day={day}
-                    onReport={(slot) => setDisputeDraft({ day: day.event_date, slot })}
+                    onReport={(draft) => setDisputeDraft(draft)}
                   />
                 ))
               )}
 
               {disputeDraft && (
                 <PublicDisputeForm
+                  // Keyed on the draft, so opening the form from a DIFFERENT slot
+                  // remounts it. Without this, initialDay/initialSlot were read
+                  // once as useState seeds: a second click changed nothing on
+                  // screen and the student submitted the first slot believing it
+                  // was the second. It also resets `receipt`, which otherwise
+                  // pinned the panel to a past success with no way back.
+                  key={`${disputeDraft.eventID}:${disputeDraft.day}:${disputeDraft.slot}`}
                   student={records.data.student}
                   days={records.data.days}
                   initialDay={disputeDraft.day}
                   initialSlot={disputeDraft.slot}
+                  initialEventID={disputeDraft.eventID}
+                  initialCategoryID={disputeDraft.categoryID}
                   onClose={closeDispute}
                 />
               )}
@@ -255,7 +283,15 @@ export default function PublicAttendanceScreen() {
  * a nesting list item would make every "which slot row is this" locator match
  * the day wrapper too.
  */
-function DaySlots({ day, onReport }: { day: PublicODDay; onReport(slot: number): void }) {
+/**
+ * DisputeDraft is what a "Report a missed slot" click carries: the day, the slot,
+ * and the EVENT the visitor was looking at. The event and category are '' only
+ * for the never-marked student, who has no record to derive them from and picks
+ * from the public event list instead.
+ */
+type DisputeDraft = { day: string; slot: number; eventID: string; categoryID: string }
+
+function DaySlots({ day, onReport }: { day: PublicODDay; onReport(draft: DisputeDraft): void }) {
   // A slot holds a LIST, not a single record. Uniqueness in the database is
   // (student_id, event_id, slot) — per event — while a day here is a calendar
   // date, so two events on one date can each hold a mark at the same slot for
@@ -300,7 +336,19 @@ function DaySlots({ day, onReport }: { day: PublicODDay; onReport(slot: number):
               ) : (
                 <span className="public-slot-detail public-slot-empty">
                   <span>No record</span>
-                  <button type="button" className="secondary" onClick={() => onReport(slot)}>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => onReport({
+                      day: day.event_date,
+                      slot,
+                      // An ABSENT slot has no record of its own, so the event
+                      // comes from the other records on THIS day rather than
+                      // from the first event across the whole history.
+                      eventID: day.records[0]?.event_id ?? '',
+                      categoryID: day.records[0]?.category_id ?? '',
+                    })}
+                  >
                     Report a missed slot
                   </button>
                 </span>
@@ -318,28 +366,37 @@ function PublicDisputeForm({
   days,
   initialDay,
   initialSlot,
+  initialEventID,
+  initialCategoryID,
   onClose,
 }: {
   student: PublicStudent
   days: PublicODDay[]
   initialDay: string
   initialSlot: number
+  initialEventID: string
+  initialCategoryID: string
   onClose(): void
 }) {
-  const fallbackEvents = useQuery({
+  // ALWAYS fetched, not only when the student has no records. Deriving the
+  // options from records alone meant a student could only ever pick a category
+  // they had already been marked in — which excludes the commonest dispute of
+  // all: "I was never marked for this category at all". The record-derived
+  // events stay the preferred source for names and ordering; the public list
+  // fills in the categories the records cannot know about.
+  const publicEvents = useQuery({
     queryKey: ['public', 'events'],
     queryFn: () => api.publicEvents(),
-    enabled: days.length === 0,
     gcTime: 0,
   })
   const recordEvents = useMemo(() => eventsFromRecords(days), [days])
-  const fallbackEventData = fallbackEvents.data?.data
+  const publicEventData = publicEvents.data?.data
   const eventOptions = useMemo(
-    () => recordEvents.length > 0 ? recordEvents : fallbackEventData ?? [],
-    [fallbackEventData, recordEvents],
+    () => mergeEventOptions(recordEvents, publicEventData ?? []),
+    [publicEventData, recordEvents],
   )
-  const [eventID, setEventID] = useState('')
-  const [categoryID, setCategoryID] = useState('')
+  const [eventID, setEventID] = useState(initialEventID)
+  const [categoryID, setCategoryID] = useState(initialCategoryID)
   const [odDate, setODDate] = useState(initialDay)
   const [slot, setSlot] = useState(String(initialSlot))
   const [email, setEmail] = useState('')
@@ -350,6 +407,9 @@ function PublicDisputeForm({
 
   const selectedEvent = eventOptions.find((event) => event.event_id === eventID) ?? eventOptions[0]
   const categoryOptions = useMemo(() => selectedEvent?.categories ?? [], [selectedEvent])
+  // T23: the day is a bounded CHOICE scoped to the selected event, never an
+  // unbounded <input type="date">. Today an event is one day, so the range is a
+  // single option; the multi-day change widens the source, not the control.
   const dayOptions = useMemo(() => selectedEvent ? [selectedEvent.event_date] : initialDay ? [initialDay] : [], [initialDay, selectedEvent])
 
   useEffect(() => {
@@ -405,6 +465,15 @@ function PublicDisputeForm({
         <p className="public-success" role="status">
           {DISPUTE_CONFIRMATION} Reference {receipt.reference}.
         </p>
+        {/*
+          Without a way out, this panel was permanent: `receipt` lives in the
+          form's own state, so every later "Report a missed slot" click kept
+          rendering this same success and a student who missed two slots could
+          only ever report one.
+        */}
+        <button type="button" className="text-button" onClick={onClose}>
+          Report another slot
+        </button>
       </section>
     )
   }
@@ -427,12 +496,27 @@ function PublicDisputeForm({
         <div><dt>Batch</dt><dd>{student.batch}</dd></div>
       </dl>
 
-      {fallbackEvents.isPending && days.length === 0 && <p className="public-hint" role="status">Loading events…</p>}
-      {fallbackEvents.isError && (
+      {publicEvents.isPending && eventOptions.length === 0 && <p className="public-hint" role="status">Loading events…</p>}
+      {publicEvents.isError && eventOptions.length === 0 && (
         <RetryableAlert
           message="Events could not be loaded right now. Please try again."
-          onRetry={() => void fallbackEvents.refetch()}
+          onRetry={() => void publicEvents.refetch()}
         />
+      )}
+      {/*
+        Without this, a student facing an empty event list saw three empty
+        selects and a permanently greyed-out button with no explanation — the
+        form looked broken rather than inapplicable.
+      */}
+      {!publicEvents.isPending && !publicEvents.isError && eventOptions.length === 0 && (
+        <p className="public-alert" role="alert">
+          There are no events available to report against yet. Please check with your teacher.
+        </p>
+      )}
+      {eventOptions.length > 0 && categoryOptions.length === 0 && (
+        <p className="public-alert" role="alert">
+          This event has no categories yet, so a slot cannot be reported against it. Please check with your teacher.
+        </p>
       )}
 
       <label className="public-field" htmlFor="public-dispute-email">
@@ -501,6 +585,33 @@ function PublicDisputeForm({
       {failure && <p className="public-alert" role="alert">{failure}</p>}
     </form>
   )
+}
+
+/**
+ * mergeEventOptions keeps the record-derived events first (they are the ones the
+ * visitor actually attended, and the ones Journey 3 disputes), then unions in the
+ * public list so an event's OTHER categories — the ones this student has no mark
+ * in — are selectable too. A category the student was never marked in is exactly
+ * what a "you missed me entirely" dispute needs to name.
+ */
+function mergeEventOptions(fromRecords: PublicEvent[], fromPublic: PublicEvent[]): PublicEvent[] {
+  const merged = new Map<string, PublicEvent>()
+  for (const event of fromRecords) {
+    merged.set(event.event_id, { ...event, categories: [...event.categories] })
+  }
+  for (const event of fromPublic) {
+    const existing = merged.get(event.event_id)
+    if (!existing) {
+      merged.set(event.event_id, { ...event, categories: [...event.categories] })
+      continue
+    }
+    for (const category of event.categories) {
+      if (!existing.categories.some((item) => item.id === category.id)) {
+        existing.categories.push(category)
+      }
+    }
+  }
+  return Array.from(merged.values())
 }
 
 function eventsFromRecords(days: PublicODDay[]): PublicEvent[] {
@@ -591,11 +702,27 @@ function disputeFailureMessage(error: unknown): string {
       return 'That event is no longer available for this report.'
     }
     if (error.body.code === 'VALIDATION_FAILED') {
+      // The service puts the generic summary in `message` and the field-level
+      // reason in `details[0].message`, so rendering `message` alone told the
+      // student only "Validation failed." with no indication of which field.
+      const detail = validationDetail(error.body)
+      if (detail) return detail
       return error.body.message || 'Check the dispute details and try again.'
     }
     if (error.status >= 500) return 'The server could not submit this dispute right now. This is our problem, not yours — please try again.'
   }
   return 'The dispute could not be submitted. Check your connection and try again.'
+}
+
+/** Reads the first typed field failure out of a ValidationError envelope. */
+function validationDetail(body: unknown): string | null {
+  if (typeof body !== 'object' || body === null || !('details' in body)) return null
+  const details = (body as { details?: unknown }).details
+  if (!Array.isArray(details) || details.length === 0) return null
+  const first = details[0]
+  if (typeof first !== 'object' || first === null || !('message' in first)) return null
+  const message = (first as { message?: unknown }).message
+  return typeof message === 'string' && message !== '' ? message : null
 }
 
 /** Counts Unicode code points, the unit the Go service bounds on. */

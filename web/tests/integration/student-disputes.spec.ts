@@ -63,8 +63,8 @@ const DISPUTE_SLOT = 3
 /**
  * The day the disputed OD belongs to — the fixture event's date.
  *
- * Required from table creation by the 2026-08-06 amendment in epics.md and
- * sprint-status.yaml: 0.12a turns an event into a real date range, and a dispute
+ * Required from table creation by the 2026-08-06 multi-day amendment
+ * (docs/multi-day-events-plan.md §7): an event becomes a real date range, and a dispute
  * without a day is then ambiguous across thirty of them.
  */
 const DISPUTE_OD_DATE = '2026-07-28'
@@ -219,7 +219,12 @@ test.describe('real stack student disputes', () => {
     await form.getByRole('textbox', { name: /email/i }).fill(DISPUTE_EMAIL)
     await form.getByRole('button', { name: /submit|send|report/i }).click()
 
-    await expect(page.getByRole('status')).toContainText(/Your dispute has been submitted\. A teacher will review it\./i)
+    // Scoped to the receipt panel. A bare getByRole('status') also matches
+    // 0.10's "As of" live region, and that collision was previously resolved by
+    // deleting 0.10's role rather than by narrowing the locator.
+    await expect(
+      page.getByRole('region', { name: /dispute receipt/i }).getByRole('status'),
+    ).toContainText(/Your dispute has been submitted\. A teacher will review it\./i)
   })
 
   // 0.11-RS-005 — a second submission for the same slot is refused by the

@@ -27,6 +27,8 @@ import type { SessionPort } from '../../features/auth/session'
 import { server } from '../../test/server'
 import {
   publicAttendanceRoute,
+  publicDay,
+  publicRecord,
   publicRecordCollection,
   publicSearchResults,
   publicStudentID,
@@ -194,7 +196,12 @@ describe('public dispute form', () => {
     await user.type(within(form).getByRole('textbox', { name: /email/i }), disputeEmail)
     await user.click(within(form).getByRole('button', { name: /submit|send|report/i }))
 
-    const status = await screen.findByRole('status')
+    // Scoped to the receipt panel. This assertion previously used a bare
+    // findByRole('status'), which collided with 0.10's "As of" live region — and
+    // that collision was resolved by deleting 0.10's role rather than by
+    // narrowing the locator here.
+    const receipt = await screen.findByRole('region', { name: /dispute receipt/i })
+    const status = within(receipt).getByRole('status')
     expect(status).toHaveTextContent(disputeConfirmationCopy)
     expect(
       status,
@@ -218,7 +225,10 @@ describe('public dispute form', () => {
 
     // Not resubmittable. A student who taps twice must not file twice — the
     // server's 409 is the backstop, not the first line of defence.
-    expect(screen.queryByRole('button', { name: /^submit$|^send$/i })).not.toBeInTheDocument()
+    // The real button's accessible name is "Submit dispute". The previous
+    // anchored /^submit$|^send$/ matched NEITHER, so queryByRole returned null
+    // whether or not the form was still on screen.
+    expect(screen.queryByRole('button', { name: /submit dispute/i })).not.toBeInTheDocument()
     expect(installed.submitCalls).toBe(1)
   })
 
@@ -258,7 +268,8 @@ describe('public dispute form', () => {
     expect(installed.submitCalls).toBe(1)
 
     release?.()
-    expect(await screen.findByRole('status')).toHaveTextContent(disputeConfirmationCopy)
+    const receiptPanel = await screen.findByRole('region', { name: /dispute receipt/i })
+    expect(within(receiptPanel).getByRole('status')).toHaveTextContent(disputeConfirmationCopy)
   })
 
   // 0.11-WEB-004 — every failure names its OWN reason and none of them can be
@@ -367,7 +378,7 @@ describe('public dispute form', () => {
 
     await user.type(within(form).getByRole('textbox', { name: /email/i }), disputeEmail)
     await user.click(within(form).getByRole('button', { name: /submit|send|report/i }))
-    await screen.findByRole('status')
+    await screen.findByRole('region', { name: /dispute receipt/i })
 
     expect(installed.authorizationHeaders.length).toBeGreaterThan(0)
     for (const header of installed.authorizationHeaders) {
@@ -509,5 +520,153 @@ describe('public dispute form', () => {
       'changing the event did not change the day options; the day must be scoped to the selected event',
     ).toBeInTheDocument()
     expect(within(dayField).queryByRole('option', { name: /2026-07-28|28 July|July 28/i })).not.toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Multiple events / multiple days.
+// ---------------------------------------------------------------------------
+//
+// Every fixture above holds ONE event on ONE day, which is why the defects below
+// were invisible: with a single option, "default to the first event" and "use the
+// event the visitor clicked" are indistinguishable.
+describe('public dispute form across several events', () => {
+  const secondEventID = '93000000-0000-4000-8000-00000000000f'
+  const secondCategoryID = '94000000-0000-4000-8000-00000000000f'
+
+  /** Two days, two events. The EARLIER one is listed first, as the API orders it. */
+  function twoEventRecords() {
+    return publicRecordCollection({
+      days: [
+        publicDay({
+          event_date: '2026-07-20',
+          records: [publicRecord(1, {
+            event_id: secondEventID,
+            event_name: 'Sports Day Relay',
+            event_date: '2026-07-20',
+            category_id: secondCategoryID,
+            category_name: 'Athletics',
+          })],
+        }),
+        publicDay(),
+      ],
+    })
+  }
+
+  function installTwoEventBackend(): Installed {
+    const installed: Installed = { authorizationHeaders: [], submissions: [], submitCalls: 0 }
+    server.use(
+      http.get('*/api/v1/public/students/search', () => HttpResponse.json(publicSearchResults())),
+      http.get('*/api/v1/public/students/:studentID/od-records', () => HttpResponse.json(twoEventRecords())),
+      http.get('*/api/v1/public/events', () => HttpResponse.json(publicEventCollection())),
+      http.post('*/api/v1/public/disputes', async ({ request }) => {
+        installed.submitCalls += 1
+        installed.submissions.push((await request.json()) as Record<string, unknown>)
+        return HttpResponse.json(publicDisputeReceipt(), { status: 201 })
+      }),
+    )
+    return installed
+  }
+
+  // 0.11-WEB-011 — the dispute is filed against the event and day of the row the
+  // visitor CLICKED (Task 6; the "which event am I disputing" rule 0.10's
+  // same-day slot-collision bug established).
+  test('[P0] reporting a slot on the second day files against that day, not the first', async () => {
+    const user = userEvent.setup()
+    const installed = installTwoEventBackend()
+
+    renderDashboard()
+    await screen.findAllByText(/Onam Celebrations/i)
+
+    // Slot 3 of the 2026-07-28 day. The other day (2026-07-20) belongs to a
+    // different event and is rendered first.
+    const slotThree = (await screen.findAllByRole('listitem'))
+      .filter((item) => /slot\s*3:/i.test(item.textContent ?? ''))
+      .at(-1)
+    expect(slotThree, 'no slot-3 row on the second day').toBeDefined()
+    await user.click(within(slotThree as HTMLElement).getByRole('button', { name: /report|missed/i }))
+
+    const form = await screen.findByRole('form', { name: /report a missed slot/i })
+    await user.type(within(form).getByRole('textbox', { name: /email/i }), disputeEmail)
+    await user.click(within(form).getByRole('button', { name: /submit dispute/i }))
+
+    await screen.findByRole('region', { name: /dispute receipt/i })
+    expect(installed.submissions).toHaveLength(1)
+    const submission = installed.submissions[0]
+    expect(
+      submission.od_date,
+      'the dispute was filed against a DIFFERENT day than the row that opened it. The form derived its event ' +
+        'from eventOptions[0] — the first event across all days — and an effect then rewrote od_date to that ' +
+        "event's date, so a student reporting the second day silently reported the first",
+    ).toBe(disputeODDate)
+    expect(submission.event_id).toBe('93000000-0000-4000-8000-000000000001')
+    expect(submission.slot).toBe(3)
+  })
+
+  // 0.11-WEB-012 — re-opening the form for a different slot actually re-opens it.
+  test('[P0] opening the form from a second slot reports that second slot', async () => {
+    const user = userEvent.setup()
+    const installed = installTwoEventBackend()
+
+    renderDashboard()
+    await screen.findAllByText(/Onam Celebrations/i)
+
+    const rows = await screen.findAllByRole('listitem')
+    const slotThree = rows.filter((item) => /slot\s*3:/i.test(item.textContent ?? '')).at(-1)
+    const slotFive = rows.filter((item) => /slot\s*5:/i.test(item.textContent ?? '')).at(-1)
+    expect(slotThree).toBeDefined()
+    expect(slotFive).toBeDefined()
+
+    await user.click(within(slotThree as HTMLElement).getByRole('button', { name: /report|missed/i }))
+    await screen.findByRole('form', { name: /report a missed slot/i })
+
+    // Second click, WITHOUT closing the first. The form is not remounted unless
+    // it is keyed on the draft, and initialSlot is only ever a useState seed —
+    // so this used to change nothing on screen and submit slot 3.
+    await user.click(within(slotFive as HTMLElement).getByRole('button', { name: /report|missed/i }))
+
+    const form = await screen.findByRole('form', { name: /report a missed slot/i })
+    await user.type(within(form).getByRole('textbox', { name: /email/i }), disputeEmail)
+    await user.click(within(form).getByRole('button', { name: /submit dispute/i }))
+
+    await screen.findByRole('region', { name: /dispute receipt/i })
+    expect(
+      installed.submissions[0].slot,
+      'the second "Report a missed slot" click was ignored and the FIRST slot was filed. The form must be ' +
+        'keyed on the draft so a new draft remounts it',
+    ).toBe(5)
+  })
+
+  // 0.11-WEB-013 — a student who missed two slots can report both.
+  test('[P0] the receipt offers a way back so a second slot can be reported', async () => {
+    const user = userEvent.setup()
+    installTwoEventBackend()
+
+    renderDashboard()
+    await screen.findAllByText(/Onam Celebrations/i)
+
+    const slotThree = (await screen.findAllByRole('listitem'))
+      .filter((item) => /slot\s*3:/i.test(item.textContent ?? '')).at(-1)
+    await user.click(within(slotThree as HTMLElement).getByRole('button', { name: /report|missed/i }))
+
+    const form = await screen.findByRole('form', { name: /report a missed slot/i })
+    await user.type(within(form).getByRole('textbox', { name: /email/i }), disputeEmail)
+    await user.click(within(form).getByRole('button', { name: /submit dispute/i }))
+
+    const receipt = await screen.findByRole('region', { name: /dispute receipt/i })
+    expect(receipt).toHaveTextContent(disputeConfirmationCopy)
+
+    // The receipt panel had no exit at all, and `receipt` lives in the form's own
+    // state — so every later report click kept rendering this same success and a
+    // student who missed two slots could only ever report one.
+    const again = within(receipt).getByRole('button', { name: /report another|close/i })
+    await user.click(again)
+
+    expect(screen.queryByRole('region', { name: /dispute receipt/i })).not.toBeInTheDocument()
+
+    const slotFive = (await screen.findAllByRole('listitem'))
+      .filter((item) => /slot\s*5:/i.test(item.textContent ?? '')).at(-1)
+    await user.click(within(slotFive as HTMLElement).getByRole('button', { name: /report|missed/i }))
+    await screen.findByRole('form', { name: /report a missed slot/i })
   })
 })

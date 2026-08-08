@@ -235,7 +235,10 @@ func main() {
 	router := gin.New()
 	router.Use(gin.Recovery())
 	router.Use(errormw.Handler())
-	router.Use(corsmw.Middleware([]string{"http://127.0.0.1:4174"}))
+	// Same self-reference as cmd/api: the preflight's allowed methods are read
+	// back off the routes registered below, so the harness advertises exactly
+	// what the real server does rather than a list that can drift from it.
+	router.Use(corsmw.Middleware([]string{"http://127.0.0.1:4174"}, router))
 	router.GET("/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
 
 	api := router.Group("/api/v1")

@@ -26,7 +26,8 @@
 //	    OpenForSlot(ctx, studentID, eventID, odDate string, slot int) (Record, error)
 //	    ListForAdmin(ctx, ListFilter) ([]Record, int, error)
 //	    ListForTeacher(ctx, actorUserID string, f ListFilter) ([]Record, int, error)
-//	    ForResolution(ctx, actor Actor, disputeID string) (Record, error)
+//	    ForResolution(ctx, pgx.Tx, actor Actor, disputeID string) (Record, error)
+//	    LockedStatus(ctx, pgx.Tx, disputeID string) (string, bool, error)
 //	    Resolve(ctx, pgx.Tx, ResolveWrite) (int64, error)
 //	}
 //	type AuditStore interface {
@@ -46,10 +47,12 @@ package dispute
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -69,13 +72,24 @@ const (
 	fixtureEvent = "93000000-0000-4000-8000-000000000001"
 	fixtureCat   = "94000000-0000-4000-8000-000000000001"
 	// The day the disputed OD belongs to. Required from creation by the
-	// 2026-08-06 amendment in epics.md / sprint-status.yaml: 0.12a makes an event
+	// 2026-08-06 multi-day amendment (docs/multi-day-events-plan.md §7): the
+	// multi-day change makes an event
 	// span a date range, and without this column "I was missed in slot 8" is
 	// ambiguous across thirty days. Today an event is one day, so the only valid
 	// value is the event's own date — the CONSTRAINT is what changes under 0.12a,
 	// not the column.
 	fixtureODDate = "2026-08-03"
+	// fixtureDisputeID is the id a real InsertDispute RETURNING would produce.
+	fixtureDisputeID = "97000000-0000-4000-8000-0000000000aa"
 )
+
+// fixtureSubmittedAt is the row's own created_at — the value FR51 requires the
+// audit payload to carry, and which is only knowable after the write.
+var fixtureSubmittedAt = time.Date(2026, 8, 3, 9, 15, 0, 0, time.UTC)
+
+// fixedNow pins the service clock. Date bounds asserted against the real wall
+// clock pass or fail by calendar date rather than by code.
+var fixedNow = time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 
 // ---------------------------------------------------------------------------
 // Fakes.
@@ -106,7 +120,10 @@ type fakeRepo struct {
 	open     *Record
 	record   Record
 	listErr  error
-	listedAs []Actor
+	// lockedStatus is the status GetDisputeForResolution reads back under the
+	// row lock when the guarded UPDATE matched nothing.
+	lockedStatus string
+	listedAs     []Actor
 }
 
 func (r *fakeRepo) Insert(_ context.Context, _ pgx.Tx, _ InsertWrite) (Record, error) {
@@ -131,8 +148,17 @@ func (r *fakeRepo) ListForTeacher(_ context.Context, actorUserID string, _ ListF
 	return nil, 0, r.listErr
 }
 
-func (r *fakeRepo) ForResolution(_ context.Context, _ Actor, _ string) (Record, error) {
+func (r *fakeRepo) ForResolution(_ context.Context, _ pgx.Tx, _ Actor, _ string) (Record, error) {
 	return r.record, nil
+}
+
+// lockedStatus is what the guarded UPDATE's zero-row answer is disambiguated
+// with. Defaults to an absent row, so a test that wants the 409 must say so.
+func (r *fakeRepo) LockedStatus(_ context.Context, _ pgx.Tx, _ string) (string, bool, error) {
+	if r.lockedStatus == "" {
+		return "", false, nil
+	}
+	return r.lockedStatus, true, nil
 }
 
 func (r *fakeRepo) Resolve(_ context.Context, _ pgx.Tx, _ ResolveWrite) (int64, error) {
@@ -154,6 +180,16 @@ func (s *fakeStore) WithAudit(ctx context.Context, evt store.AuditEvent, write f
 		return err
 	}
 	if changed {
+		// store.WithAudit prefers PayloadFunc and evaluates it AFTER the write,
+		// which is what lets the payload carry the inserted row's id and
+		// timestamp. A double that skipped it made the payload unassertable.
+		if evt.PayloadFunc != nil {
+			payload, err := evt.PayloadFunc()
+			if err != nil {
+				return err
+			}
+			evt.Payload = payload
+		}
 		s.events = append(s.events, evt)
 	}
 	return nil
@@ -164,9 +200,21 @@ func newTestService(t *testing.T) (*Service, *fakeStudents, *fakeRepo, *fakeStor
 	students := &fakeStudents{byRoll: map[string]Student{
 		fixtureRoll: {StudentID: fixtureID, RollNo: fixtureRoll, DisplayName: "Ananya Rao", Branch: "CSE", Section: "A", Batch: "2024"},
 	}}
-	repo := &fakeRepo{rows: 1}
+	// A REALISTIC inserted row. This double used to return the zero Record, and
+	// the service quietly minted a random uuid when it saw an empty id — so
+	// "the receipt carries a reference" passed even though the repository never
+	// produced one. The service no longer fabricates, so the double must be
+	// honest about what a real insert returns.
+	repo := &fakeRepo{rows: 1, record: Record{
+		DisputeID:   fixtureDisputeID,
+		Reference:   reference(fixtureDisputeID),
+		Status:      "open",
+		SubmittedAt: fixtureSubmittedAt,
+	}}
 	audited := &fakeStore{}
-	return NewService(students, repo, audited, "amrita.edu"), students, repo, audited
+	svc := NewService(students, repo, audited, "amrita.edu")
+	svc.now = func() time.Time { return fixedNow }
+	return svc, students, repo, audited
 }
 
 func validInput() SubmitInput {
@@ -382,9 +430,20 @@ func TestSubmit_ReceiptCarriesTheResolvedStudentAndNoEmail(t *testing.T) {
 	if receipt.Status != "open" {
 		t.Errorf("[P0] receipt status = %q, want \"open\"", receipt.Status)
 	}
-	if receipt.Reference == "" {
-		t.Errorf("[P0] receipt carries no reference; NFR50's confirmation copy quotes it, and it is the only " +
-			"handle a student has on a dispute they can never look up again (T19)")
+	// Bound to the ROW's id, not merely non-empty. The service used to mint a
+	// random uuid when the repository returned an empty record, so "a reference
+	// exists" passed even if Insert never produced one — the assertion could not
+	// fail for the reason it claimed.
+	if receipt.DisputeID != fixtureDisputeID {
+		t.Errorf("[P0] receipt dispute id = %q, want the inserted row's id %q", receipt.DisputeID, fixtureDisputeID)
+	}
+	if want := reference(fixtureDisputeID); receipt.Reference != want {
+		t.Errorf("[P0] receipt reference = %q, want %q — the first 8 characters of the dispute uuid (T19). "+
+			"NFR50's confirmation copy quotes it, and it is the only handle a student has on a dispute they "+
+			"can never look up again", receipt.Reference, want)
+	}
+	if !receipt.SubmittedAt.Equal(fixtureSubmittedAt) {
+		t.Errorf("[P0] receipt submitted_at = %v, want the row's created_at %v", receipt.SubmittedAt, fixtureSubmittedAt)
 	}
 
 	// The receipt is a PUBLIC value. Allowlist its exported fields for the same
@@ -443,10 +502,43 @@ func TestSubmit_AuditRowNamesTheSubmitterAndTargetsTheDispute(t *testing.T) {
 			"gate counts audit rows joined on target_table = 'od_records' for the public fixture events, and a "+
 			"dispute row landing there would break a gate this story is forbidden to relax (T20)", evt.TargetTable)
 	}
-	if evt.Payload == nil && evt.PayloadFunc == nil {
-		t.Errorf("[P0] the audit event carries no payload; FR51 requires the form contents, the selected " +
-			"event/category/slot and the timestamp. PayloadFunc exists for a payload that needs the new " +
-			"dispute id, which this one does")
+	// The target id is late-bound through a pointer that the write closure sets,
+	// so it can only be right if store.WithAudit dereferences AFTER the write.
+	// Nothing asserted it, and an audit-first refactor would have silently
+	// written target_id = '' — which the new web-deploy conservation gate joins
+	// on, so the CI failure would have been remote from the cause.
+	if evt.TargetID == nil || *evt.TargetID != fixtureDisputeID {
+		t.Errorf("[P0] target_id = %v, want the inserted dispute's id %q", evt.TargetID, fixtureDisputeID)
+	}
+
+	// FR51 fixes the payload's CONTENTS, and nothing read them back. The
+	// timestamp in particular was simply absent: submitPayload marshalled the
+	// form fields and stopped, while T13 requires "the form contents, the
+	// selected event/category/slot and the timestamp".
+	if evt.Payload == nil {
+		t.Fatalf("[P0] the audit event carries no payload; FR51 requires the form contents, the selected " +
+			"event/category/slot and the timestamp")
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(evt.Payload, &payload); err != nil {
+		t.Fatalf("[P0] audit payload is not JSON: %v", err)
+	}
+	for _, key := range []string{
+		"dispute_id", "student_id", "submitted_email", "event_id",
+		"category_id", "od_date", "slot", "submitted_at",
+	} {
+		if _, ok := payload[key]; !ok {
+			t.Errorf("[P0] audit payload is missing %q. FR51 fixes these contents; the ledger is the "+
+				"authoritative record of a dispute nobody authenticated, so a missing field cannot be "+
+				"recovered from anywhere else (T13)", key)
+		}
+	}
+	if got, _ := payload["submitted_at"].(string); got != fixtureSubmittedAt.UTC().Format(time.RFC3339Nano) {
+		t.Errorf("[P0] audit payload submitted_at = %q, want the row's own created_at %q — not a value "+
+			"re-derived before the write", got, fixtureSubmittedAt.UTC().Format(time.RFC3339Nano))
+	}
+	if got, _ := payload["dispute_id"].(string); got != fixtureDisputeID {
+		t.Errorf("[P0] audit payload dispute_id = %q, want %q", got, fixtureDisputeID)
 	}
 }
 
@@ -489,7 +581,38 @@ func TestSubmit_RefusesOutOfBoundsFieldsBeforeAnyQuery(t *testing.T) {
 		{"absent od_date", func(i *SubmitInput) { i.ODDate = "" }, contracts.ErrorCodeVALIDATIONFAILED},
 		{"malformed od_date", func(i *SubmitInput) { i.ODDate = "03-08-2026" }, contracts.ErrorCodeVALIDATIONFAILED},
 		{"od_date as a timestamp", func(i *SubmitInput) { i.ODDate = "2026-08-03T00:00:00Z" }, contracts.ErrorCodeVALIDATIONFAILED},
-		{"od_date outside the event range", func(i *SubmitInput) { i.ODDate = "2026-09-14" }, contracts.ErrorCodeVALIDATIONFAILED},
+		// NOT "outside the event range" — the service has no notion of an event
+		// range, and must not: T22 makes the range a DATABASE constraint because
+		// the day arrives from an anonymous submitter. What the service refuses
+		// is a day too far in the future to belong to any event that already
+		// happened. Computed relative to the fake clock; the previous hardcoded
+		// 2026-09-14 asserted "is in the future" and would have turned red on
+		// 2026-09-13 for a reason unrelated to the code.
+		{"od_date implausibly far in the future", func(i *SubmitInput) {
+			i.ODDate = fixedNow.Add(72 * time.Hour).Format(time.DateOnly)
+		}, contracts.ErrorCodeVALIDATIONFAILED},
+		// Length caps are counted in RUNES. A byte count refused a 400-character
+		// Malayalam note as "at most 1000 characters" while the browser, the
+		// contract and the database CHECK all counted characters.
+		{"note of 1000 multi-byte runes is accepted", func(i *SubmitInput) {
+			note := strings.Repeat("ന", 1000)
+			i.StudentNote = &note
+		}, ""},
+		{"note of 1001 multi-byte runes is refused", func(i *SubmitInput) {
+			note := strings.Repeat("ന", 1001)
+			i.StudentNote = &note
+		}, contracts.ErrorCodeVALIDATIONFAILED},
+		// A NUL in free text is rejected by Postgres from INSIDE the insert with
+		// SQLSTATE 22021, which would reach an anonymous caller as a 500 for
+		// input they fully control.
+		{"NUL byte in the note", func(i *SubmitInput) {
+			note := "was there\x00really"
+			i.StudentNote = &note
+		}, contracts.ErrorCodeVALIDATIONFAILED},
+		{"control character in the coordinator name", func(i *SubmitInput) {
+			name := "Priya\x07Menon"
+			i.ClaimedCoordinatorName = &name
+		}, contracts.ErrorCodeVALIDATIONFAILED},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			svc, students, repo, audited := newTestService(t)
@@ -497,6 +620,12 @@ func TestSubmit_RefusesOutOfBoundsFieldsBeforeAnyQuery(t *testing.T) {
 			tc.mutate(&input)
 
 			_, err := svc.Submit(ctx, input)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("[P0] %s was refused: %v", tc.name, err)
+				}
+				return
+			}
 			var domainErr domain.DomainError
 			if !errors.As(err, &domainErr) {
 				t.Fatalf("[P0] %s returned %v, want a typed domain error", tc.name, err)
@@ -635,6 +764,9 @@ func TestResolve_ZeroRowsIsDisambiguatedByARereadNotAGuess(t *testing.T) {
 	svc, _, repo, _ := newTestService(t)
 	repo.rows = 0
 	repo.record = Record{DisputeID: "97000000-0000-4000-8000-000000000001", Status: "resolved"}
+	// The answer now comes from GetDisputeForResolution's row-locked read inside
+	// the transaction, not from a re-read after it committed.
+	repo.lockedStatus = "resolved"
 
 	_, err := svc.Resolve(ctx, actor, repo.record.DisputeID, "Corrected on the register.")
 	var domainErr domain.DomainError

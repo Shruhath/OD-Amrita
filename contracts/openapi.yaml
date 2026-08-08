@@ -1645,6 +1645,11 @@ paths:
       description: >-
         Persists the event-wide camera/search credit cap. A limit of zero is a
         deliberate live-disable for fallback modes; NFC remains unlimited.
+
+        The cap is per event and DELIBERATELY not per day: it bounds each
+        coordinator's daily pool, so raising it once during a venue-wide NFC
+        failure applies to every remaining day of the event without a second
+        call. Usage against it is tracked per day (see `CaptureCreditUsage`).
       security:
         - bearerAuth: []
       requestBody:
@@ -2358,7 +2363,12 @@ components:
 
     CaptureCreditUsage:
       type: object
-      description: One assigned coordinator's event-wide camera/search credit usage.
+      description: >-
+        One assigned coordinator's camera/search credit usage for a SINGLE DAY —
+        the campus-local day of the request. The cap (`limit`) stays per event so
+        one admin change covers every remaining day, but the pool it bounds is
+        refilled each day, which is what keeps a venue-wide NFC failure on day 3
+        from being throttled by day 2's usage.
       required: [event_id, user_id, email, name, limit, consumed, remaining, exhausted]
       properties:
         event_id:
@@ -3086,9 +3096,16 @@ components:
     MarkCounters:
       type: object
       description: >-
-        Both figures are server-computed live counts over od_records (FR13).
-        `mine` is the calling coordinator's marks for this event and category;
-        `category_total` is every coordinator's, and is identical for all callers.
+        Both figures are server-computed live counts over od_records (FR13),
+        scoped to the CAMPUS-LOCAL DAY of the request. `mine` is the calling
+        coordinator's marks for this event, category and day; `category_total`
+        is every coordinator's for the same three, and is identical for all
+        callers.
+
+        The day scope is not cosmetic: on a multi-day event these are the
+        figures a coordinator reads as "today", so a running total across the
+        whole festival would make the screen useless by day three. They reset at
+        campus midnight, and the marking screen labels them as today's.
       required: [mine, category_total]
       properties:
         mine:

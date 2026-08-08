@@ -392,7 +392,17 @@ export default function EventDetailPortal() {
 
             {credits.isSuccess && (
               <>
-                <p className="empty-note">Cap: {credits.data.config.limit}</p>
+                {/*
+                  The CAP is per event; the USAGE below it is per day (T12/T16),
+                  and the day is always the campus date of this request. Said
+                  plainly here because the two numbers now answer different
+                  questions: on day 2 of a festival every coordinator reads
+                  "0 used" however much they burned yesterday, and a reset zeroes
+                  today's pool only. Unlabelled, that is indistinguishable from
+                  the credit ledger having lost yesterday's writes.
+                */}
+                <p className="empty-note">Cap: {credits.data.config.limit} per coordinator per day</p>
+                <p className="empty-note">Usage below is for today only.</p>
                 {creditData.length === 0 ? (
                   <p className="empty-note">No assigned coordinator credit rows</p>
                 ) : (
@@ -435,7 +445,7 @@ export default function EventDetailPortal() {
             <div className="dialog-backdrop" role="presentation">
               <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="reset-credit-title">
                 <h2 id="reset-credit-title">Reset fallback credits</h2>
-                <p>Reset {resetCandidate.name ?? resetCandidate.email} to 0 used credits.</p>
+                <p>Reset {resetCandidate.name ?? resetCandidate.email} to 0 used credits for today.</p>
                 <div className="dialog-actions">
                   <button
                     type="button"

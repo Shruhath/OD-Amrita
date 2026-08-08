@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
@@ -34,9 +36,14 @@ type CaptureCreditExhaustedError struct {
 func (e CaptureCreditExhaustedError) Error() string { return ErrCaptureCreditExhausted.Error() }
 func (e CaptureCreditExhaustedError) Unwrap() error { return ErrCaptureCreditExhausted }
 
+// CreditLedger is the fallback-credit pool, and every method is scoped to a DAY.
+//
+// The pool refills each day while the CAP stays per event, which is what keeps
+// the documented NFC-failure fallback — an admin raising the cap mid-festival —
+// a single change covering every remaining day.
 type CreditLedger interface {
-	Debit(ctx context.Context, tx pgx.Tx, eventID, userID string) (FallbackCreditState, error)
-	State(ctx context.Context, eventID, userID string) (FallbackCreditState, error)
+	Debit(ctx context.Context, tx pgx.Tx, eventID, userID string, usageDate time.Time) (FallbackCreditState, error)
+	State(ctx context.Context, eventID, userID string, usageDate time.Time) (FallbackCreditState, error)
 }
 
 type SQLCCreditLedger struct {
@@ -47,15 +54,16 @@ func NewSQLCCreditLedger(pool *pgxpool.Pool) *SQLCCreditLedger {
 	return &SQLCCreditLedger{queries: sqlc.New(pool)}
 }
 
-func (l *SQLCCreditLedger) Debit(ctx context.Context, tx pgx.Tx, eventID, userID string) (FallbackCreditState, error) {
+func (l *SQLCCreditLedger) Debit(ctx context.Context, tx pgx.Tx, eventID, userID string, usageDate time.Time) (FallbackCreditState, error) {
 	parsedEventID, parsedUserID, err := creditScope(eventID, userID)
 	if err != nil {
 		return FallbackCreditState{}, err
 	}
 	q := sqlc.New(tx)
 	row, err := q.DebitCaptureCredit(ctx, sqlc.DebitCaptureCreditParams{
-		EventID: dbUUID(parsedEventID),
-		UserID:  dbUUID(parsedUserID),
+		EventID:   dbUUID(parsedEventID),
+		UserID:    dbUUID(parsedUserID),
+		UsageDate: dbDate(usageDate),
 	})
 	if err == nil {
 		return creditStateFromInts(row.CreditLimit, row.Consumed, row.Remaining, row.Exhausted), nil
@@ -64,8 +72,9 @@ func (l *SQLCCreditLedger) Debit(ctx context.Context, tx pgx.Tx, eventID, userID
 		return FallbackCreditState{}, mapPgError(err)
 	}
 	state, stateErr := q.GetCaptureCreditState(ctx, sqlc.GetCaptureCreditStateParams{
-		EventID: dbUUID(parsedEventID),
-		UserID:  dbUUID(parsedUserID),
+		EventID:   dbUUID(parsedEventID),
+		UserID:    dbUUID(parsedUserID),
+		UsageDate: dbDate(usageDate),
 	})
 	if stateErr != nil {
 		return FallbackCreditState{}, stateErr
@@ -75,14 +84,15 @@ func (l *SQLCCreditLedger) Debit(ctx context.Context, tx pgx.Tx, eventID, userID
 	}
 }
 
-func (l *SQLCCreditLedger) State(ctx context.Context, eventID, userID string) (FallbackCreditState, error) {
+func (l *SQLCCreditLedger) State(ctx context.Context, eventID, userID string, usageDate time.Time) (FallbackCreditState, error) {
 	parsedEventID, parsedUserID, err := creditScope(eventID, userID)
 	if err != nil {
 		return FallbackCreditState{}, err
 	}
 	row, err := l.queries.GetCaptureCreditState(ctx, sqlc.GetCaptureCreditStateParams{
-		EventID: dbUUID(parsedEventID),
-		UserID:  dbUUID(parsedUserID),
+		EventID:   dbUUID(parsedEventID),
+		UserID:    dbUUID(parsedUserID),
+		UsageDate: dbDate(usageDate),
 	})
 	if err != nil {
 		return FallbackCreditState{}, err
@@ -100,6 +110,10 @@ func creditScope(eventID, userID string) (uuid.UUID, uuid.UUID, error) {
 		return uuid.Nil, uuid.Nil, validation("actor_user_id", "invalid_format", "authenticated user id must be a UUID.")
 	}
 	return parsedEventID, parsedUserID, nil
+}
+
+func dbDate(day time.Time) pgtype.Date {
+	return pgtype.Date{Time: day, Valid: true}
 }
 
 func creditStateFromInts(limit, consumed, remaining int32, exhausted bool) FallbackCreditState {

@@ -21,6 +21,7 @@ export type MarkableEvent = {
   id: string
   name: string
   event_date: string
+  end_date: string
   status: string
   branches: { id: string; code: string; name: string }[]
   created_at: string
@@ -73,6 +74,10 @@ export function markableEvent(overrides: Partial<MarkableEvent> = {}): MarkableE
     id: markEventID,
     name: 'Gokulashtami',
     event_date: todayISODate(),
+    // Defaults to the start date, so every fixture written before the event
+    // became a range keeps describing the one-day event it was written for. An
+    // override that moves only `event_date` cannot produce a backwards range.
+    end_date: overrides.event_date ?? todayISODate(),
     status: 'active',
     branches: [{ id: '91000000-0000-4000-8000-000000000001', code: 'CSE', name: 'Computer Science and Engineering' }],
     created_at: new Date().toISOString(),

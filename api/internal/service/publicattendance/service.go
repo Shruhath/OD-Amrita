@@ -36,10 +36,22 @@ import (
 // maxRecordRows caps the underlying row read.
 //
 // A ceiling rather than a page parameter: pagination cannot be reconciled with
-// day grouping without splitting a day across pages, and at 12 slots a day this
-// is over forty event-days for one student — far beyond any realistic history,
-// while still bounding the response of an endpoint anyone can call.
-const maxRecordRows = 500
+// day grouping without splitting a day across pages, while still bounding the
+// response of an endpoint anyone can call.
+//
+// SIZED AGAINST THE RANGE, not against a single day. The old value of 500 was
+// justified as "over forty event-days for one student — far beyond any realistic
+// history", which was true while an event was one day. It stopped being true
+// under Story 0.12a: an event may now span maxEventRangeDays (90) and a student
+// can hold a mark in each of the 12 slots, so ONE event alone can produce 1080
+// rows. At 500 the query — which orders by od_date DESC — would silently drop
+// the EARLIEST days, and the screen whose entire purpose is never to read as "I
+// was not marked" would do exactly that for day 1 onwards, with nothing on
+// screen saying it had truncated.
+//
+// 1200 covers a full-length event outright and leaves headroom. Keep it at or
+// above 90 * 12 if the range cap in service/event/service.go changes.
+const maxRecordRows = 1200
 
 // MaxPublicEventRows is exported so the integration suite can seed PAST the cap
 // and assert it. It was unexported and the cap was therefore unasserted —
@@ -59,10 +71,14 @@ type Student struct {
 
 // Record is one present OD row as a student sees it.
 type Record struct {
-	RecordID     string
-	EventID      string
-	EventName    string
+	RecordID  string
+	EventID   string
+	EventName string
+	// EventDate is the EVENT's first day; ODDate is the day this record belongs
+	// to. On a multi-day event they differ, and the dispute form builds its event
+	// options from the former while the screen groups on the latter.
 	EventDate    string
+	ODDate       string
 	CategoryID   string
 	CategoryName string
 	Slot         int
@@ -74,12 +90,14 @@ type Record struct {
 	MarkedAt     time.Time
 }
 
-// Day groups one event date's records.
+// Day groups one day's records.
 type Day struct {
-	// EventDate is YYYY-MM-DD — the calendar day the OD was for, taken from the
-	// event, never from the mark's receipt time.
-	EventDate string
-	Records   []Record
+	// ODDate is YYYY-MM-DD — the day the OD belongs to, taken from the record.
+	// Not the event's first day, which would collapse a thirty-day festival onto
+	// one heading, and not the mark's receipt time, which would file a
+	// next-morning correction under the wrong day.
+	ODDate  string
+	Records []Record
 }
 
 // RecordCollection is the whole public view of one student.
@@ -95,9 +113,11 @@ type EventCategory struct {
 }
 
 type Event struct {
-	EventID    string
-	Name       string
+	EventID string
+	Name    string
+	// EventDate and EndDate bound the days the dispute form may offer.
 	EventDate  string
+	EndDate    string
 	Categories []EventCategory
 }
 
@@ -188,6 +208,7 @@ func (s *Service) PublicEvents(ctx context.Context) (EventCollection, error) {
 			EventID:    uuid.UUID(row.ID.Bytes).String(),
 			Name:       row.Name,
 			EventDate:  row.EventDate.Time.Format(time.DateOnly),
+			EndDate:    row.EndDate.Time.Format(time.DateOnly),
 			Categories: categories,
 		})
 	}
@@ -198,17 +219,17 @@ func (s *Service) PublicEvents(ctx context.Context) (EventCollection, error) {
 //
 // A single pass that opens a new day whenever the date changes — not a map,
 // which would lose the ordering the query established and force a re-sort here.
-// The query already returns event_date DESC, slot ASC; re-deriving that order in
+// The query already returns od_date DESC, slot ASC; re-deriving that order in
 // Go (or, worse, in the browser) is how the two drift apart.
 func groupByDay(rows []sqlc.ListPublicStudentODRecordsRow) []Day {
 	days := make([]Day, 0, len(rows))
 	for _, row := range rows {
 		record := mapRecord(row)
-		if n := len(days); n > 0 && days[n-1].EventDate == record.EventDate {
+		if n := len(days); n > 0 && days[n-1].ODDate == record.ODDate {
 			days[n-1].Records = append(days[n-1].Records, record)
 			continue
 		}
-		days = append(days, Day{EventDate: record.EventDate, Records: []Record{record}})
+		days = append(days, Day{ODDate: record.ODDate, Records: []Record{record}})
 	}
 	return days
 }
@@ -228,6 +249,7 @@ func mapRecord(row sqlc.ListPublicStudentODRecordsRow) Record {
 		EventID:      uuid.UUID(row.EventID.Bytes).String(),
 		EventName:    row.EventName,
 		EventDate:    row.EventDate.Time.Format(time.DateOnly),
+		ODDate:       row.OdDate.Time.Format(time.DateOnly),
 		CategoryID:   uuid.UUID(row.CategoryID.Bytes).String(),
 		CategoryName: row.CategoryName,
 		Slot:         int(row.Slot),

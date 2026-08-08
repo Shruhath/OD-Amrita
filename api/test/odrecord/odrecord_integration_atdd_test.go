@@ -98,15 +98,18 @@ func TestODRecordsSchemaRuntimePrivilegesAndInvariants(t *testing.T) {
 			FROM pg_indexes
 			WHERE schemaname = 'public'
 			  AND tablename = 'od_records'
-			  AND indexname = 'uq_od_records_present_student_event_slot'
+			  AND indexname = 'uq_od_records_present_student_event_date_slot'
 			  AND indexdef LIKE '%UNIQUE%'
-			  AND indexdef LIKE '%student_id, event_id, slot%'
+			  AND indexdef LIKE '%student_id, event_id, od_date, slot%'
 			  AND indexdef LIKE '%status = ''present''%'
 		)`).Scan(&hasDuplicateIndex); err != nil {
 		t.Fatalf("check partial duplicate index: %v", err)
 	}
+	// FR10 was RE-KEYED, not relaxed: one present OD per student per slot per
+	// DAY, so a festival can mark the same student in slot 8 every day. The
+	// index name moved with the key because mapPgError matches it as a literal.
 	if !hasDuplicateIndex {
-		t.Fatal("[P0] od_records needs a partial unique index on present student/event/slot")
+		t.Fatal("[P0] od_records needs a partial unique index on present student/event/od_date/slot")
 	}
 }
 
@@ -217,8 +220,11 @@ type markFixture struct {
 	adminID       string
 	cardToken     string
 	cardKeyring   svccardtoken.Keyring
-	slotOneTime   time.Time
-	breakTime     time.Time
+	// eventDate is the fixture event's single day, exposed so od_records seeds
+	// can state their od_date explicitly rather than letting the clock pick it.
+	eventDate   time.Time
+	slotOneTime time.Time
+	breakTime   time.Time
 }
 
 func seedMarkFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) markFixture {
@@ -240,6 +246,7 @@ func seedMarkFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) mark
 		coordinatorID: uuid.NewString(),
 		adminID:       uuid.NewString(),
 		cardKeyring:   cardKeyring,
+		eventDate:     eventDate,
 		slotOneTime:   time.Date(2026, 8, 3, 8, 25, 0, 0, loc),
 		breakTime:     time.Date(2026, 8, 3, 10, 35, 0, 0, loc),
 	}
@@ -264,8 +271,8 @@ func seedMarkFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) mark
 		t.Fatalf("seed admin: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO events (id, name, event_date, status)
-		VALUES ($1, 'ATDD Mark Event', $2, 'active')`, fixture.eventID, eventDate); err != nil {
+		INSERT INTO events (id, name, event_date, end_date, status)
+		VALUES ($1, 'Mark Event', $2, $2, 'active')`, fixture.eventID, eventDate); err != nil {
 		t.Fatalf("seed event: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `

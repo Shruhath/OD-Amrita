@@ -1,5 +1,7 @@
 -- name: GetMarkEvent :one
-SELECT id, event_date, status
+-- event_date is the FIRST day of the range and end_date the last; the slot gate
+-- is range containment, not a date equality.
+SELECT id, event_date, end_date, status
 FROM events
 WHERE id = @event_id;
 
@@ -21,11 +23,14 @@ JOIN branches b ON b.id = s.branch_id
 WHERE s.id = @student_id;
 
 -- name: InsertODPresentRecord :one
+-- od_date is the day the OD BELONGS to and is always derived server-side; it is
+-- never the same fact as server_received_at, which is when the row arrived.
 INSERT INTO od_records (
     student_id,
     event_id,
     category_id,
     slot,
+    od_date,
     capture_method,
     actor_user_id,
     actor_role,
@@ -35,12 +40,13 @@ INSERT INTO od_records (
     @event_id,
     @category_id,
     @slot,
+    @od_date,
     @capture_method,
     @actor_user_id,
     @actor_role,
     @server_received_at
 )
-RETURNING id, student_id, event_id, category_id, slot, capture_method, server_received_at;
+RETURNING id, student_id, event_id, category_id, slot, od_date, capture_method, server_received_at;
 
 -- name: CountMarksForCategory :one
 -- The two FR13 counters in one round trip: every coordinator's marks for this
@@ -51,12 +57,17 @@ RETURNING id, student_id, event_id, category_id, slot, capture_method, server_re
 -- a denormalised counter, and a tally row is a second source of truth that can
 -- drift from od_records — the very thing the audit trail exists to prevent.
 -- od_records_event_category_slot_idx covers the scope predicate.
+--
+-- SCOPED TO ONE DAY. Both figures are read by a coordinator as "today", so on a
+-- thirty-day festival an unscoped count would show a running cumulative total
+-- under a label that says otherwise.
 SELECT
     count(*)::bigint AS category_total,
     (count(*) FILTER (WHERE actor_user_id = @actor_user_id))::bigint AS mine
 FROM od_records
 WHERE event_id = @event_id
   AND category_id = @category_id
+  AND od_date = @od_date
   AND status = 'present';
 
 -- name: AdminCanSearchMark :one
@@ -93,6 +104,7 @@ SELECT
     c.name AS category_name,
     c.created_at AS category_created_at,
     r.slot,
+    r.od_date,
     r.capture_method,
     r.actor_user_id,
     u.email AS actor_email,
@@ -108,7 +120,8 @@ WHERE r.event_id = @event_id
   AND r.status = 'present'
   AND (sqlc.narg('category_id')::uuid IS NULL OR r.category_id = sqlc.narg('category_id'))
   AND (sqlc.narg('slot')::integer IS NULL OR r.slot = sqlc.narg('slot'))
-ORDER BY r.slot ASC, r.server_received_at DESC, s.roll_no ASC, r.id ASC
+  AND (sqlc.narg('od_date')::date IS NULL OR r.od_date = sqlc.narg('od_date'))
+ORDER BY r.od_date DESC, r.slot ASC, r.server_received_at DESC, s.roll_no ASC, r.id ASC
 LIMIT @page_size::bigint OFFSET @page_offset::bigint;
 
 -- name: CountAttendanceRecords :one
@@ -117,16 +130,23 @@ FROM od_records r
 WHERE r.event_id = @event_id
   AND r.status = 'present'
   AND (sqlc.narg('category_id')::uuid IS NULL OR r.category_id = sqlc.narg('category_id'))
-  AND (sqlc.narg('slot')::integer IS NULL OR r.slot = sqlc.narg('slot'));
+  AND (sqlc.narg('slot')::integer IS NULL OR r.slot = sqlc.narg('slot'))
+  AND (sqlc.narg('od_date')::date IS NULL OR r.od_date = sqlc.narg('od_date'));
 
 -- name: ListPublicStudentODRecords :many
 -- One student's present OD records for the UNAUTHENTICATED public dashboard
 -- (Story 0.10, FR39).
 --
--- GROUPING KEY IS events.event_date, NOT server_received_at. od_records has no
--- date column at all, and one event is one day in this model. Deriving the day
+-- GROUPING KEY IS od_records.od_date, NOT server_received_at and no longer
+-- events.event_date. An event spans a range of days, so the event's first day
+-- would collapse a thirty-day festival onto one heading; and deriving the day
 -- from the receipt time would file a teacher's next-morning correction under the
 -- wrong day, which on this screen reads to the student as "I was not marked".
+-- od_date is the day the OD belongs to, which is the only one of the three that
+-- is the fact this screen is about.
+--
+-- e.event_date is STILL selected alongside it: the record's event_date is the
+-- event's first day, and the dispute form's event options are built from it.
 --
 -- NO events.status FILTER, deliberately (T6). Archiving is an administrative act
 -- on the event, not a retraction of the student's attendance; filtering active
@@ -154,6 +174,7 @@ SELECT
     r.event_id,
     e.name       AS event_name,
     e.event_date AS event_date,
+    r.od_date    AS od_date,
     c.id         AS category_id,
     c.name       AS category_name,
     u.name       AS marked_by_name,
@@ -165,5 +186,5 @@ JOIN categories c ON c.id = r.category_id
 LEFT JOIN users u ON u.id = r.actor_user_id
 WHERE r.student_id = @student_id
   AND r.status = 'present'
-ORDER BY e.event_date DESC, r.slot ASC, r.server_received_at ASC, r.id ASC
+ORDER BY r.od_date DESC, r.slot ASC, r.server_received_at ASC, r.id ASC
 LIMIT @row_limit::bigint;

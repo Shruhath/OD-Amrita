@@ -35,7 +35,13 @@ export type PublicODRecord = {
   slot: number
   event_id: string
   event_name: string
+  /** The EVENT's first day. Stays on the record because eventsFromRecords()
+   *  builds the dispute form's event options from it — a record reporting its
+   *  own day here would offer an event dated to one arbitrary record. */
   event_date: string
+  /** The day this OD BELONGS to, which is not the day the row was written.
+   *  A teacher's next-morning correction has both, and they differ. */
+  od_date: string
   category_id: string
   category_name: string
   /** Nullable: actor_user_id is ON DELETE SET NULL, so an off-boarded teacher
@@ -45,8 +51,25 @@ export type PublicODRecord = {
   marked_at: string
 }
 
+/**
+ * The grouping key is RENAMED from `event_date` to `od_date` under Story 0.12a,
+ * not supplemented. The key must not lie about which fact it holds: keyed on the
+ * event's start date, a thirty-day festival collapses onto one heading and reads
+ * to the student as twenty-nine days of missing attendance.
+ *
+ * `event_date` is GONE from this type, deleted in the same change that switched
+ * PublicAttendanceScreen.tsx to `day.od_date`, exactly as the deprecation note
+ * here instructed. Keeping it would have left every fixture emitting both keys
+ * with the same value, so the 0.10 and 0.11 suites would pass whether the
+ * screen read `od_date` or `event_date` — a test that cannot fail, and the
+ * defect shape this codebase has been bitten by repeatedly.
+ *
+ * The server cannot produce the field either: `PublicODDay` in the contract is
+ * exactly `{od_date, records}`, enforced by the exact-match allowlist in
+ * publicSchemaAllowlists.
+ */
 export type PublicODDay = {
-  event_date: string
+  od_date: string
   records: PublicODRecord[]
 }
 
@@ -75,6 +98,7 @@ export function publicRecord(slot: number, overrides: Partial<PublicODRecord> = 
     event_id: '93000000-0000-4000-8000-000000000001',
     event_name: 'Onam Celebrations',
     event_date: '2026-07-28',
+    od_date: overrides.od_date ?? overrides.event_date ?? '2026-07-28',
     category_id: '94000000-0000-4000-8000-000000000001',
     category_name: 'Procession',
     marked_by_name: 'Portal Coordinator',
@@ -93,11 +117,55 @@ export function publicRecord(slot: number, overrides: Partial<PublicODRecord> = 
  * so every fixture that omits the gap tests a screen that cannot show it.
  */
 export function publicDay(overrides: Partial<PublicODDay> = {}): PublicODDay {
+  const odDate = overrides.od_date ?? '2026-07-28'
   return {
-    event_date: '2026-07-28',
-    records: [publicRecord(1), publicRecord(2), publicRecord(4)],
+    od_date: odDate,
+    records: [publicRecord(1, { od_date: odDate }), publicRecord(2, { od_date: odDate }), publicRecord(4, { od_date: odDate })],
     ...overrides,
   }
+}
+
+/**
+ * A student's history across three days of ONE thirty-day festival.
+ *
+ * ⚠️ The day groups carry `od_date` and NOTHING ELSE — no `event_date` at all.
+ * That is deliberate and it is what makes the assertions in
+ * PublicAttendanceDays.test.tsx able to FAIL. Emitting both keys made those tests
+ * pass whether the screen read `od_date` or `event_date`, because both held the
+ * same value — a test that cannot fail, which is the defect shape this codebase
+ * has been bitten by three times (0.10's review found three of them at once).
+ *
+ * This is also exactly the shape the server produces after T18: `PublicODDay`'s
+ * `event_date` is RENAMED to `od_date`, not supplemented.
+ *
+ * Every RECORD keeps `event_date` at the festival's FIRST day (2026-08-10) while
+ * carrying its own `od_date`, because on the record the two are genuinely
+ * different facts and both are required.
+ *
+ * `publicMultiDayEventID` is distinct from `publicRecord`'s default event so the
+ * two fixtures cannot be confused in an assertion.
+ */
+export const publicMultiDayEventID = '93000000-0000-4000-8000-000000000002'
+
+export function publicMultiDayCollection(): PublicODRecordCollection {
+  const festivalRecord = (slot: number, odDate: string): PublicODRecord =>
+    publicRecord(slot, {
+      record_id: `67000000-0000-4000-8000-${odDate.replace(/-/g, '')}${String(slot).padStart(2, '0')}`,
+      event_id: publicMultiDayEventID,
+      event_name: 'Amritotsavam',
+      event_date: '2026-08-10',
+      od_date: odDate,
+      marked_at: `${odDate}T04:05:00Z`,
+    })
+
+  return publicRecordCollection({
+    days: [
+      { od_date: '2026-08-19', records: [festivalRecord(1, '2026-08-19'), festivalRecord(2, '2026-08-19')] },
+      { od_date: '2026-08-12', records: [festivalRecord(1, '2026-08-12')] },
+      { od_date: '2026-08-10', records: [festivalRecord(4, '2026-08-10')] },
+    ],
+    generated_at: '2026-08-19T16:30:00Z',
+  })
 }
 
 export function publicRecordCollection(overrides: Partial<PublicODRecordCollection> = {}): PublicODRecordCollection {

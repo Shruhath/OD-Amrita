@@ -322,7 +322,11 @@ test.describe('real stack student disputes', () => {
     expect(parsed.data.length).toBeGreaterThan(0)
 
     for (const event of parsed.data) {
-      expect(Object.keys(event).sort()).toEqual(['categories', 'event_date', 'event_id', 'name'])
+      // `end_date` joined the shape when an event became a real date range: the
+      // dispute form enumerates event_date..end_date as its bounded day options,
+      // and without the range on the wire a student missed on day 17 of a
+      // festival has no way to report it. Still an exact set.
+      expect(Object.keys(event).sort()).toEqual(['categories', 'end_date', 'event_date', 'event_id', 'name'])
       for (const category of event.categories) {
         expect(Object.keys(category).sort()).toEqual(['id', 'name'])
       }

@@ -539,7 +539,7 @@ describe('public dispute form across several events', () => {
     return publicRecordCollection({
       days: [
         publicDay({
-          event_date: '2026-07-20',
+          od_date: '2026-07-20',
           records: [publicRecord(1, {
             event_id: secondEventID,
             event_name: 'Sports Day Relay',

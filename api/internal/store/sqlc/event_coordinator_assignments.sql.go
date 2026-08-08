@@ -114,6 +114,7 @@ SELECT
     e.id,
     e.name,
     e.event_date,
+    e.end_date,
     e.status,
     e.archived_at,
     e.created_at,
@@ -137,6 +138,7 @@ type ListAssignedActiveEventsRow struct {
 	ID           pgtype.UUID        `json:"id"`
 	Name         string             `json:"name"`
 	EventDate    pgtype.Date        `json:"event_date"`
+	EndDate      pgtype.Date        `json:"end_date"`
 	Status       string             `json:"status"`
 	ArchivedAt   pgtype.Timestamptz `json:"archived_at"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
@@ -156,6 +158,7 @@ func (q *Queries) ListAssignedActiveEvents(ctx context.Context, userID pgtype.UU
 			&i.ID,
 			&i.Name,
 			&i.EventDate,
+			&i.EndDate,
 			&i.Status,
 			&i.ArchivedAt,
 			&i.CreatedAt,

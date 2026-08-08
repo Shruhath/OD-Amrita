@@ -49,7 +49,7 @@ usage AS (
     SELECT COALESCE(u.consumed, 0)::integer AS consumed
     FROM effective
     LEFT JOIN event_capture_credit_usage u
-        ON u.event_id = @event_id AND u.user_id = @user_id
+        ON u.event_id = @event_id AND u.user_id = @user_id AND u.usage_date = @usage_date
 )
 SELECT
     effective.credit_limit,
@@ -72,11 +72,11 @@ effective AS (
     LEFT JOIN event_capture_credit_config cfg ON cfg.event_id = e.id
 ),
 debited AS (
-    INSERT INTO event_capture_credit_usage (event_id, user_id, consumed, updated_at)
-    SELECT assignment.event_id, assignment.user_id, 1, now()
+    INSERT INTO event_capture_credit_usage (event_id, user_id, usage_date, consumed, updated_at)
+    SELECT assignment.event_id, assignment.user_id, @usage_date, 1, now()
     FROM effective, assignment
     WHERE effective.credit_limit > 0
-    ON CONFLICT (event_id, user_id) DO UPDATE
+    ON CONFLICT (event_id, user_id, usage_date) DO UPDATE
     SET consumed = event_capture_credit_usage.consumed + 1,
         updated_at = now()
     WHERE event_capture_credit_usage.consumed < (SELECT credit_limit FROM effective)
@@ -110,6 +110,7 @@ JOIN users u ON u.id = eca.user_id
 CROSS JOIN effective
 LEFT JOIN event_capture_credit_usage usage
     ON usage.event_id = eca.event_id AND usage.user_id = eca.user_id
+   AND usage.usage_date = @usage_date
 WHERE eca.event_id = @event_id
 ORDER BY eca.created_at ASC, eca.id ASC;
 
@@ -134,6 +135,7 @@ JOIN users u ON u.id = eca.user_id
 CROSS JOIN effective
 LEFT JOIN event_capture_credit_usage usage
     ON usage.event_id = eca.event_id AND usage.user_id = eca.user_id
+   AND usage.usage_date = @usage_date
 WHERE eca.event_id = @event_id AND eca.user_id = @user_id;
 
 -- name: ResetCaptureCreditUsage :one
@@ -148,12 +150,13 @@ previous AS (
     FROM assignment
     LEFT JOIN event_capture_credit_usage usage
         ON usage.event_id = assignment.event_id AND usage.user_id = assignment.user_id
+       AND usage.usage_date = @usage_date
 ),
 reset AS (
-    INSERT INTO event_capture_credit_usage (event_id, user_id, consumed, updated_at)
-    SELECT assignment.event_id, assignment.user_id, 0, now()
+    INSERT INTO event_capture_credit_usage (event_id, user_id, usage_date, consumed, updated_at)
+    SELECT assignment.event_id, assignment.user_id, @usage_date, 0, now()
     FROM assignment
-    ON CONFLICT (event_id, user_id) DO UPDATE
+    ON CONFLICT (event_id, user_id, usage_date) DO UPDATE
     SET consumed = 0,
         updated_at = now()
     RETURNING event_id, user_id, consumed, updated_at

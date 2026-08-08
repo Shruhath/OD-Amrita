@@ -45,7 +45,7 @@ func (s reachingPortalMarkService) Categories(context.Context, marking.Actor, st
 	return nil, nil
 }
 
-func (s reachingPortalMarkService) Attendance(context.Context, marking.Actor, string, *string, *int, int, int) (marking.AttendancePage, error) {
+func (s reachingPortalMarkService) Attendance(context.Context, marking.Actor, string, *string, *int, *string, int, int) (marking.AttendancePage, error) {
 	s.reached.hits++
 	return marking.AttendancePage{}, nil
 }

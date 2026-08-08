@@ -167,9 +167,10 @@ func TestAdminAttendanceIntegration_FiltersBeforePagination(t *testing.T) {
 	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
 	fixture := seedMarkFixture(t, ctx, migrator)
 	teacherID := seedTeacherAndBranch(t, ctx, migrator, fixture)
+	fixtureDay := fixture.eventDate.Format("2006-01-02")
 
 	// The row that must survive every filter below.
-	wantStudent := seedAttendanceRecord(t, ctx, migrator, fixture.eventID, fixture.categoryID, 1, teacherID, "teacher")
+	wantStudent := seedAttendanceRecord(t, ctx, migrator, fixture.eventID, fixture.categoryID, 1, teacherID, "teacher", fixtureDay)
 
 	// A sibling category on the SAME event — must be excluded by the category filter.
 	siblingCategory := uuid.NewString()
@@ -178,15 +179,15 @@ func TestAdminAttendanceIntegration_FiltersBeforePagination(t *testing.T) {
 		siblingCategory, fixture.eventID); err != nil {
 		t.Fatalf("seed sibling category: %v", err)
 	}
-	seedAttendanceRecord(t, ctx, migrator, fixture.eventID, siblingCategory, 1, teacherID, "teacher")
+	seedAttendanceRecord(t, ctx, migrator, fixture.eventID, siblingCategory, 1, teacherID, "teacher", fixtureDay)
 
 	// The same category, a different slot — must be excluded by the slot filter.
-	seedAttendanceRecord(t, ctx, migrator, fixture.eventID, fixture.categoryID, 2, teacherID, "teacher")
+	seedAttendanceRecord(t, ctx, migrator, fixture.eventID, fixture.categoryID, 2, teacherID, "teacher", fixtureDay)
 
 	// An entirely different event — must never appear regardless of filters.
 	otherEventID := uuid.NewString()
 	if _, err := migrator.Exec(ctx, `
-		INSERT INTO events (id, name, event_date, status) VALUES ($1, 'ATDD 0.9 Other Event', $2, 'active')`,
+		INSERT INTO events (id, name, event_date, end_date, status) VALUES ($1, 'Other Event', $2, $2, 'active')`,
 		otherEventID, fixture.slotOneTime); err != nil {
 		t.Fatalf("seed other event: %v", err)
 	}
@@ -196,11 +197,11 @@ func TestAdminAttendanceIntegration_FiltersBeforePagination(t *testing.T) {
 		otherCategoryID, otherEventID); err != nil {
 		t.Fatalf("seed other category: %v", err)
 	}
-	seedAttendanceRecord(t, ctx, migrator, otherEventID, otherCategoryID, 1, teacherID, "teacher")
+	seedAttendanceRecord(t, ctx, migrator, otherEventID, otherCategoryID, 1, teacherID, "teacher", fixtureDay)
 
 	svc := marking.NewPortalMarkReadService(runtime)
 	slot := 1
-	page, err := svc.Attendance(ctx, marking.Actor{Role: "admin"}, fixture.eventID, &fixture.categoryID, &slot, 1, 20)
+	page, err := svc.Attendance(ctx, marking.Actor{Role: "admin"}, fixture.eventID, &fixture.categoryID, &slot, nil, 1, 20)
 	if err != nil {
 		t.Fatalf("[P0] Attendance(event, category, slot) = %v, want nil", err)
 	}
@@ -212,7 +213,7 @@ func TestAdminAttendanceIntegration_FiltersBeforePagination(t *testing.T) {
 	}
 
 	// The same event with no filters must see all three of ITS rows (not the other event's).
-	all, err := svc.Attendance(ctx, marking.Actor{Role: "admin"}, fixture.eventID, nil, nil, 1, 20)
+	all, err := svc.Attendance(ctx, marking.Actor{Role: "admin"}, fixture.eventID, nil, nil, nil, 1, 20)
 	if err != nil {
 		t.Fatalf("[P0] Attendance(event, no filters) = %v, want nil", err)
 	}
@@ -256,7 +257,7 @@ func TestAdminAttendanceIntegration_NullActorStillRendersRecord(t *testing.T) {
 	}
 
 	readSvc := marking.NewPortalMarkReadService(runtime)
-	page, err := readSvc.Attendance(ctx, marking.Actor{Role: "admin"}, fixture.eventID, nil, &slot, 1, 20)
+	page, err := readSvc.Attendance(ctx, marking.Actor{Role: "admin"}, fixture.eventID, nil, &slot, nil, 1, 20)
 	if err != nil {
 		t.Fatalf("[P0] Attendance after actor deletion = %v, want nil — a deleted actor must not break the read", err)
 	}
@@ -324,9 +325,11 @@ func seedTeacherAndBranch(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 // seedAttendanceRecord inserts one new student in the fixture branch and one
 // present od_records row for it, returning the student id so callers can
 // assert on which row survived a filter.
+// odDate is explicit so a day-filter assertion cannot pass by agreeing with
+// whatever day the code happened to choose.
 func seedAttendanceRecord(
 	t *testing.T, ctx context.Context, pool *pgxpool.Pool,
-	eventID, categoryID string, slot int, actorUserID, actorRole string,
+	eventID, categoryID string, slot int, actorUserID, actorRole, odDate string,
 ) string {
 	t.Helper()
 	studentID := uuid.NewString()
@@ -339,9 +342,9 @@ func seedAttendanceRecord(
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO od_records
-			(id, student_id, event_id, category_id, slot, status, capture_method, actor_user_id, actor_role, server_received_at)
-		VALUES ($1, $2, $3, $4, $5, 'present', 'search', $6, $7, now())`,
-		uuid.NewString(), studentID, eventID, categoryID, slot, actorUserID, actorRole); err != nil {
+			(id, student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role, server_received_at)
+		VALUES ($1, $2, $3, $4, $5, $8::date, 'present', 'search', $6, $7, now())`,
+		uuid.NewString(), studentID, eventID, categoryID, slot, actorUserID, actorRole, odDate); err != nil {
 		t.Fatalf("seed attendance record: %v", err)
 	}
 	return studentID

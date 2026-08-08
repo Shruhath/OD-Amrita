@@ -44,6 +44,7 @@ func newSQLCWriter(factory queryFactory) *SQLCWriter {
 type CreateWrite struct {
 	Name      string
 	EventDate time.Time
+	EndDate   time.Time
 	BranchIDs []uuid.UUID
 }
 
@@ -52,6 +53,7 @@ func (w *SQLCWriter) Create(ctx context.Context, tx pgx.Tx, input CreateWrite) (
 	row, err := q.CreateEvent(ctx, sqlc.CreateEventParams{
 		Name:      input.Name,
 		EventDate: pgtype.Date{Time: input.EventDate, Valid: true},
+		EndDate:   pgtype.Date{Time: input.EndDate, Valid: true},
 	})
 	if err != nil {
 		return uuid.Nil, false, err
@@ -162,8 +164,9 @@ func (w *SQLCWriter) UpsertCaptureCreditConfig(ctx context.Context, tx pgx.Tx, i
 
 func (w *SQLCWriter) ResetCaptureCreditUsage(ctx context.Context, tx pgx.Tx, input CaptureCreditResetWrite) (CaptureCreditResetWriteResult, bool, error) {
 	row, err := w.queries(tx).ResetCaptureCreditUsage(ctx, sqlc.ResetCaptureCreditUsageParams{
-		EventID: dbUUID(input.EventID),
-		UserID:  dbUUID(input.UserID),
+		EventID:   dbUUID(input.EventID),
+		UserID:    dbUUID(input.UserID),
+		UsageDate: dbDate(input.UsageDate),
 	})
 	if err == nil {
 		return CaptureCreditResetWriteResult{PreviousConsumed: int(row.PreviousConsumed)}, true, nil
@@ -172,6 +175,10 @@ func (w *SQLCWriter) ResetCaptureCreditUsage(ctx context.Context, tx pgx.Tx, inp
 		return CaptureCreditResetWriteResult{}, false, ErrCoordinatorUserNotFound
 	}
 	return CaptureCreditResetWriteResult{}, false, err
+}
+
+func dbDate(day time.Time) pgtype.Date {
+	return pgtype.Date{Time: day, Valid: true}
 }
 
 func dbUUID(id uuid.UUID) pgtype.UUID {

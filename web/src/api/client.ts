@@ -396,7 +396,7 @@ export function createEventApi(session: SessionPort) {
     },
     async adminAttendance(
       eventID: string,
-      filters: { categoryID?: string; slot?: number; page?: number; pageSize?: number } = {},
+      filters: { categoryID?: string; slot?: number; odDate?: string; page?: number; pageSize?: number } = {},
     ) {
       const query: Record<string, string | number> = {
         page: filters.page ?? 1,
@@ -404,6 +404,9 @@ export function createEventApi(session: SessionPort) {
       }
       if (filters.categoryID) query.category_id = filters.categoryID
       if (filters.slot !== undefined) query.slot = filters.slot
+      // Omitted means the whole range, which is the default an admin wants on a
+      // one-day event and on the first look at a festival alike.
+      if (filters.odDate) query.od_date = filters.odDate
       return unwrap(await client.GET('/api/v1/admin/events/{event_id}/attendance', {
         params: { path: { event_id: eventID }, query },
       }))

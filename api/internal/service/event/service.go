@@ -35,9 +35,13 @@ type Branch struct {
 }
 
 type Event struct {
-	ID         string
-	Name       string
+	ID   string
+	Name string
+	// EventDate is the FIRST day of the range, EndDate the last. Both are
+	// YYYY-MM-DD strings because that is what the contract carries; they are
+	// equal for a one-day event.
 	EventDate  string
+	EndDate    string
 	Status     Status
 	Branches   []Branch
 	CreatedAt  time.Time
@@ -53,6 +57,13 @@ type Actor struct {
 type CreateInput struct {
 	Name      string
 	EventDate string
+	// EndDate is a POINTER because it is not required: nil means "the caller
+	// omitted it" and defaults to the start date, which is what makes an event
+	// created with a single day behave exactly as before. An empty string is a
+	// different fact — a client that sent the key with nothing in it — and is a
+	// validation failure. A value field would collapse the two and silently
+	// create a one-day event out of a malformed request.
+	EndDate   *string
 	BranchIDs []string
 }
 
@@ -171,7 +182,7 @@ func (s *Service) Get(ctx context.Context, actor Actor, rawEventID string) (Even
 }
 
 func (s *Service) Create(ctx context.Context, actor Actor, input CreateInput) (Event, error) {
-	name, date, branchIDs, err := validateCreate(input)
+	name, date, endDate, branchIDs, err := validateCreate(input)
 	if err != nil {
 		return Event{}, err
 	}
@@ -205,6 +216,7 @@ func (s *Service) Create(ctx context.Context, actor Actor, input CreateInput) (E
 	}
 	payload, _ := json.Marshal(map[string]any{
 		"event_date": date.Format("2006-01-02"),
+		"end_date":   endDate.Format("2006-01-02"),
 		"branch_ids": payloadBranchIDs,
 	})
 	evt := store.AuditEvent{
@@ -217,7 +229,7 @@ func (s *Service) Create(ctx context.Context, actor Actor, input CreateInput) (E
 	}
 
 	err = s.store.WithAudit(ctx, evt, func(ctx context.Context, tx pgx.Tx) (bool, error) {
-		id, changed, writeErr := s.writer.Create(ctx, tx, CreateWrite{Name: name, EventDate: date, BranchIDs: branchIDs})
+		id, changed, writeErr := s.writer.Create(ctx, tx, CreateWrite{Name: name, EventDate: date, EndDate: endDate, BranchIDs: branchIDs})
 		if writeErr != nil {
 			return false, writeErr
 		}
@@ -272,23 +284,50 @@ func (s *Service) Archive(ctx context.Context, actor Actor, rawEventID string) (
 	return event, err
 }
 
-func validateCreate(input CreateInput) (string, time.Time, []uuid.UUID, error) {
+// maxEventRangeDays bounds an event's length, INCLUSIVE of both ends.
+//
+// Enforced here rather than as a database CHECK because it is policy that will
+// be tuned, and a CHECK would cost a migration each time it moved. The ORDERING
+// rule (end_date >= event_date) is the opposite kind of rule — it must never be
+// tunable — and lives in the database as events_date_range_ck.
+const maxEventRangeDays = 90
+
+func validateCreate(input CreateInput) (string, time.Time, time.Time, []uuid.UUID, error) {
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
-		return "", time.Time{}, nil, validation("name", "required", "Name is required.")
+		return "", time.Time{}, time.Time{}, nil, validation("name", "required", "Name is required.")
 	}
 	if utf8.RuneCountInString(name) > 200 {
-		return "", time.Time{}, nil, validation("name", "maximum", "Name must not exceed 200 characters.")
+		return "", time.Time{}, time.Time{}, nil, validation("name", "maximum", "Name must not exceed 200 characters.")
 	}
 	date, err := time.Parse("2006-01-02", input.EventDate)
 	if err != nil || date.Format("2006-01-02") != input.EventDate {
-		return "", time.Time{}, nil, validation("event_date", "invalid_format", "Event date must be a valid YYYY-MM-DD date.")
+		return "", time.Time{}, time.Time{}, nil, validation("event_date", "invalid_format", "Event date must be a valid YYYY-MM-DD date.")
 	}
+
+	// An omitted end date means a one-day event. A PRESENT but malformed one is
+	// refused rather than defaulted: silently turning "2026-13-45" into a one-day
+	// event would create the wrong event and report success.
+	endDate := date
+	if input.EndDate != nil {
+		parsed, endErr := time.Parse("2006-01-02", *input.EndDate)
+		if endErr != nil || parsed.Format("2006-01-02") != *input.EndDate {
+			return "", time.Time{}, time.Time{}, nil, validation("end_date", "invalid_format", "End date must be a valid YYYY-MM-DD date.")
+		}
+		endDate = parsed
+	}
+	if endDate.Before(date) {
+		return "", time.Time{}, time.Time{}, nil, validation("end_date", "before_start", "End date must not be before the start date.")
+	}
+	if int(endDate.Sub(date).Hours()/24)+1 > maxEventRangeDays {
+		return "", time.Time{}, time.Time{}, nil, validation("end_date", "range_too_long", "An event must not span more than 90 days.")
+	}
+
 	if len(input.BranchIDs) == 0 {
-		return "", time.Time{}, nil, validation("branch_ids", "required", "Select at least one branch.")
+		return "", time.Time{}, time.Time{}, nil, validation("branch_ids", "required", "Select at least one branch.")
 	}
 	if len(input.BranchIDs) > 100 {
-		return "", time.Time{}, nil, validation("branch_ids", "maximum", "Select no more than 100 branches.")
+		return "", time.Time{}, time.Time{}, nil, validation("branch_ids", "maximum", "Select no more than 100 branches.")
 	}
 
 	ids := make([]uuid.UUID, 0, len(input.BranchIDs))
@@ -296,15 +335,15 @@ func validateCreate(input CreateInput) (string, time.Time, []uuid.UUID, error) {
 	for index, raw := range input.BranchIDs {
 		id, parseErr := uuid.Parse(raw)
 		if parseErr != nil {
-			return "", time.Time{}, nil, validation(fmt.Sprintf("branch_ids[%d]", index), "invalid_format", "Branch id must be a UUID.")
+			return "", time.Time{}, time.Time{}, nil, validation(fmt.Sprintf("branch_ids[%d]", index), "invalid_format", "Branch id must be a UUID.")
 		}
 		if _, duplicate := seen[id]; duplicate {
-			return "", time.Time{}, nil, validation("branch_ids", "duplicate", "Branch ids must be unique.")
+			return "", time.Time{}, time.Time{}, nil, validation("branch_ids", "duplicate", "Branch ids must be unique.")
 		}
 		seen[id] = struct{}{}
 		ids = append(ids, id)
 	}
-	return name, date, ids, nil
+	return name, date, endDate, ids, nil
 }
 
 func validation(field, code, message string) domain.DomainError {

@@ -33,9 +33,9 @@ type Status struct {
 	FallbackCredit FallbackCreditState
 }
 
-// CountReader returns (mine, categoryTotal) for one actor and scope.
+// CountReader returns (mine, categoryTotal) for one actor, scope and DAY.
 type CountReader interface {
-	CountMarks(ctx context.Context, actorUserID, eventID, categoryID string) (int, int, error)
+	CountMarks(ctx context.Context, actorUserID, eventID, categoryID string, odDate time.Time) (int, int, error)
 }
 
 // StatusService answers GET /api/v1/mark/status.
@@ -75,21 +75,25 @@ func (s *StatusService) MarkStatus(ctx context.Context, actor Actor, eventID, ca
 		return Status{}, err
 	}
 
-	// One clock read serves both the slot decision and server_time.
+	// One clock read serves server_time, the slot decision, the day the counters
+	// are scoped to and the day the credit pool is read for. Separate reads could
+	// disagree across midnight, which would show a coordinator one day's counters
+	// beside another day's remaining credits.
 	now := s.clock.Now()
+	today := CampusDate(now)
 
 	status := Status{ServerTime: now}
-	if _, window, open := ActiveSlot(now, event.EventDate); open {
+	if _, window, open := ActiveSlot(now, event.EventDate, event.EndDate); open {
 		slot := window
 		status.Slot = &slot
 	}
 
-	mine, categoryTotal, err := s.counts.CountMarks(ctx, actor.UserID, eventID, categoryID)
+	mine, categoryTotal, err := s.counts.CountMarks(ctx, actor.UserID, eventID, categoryID, today)
 	if err != nil {
 		return Status{}, err
 	}
 	status.Counters = Counters{Mine: mine, CategoryTotal: categoryTotal}
-	credit, err := s.credits.State(ctx, eventID, actor.UserID)
+	credit, err := s.credits.State(ctx, eventID, actor.UserID, today)
 	if err != nil {
 		return Status{}, err
 	}

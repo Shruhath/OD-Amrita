@@ -143,7 +143,7 @@ func recordCollectionContract(collection publicattendance.RecordCollection) (con
 	// whether null meant "no marks" or "nothing loaded".
 	days := make([]contracts.PublicODDay, 0, len(collection.Days))
 	for _, day := range collection.Days {
-		eventDate, parseErr := parseDate(day.EventDate)
+		odDate, parseErr := parseDate(day.ODDate)
 		if parseErr != nil {
 			return contracts.PublicODRecordCollection{}, parseErr
 		}
@@ -155,7 +155,7 @@ func recordCollectionContract(collection publicattendance.RecordCollection) (con
 			}
 			records = append(records, rendered)
 		}
-		days = append(days, contracts.PublicODDay{EventDate: eventDate, Records: records})
+		days = append(days, contracts.PublicODDay{OdDate: odDate, Records: records})
 	}
 
 	return contracts.PublicODRecordCollection{
@@ -189,12 +189,17 @@ func recordContract(record publicattendance.Record) (contracts.PublicODRecord, e
 	if err != nil {
 		return contracts.PublicODRecord{}, err
 	}
+	odDate, err := parseDate(record.ODDate)
+	if err != nil {
+		return contracts.PublicODRecord{}, err
+	}
 	return contracts.PublicODRecord{
 		RecordId:     recordID,
 		Slot:         record.Slot,
 		EventId:      eventID,
 		EventName:    record.EventName,
 		EventDate:    eventDate,
+		OdDate:       odDate,
 		CategoryId:   categoryID,
 		CategoryName: record.CategoryName,
 		MarkedByName: record.MarkedByName,

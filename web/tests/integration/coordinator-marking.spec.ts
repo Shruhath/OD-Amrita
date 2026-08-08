@@ -171,7 +171,7 @@ test.describe('real stack coordinator marking', () => {
     // create active events dated later through the same harness — with
     // fullyParallel they can interleave and take first place, so data[0] would
     // assert against a row this test knows nothing about.
-    const all = (await events.json()).data as { id: string; event_date: string }[]
+    const all = (await events.json()).data as { id: string; event_date: string; end_date: string }[]
     const event = all.find((candidate) => candidate.id === MARKING_EVENT_ID)
     if (!event) {
       throw new Error(
@@ -195,10 +195,15 @@ test.describe('real stack coordinator marking', () => {
     expect(body.counters).toHaveProperty('mine')
     expect(body.counters).toHaveProperty('category_total')
 
-    // The precondition the old version of this test was really guarding: an
-    // event dated anything but today can NEVER have an open slot, which would
-    // make every assertion below vacuous. Checked directly, so it holds at any
-    // hour rather than only during the 08:00-18:15 IST slot window.
+    // The precondition this test is really guarding: an event whose days do not
+    // include today can NEVER have an open slot, which would make every
+    // assertion below vacuous. Checked directly, so it holds at any hour rather
+    // than only during the 08:00-18:15 IST slot window.
+    //
+    // The rule is CONTAINMENT, not equality, since an event became a real date
+    // range: the harness seeds yesterday -> tomorrow deliberately, so an
+    // equality check here would fail on a correctly seeded harness while still
+    // passing on a single-day one — the exact inversion of what it is for.
     // `en-CA` yields YYYY-MM-DD directly, in the requested zone.
     //
     // The obvious-looking `new Date(d.toLocaleString('en-US', { timeZone }))`
@@ -209,9 +214,10 @@ test.describe('real stack coordinator marking', () => {
     // failed between 00:00 and 05:30 IST — which is exactly when it was caught.
     const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
     expect(
-      event.event_date,
-      'the harness event must be dated TODAY (Asia/Kolkata) or no slot can ever open: see api/test/portal/main.go',
-    ).toBe(todayIST)
+      event.event_date <= todayIST && event.end_date >= todayIST,
+      `the harness event's range must CONTAIN today in Asia/Kolkata or no slot can ever open ` +
+        `(got ${event.event_date}..${event.end_date}, today is ${todayIST}): see api/test/portal/main.go`,
+    ).toBe(true)
 
     // `slot` is REQUIRED and nullable: always present, null when nothing is open.
     // An omitted key would mean a client cannot tell "no slot" from "old server".

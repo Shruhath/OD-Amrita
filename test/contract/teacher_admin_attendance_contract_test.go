@@ -73,7 +73,7 @@ func TestTeacherAdminAttendanceContract_AttendanceSchemas(t *testing.T) {
 	record := getMap(schemas, "AttendanceRecord")
 	if record != nil {
 		if missing := missingRequired(record,
-			"record_id", "student", "event_id", "category", "slot", "capture_method", "marked_by", "actor_role", "server_received_at",
+			"record_id", "student", "event_id", "category", "slot", "od_date", "capture_method", "marked_by", "actor_role", "server_received_at",
 		); len(missing) > 0 {
 			t.Errorf("[P0] AttendanceRecord required is missing %v", missing)
 		}
@@ -82,10 +82,16 @@ func TestTeacherAdminAttendanceContract_AttendanceSchemas(t *testing.T) {
 		// so a future field (card/token/fallback_credit/dispute/reason/email or
 		// anything else not yet imagined) is caught the moment it is added,
 		// rather than only the handful of names checked here today.
+		// `od_date` was added under Story 0.12a (T22). `server_received_at` is
+		// already here and is NOT the same fact: it is when the row was written,
+		// while `od_date` is the day the OD belongs to. A teacher's next-morning
+		// correction has two different dates, and an admin verifying a thirty-day
+		// festival needs the second one — the list otherwise interleaves thirty
+		// days of the same slot with nothing on screen distinguishing them.
 		allowed := map[string]bool{
 			"record_id": true, "student": true, "event_id": true, "category": true,
-			"slot": true, "capture_method": true, "marked_by": true, "actor_role": true,
-			"server_received_at": true,
+			"slot": true, "od_date": true, "capture_method": true, "marked_by": true,
+			"actor_role": true, "server_received_at": true,
 		}
 		for name := range props {
 			if !allowed[name] {

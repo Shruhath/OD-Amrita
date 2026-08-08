@@ -59,7 +59,12 @@ export type PublicEventCategory = { id: string; name: string }
 export type PublicEvent = {
   event_id: string
   name: string
+  /** The FIRST day of the event's range. */
   event_date: string
+  /** The LAST day. Added under Story 0.12a (T19): the day picker enumerates
+   *  event_date..end_date inclusive, so without it the control has exactly one
+   *  option and a student missed on day 17 of a festival cannot report it. */
+  end_date: string
   categories: PublicEventCategory[]
 }
 
@@ -86,13 +91,47 @@ export type PublicDisputeReceipt = {
 export type PortalDispute = Dispute
 
 export function publicEvent(overrides: Partial<PublicEvent> = {}): PublicEvent {
+  const eventDate = overrides.event_date ?? '2026-07-28'
   return {
     event_id: disputeEventID,
     name: 'Onam Celebrations',
-    event_date: '2026-07-28',
+    event_date: eventDate,
+    // Defaults to the start date so the existing single-day fixtures keep
+    // testing what they were written to test. `end_date` deriving from
+    // `event_date` rather than being hardcoded stops an override producing a
+    // backwards range the real database would refuse.
+    end_date: eventDate,
     categories: [{ id: disputeCategoryID, name: 'Procession' }],
     ...overrides,
   }
+}
+
+/**
+ * The thirty-day festival, for the day-picker assertions.
+ *
+ * 10 Aug -> 8 Sep inclusive is 30 options. A picker that renders one option, or
+ * 29, or 31, is a different bug each time and the count distinguishes them.
+ *
+ * The id is deliberately the SAME as public-attendance.ts's
+ * `publicMultiDayEventID`: this is the one event seen from two places, the
+ * record history and the public events list. Giving it two ids would leave the
+ * merge between those two sources untestable, because nothing would ever match
+ * — and the day picker would silently keep the single day the records know
+ * instead of the range only the public list carries.
+ */
+export const multiDayDisputeEventID = '93000000-0000-4000-8000-000000000002'
+export const multiDayDisputeStart = '2026-08-10'
+export const multiDayDisputeEnd = '2026-09-08'
+export const multiDayDisputeDayCount = 30
+
+export function multiDayPublicEvent(overrides: Partial<PublicEvent> = {}): PublicEvent {
+  return publicEvent({
+    event_id: multiDayDisputeEventID,
+    name: 'Amritotsavam',
+    event_date: multiDayDisputeStart,
+    end_date: multiDayDisputeEnd,
+    ...overrides,
+  })
 }
 
 /**

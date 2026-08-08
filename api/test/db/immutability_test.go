@@ -269,6 +269,12 @@ func TestAuditImmutabilityMigration_Reversible(t *testing.T) {
 
 	// Revert everything above 0001 (0003 users + 0002 immutability), so 0002's
 	// Down is exercised even though it is no longer the migration tip.
+	//
+	// Story 0.12a: the walk down passes through 0016, whose Down legitimately
+	// refuses to restore the single-day unique index over multi-day attendance
+	// rows. Clear that data first so this test asserts 0002's reversibility
+	// rather than inheriting 0016's — see clearRollbackBlockers.
+	clearRollbackBlockers(t, ctx, pool)
 	runGoose(t, migratorDSN, "down-to", "1")
 
 	if got := alwaysEnabledTriggerCount(t, ctx, pool); got != 0 {

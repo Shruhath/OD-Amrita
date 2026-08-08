@@ -39,8 +39,8 @@ func TestEventSchema_NormalizedDateOnlyAndConstrained(t *testing.T) {
 	}
 
 	_, err := pool.Exec(ctx, `
-		INSERT INTO events (name, event_date, status)
-		VALUES ('invalid lifecycle', DATE '2026-08-15', 'deleted')`)
+		INSERT INTO events (name, event_date, end_date, status)
+		VALUES ('invalid lifecycle', DATE '2026-08-15', DATE '2026-08-15', 'deleted')`)
 	if !hasSQLState(err, "23514") {
 		t.Errorf("[P0] invalid event lifecycle should fail CHECK 23514, got %v", err)
 	}
@@ -59,8 +59,8 @@ func TestEventSchema_RuntimeCannotHardDelete(t *testing.T) {
 		t.Fatalf("seed branch: %v", err)
 	}
 	if err := migrator.QueryRow(ctx, `
-		INSERT INTO events (name, event_date)
-		VALUES ('Delete gate fixture', DATE '2026-08-15')
+		INSERT INTO events (name, event_date, end_date)
+		VALUES ('Delete gate fixture', DATE '2026-08-15', DATE '2026-08-15')
 		RETURNING id::text`).Scan(&eventID); err != nil {
 		t.Fatalf("seed event: %v", err)
 	}
@@ -103,8 +103,8 @@ func TestEventSchema_ArchivedAggregateIsImmutable(t *testing.T) {
 		}
 	}
 	if err := migrator.QueryRow(ctx, `
-		INSERT INTO events (name, event_date)
-		VALUES ('Archive immutability fixture', DATE '2026-08-16')
+		INSERT INTO events (name, event_date, end_date)
+		VALUES ('Archive immutability fixture', DATE '2026-08-16', DATE '2026-08-16')
 		RETURNING id::text`).Scan(&eventID); err != nil {
 		t.Fatalf("seed event: %v", err)
 	}

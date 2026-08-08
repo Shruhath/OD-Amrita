@@ -119,7 +119,7 @@ describe('Admin events portal composition (ATDD red phase)', () => {
     const submit = within(dialog).getByRole('button', { name: 'Create event' })
     expect(submit).toBeDisabled()
     await user.type(within(dialog).getByLabelText('Event name'), 'Keyboard Event')
-    await user.type(within(dialog).getByLabelText('Event date'), '2026-10-12')
+    await user.type(within(dialog).getByLabelText('Start date'), '2026-10-12')
 
     const firstBranch = within(dialog).getByRole('checkbox', { name: /Computer Science/ })
     firstBranch.focus()
@@ -135,7 +135,7 @@ describe('Admin events portal composition (ATDD red phase)', () => {
     await user.click(await screen.findByRole('button', { name: 'New event' }))
     const dialog = screen.getByRole('dialog', { name: 'New event' })
     await user.type(within(dialog).getByLabelText('Event name'), 'Community Outreach Day')
-    await user.type(within(dialog).getByLabelText('Event date'), '2026-09-05')
+    await user.type(within(dialog).getByLabelText('Start date'), '2026-09-05')
     await user.click(within(dialog).getByRole('checkbox', { name: /Computer Science/ }))
     await user.click(within(dialog).getByRole('checkbox', { name: /Electronics/ }))
     await user.click(within(dialog).getByRole('button', { name: 'Create event' }))
@@ -156,7 +156,7 @@ describe('Admin events portal composition (ATDD red phase)', () => {
     await user.click(await screen.findByRole('button', { name: 'New event' }))
     const dialog = screen.getByRole('dialog', { name: 'New event' })
     await user.type(within(dialog).getByLabelText('Event name'), 'Newest Event')
-    await user.type(within(dialog).getByLabelText('Event date'), '2026-09-05')
+    await user.type(within(dialog).getByLabelText('Start date'), '2026-09-05')
     await user.click(within(dialog).getByRole('checkbox', { name: /Computer Science/ }))
     await user.click(within(dialog).getByRole('button', { name: 'Create event' }))
 
@@ -214,7 +214,7 @@ describe('Admin events portal composition (ATDD red phase)', () => {
     await user.click(await screen.findByRole('button', { name: 'New event' }))
     const dialog = screen.getByRole('dialog', { name: 'New event' })
     await user.type(within(dialog).getByLabelText('Event name'), 'Innovation Day')
-    await user.type(within(dialog).getByLabelText('Event date'), '2026-08-15')
+    await user.type(within(dialog).getByLabelText('Start date'), '2026-08-15')
     await user.click(within(dialog).getByRole('checkbox', { name: /Computer Science/ }))
     await user.click(within(dialog).getByRole('button', { name: 'Create event' }))
 

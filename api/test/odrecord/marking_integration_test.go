@@ -322,9 +322,10 @@ func seedPresentRowsInCategory(
 		}
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO od_records
-				(id, student_id, event_id, category_id, slot, status, capture_method, actor_user_id, actor_role, server_received_at)
-			VALUES ($1, $2, $3, $4, 1, 'present', 'nfc', $5, 'coordinator', $6)`,
-			uuid.NewString(), studentID, fixture.eventID, categoryID, actorUserID, fixture.slotOneTime); err != nil {
+				(id, student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role, server_received_at)
+			VALUES ($1, $2, $3, $4, 1, $7::date, 'present', 'nfc', $5, 'coordinator', $6)`,
+			uuid.NewString(), studentID, fixture.eventID, categoryID, actorUserID, fixture.slotOneTime,
+			fixture.eventDate.Format("2006-01-02")); err != nil {
 			t.Fatalf("seed od_record %d: %v", i, err)
 		}
 	}

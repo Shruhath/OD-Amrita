@@ -10,6 +10,7 @@ import {
   type PublicStudent,
 } from '../../api/client'
 import { ThemeToggle } from '../../components/ThemeToggle'
+import { enumerateDays } from './days'
 
 /**
  * The public attendance dashboard — the only screen in this app that a visitor
@@ -243,7 +244,7 @@ export default function PublicAttendanceScreen() {
               ) : (
                 records.data.days.map((day) => (
                   <DaySlots
-                    key={day.event_date}
+                    key={day.od_date}
                     day={day}
                     onReport={(draft) => setDisputeDraft(draft)}
                   />
@@ -293,12 +294,12 @@ type DisputeDraft = { day: string; slot: number; eventID: string; categoryID: st
 
 function DaySlots({ day, onReport }: { day: PublicODDay; onReport(draft: DisputeDraft): void }) {
   // A slot holds a LIST, not a single record. Uniqueness in the database is
-  // (student_id, event_id, slot) — per event — while a day here is a calendar
-  // date, so two events on one date can each hold a mark at the same slot for
-  // the same student. Keying a Map on the slot number alone silently keeps the
-  // last one, and the mark that loses renders as "No record": the page telling a
-  // student they were not marked when they were, which is the single outcome
-  // this screen exists to avoid.
+  // (student_id, event_id, od_date, slot) — per event per DAY — while a day here
+  // is a calendar date, so two events running on the same day can each hold a
+  // mark at the same slot for the same student. Keying a Map on the slot number
+  // alone silently keeps the last one, and the mark that loses renders as "No
+  // record": the page telling a student they were not marked when they were,
+  // which is the single outcome this screen exists to avoid.
   const bySlot = new Map<number, PublicODDay['records']>()
   for (const record of day.records) {
     const existing = bySlot.get(record.slot)
@@ -307,8 +308,8 @@ function DaySlots({ day, onReport }: { day: PublicODDay; onReport(draft: Dispute
   }
 
   return (
-    <section className="public-day" aria-label={`OD records for ${formatDate(day.event_date)}`}>
-      <h3>{formatDate(day.event_date)}</h3>
+    <section className="public-day" aria-label={`OD records for ${formatDate(day.od_date)}`}>
+      <h3>{formatDate(day.od_date)}</h3>
       <ul className="public-slots">
         {SLOT_VALUES.map((slot) => {
           const records = bySlot.get(slot) ?? []
@@ -340,7 +341,7 @@ function DaySlots({ day, onReport }: { day: PublicODDay; onReport(draft: Dispute
                     type="button"
                     className="secondary"
                     onClick={() => onReport({
-                      day: day.event_date,
+                      day: day.od_date,
                       slot,
                       // An ABSENT slot has no record of its own, so the event
                       // comes from the other records on THIS day rather than
@@ -395,6 +396,13 @@ function PublicDisputeForm({
     () => mergeEventOptions(recordEvents, publicEventData ?? []),
     [publicEventData, recordEvents],
   )
+  // Which events carry a REAL end_date. An event rebuilt from a record has its
+  // end_date set to the event's first day (eventsFromRecords), so its range is a
+  // placeholder and must not be used to reject a day.
+  const publicEventIDs = useMemo(
+    () => new Set((publicEventData ?? []).map((event) => event.event_id)),
+    [publicEventData],
+  )
   const [eventID, setEventID] = useState(initialEventID)
   const [categoryID, setCategoryID] = useState(initialCategoryID)
   const [odDate, setODDate] = useState(initialDay)
@@ -408,9 +416,43 @@ function PublicDisputeForm({
   const selectedEvent = eventOptions.find((event) => event.event_id === eventID) ?? eventOptions[0]
   const categoryOptions = useMemo(() => selectedEvent?.categories ?? [], [selectedEvent])
   // T23: the day is a bounded CHOICE scoped to the selected event, never an
-  // unbounded <input type="date">. Today an event is one day, so the range is a
-  // single option; the multi-day change widens the source, not the control.
-  const dayOptions = useMemo(() => selectedEvent ? [selectedEvent.event_date] : initialDay ? [initialDay] : [], [initialDay, selectedEvent])
+  // unbounded <input type="date">. The submitter here is anonymous over the open
+  // internet, and an unbounded control lets them file a dispute dated 1970.
+  //
+  // The range widened the SOURCE, not the control: the options are now every day
+  // from event_date to end_date inclusive. `initialDay` — the day whose slot the
+  // student actually clicked — is unioned in rather than assumed present,
+  // because an event rebuilt from a record carries only its first day (see
+  // eventsFromRecords), and the one option they need would otherwise be the one
+  // missing.
+  const dayOptions = useMemo(() => {
+    if (!selectedEvent) return initialDay ? [initialDay] : []
+    const days = enumerateDays(selectedEvent.event_date, selectedEvent.end_date)
+    // The clicked day is added back ONLY for the event it was clicked on. An
+    // event rebuilt from record history knows only its first day, so without
+    // this the one option the student came here for can be missing — but
+    // carrying it across an event change would offer a day of festival A while
+    // event B is selected, and the database's range guard would refuse that
+    // submission after the student had already filled the form.
+    //
+    // The push is ALSO skipped when the event's authoritative range is known and
+    // excludes the day. `end_date` is only trustworthy for an event that came
+    // from the public events list; one rebuilt from a record has end_date set to
+    // its own first day, and for that case the union above is exactly the point.
+    // Where the real range IS known, offering a day outside it would walk the
+    // student through the whole form only to have the database's range guard
+    // refuse the submission — the same failure this comment already avoids for a
+    // different event, arrived at from a different direction.
+    if (initialDay && selectedEvent.event_id === initialEventID && !days.includes(initialDay)) {
+      const rangeIsAuthoritative = publicEventIDs.has(selectedEvent.event_id)
+      const insideRange =
+        initialDay >= selectedEvent.event_date && initialDay <= selectedEvent.end_date
+      if (!rangeIsAuthoritative || insideRange) {
+        days.push(initialDay)
+      }
+    }
+    return days.sort()
+  }, [initialDay, initialEventID, publicEventIDs, selectedEvent])
 
   useEffect(() => {
     if (!selectedEvent) return
@@ -605,6 +647,16 @@ function mergeEventOptions(fromRecords: PublicEvent[], fromPublic: PublicEvent[]
       merged.set(event.event_id, { ...event, categories: [...event.categories] })
       continue
     }
+    // The public list is AUTHORITATIVE for the range. A record only carries the
+    // event's first day, so an event rebuilt from history looks one day long;
+    // keeping that here would leave the dispute form offering day one of a
+    // thirty-day festival and nothing else — to a student whose whole reason for
+    // being on this form is a day further in.
+    //
+    // The record-derived entry still wins on name and ordering, which is what
+    // the merge order above is for.
+    existing.event_date = event.event_date
+    existing.end_date = event.end_date
     for (const category of event.categories) {
       if (!existing.categories.some((item) => item.id === category.id)) {
         existing.categories.push(category)
@@ -628,6 +680,13 @@ function eventsFromRecords(days: PublicODDay[]): PublicEvent[] {
         event_id: record.event_id,
         name: record.event_name,
         event_date: record.event_date,
+        // A RECORD carries the event's first day, not its last: the public
+        // records read has no reason to ship a range it does not group on. So an
+        // event reconstructed from history is treated as the single day we
+        // actually know, and the day the student clicked is added back
+        // separately — see dayOptions. When the event also appears in the public
+        // events list, that entry carries the real range and wins.
+        end_date: record.event_date,
         categories: [category],
       })
     }
@@ -729,6 +788,7 @@ function validationDetail(body: unknown): string | null {
 function runeCount(value: string): number {
   return [...value].length
 }
+
 
 /** Renders a YYYY-MM-DD event date in the campus timezone-free way it is stored. */
 function formatDate(value: string): string {

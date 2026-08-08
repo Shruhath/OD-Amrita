@@ -195,6 +195,7 @@ func TestSQLCWriterCreateUsesReturningAndEveryAssociation(t *testing.T) {
 	got, changed, err := writer.Create(context.Background(), nil, CreateWrite{
 		Name:      "Innovation Day",
 		EventDate: time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC),
+		EndDate:   time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC),
 		BranchIDs: []uuid.UUID{uuid.New(), uuid.New()},
 	})
 	if err != nil {
@@ -218,6 +219,7 @@ func TestSQLCWriterCreateRejectsAssociationNoOp(t *testing.T) {
 	_, _, err := writer.Create(context.Background(), nil, CreateWrite{
 		Name:      "Innovation Day",
 		EventDate: time.Now(),
+		EndDate:   time.Now(),
 		BranchIDs: []uuid.UUID{uuid.New()},
 	})
 	if err == nil {

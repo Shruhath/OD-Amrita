@@ -454,14 +454,25 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
         </p>
       )}
 
-      <section className="mark-meters" aria-label="Progress">
+      {/*
+        Every meter here is scoped to TODAY, and each label says so.
+
+        Under Story 0.12a all three of these reset at campus midnight: the two
+        counters gained `AND od_date = @od_date` and the credit pool is keyed
+        `(event_id, user_id, usage_date)`. On day 2 of a festival a coordinator
+        who marked 200 students yesterday opens this screen to "0", "0" and a
+        full credit pool. That is CORRECT — but labelled "Marked by you" on a
+        thirty-day event it reads as data loss, and a coordinator who believes
+        the counter is wrong is a coordinator who stops trusting the screen.
+      */}
+      <section className="mark-meters" aria-label="Today's progress">
         <div className="mark-meter">
           <span className="mark-meter-value">{status.data?.counters.mine ?? '—'}</span>
-          <span className="mark-meter-label">Marked by you</span>
+          <span className="mark-meter-label">Marked by you today</span>
         </div>
         <div className="mark-meter">
           <span className="mark-meter-value">{status.data?.counters.category_total ?? '—'}</span>
-          <span className="mark-meter-label">Marked in total</span>
+          <span className="mark-meter-label">Marked in total today</span>
         </div>
         <div className="mark-meter mark-clock">
           <span className="mark-meter-value">{clockLabel.value}</span>
@@ -471,7 +482,7 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
           <span className="mark-meter-value">
             {fallbackCredit ? `${fallbackCredit.remaining}/${fallbackCredit.limit}` : '—'}
           </span>
-          <span className="mark-meter-label">Fallback credits</span>
+          <span className="mark-meter-label">Fallback credits today</span>
         </div>
       </section>
 
@@ -671,6 +682,12 @@ function useSlotClock(
   if (!status) return { value: '—', label: 'Slot' }
   if (!status.slot) {
     // The explicit no-slot state. Never 00:00, which reads as "about to open".
+    //
+    // This is ALSO the state for a day outside a multi-day event's range: the
+    // server answers `slot: null` there too, and deliberately so. It must not
+    // grow a second, scarier branch — a coordinator opening the app the day
+    // before a festival should see that nothing is on, not a red failure they
+    // will try to debug at the venue.
     return { value: 'No slot is open right now', label: 'Marks are rejected until the next slot' }
   }
 

@@ -1,7 +1,7 @@
 -- name: CreateEvent :one
-INSERT INTO events (name, event_date)
-VALUES (@name, @event_date)
-RETURNING id, name, event_date, status, archived_at, created_at;
+INSERT INTO events (name, event_date, end_date)
+VALUES (@name, @event_date, @end_date)
+RETURNING id, name, event_date, end_date, status, archived_at, created_at;
 
 -- name: AddEventBranch :execrows
 INSERT INTO event_branches (event_id, branch_id)
@@ -12,6 +12,7 @@ SELECT
     e.id,
     e.name,
     e.event_date,
+    e.end_date,
     e.status,
     e.archived_at,
     e.created_at,
@@ -33,6 +34,7 @@ SELECT
     e.id,
     e.name,
     e.event_date,
+    e.end_date,
     e.status,
     e.archived_at,
     e.created_at,
@@ -75,6 +77,7 @@ SELECT
     e.id,
     e.name,
     e.event_date,
+    e.end_date,
     e.status,
     e.archived_at,
     e.created_at,
@@ -97,6 +100,7 @@ SELECT
     e.id,
     e.name,
     e.event_date,
+    e.end_date,
     e.status,
     e.archived_at,
     e.created_at,
@@ -126,6 +130,7 @@ SELECT
     e.id,
     e.name,
     e.event_date,
+    e.end_date,
     COALESCE(
         jsonb_agg(
             jsonb_build_object('id', c.id, 'name', c.name)

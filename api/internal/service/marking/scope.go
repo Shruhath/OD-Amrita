@@ -56,9 +56,12 @@ type Branch struct {
 // Event is the marking surface's view of an event: enough to render the selector
 // and enough to decide scope, and nothing that only the admin surface needs.
 type Event struct {
-	EventID    string
-	Name       string
+	EventID string
+	Name    string
+	// EventDate is the FIRST day of the range and EndDate the last; they are
+	// equal for a one-day event.
 	EventDate  time.Time
+	EndDate    time.Time
 	Status     string
 	Branches   []Branch
 	CreatedAt  time.Time

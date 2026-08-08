@@ -25,11 +25,11 @@ effective AS (
     LEFT JOIN event_capture_credit_config cfg ON cfg.event_id = e.id
 ),
 debited AS (
-    INSERT INTO event_capture_credit_usage (event_id, user_id, consumed, updated_at)
-    SELECT assignment.event_id, assignment.user_id, 1, now()
+    INSERT INTO event_capture_credit_usage (event_id, user_id, usage_date, consumed, updated_at)
+    SELECT assignment.event_id, assignment.user_id, $3, 1, now()
     FROM effective, assignment
     WHERE effective.credit_limit > 0
-    ON CONFLICT (event_id, user_id) DO UPDATE
+    ON CONFLICT (event_id, user_id, usage_date) DO UPDATE
     SET consumed = event_capture_credit_usage.consumed + 1,
         updated_at = now()
     WHERE event_capture_credit_usage.consumed < (SELECT credit_limit FROM effective)
@@ -44,8 +44,9 @@ FROM effective, debited
 `
 
 type DebitCaptureCreditParams struct {
-	EventID pgtype.UUID `json:"event_id"`
-	UserID  pgtype.UUID `json:"user_id"`
+	EventID   pgtype.UUID `json:"event_id"`
+	UserID    pgtype.UUID `json:"user_id"`
+	UsageDate pgtype.Date `json:"usage_date"`
 }
 
 type DebitCaptureCreditRow struct {
@@ -56,7 +57,7 @@ type DebitCaptureCreditRow struct {
 }
 
 func (q *Queries) DebitCaptureCredit(ctx context.Context, arg DebitCaptureCreditParams) (DebitCaptureCreditRow, error) {
-	row := q.db.QueryRow(ctx, debitCaptureCredit, arg.EventID, arg.UserID)
+	row := q.db.QueryRow(ctx, debitCaptureCredit, arg.EventID, arg.UserID, arg.UsageDate)
 	var i DebitCaptureCreditRow
 	err := row.Scan(
 		&i.CreditLimit,
@@ -108,7 +109,7 @@ usage AS (
     SELECT COALESCE(u.consumed, 0)::integer AS consumed
     FROM effective
     LEFT JOIN event_capture_credit_usage u
-        ON u.event_id = $1 AND u.user_id = $2
+        ON u.event_id = $1 AND u.user_id = $2 AND u.usage_date = $3
 )
 SELECT
     effective.credit_limit,
@@ -119,8 +120,9 @@ FROM effective, usage
 `
 
 type GetCaptureCreditStateParams struct {
-	EventID pgtype.UUID `json:"event_id"`
-	UserID  pgtype.UUID `json:"user_id"`
+	EventID   pgtype.UUID `json:"event_id"`
+	UserID    pgtype.UUID `json:"user_id"`
+	UsageDate pgtype.Date `json:"usage_date"`
 }
 
 type GetCaptureCreditStateRow struct {
@@ -131,7 +133,7 @@ type GetCaptureCreditStateRow struct {
 }
 
 func (q *Queries) GetCaptureCreditState(ctx context.Context, arg GetCaptureCreditStateParams) (GetCaptureCreditStateRow, error) {
-	row := q.db.QueryRow(ctx, getCaptureCreditState, arg.EventID, arg.UserID)
+	row := q.db.QueryRow(ctx, getCaptureCreditState, arg.EventID, arg.UserID, arg.UsageDate)
 	var i GetCaptureCreditStateRow
 	err := row.Scan(
 		&i.CreditLimit,
@@ -147,7 +149,7 @@ WITH effective AS (
     SELECT COALESCE(cfg.credit_limit, 5)::integer AS credit_limit
     FROM events e
     LEFT JOIN event_capture_credit_config cfg ON cfg.event_id = e.id
-    WHERE e.id = $1
+    WHERE e.id = $2
 )
 SELECT
     eca.event_id,
@@ -163,12 +165,14 @@ JOIN users u ON u.id = eca.user_id
 CROSS JOIN effective
 LEFT JOIN event_capture_credit_usage usage
     ON usage.event_id = eca.event_id AND usage.user_id = eca.user_id
-WHERE eca.event_id = $1 AND eca.user_id = $2
+   AND usage.usage_date = $1
+WHERE eca.event_id = $2 AND eca.user_id = $3
 `
 
 type GetCaptureCreditUsageForCoordinatorParams struct {
-	EventID pgtype.UUID `json:"event_id"`
-	UserID  pgtype.UUID `json:"user_id"`
+	UsageDate pgtype.Date `json:"usage_date"`
+	EventID   pgtype.UUID `json:"event_id"`
+	UserID    pgtype.UUID `json:"user_id"`
 }
 
 type GetCaptureCreditUsageForCoordinatorRow struct {
@@ -183,7 +187,7 @@ type GetCaptureCreditUsageForCoordinatorRow struct {
 }
 
 func (q *Queries) GetCaptureCreditUsageForCoordinator(ctx context.Context, arg GetCaptureCreditUsageForCoordinatorParams) (GetCaptureCreditUsageForCoordinatorRow, error) {
-	row := q.db.QueryRow(ctx, getCaptureCreditUsageForCoordinator, arg.EventID, arg.UserID)
+	row := q.db.QueryRow(ctx, getCaptureCreditUsageForCoordinator, arg.UsageDate, arg.EventID, arg.UserID)
 	var i GetCaptureCreditUsageForCoordinatorRow
 	err := row.Scan(
 		&i.EventID,
@@ -203,7 +207,7 @@ WITH effective AS (
     SELECT COALESCE(cfg.credit_limit, 5)::integer AS credit_limit
     FROM events e
     LEFT JOIN event_capture_credit_config cfg ON cfg.event_id = e.id
-    WHERE e.id = $1
+    WHERE e.id = $2
 )
 SELECT
     eca.event_id,
@@ -219,9 +223,15 @@ JOIN users u ON u.id = eca.user_id
 CROSS JOIN effective
 LEFT JOIN event_capture_credit_usage usage
     ON usage.event_id = eca.event_id AND usage.user_id = eca.user_id
-WHERE eca.event_id = $1
+   AND usage.usage_date = $1
+WHERE eca.event_id = $2
 ORDER BY eca.created_at ASC, eca.id ASC
 `
+
+type ListCaptureCreditUsageByEventParams struct {
+	UsageDate pgtype.Date `json:"usage_date"`
+	EventID   pgtype.UUID `json:"event_id"`
+}
 
 type ListCaptureCreditUsageByEventRow struct {
 	EventID     pgtype.UUID `json:"event_id"`
@@ -234,8 +244,8 @@ type ListCaptureCreditUsageByEventRow struct {
 	Exhausted   bool        `json:"exhausted"`
 }
 
-func (q *Queries) ListCaptureCreditUsageByEvent(ctx context.Context, eventID pgtype.UUID) ([]ListCaptureCreditUsageByEventRow, error) {
-	rows, err := q.db.Query(ctx, listCaptureCreditUsageByEvent, eventID)
+func (q *Queries) ListCaptureCreditUsageByEvent(ctx context.Context, arg ListCaptureCreditUsageByEventParams) ([]ListCaptureCreditUsageByEventRow, error) {
+	rows, err := q.db.Query(ctx, listCaptureCreditUsageByEvent, arg.UsageDate, arg.EventID)
 	if err != nil {
 		return nil, err
 	}
@@ -275,12 +285,13 @@ previous AS (
     FROM assignment
     LEFT JOIN event_capture_credit_usage usage
         ON usage.event_id = assignment.event_id AND usage.user_id = assignment.user_id
+       AND usage.usage_date = $3
 ),
 reset AS (
-    INSERT INTO event_capture_credit_usage (event_id, user_id, consumed, updated_at)
-    SELECT assignment.event_id, assignment.user_id, 0, now()
+    INSERT INTO event_capture_credit_usage (event_id, user_id, usage_date, consumed, updated_at)
+    SELECT assignment.event_id, assignment.user_id, $3, 0, now()
     FROM assignment
-    ON CONFLICT (event_id, user_id) DO UPDATE
+    ON CONFLICT (event_id, user_id, usage_date) DO UPDATE
     SET consumed = 0,
         updated_at = now()
     RETURNING event_id, user_id, consumed, updated_at
@@ -295,8 +306,9 @@ FROM reset, previous
 `
 
 type ResetCaptureCreditUsageParams struct {
-	EventID pgtype.UUID `json:"event_id"`
-	UserID  pgtype.UUID `json:"user_id"`
+	EventID   pgtype.UUID `json:"event_id"`
+	UserID    pgtype.UUID `json:"user_id"`
+	UsageDate pgtype.Date `json:"usage_date"`
 }
 
 type ResetCaptureCreditUsageRow struct {
@@ -308,7 +320,7 @@ type ResetCaptureCreditUsageRow struct {
 }
 
 func (q *Queries) ResetCaptureCreditUsage(ctx context.Context, arg ResetCaptureCreditUsageParams) (ResetCaptureCreditUsageRow, error) {
-	row := q.db.QueryRow(ctx, resetCaptureCreditUsage, arg.EventID, arg.UserID)
+	row := q.db.QueryRow(ctx, resetCaptureCreditUsage, arg.EventID, arg.UserID, arg.UsageDate)
 	var i ResetCaptureCreditUsageRow
 	err := row.Scan(
 		&i.EventID,

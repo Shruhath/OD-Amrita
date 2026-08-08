@@ -11,11 +11,14 @@ type AttendanceActor struct {
 
 // AttendanceRecord is the admin attendance view of one present OD row.
 type AttendanceRecord struct {
-	RecordID         string
-	Student          Student
-	EventID          string
-	Category         Category
-	Slot             int
+	RecordID string
+	Student  Student
+	EventID  string
+	Category Category
+	Slot     int
+	// ODDate is YYYY-MM-DD — the day the OD belongs to. ServerReceivedAt is when
+	// the row was written, and on a correction the two are different days.
+	ODDate           string
 	CaptureMethod    string
 	MarkedBy         AttendanceActor
 	ActorRole        string

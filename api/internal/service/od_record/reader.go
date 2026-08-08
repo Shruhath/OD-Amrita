@@ -36,10 +36,18 @@ func (r *SQLCReader) EventForMark(ctx context.Context, id string) (Event, error)
 	if err != nil {
 		return Event{}, err
 	}
-	if !row.ID.Valid || !row.EventDate.Valid {
+	// EndDate is checked as strictly as EventDate: it is NOT NULL in the database,
+	// and a zero-valued one here would make range containment empty, closing the
+	// slot gate on every event rather than failing.
+	if !row.ID.Valid || !row.EventDate.Valid || !row.EndDate.Valid {
 		return Event{}, invalidRowError("event")
 	}
-	return Event{EventID: uuid.UUID(row.ID.Bytes).String(), EventDate: row.EventDate.Time, Status: row.Status}, nil
+	return Event{
+		EventID:   uuid.UUID(row.ID.Bytes).String(),
+		EventDate: row.EventDate.Time,
+		EndDate:   row.EndDate.Time,
+		Status:    row.Status,
+	}, nil
 }
 
 func (r *SQLCReader) CategoryForEvent(ctx context.Context, eventID string, categoryID string) (Category, error) {

@@ -660,7 +660,7 @@ func seedActiveEvent(t *testing.T, ctx context.Context, migrator *pgxpool.Pool, 
 	t.Helper()
 	id := uuid.New()
 	if _, err := migrator.Exec(ctx,
-		`INSERT INTO events (id, name, event_date) VALUES ($1, $2, '2026-08-18')`, id, name); err != nil {
+		`INSERT INTO events (id, name, event_date, end_date) VALUES ($1, $2, '2026-08-18', '2026-08-18')`, id, name); err != nil {
 		t.Fatalf("seed active event: %v", err)
 	}
 	return id
@@ -674,8 +674,8 @@ func seedArchivedEvent(t *testing.T, ctx context.Context, migrator *pgxpool.Pool
 	// set together with the status, so the fixture must be a coherent archived
 	// row rather than a status flip.
 	if _, err := migrator.Exec(ctx, `
-		INSERT INTO events (id, name, event_date, status, archived_at, archived_by_user_id)
-		VALUES ($1, $2, '2025-08-18', 'archived', now(), $3)`, id, name, actorID); err != nil {
+		INSERT INTO events (id, name, event_date, end_date, status, archived_at, archived_by_user_id)
+		VALUES ($1, $2, '2025-08-18', '2025-08-18', 'archived', now(), $3)`, id, name, actorID); err != nil {
 		t.Fatalf("seed archived event: %v", err)
 	}
 	return id

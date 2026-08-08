@@ -1,4 +1,5 @@
 import { faker } from '@faker-js/faker'
+import type { AttendanceRecord as ContractAttendanceRecord } from '../../../src/api/client'
 import {
   collection,
   dataOnly,
@@ -17,17 +18,16 @@ export type AttendanceActor = {
   name: string | null
 }
 
-export type AttendanceRecord = {
-  record_id: string
-  student: ReturnType<typeof markStudent>
-  event_id: string
-  category: ReturnType<typeof markableCategory>
-  slot: number
-  capture_method: 'search' | 'nfc' | 'camera'
-  marked_by: AttendanceActor
-  actor_role: 'teacher' | 'admin' | 'coordinator'
-  server_received_at: string
-}
+/**
+ * Typed from the CONTRACT rather than by hand.
+ *
+ * The hand-written version had already drifted by the time `od_date` was added
+ * under Story 0.12a: it declared the shape it happened to need, so a field the
+ * API required could go missing here and every mocked test still passed while
+ * the real screen crashed on it. Story 0.11 retyped `PortalDispute` for the same
+ * reason after the same failure.
+ */
+export type AttendanceRecord = ContractAttendanceRecord
 
 export function teacherMarkEvent() {
   return markableEvent({ name: 'Teacher Mark Fixture' })
@@ -62,6 +62,9 @@ export function attendanceRecord(overrides: Partial<AttendanceRecord> = {}): Att
     event_id: markEventID,
     category: teacherMarkCategory(),
     slot: 4,
+    // The day the OD belongs to. Distinct from server_received_at below, which
+    // is when the row was written — on a correction they are different days.
+    od_date: new Date().toISOString().slice(0, 10),
     capture_method: 'search',
     marked_by: {
       user_id: '77777777-7777-4777-8777-777777777777',

@@ -44,6 +44,7 @@ func TestAuditFailureRollsBackEventCreation(t *testing.T) {
 		eventID, changed, err = writer.Create(ctx, tx, eventsvc.CreateWrite{
 			Name:      "Audit rollback create",
 			EventDate: time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC),
+			EndDate:   time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC),
 			BranchIDs: []uuid.UUID{branchID},
 		})
 		return changed, err
@@ -73,8 +74,8 @@ func TestAuditFailureRollsBackEventArchive(t *testing.T) {
 		t.Fatalf("seed actor: %v", err)
 	}
 	if _, err := migrator.Exec(ctx, `
-		INSERT INTO events (id, name, event_date)
-		VALUES ($1, 'Audit rollback archive', DATE '2026-08-16')`, eventID); err != nil {
+		INSERT INTO events (id, name, event_date, end_date)
+		VALUES ($1, 'Audit rollback archive', DATE '2026-08-16', DATE '2026-08-16')`, eventID); err != nil {
 		t.Fatalf("seed event: %v", err)
 	}
 	t.Cleanup(func() {

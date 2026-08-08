@@ -46,7 +46,7 @@ test('persists categories through the real API and Postgres across reloads', asy
   await page.getByRole('button', { name: 'New event' }).click()
   const createDialog = page.getByRole('dialog', { name: 'New event' })
   await createDialog.getByLabel('Event name').fill(eventName)
-  await createDialog.getByLabel('Event date').fill('2026-11-05')
+  await createDialog.getByLabel('Start date').fill('2026-11-05')
   await createDialog.getByRole('checkbox', { name: 'Computer Science and Engineering' }).check()
   await createDialog.getByRole('button', { name: 'Create event' }).click()
 

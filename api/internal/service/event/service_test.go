@@ -59,10 +59,10 @@ func (f *fakeReader) CoordinatorAssignedToEvent(context.Context, uuid.UUID, uuid
 func (f *fakeReader) GetCaptureCreditConfig(context.Context, uuid.UUID) (CaptureCreditConfig, error) {
 	return CaptureCreditConfig{}, f.err
 }
-func (f *fakeReader) ListCaptureCreditUsageByEvent(context.Context, uuid.UUID) ([]CaptureCreditUsage, error) {
+func (f *fakeReader) ListCaptureCreditUsageByEvent(context.Context, uuid.UUID, time.Time) ([]CaptureCreditUsage, error) {
 	return nil, f.err
 }
-func (f *fakeReader) GetCaptureCreditUsageForCoordinator(context.Context, uuid.UUID, uuid.UUID) (CaptureCreditUsage, error) {
+func (f *fakeReader) GetCaptureCreditUsageForCoordinator(context.Context, uuid.UUID, uuid.UUID, time.Time) (CaptureCreditUsage, error) {
 	return f.creditUsage, f.err
 }
 
@@ -202,7 +202,7 @@ func TestCreateRejectsMoreThanHundredBranchesBeforeReadOrWrite(t *testing.T) {
 
 func TestCreateTrimsInputAndAuditsStableContext(t *testing.T) {
 	branchA, branchB, eventID := uuid.New(), uuid.New(), uuid.New()
-	created := Event{ID: eventID.String(), Name: "Innovation Day", EventDate: "2026-08-15", Status: StatusActive}
+	created := Event{ID: eventID.String(), Name: "Innovation Day", EventDate: "2026-08-15", EndDate: "2026-08-15", Status: StatusActive}
 	reader := &fakeReader{branches: []Branch{{ID: branchA.String()}, {ID: branchB.String()}}, event: created}
 	writer := &fakeWriter{createID: eventID, createChanged: true}
 	audit := &fakeAuditStore{}

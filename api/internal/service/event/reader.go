@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -45,7 +46,7 @@ func (r *SQLCReader) GetEvent(ctx context.Context, id uuid.UUID) (Event, error) 
 		}
 		return Event{}, err
 	}
-	return mapEvent(row.ID, row.Name, row.EventDate, row.Status, row.ArchivedAt, row.CreatedAt, row.BranchesJson)
+	return mapEvent(row.ID, row.Name, row.EventDate, row.EndDate, row.Status, row.ArchivedAt, row.CreatedAt, row.BranchesJson)
 }
 
 func (r *SQLCReader) ListEvents(ctx context.Context, input ListInput) ([]Event, int64, error) {
@@ -67,7 +68,7 @@ func (r *SQLCReader) ListEvents(ctx context.Context, input ListInput) ([]Event, 
 	}
 	events := make([]Event, 0, len(rows))
 	for _, row := range rows {
-		event, mapErr := mapEvent(row.ID, row.Name, row.EventDate, row.Status, row.ArchivedAt, row.CreatedAt, row.BranchesJson)
+		event, mapErr := mapEvent(row.ID, row.Name, row.EventDate, row.EndDate, row.Status, row.ArchivedAt, row.CreatedAt, row.BranchesJson)
 		if mapErr != nil {
 			return nil, 0, mapErr
 		}
@@ -137,8 +138,11 @@ func (r *SQLCReader) GetCaptureCreditConfig(ctx context.Context, eventID uuid.UU
 	return mapCaptureCreditConfig(row.EventID, row.CreditLimit, row.UpdatedByUserID, row.UpdatedAt)
 }
 
-func (r *SQLCReader) ListCaptureCreditUsageByEvent(ctx context.Context, eventID uuid.UUID) ([]CaptureCreditUsage, error) {
-	rows, err := r.queries.ListCaptureCreditUsageByEvent(ctx, dbUUID(eventID))
+func (r *SQLCReader) ListCaptureCreditUsageByEvent(ctx context.Context, eventID uuid.UUID, usageDate time.Time) ([]CaptureCreditUsage, error) {
+	rows, err := r.queries.ListCaptureCreditUsageByEvent(ctx, sqlc.ListCaptureCreditUsageByEventParams{
+		EventID:   dbUUID(eventID),
+		UsageDate: dbDate(usageDate),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -153,10 +157,11 @@ func (r *SQLCReader) ListCaptureCreditUsageByEvent(ctx context.Context, eventID 
 	return usage, nil
 }
 
-func (r *SQLCReader) GetCaptureCreditUsageForCoordinator(ctx context.Context, eventID, userID uuid.UUID) (CaptureCreditUsage, error) {
+func (r *SQLCReader) GetCaptureCreditUsageForCoordinator(ctx context.Context, eventID, userID uuid.UUID, usageDate time.Time) (CaptureCreditUsage, error) {
 	row, err := r.queries.GetCaptureCreditUsageForCoordinator(ctx, sqlc.GetCaptureCreditUsageForCoordinatorParams{
-		EventID: dbUUID(eventID),
-		UserID:  dbUUID(userID),
+		EventID:   dbUUID(eventID),
+		UserID:    dbUUID(userID),
+		UsageDate: dbDate(usageDate),
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -192,7 +197,7 @@ func (r *SQLCReader) ListAssignedActiveEvents(ctx context.Context, userID uuid.U
 	}
 	events := make([]Event, 0, len(rows))
 	for _, row := range rows {
-		event, mapErr := mapEvent(row.ID, row.Name, row.EventDate, row.Status, row.ArchivedAt, row.CreatedAt, row.BranchesJson)
+		event, mapErr := mapEvent(row.ID, row.Name, row.EventDate, row.EndDate, row.Status, row.ArchivedAt, row.CreatedAt, row.BranchesJson)
 		if mapErr != nil {
 			return nil, mapErr
 		}
@@ -317,12 +322,16 @@ func mapEvent(
 	id pgtype.UUID,
 	name string,
 	eventDate pgtype.Date,
+	endDate pgtype.Date,
 	status string,
 	archivedAt pgtype.Timestamptz,
 	createdAt pgtype.Timestamptz,
 	branchesJSON string,
 ) (Event, error) {
-	if !id.Valid || !eventDate.Valid || !createdAt.Valid {
+	// endDate is validated as strictly as eventDate: it is NOT NULL in the
+	// database, and a zero-valued one would render as "0001-01-01" on every admin
+	// surface rather than failing.
+	if !id.Valid || !eventDate.Valid || !endDate.Valid || !createdAt.Valid {
 		return Event{}, errors.New("event: row contains invalid required values")
 	}
 	if status != string(StatusActive) && status != string(StatusArchived) {
@@ -339,6 +348,7 @@ func mapEvent(
 		ID:        uuid.UUID(id.Bytes).String(),
 		Name:      name,
 		EventDate: eventDate.Time.Format("2006-01-02"),
+		EndDate:   endDate.Time.Format("2006-01-02"),
 		Status:    Status(status),
 		Branches:  branches,
 		CreatedAt: createdAt.Time,

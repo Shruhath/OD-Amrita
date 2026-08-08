@@ -76,6 +76,12 @@ func TestMigrationsRoundTrip_Idempotent(t *testing.T) {
 		t.Fatal("[P0] audit_log has no columns before round-trip (was goose up run?)")
 	}
 
+	// Story 0.12a: 0016's Down legitimately refuses to restore the single-day
+	// unique index over multi-day attendance rows, so a reset inherits that
+	// failure from whatever ran earlier. Clear the data first — the schema
+	// assertions below are untouched.
+	clearRollbackBlockers(t, ctx, pool)
+
 	// reset (full down) must remove the table cleanly.
 	runGoose(t, migratorDSN, "reset")
 	var stillThere bool

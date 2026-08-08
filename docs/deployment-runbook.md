@@ -109,9 +109,31 @@ unset PGPASSWORD
 psql "$DATABASE_URL_MIGRATOR" -c 'SELECT max(version_id) FROM goose_db_version;'
 ```
 
-Expect **14** — migrations `0001`–`0014`. A lower number, or a missing table, means the
+Expect **17** — migrations `0001`–`0017`. A lower number, or a missing table, means the
 migrations did not all apply; stop and fix that before deploying, because the API will fail at
 runtime rather than at boot.
+
+> **⚠️ `0016` is a one-way door once a multi-day event has been marked.**
+>
+> `0016`'s `Down` restores the pre-range unique index `(student_id, event_id, slot)`. That
+> succeeds only while no student has been marked in the **same slot on two different days** —
+> which is exactly what a multi-day event exists to allow. After the first such mark, a
+> `goose down` past `0016` (and therefore `goose reset`) aborts with `23505`.
+>
+> The abort is **safe**: goose rolls the step back and the database keeps its multi-day key.
+> Nothing is lost and nothing is half-applied. But it means **rollback is not your recovery
+> plan** past this point — restore from PITR or a dump instead (see
+> `backup-and-monitoring-runbook.md`), or reconcile the duplicate `(student, event, slot)`
+> rows by hand first and accept that doing so discards attendance records.
+>
+> This is deliberate. The alternative — a `Down` that deletes or collapses the colliding OD
+> records so it can succeed — would destroy student attendance to make a rollback tidy.
+> `0017`'s `Down` **is** fully reversible by contrast: it sums each coordinator's per-day
+> usage back into the single row the pre-`0017` schema held, because `usage_date` is being
+> dropped anyway and no information survives either way.
+>
+> Take a dump immediately before applying `0015`–`0017` to a database that already holds
+> records.
 
 **5. Build the runtime connection string** for the next section from the **`od_runtime`**
 password — never the migrator's. The application pool must not be able to run DDL.
@@ -282,7 +304,7 @@ deliberately called out because it does **not** meet the production transport po
   not answer browser requests with an HTML page. That header is inert against any other host and
   **should be removed when the API moves to its own domain**.
 - **The database is a local container, not Neon.** The deployed Neon project is reachable over HTTPS
-  but its Postgres port is blocked from the operator network, so migrations `0004`–`0014` are **not**
+  but its Postgres port is blocked from the operator network, so migrations `0004`–`0017` are **not**
   applied there yet. Applying them (§3) is part of the Fly cutover, from a network that permits 5432.
 
 **Cutover checklist when Fly lands:** deploy per §4 → apply §3 against Neon → set `VITE_API_BASE_URL`

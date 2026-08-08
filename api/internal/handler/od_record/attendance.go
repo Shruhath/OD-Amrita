@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -16,7 +17,8 @@ import (
 )
 
 type AttendanceService interface {
-	Attendance(context.Context, marking.Actor, string, *string, *int, int, int) (marking.AttendancePage, error)
+	// The *string after *int is the optional od_date filter (YYYY-MM-DD).
+	Attendance(context.Context, marking.Actor, string, *string, *int, *string, int, int) (marking.AttendancePage, error)
 }
 
 func RegisterAdminAttendanceRoutes(group gin.IRouter, svc AttendanceService) {
@@ -50,6 +52,20 @@ func AttendanceHandler(svc AttendanceService) gin.HandlerFunc {
 			fail(c, err)
 			return
 		}
+
+		// Optional: absent means the whole range, which is what every caller
+		// written before the event became a range already asks for. The format is
+		// checked here so a typo is a 400 on the field rather than a filter that
+		// silently matches nothing.
+		var odDateFilter *string
+		if raw := strings.TrimSpace(c.Query("od_date")); raw != "" {
+			parsed, parseErr := time.Parse(time.DateOnly, raw)
+			if parseErr != nil || parsed.Format(time.DateOnly) != raw {
+				fail(c, readValidation("od_date", "invalid_format", "od_date must be a valid YYYY-MM-DD date."))
+				return
+			}
+			odDateFilter = &raw
+		}
 		page, err := boundedQueryInt(c, "page", 1, 1, maxEventPage)
 		if err != nil {
 			fail(c, err)
@@ -61,7 +77,7 @@ func AttendanceHandler(svc AttendanceService) gin.HandlerFunc {
 			return
 		}
 
-		pageData, err := svc.Attendance(c.Request.Context(), actor, eventID, categoryID, slot, page, pageSize)
+		pageData, err := svc.Attendance(c.Request.Context(), actor, eventID, categoryID, slot, odDateFilter, page, pageSize)
 		if err != nil {
 			fail(c, err)
 			return
@@ -144,6 +160,11 @@ func attendanceRecordContract(record marking.AttendanceRecord) (contracts.Attend
 		value := *record.MarkedBy.Name
 		name = &value
 	}
+	parsedODDate, err := time.Parse(time.DateOnly, record.ODDate)
+	if err != nil {
+		return contracts.AttendanceRecord{}, err
+	}
+	odDate := openapi_types.Date{Time: parsedODDate}
 	return contracts.AttendanceRecord{
 		RecordId: recordID,
 		Student: contracts.MarkedStudent{
@@ -162,6 +183,7 @@ func attendanceRecordContract(record marking.AttendanceRecord) (contracts.Attend
 			CreatedAt: record.Category.CreatedAt,
 		},
 		Slot:          record.Slot,
+		OdDate:        odDate,
 		CaptureMethod: contracts.CaptureMethod(record.CaptureMethod),
 		MarkedBy: contracts.AttendanceActor{
 			UserId: userID,

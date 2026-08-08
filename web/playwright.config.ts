@@ -11,6 +11,14 @@ export default defineConfig({
   reporter: process.env.CI ? 'github' : 'list',
   use: {
     baseURL: portalBaseURL,
+    // Pinned so date assertions are deterministic. The public dashboard renders
+    // dates in the VISITOR's locale (`toLocaleDateString(undefined, …)`), which
+    // is correct for the product and machine-dependent for a test: Chromium
+    // defaults to en-US and prints "Wednesday, August 19, 2026", while jsdom in
+    // the unit suite prints "19 August 2026". Without this, whether a spec
+    // passes depends on the runner rather than on the code. en-GB is also the
+    // day-first form these users actually see.
+    locale: 'en-GB',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },

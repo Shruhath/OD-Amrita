@@ -113,11 +113,21 @@ test.describe('real stack public attendance dashboard', () => {
     expect(Object.keys(parsed.student).sort()).toEqual(
       ['batch', 'branch', 'display_name', 'roll_no', 'section', 'student_id'],
     )
+    // The day group's key is `od_date` since the event became a range —
+    // `event_date` was RENAMED here, not supplemented, because a thirty-day
+    // festival grouped on the event's first day collapses to one heading.
+    expect(Object.keys(parsed.days[0]).sort()).toEqual(['od_date', 'records'])
+
+    // The RECORD carries BOTH: `event_date` is the event's first day, which the
+    // dispute form's event options are built from, and `od_date` is the day this
+    // particular OD belongs to. Still an exact set — a date is the one field
+    // here that says when a named student was physically somewhere, and this
+    // response is served to the open internet.
     const record = parsed.days[0].records[0]
     expect(Object.keys(record).sort()).toEqual(
       [
         'category_id', 'category_name', 'event_date', 'event_id', 'event_name',
-        'marked_at', 'marked_by_name', 'marked_by_role', 'record_id', 'slot',
+        'marked_at', 'marked_by_name', 'marked_by_role', 'od_date', 'record_id', 'slot',
       ],
     )
 

@@ -64,14 +64,17 @@ type Dispute struct {
 }
 
 type Event struct {
-	ID               pgtype.UUID        `json:"id"`
-	Name             string             `json:"name"`
+	ID   pgtype.UUID `json:"id"`
+	Name string      `json:"name"`
+	// First day of the event range; end_date is the last.
 	EventDate        pgtype.Date        `json:"event_date"`
 	Status           string             `json:"status"`
 	ArchivedAt       pgtype.Timestamptz `json:"archived_at"`
 	ArchivedByUserID pgtype.UUID        `json:"archived_by_user_id"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	// Last day of the event range; event_date is the first. Backfilled to event_date for pre-range events.
+	EndDate pgtype.Date `json:"end_date"`
 }
 
 type EventBranch struct {
@@ -92,6 +95,8 @@ type EventCaptureCreditUsage struct {
 	UserID    pgtype.UUID        `json:"user_id"`
 	Consumed  int32              `json:"consumed"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	// Campus-local day this pool belongs to. The cap on event_capture_credit_config stays per event.
+	UsageDate pgtype.Date `json:"usage_date"`
 }
 
 type EventCoordinatorAssignment struct {
@@ -114,6 +119,8 @@ type OdRecord struct {
 	ActorRole        string             `json:"actor_role"`
 	ServerReceivedAt pgtype.Timestamptz `json:"server_received_at"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	// Campus-local day the OD belongs to, never the day the row was written. Derived server-side; never accepted from a client.
+	OdDate pgtype.Date `json:"od_date"`
 }
 
 type Student struct {

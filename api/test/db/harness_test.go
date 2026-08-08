@@ -120,6 +120,36 @@ func runGoose(t *testing.T, dsn, sub string, args ...string) {
 	}
 }
 
+// clearRollbackBlockers empties the tables whose CONTENT — not whose schema —
+// can make a legitimate rollback impossible, so that a reset-based test starts
+// from a defined state instead of inheriting whatever ran before it.
+//
+// Why this is needed at all: 0016's Down restores the pre-multi-day unique index
+// `(student_id, event_id, slot)`. That is correct and deliberately does not
+// collapse the colliding rows, because they are attendance records and deleting
+// a student's OD to make a rollback succeed would be worse than refusing. But it
+// means `goose reset` fails on any database where a student has been marked in
+// the same slot on two days — which is the headline feature, so `make
+// test-integration` run twice against one database went red on the second run,
+// reporting a migration error for what is actually leftover data.
+//
+// This does NOT weaken the round-trip gate. Every Down and every Up still runs
+// and the schema signature is still compared; reset drops these tables outright
+// moments later, so nothing asserted is affected. It only stops the test
+// depending on package execution order.
+func clearRollbackBlockers(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	for _, statement := range []string{
+		`DELETE FROM disputes`,
+		`DELETE FROM od_records`,
+		`DELETE FROM event_capture_credit_usage`,
+	} {
+		if _, err := pool.Exec(ctx, statement); err != nil {
+			t.Fatalf("clear rollback blockers (%s): %v", statement, err)
+		}
+	}
+}
+
 // auditLogColumns returns an ordered signature of the audit_log columns
 // ("name:type:nullable"), used to prove the migration round-trip is idempotent.
 func auditLogColumns(t *testing.T, ctx context.Context, pool *pgxpool.Pool) []string {

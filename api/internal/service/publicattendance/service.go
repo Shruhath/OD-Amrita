@@ -36,10 +36,22 @@ import (
 // maxRecordRows caps the underlying row read.
 //
 // A ceiling rather than a page parameter: pagination cannot be reconciled with
-// day grouping without splitting a day across pages, and at 12 slots a day this
-// is over forty event-days for one student — far beyond any realistic history,
-// while still bounding the response of an endpoint anyone can call.
-const maxRecordRows = 500
+// day grouping without splitting a day across pages, while still bounding the
+// response of an endpoint anyone can call.
+//
+// SIZED AGAINST THE RANGE, not against a single day. The old value of 500 was
+// justified as "over forty event-days for one student — far beyond any realistic
+// history", which was true while an event was one day. It stopped being true
+// under Story 0.12a: an event may now span maxEventRangeDays (90) and a student
+// can hold a mark in each of the 12 slots, so ONE event alone can produce 1080
+// rows. At 500 the query — which orders by od_date DESC — would silently drop
+// the EARLIEST days, and the screen whose entire purpose is never to read as "I
+// was not marked" would do exactly that for day 1 onwards, with nothing on
+// screen saying it had truncated.
+//
+// 1200 covers a full-length event outright and leaves headroom. Keep it at or
+// above 90 * 12 if the range cap in service/event/service.go changes.
+const maxRecordRows = 1200
 
 // MaxPublicEventRows is exported so the integration suite can seed PAST the cap
 // and assert it. It was unexported and the cap was therefore unasserted —

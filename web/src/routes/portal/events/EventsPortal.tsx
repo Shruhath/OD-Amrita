@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Branch, CreateEventInput, EventRecord, ValidationError } from '../../../api/client'
 import { BranchChip } from '../../../components/BranchChip'
 import { PortalShell } from '../../../components/PortalShell'
+import ExtendedSlotsToggle from './ExtendedSlotsToggle'
 import { ApiFailure } from '../../../api/client'
 import { useAuth } from '../../../features/auth/context'
 import { formatDateRange, messageOf, titleCase } from './format'
@@ -125,6 +126,14 @@ export default function EventsPortal() {
           }}
         />
       )}
+      {/*
+        The runtime switches live at the bottom of the events workspace rather
+        than on a settings screen of their own: there is exactly one of them, and
+        a whole nav entry for a single checkbox is a worse trade than a section
+        an administrator scrolls past.
+      */}
+      <ExtendedSlotsToggle />
+
       {archiveTarget && (
         <Dialog title={`Archive ${archiveTarget.name}`} onClose={() => !archive.isPending && setArchiveTarget(null)} initialFocus="cancel">
           <p>This preserves <strong>{archiveTarget.name}</strong> as read-only history. It cannot be reactivated.</p>

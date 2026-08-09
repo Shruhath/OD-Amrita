@@ -490,6 +490,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/settings/extended-slots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether the evening slots (13-20) are currently admitted
+         * @description The teaching day is slots 1-12 and ends at 18:15, so after quarter past six no slot is open and nobody can be marked. This switch admits slots 13-20 — evening windows of forty minutes each, ending at 23:35 — so the real marking flow can be rehearsed outside teaching hours.
+         *     It is a RUNTIME switch, not a deploy: the database's CHECK constraint is permanently widened to 20 and this decides what the application accepts within that. It defaults to OFF, which is the behaviour production has always had.
+         */
+        get: operations["getExtendedSlotsSetting"];
+        /**
+         * Turn the evening slots on or off
+         * @description PUT rather than POST: the switch is a single value with a name, and setting it twice to the same thing must be the same as setting it once. Administrator only — it changes what every coordinator's device will accept.
+         */
+        put: operations["setExtendedSlotsSetting"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/branches": {
         parameters: {
             query?: never;
@@ -1048,6 +1073,20 @@ export interface components {
             od_date: string;
             /** @description Present records for this day, ordered by slot ascending. */
             records: components["schemas"]["PublicODRecord"][];
+        };
+        /** @description The evening-slots switch. `max_slot` is included so a client never has to hold its own copy of what "on" means — the ceiling is the server's to decide, and a screen that hardcoded 20 would silently disagree the day that changed. */
+        ExtendedSlotsSetting: {
+            enabled: boolean;
+            /** @description The highest slot currently accepted — 12 when off, 20 when on. */
+            max_slot: number;
+            /**
+             * Format: date-time
+             * @description Null when the switch has never been written.
+             */
+            updated_at: string | null;
+        };
+        ExtendedSlotsUpdate: {
+            enabled: boolean;
         };
         /** @description One slot a student was marked in, on the day being shown. The board's whole payload per mark: which slot, and what it was for. */
         PublicDayMark: {
@@ -3115,6 +3154,113 @@ export interface operations {
                 };
             };
             /** @description Caller is not a provisioned admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getExtendedSlotsSetting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The switch as it currently stands. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtendedSlotsSetting"];
+                };
+            };
+            /** @description Missing or invalid bearer token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not an administrator (RBAC_FORBIDDEN). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    setExtendedSlotsSetting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtendedSlotsUpdate"];
+            };
+        };
+        responses: {
+            /** @description The switch as it now stands. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtendedSlotsSetting"];
+                };
+            };
+            /** @description Body missing the `enabled` field. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing or invalid bearer token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not an administrator (RBAC_FORBIDDEN). */
             403: {
                 headers: {
                     [name: string]: unknown;

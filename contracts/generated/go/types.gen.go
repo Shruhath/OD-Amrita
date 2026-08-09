@@ -754,6 +754,22 @@ type EventCollection struct {
 // EventStatus defines model for EventStatus.
 type EventStatus string
 
+// ExtendedSlotsSetting The evening-slots switch. `max_slot` is included so a client never has to hold its own copy of what "on" means — the ceiling is the server's to decide, and a screen that hardcoded 20 would silently disagree the day that changed.
+type ExtendedSlotsSetting struct {
+	Enabled bool `json:"enabled"`
+
+	// MaxSlot The highest slot currently accepted — 12 when off, 20 when on.
+	MaxSlot int `json:"max_slot"`
+
+	// UpdatedAt Null when the switch has never been written.
+	UpdatedAt *time.Time `json:"updated_at"`
+}
+
+// ExtendedSlotsUpdate defines model for ExtendedSlotsUpdate.
+type ExtendedSlotsUpdate struct {
+	Enabled bool `json:"enabled"`
+}
+
 // FallbackCreditState Server-derived camera/search fallback-credit state for the selected event and coordinator. NFC never consumes this pool.
 type FallbackCreditState struct {
 	Consumed         int  `json:"consumed"`
@@ -1364,6 +1380,9 @@ type CreateAdminEventCategoryJSONRequestBody = CreateCategoryRequest
 
 // CreateAdminEventCoordinatorAssignmentJSONRequestBody defines body for CreateAdminEventCoordinatorAssignment for application/json ContentType.
 type CreateAdminEventCoordinatorAssignmentJSONRequestBody = CreateCoordinatorAssignmentRequest
+
+// SetExtendedSlotsSettingJSONRequestBody defines body for SetExtendedSlotsSetting for application/json ContentType.
+type SetExtendedSlotsSettingJSONRequestBody = ExtendedSlotsUpdate
 
 // ImportAdminStudentsMultipartRequestBody defines body for ImportAdminStudents for multipart/form-data ContentType.
 type ImportAdminStudentsMultipartRequestBody ImportAdminStudentsMultipartBody

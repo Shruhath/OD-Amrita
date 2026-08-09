@@ -2150,6 +2150,24 @@ tbody tr:hover {
 /* The day filter. One row: an arrow, the picker, an arrow — so the two things a
    student does here (step back a day, jump to a day) are the same size and in
    the same place on a phone as on a laptop. */
+/* A labelled switch: the control and its meaning on one line, with a target big
+   enough to hit on a phone. */
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  margin-top: 8px;
+  cursor: pointer;
+}
+
+.switch-row input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
 /* ── The front door ───────────────────────────────────────────────────────── */
 
 .home-landing {

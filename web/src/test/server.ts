@@ -5,7 +5,9 @@ import { publicEmptyDayAttendance } from '../../tests/support/factories/public-a
 /**
  * The shared mock server.
  *
- * One DEFAULT handler: the public attendance board. It renders unconditionally
+ * DEFAULT handlers for the two reads that happen on screens whose tests are
+ * about something else — the public attendance board, and the evening-slots
+ * switch. It renders unconditionally
  * on `/attendance`, so without a default every suite that touches that page —
  * including the ones about the dispute form and the search box — would show the
  * board's failure alert and collide with their own `role="alert"` locators.
@@ -17,4 +19,11 @@ import { publicEmptyDayAttendance } from '../../tests/support/factories/public-a
  */
 export const server = setupServer(
   http.get('*/api/v1/public/od-records', () => HttpResponse.json(publicEmptyDayAttendance())),
+  // The evening-slots switch, read by the events workspace and by the
+  // teacher/admin marking screen. Defaulted OFF — the same value a freshly
+  // migrated database seeds — so a test that means to assert something about it
+  // has to install its own handler and say so.
+  http.get('*/api/v1/admin/settings/extended-slots', () =>
+    HttpResponse.json({ enabled: false, max_slot: 12, updated_at: null }),
+  ),
 )

@@ -476,6 +476,15 @@ export function createEventApi(session: SessionPort) {
       return unwrap(await client.GET('/api/v1/portal/records/{record_id}/audit', { params: { path: { record_id: recordID } } }))
     },
 
+    /** The evening-slots switch. Administrator only. */
+    async extendedSlotsSetting() {
+      return unwrap(await client.GET('/api/v1/admin/settings/extended-slots'))
+    },
+
+    async setExtendedSlots(enabled: boolean) {
+      return unwrap(await client.PUT('/api/v1/admin/settings/extended-slots', { body: { enabled } }))
+    },
+
     async adminAttendance(
       eventID: string,
       filters: { categoryID?: string; slot?: number; odDate?: string; page?: number; pageSize?: number } = {},

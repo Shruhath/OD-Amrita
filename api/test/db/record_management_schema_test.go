@@ -116,8 +116,26 @@ func TestRecordManagementSchema_DownRefusesAfterRemovedRecord(t *testing.T) {
 		        $5::uuid, 'teacher', 'duplicate entry removed')`,
 		removedID, fixture.studentID, fixture.eventID, fixture.categoryID, fixture.actorID)
 
-	argv := []string{"-dir", migrationsDir(t), "postgres", dsn, "down"}
+	// `down-to 17`, NOT a bare `down`.
+	//
+	// A bare `down` reverts whatever happens to be newest, so this test silently
+	// stopped exercising 0018 the moment 0019 was added — it reverted 0019
+	// instead, which succeeds, and reported 0018 as broken while leaving the
+	// database a version behind for everything that ran afterwards. Naming the
+	// target keeps the test about the migration it claims to be about however
+	// many land on top of it.
+	//
+	// It also has to come back UP afterwards: this suite shares one database and
+	// runs serially, so a test that leaves the schema rolled back breaks every
+	// test after it rather than its own assertion.
+	argv := []string{"-dir", migrationsDir(t), "postgres", dsn, "down-to", "17"}
 	output, err := exec.Command("goose", argv...).CombinedOutput()
+	t.Cleanup(func() {
+		up := exec.Command("goose", "-dir", migrationsDir(t), "postgres", dsn, "up")
+		if restored, upErr := up.CombinedOutput(); upErr != nil {
+			t.Fatalf("could not restore the schema after the rollback probe: %v\n%s", upErr, restored)
+		}
+	})
 	if err == nil {
 		t.Fatal("[P0] 0018 Down succeeded after a removed record; it must never erase or rewrite attendance history")
 	}

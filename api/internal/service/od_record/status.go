@@ -47,6 +47,18 @@ type StatusService struct {
 	counts  CountReader
 	credits CreditLedger
 	clock   Clock
+	// slotCeiling is optional; nil means the standard teaching day. See
+	// Service.WithSlotCeiling for why it is a setter rather than a parameter.
+	slotCeiling SlotCeiling
+}
+
+// WithSlotCeiling opts the status read into the extended-slots switch, so the
+// countdown a coordinator sees matches the slot the mark path will accept. The
+// two reading different ceilings would show an open slot that then refuses the
+// scan.
+func (s *StatusService) WithSlotCeiling(ceiling SlotCeiling) *StatusService {
+	s.slotCeiling = ceiling
+	return s
 }
 
 func NewStatusService(reader Reader, counts CountReader, credits CreditLedger, clock Clock) *StatusService {
@@ -83,7 +95,15 @@ func (s *StatusService) MarkStatus(ctx context.Context, actor Actor, eventID, ca
 	today := CampusDate(now)
 
 	status := Status{ServerTime: now}
-	if _, window, open := ActiveSlot(now, event.EventDate, event.EndDate); open {
+	ceiling := StandardSlotCount
+	if s.slotCeiling != nil {
+		extended, err := s.slotCeiling.ExtendedSlotsEnabled(ctx)
+		if err != nil {
+			return Status{}, err
+		}
+		ceiling = SlotCount(extended)
+	}
+	if _, window, open := ActiveSlot(now, event.EventDate, event.EndDate, ceiling); open {
 		slot := window
 		status.Slot = &slot
 	}

@@ -223,7 +223,7 @@ paths:
           schema:
             type: integer
             minimum: 1
-            maximum: 12
+            maximum: 20
         - name: category_id
           in: query
           required: false
@@ -814,7 +814,7 @@ paths:
       parameters:
         - {name: event_id, in: path, required: true, schema: {type: string, format: uuid}}
         - {name: category_id, in: query, schema: {type: string, format: uuid}}
-        - {name: slot, in: query, schema: {type: integer, minimum: 1, maximum: 12}}
+        - {name: slot, in: query, schema: {type: integer, minimum: 1, maximum: 20}}
         - {name: od_date, in: query, schema: {type: string, format: date}}
         - {name: section, in: query, schema: {type: string, maxLength: 64}}
         - {name: actor_user_id, in: query, schema: {type: string, format: uuid}}
@@ -927,7 +927,7 @@ paths:
           schema:
             type: integer
             minimum: 1
-            maximum: 12
+            maximum: 20
         - name: od_date
           in: query
           description: >-
@@ -1018,7 +1018,7 @@ paths:
           schema:
             type: integer
             minimum: 1
-            maximum: 12
+            maximum: 20
         - name: od_date
           in: query
           description: >-
@@ -1345,6 +1345,93 @@ paths:
                 $ref: "#/components/schemas/Error"
         "403":
           description: Caller is not a provisioned admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/settings/extended-slots:
+    get:
+      operationId: getExtendedSlotsSetting
+      summary: Whether the evening slots (13-20) are currently admitted
+      description: >-
+        The teaching day is slots 1-12 and ends at 18:15, so after quarter past
+        six no slot is open and nobody can be marked. This switch admits slots
+        13-20 — evening windows of forty minutes each, ending at 23:35 — so the
+        real marking flow can be rehearsed outside teaching hours.
+
+        It is a RUNTIME switch, not a deploy: the database's CHECK constraint is
+        permanently widened to 20 and this decides what the application accepts
+        within that. It defaults to OFF, which is the behaviour production has
+        always had.
+      security: [{bearerAuth: []}]
+      responses:
+        "200":
+          description: The switch as it currently stands.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExtendedSlotsSetting"
+        "401":
+          description: Missing or invalid bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Not an administrator (RBAC_FORBIDDEN).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      operationId: setExtendedSlotsSetting
+      summary: Turn the evening slots on or off
+      description: >-
+        PUT rather than POST: the switch is a single value with a name, and
+        setting it twice to the same thing must be the same as setting it once.
+        Administrator only — it changes what every coordinator's device will
+        accept.
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExtendedSlotsUpdate"
+      responses:
+        "200":
+          description: The switch as it now stands.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExtendedSlotsSetting"
+        "400":
+          description: Body missing the `enabled` field.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Missing or invalid bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Not an administrator (RBAC_FORBIDDEN).
           content:
             application/json:
               schema:
@@ -2963,7 +3050,7 @@ components:
         slot:
           type: integer
           minimum: 1
-          maximum: 12
+          maximum: 20
         event_id:
           type: string
           format: uuid
@@ -3024,6 +3111,35 @@ components:
           items:
             $ref: "#/components/schemas/PublicODRecord"
 
+    ExtendedSlotsSetting:
+      type: object
+      description: >-
+        The evening-slots switch. `max_slot` is included so a client never has to
+        hold its own copy of what "on" means — the ceiling is the server's to
+        decide, and a screen that hardcoded 20 would silently disagree the day
+        that changed.
+      required: [enabled, max_slot, updated_at]
+      properties:
+        enabled:
+          type: boolean
+        max_slot:
+          type: integer
+          minimum: 1
+          maximum: 20
+          description: The highest slot currently accepted — 12 when off, 20 when on.
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Null when the switch has never been written.
+
+    ExtendedSlotsUpdate:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+
     PublicDayMark:
       type: object
       description: >-
@@ -3034,7 +3150,7 @@ components:
         slot:
           type: integer
           minimum: 1
-          maximum: 12
+          maximum: 20
         category_id:
           type: string
           format: uuid
@@ -3221,7 +3337,7 @@ components:
         slot:
           type: integer
           minimum: 1
-          maximum: 12
+          maximum: 20
         claimed_coordinator_name:
           type: string
           nullable: true
@@ -3311,7 +3427,7 @@ components:
         slot:
           type: integer
           minimum: 1
-          maximum: 12
+          maximum: 20
         claimed_coordinator_name:
           type: string
           nullable: true
@@ -3421,7 +3537,7 @@ components:
         slot:
           type: integer
           minimum: 1
-          maximum: 12
+          maximum: 20
         started_at:
           type: string
           format: date-time
@@ -3496,7 +3612,7 @@ components:
         slot:
           type: integer
           minimum: 1.0
-          maximum: 12.0
+          maximum: 20.0
         reason_note:
           type: string
           nullable: true
@@ -3530,7 +3646,7 @@ components:
         slot:
           type: integer
           minimum: 1.0
-          maximum: 12.0
+          maximum: 20.0
         od_date:
           type: string
           format: date
@@ -3610,7 +3726,7 @@ components:
         slot:
           type: integer
           minimum: 1
-          maximum: 12
+          maximum: 20
         od_date:
           type: string
           format: date
@@ -3666,7 +3782,7 @@ components:
         slot:
           type: integer
           minimum: 1
-          maximum: 12
+          maximum: 20
         category_id:
           type: string
           format: uuid
@@ -3703,7 +3819,7 @@ components:
         slot:
           type: integer
           minimum: 1
-          maximum: 12
+          maximum: 20
         od_date:
           type: string
           format: date

@@ -164,7 +164,7 @@ unset PGPASSWORD
 psql "$DATABASE_URL_MIGRATOR" -c 'SELECT max(version_id) FROM goose_db_version;'
 ```
 
-Expect **18** — migrations `0001`–`0018`. A lower number, or a missing table, means the
+Expect **19** — migrations `0001`–`0019`. A lower number, or a missing table, means the
 migrations did not all apply; stop and fix that before deploying, because the API will fail at
 runtime rather than at boot.
 
@@ -187,7 +187,7 @@ runtime rather than at boot.
 > usage back into the single row the pre-`0017` schema held, because `usage_date` is being
 > dropped anyway and no information survives either way.
 >
-> Take a dump immediately before applying `0015`–`0018` to a database that already holds
+> Take a dump immediately before applying `0015`–`0019` to a database that already holds
 > records.
 
 > **⚠️ `0018` is a one-way door once a record has been removed.**
@@ -196,6 +196,19 @@ runtime rather than at boot.
 > rejects the historical `removed` row, so rollback aborts atomically and the widened status
 > constraint remains in place. Do not convert removed records back to present or delete them merely
 > to make a rollback succeed; reconcile the records deliberately or restore from PITR/a dump.
+
+> **⚠️ `0019` widens the slot CHECK to 20 and its `Down` narrows it back to 12.**
+>
+> The `Up` is safe to apply ahead of the code — every slot that was legal before still is, so an
+> older binary keeps working unchanged. That is what makes it obey the schema-before-code rule in
+> §4.3 without a coordinated release.
+>
+> The `Down` aborts if any record above slot 12 exists, and that is correct: those are real
+> attendance records, and rewriting or deleting them to satisfy a constraint would destroy history.
+> Turn the evening-slots switch off first, and reconcile any rows above 12 deliberately.
+>
+> `0019` also creates `app_settings`, seeded with `extended_slots_enabled = false`. **The seeded
+> default is OFF**, so applying this migration changes no behaviour on its own.
 
 **5. Build the runtime connection string** for the next section from the **`od_runtime`**
 password — never the migrator's. The application pool must not be able to run DDL.

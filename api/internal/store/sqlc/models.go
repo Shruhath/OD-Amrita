@@ -8,6 +8,14 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+// Runtime switches an administrator may flip without a deploy. Read by the application; never by a trigger.
+type AppSetting struct {
+	Key       string             `json:"key"`
+	Value     string             `json:"value"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	UpdatedBy pgtype.UUID        `json:"updated_by"`
+}
+
 type AuditLog struct {
 	ID           pgtype.UUID        `json:"id"`
 	Action       string             `json:"action"`

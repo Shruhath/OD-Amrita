@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -24,10 +25,31 @@ import (
 type ManagementService struct {
 	queries *sqlc.Queries
 	audited AuditStore
+	// slotCeiling is optional; nil means the standard teaching day.
+	slotCeiling SlotCeiling
 }
 
 func NewManagementService(pool *pgxpool.Pool, audited AuditStore) *ManagementService {
 	return &ManagementService{queries: sqlc.New(pool), audited: audited}
+}
+
+// WithSlotCeiling opts corrections into the extended-slots switch, so a record
+// can be corrected INTO an evening slot while the switch is on. Without it a
+// teacher could mark slot 14 and then be unable to fix a typo in it.
+func (s *ManagementService) WithSlotCeiling(ceiling SlotCeiling) *ManagementService {
+	s.slotCeiling = ceiling
+	return s
+}
+
+func (s *ManagementService) maxSlot(ctx context.Context) (int, error) {
+	if s.slotCeiling == nil {
+		return StandardSlotCount, nil
+	}
+	extended, err := s.slotCeiling.ExtendedSlotsEnabled(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return SlotCount(extended), nil
 }
 
 type CorrectionInput struct {
@@ -104,6 +126,14 @@ func (s *ManagementService) Correct(ctx context.Context, actor Actor, input Corr
 		return ManagementRecord{}, forbidden("Teacher or administrator principal is invalid.")
 	}
 
+	// Read BEFORE opening the audited transaction: it may go to the database,
+	// and holding a row lock while waiting on an unrelated read is how a
+	// correction ends up blocking a mark.
+	ceiling, ceilingErr := s.maxSlot(ctx)
+	if ceilingErr != nil {
+		return ManagementRecord{}, ceilingErr
+	}
+
 	var result ManagementRecord
 	var payload []byte
 	target, targetID := "od_records", recordID.String()
@@ -121,7 +151,7 @@ func (s *ManagementService) Correct(ctx context.Context, actor Actor, input Corr
 		if readErr = assertActiveEventWith(ctx, queries, existing.EventID); readErr != nil {
 			return false, readErr
 		}
-		slot, category, odDate, values, validationErr := correctionValues(ctx, queries, existing, input)
+		slot, category, odDate, values, validationErr := correctionValues(ctx, queries, existing, input, ceiling)
 		if validationErr != nil {
 			return false, validationErr
 		}
@@ -330,12 +360,13 @@ func assertActiveEventWith(ctx context.Context, queries *sqlc.Queries, eventID p
 	return nil
 }
 
-func correctionValues(ctx context.Context, queries *sqlc.Queries, existing sqlc.LockODRecordByIDRow, input CorrectionInput) (pgtype.Int4, pgtype.UUID, pgtype.Date, map[string]any, error) {
+func correctionValues(ctx context.Context, queries *sqlc.Queries, existing sqlc.LockODRecordByIDRow, input CorrectionInput, maxSlot int) (pgtype.Int4, pgtype.UUID, pgtype.Date, map[string]any, error) {
 	values := map[string]any{"slot": existing.Slot, "category_id": uuid.UUID(existing.CategoryID.Bytes).String(), "od_date": existing.OdDate.Time.Format(time.DateOnly), "reason_note": strings.TrimSpace(input.ReasonNote)}
 	var slot pgtype.Int4
 	if input.Slot != nil {
-		if *input.Slot < 1 || *input.Slot > 12 {
-			return slot, pgtype.UUID{}, pgtype.Date{}, nil, validation("slot", "range", "slot must be between 1 and 12.")
+		if *input.Slot < 1 || *input.Slot > maxSlot {
+			return slot, pgtype.UUID{}, pgtype.Date{}, nil, validation(
+				"slot", "range", fmt.Sprintf("slot must be between 1 and %d.", maxSlot))
 		}
 		slot = pgtype.Int4{Int32: int32(*input.Slot), Valid: true}
 		values["slot"] = slot.Int32

@@ -175,6 +175,16 @@ async function installApi(page: Page, scenario: ApiScenario = {}): Promise<ApiMo
       return
     }
 
+    // The evening-slots switch renders at the bottom of this workspace. These
+    // journeys are about events, not about the switch, so it is answered with
+    // the quiet default — off — rather than being left to fall through to the
+    // catch-all, whose 404 renders an alert that collides with the ones these
+    // tests assert on.
+    if (url.pathname === '/api/v1/admin/settings/extended-slots') {
+      await json(route, 200, { enabled: false, max_slot: 12, updated_at: null })
+      return
+    }
+
     if (url.pathname === '/api/v1/admin/branches' && method === 'GET') {
       state.calls.branches += 1
       if (scenario.branchesGate) await scenario.branchesGate

@@ -152,6 +152,21 @@ func (c *TTL[V]) purgeExpiredLocked() {
 	}
 }
 
+// Forget drops one key, so the next read reloads it.
+//
+// For a value that was just CHANGED by this process, where waiting out the ttl
+// would leave the writer looking at its own stale answer. It drops the entry
+// rather than storing the new value on purpose: with several machines serving,
+// only the one that took the write knows anything the others do not, and
+// pretending otherwise would make this machine confident about state it has no
+// more authority on than its neighbours. Dropping means it re-reads; the others
+// expire on their own.
+func (c *TTL[V]) Forget(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.entries, key)
+}
+
 // Len reports how many entries are held, expired ones included. For tests and
 // for a future metric; not part of the read path.
 func (c *TTL[V]) Len() int {

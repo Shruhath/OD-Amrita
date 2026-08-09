@@ -61,6 +61,12 @@ var runtimePrivileges = map[string][]string{
 	"event_capture_credit_config":   {"SELECT", "INSERT", "UPDATE"},
 	"event_capture_credit_usage":    {"SELECT", "INSERT", "UPDATE"},
 	"disputes":                      {"SELECT", "INSERT", "UPDATE"},
+
+	// Runtime switches an administrator flips from the portal. Upsert, never
+	// delete: a missing row and a row set to false mean the same thing to the
+	// application, so DELETE would buy nothing and would let a bug erase the
+	// record of who last changed a setting and when.
+	"app_settings": {"SELECT", "INSERT", "UPDATE"},
 }
 
 // gooseBookkeeping is goose's own version table. It is created by od_migrator and

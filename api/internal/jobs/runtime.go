@@ -54,19 +54,34 @@ func (r *Registry) Workers() *river.Workers {
 // NewClient constructs a River client with the application's queue policy.
 // It refuses an empty registry so a deployment cannot appear operational while
 // silently executing no jobs.
-func NewClient(pool *pgxpool.Pool, registry *Registry) (*river.Client[pgx.Tx], error) {
+type ClientOption func(*river.Config)
+
+// WithPeriodicJobs adds River-owned periodic enqueue definitions to the
+// application client. Periodic jobs are leader-elected by River, so multiple
+// API instances do not duplicate scheduled work.
+func WithPeriodicJobs(periodicJobs ...*river.PeriodicJob) ClientOption {
+	return func(config *river.Config) { config.PeriodicJobs = append(config.PeriodicJobs, periodicJobs...) }
+}
+
+func NewClient(pool *pgxpool.Pool, registry *Registry, options ...ClientOption) (*river.Client[pgx.Tx], error) {
 	if pool == nil {
 		return nil, fmt.Errorf("jobs: database pool is nil")
 	}
 	if registry == nil || registry.workers == nil {
 		return nil, fmt.Errorf("jobs: worker registry is nil")
 	}
-	return river.NewClient(riverpgxv5.New(pool), &river.Config{
+	config := &river.Config{
 		Queues: map[string]river.QueueConfig{
 			QueueDefault: {MaxWorkers: DefaultMaxWorkers},
 		},
 		Workers: registry.workers,
-	})
+	}
+	for _, option := range options {
+		if option != nil {
+			option(config)
+		}
+	}
+	return river.NewClient(riverpgxv5.New(pool), config)
 }
 
 // Start starts a configured River client and fails if the worker registry is

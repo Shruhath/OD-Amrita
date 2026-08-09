@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/riverqueue/river"
 
 	"github.com/Shruhath/OD-Amrita/api/internal/config"
 	handleradmin "github.com/Shruhath/OD-Amrita/api/internal/handler/admin"
@@ -32,6 +33,8 @@ import (
 	handlerscan "github.com/Shruhath/OD-Amrita/api/internal/handler/scan"
 	handlerstudent "github.com/Shruhath/OD-Amrita/api/internal/handler/student"
 	handlerteacher "github.com/Shruhath/OD-Amrita/api/internal/handler/teacher"
+	"github.com/Shruhath/OD-Amrita/api/internal/job/eod_audit"
+	"github.com/Shruhath/OD-Amrita/api/internal/jobs"
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
 	corsmw "github.com/Shruhath/OD-Amrita/api/internal/middleware/cors"
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
@@ -46,6 +49,7 @@ import (
 	svcpublicattendance "github.com/Shruhath/OD-Amrita/api/internal/service/publicattendance"
 	"github.com/Shruhath/OD-Amrita/api/internal/service/publiccache"
 	svcscan "github.com/Shruhath/OD-Amrita/api/internal/service/scan"
+	"github.com/Shruhath/OD-Amrita/api/internal/service/reconciliation"
 	svcstudent "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 	svcteacher "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
 	svcuser "github.com/Shruhath/OD-Amrita/api/internal/service/user"
@@ -72,6 +76,22 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
+
+	reconciliationSvc := reconciliation.NewService(pool)
+	workerRegistry := jobs.NewRegistry()
+	river.AddWorker(workerRegistry.Workers(), &eodaudit.Worker{Service: reconciliationSvc})
+	// The sweep worker is registered before the client is constructed. Its
+	// periodic producer is leader-elected by River, so two Fly machines do not
+	// enqueue duplicate reconciliation revisions.
+	riverClient, err := jobs.NewClient(pool, workerRegistry, jobs.WithPeriodicJobs(eodaudit.PeriodicSweep()))
+	if err != nil {
+		return err
+	}
+	river.AddWorker(workerRegistry.Workers(), &eodaudit.SweepWorker{Service: reconciliationSvc, Client: riverClient})
+	if err := jobs.Start(context.Background(), riverClient); err != nil {
+		return err
+	}
+	defer jobs.Stop(context.Background(), riverClient)
 
 	if cfg.AppEnv != "development" {
 		gin.SetMode(gin.ReleaseMode)

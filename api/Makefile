@@ -51,7 +51,7 @@ DATABASE_URL_RUNTIME  ?= postgres://od_runtime:runtime_dev_only_change_me@$(DB_H
 # same way api-ci runs them.
 INTEGRATION_PKGS := ./test/db/... ./test/store/... ./test/event/... ./test/roundtrip/... ./test/teacher/... ./test/student/... ./test/cardtoken/... ./test/odrecord/...
 
-.PHONY: build test lint sqlc sqlc-check migrate-up migrate-down run-api \
+.PHONY: build test lint sqlc sqlc-check migrate-up migrate-down river-migrate-up run-api \
         db-up db-down db-reset db-psql db-studio db-studio-down test-integration
 
 build: ## Compile all packages
@@ -77,6 +77,10 @@ migrate-up: ## Apply goose migrations as od_migrator (needs DATABASE_URL_MIGRATO
 migrate-down: ## Roll back goose migrations as od_migrator (needs DATABASE_URL_MIGRATOR)
 	@test -n "$(DATABASE_URL_MIGRATOR)" || { echo "DATABASE_URL_MIGRATOR is not set"; exit 1; }
 	$(GOOSE) -dir db/migrations postgres "$(DATABASE_URL_MIGRATOR)" down
+
+river-migrate-up: ## Apply the pinned River schema and grant od_runtime worker DML
+	@test -n "$(DATABASE_URL_MIGRATOR)" || { echo "DATABASE_URL_MIGRATOR is not set"; exit 1; }
+	DATABASE_URL_MIGRATOR="$(DATABASE_URL_MIGRATOR)" go run ./cmd/river-migrate
 
 db-up: ## Start the local integration Postgres (CI-matching image) and migrate it
 	@$(CONTAINER_ENGINE) network inspect $(DB_NETWORK) >/dev/null 2>&1 \

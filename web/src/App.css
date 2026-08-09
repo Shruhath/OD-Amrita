@@ -2421,3 +2421,92 @@ tbody tr:hover {
      buys, so the slot label sits above its detail instead. */
   .public-slot { grid-template-columns: minmax(0, 1fr); gap: 4px; }
 }
+
+/* ---------------------------------------------------------- install prompt */
+
+/* Fixed to the bottom rather than in the flow: it appears after first paint,
+   when the browser decides to offer an install, and inserting a block into the
+   layout at that moment would shift whatever the visitor was already reading. */
+.install-prompt {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(520px, calc(100% - 32px));
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--chrome);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: 1px solid var(--chrome-border);
+  box-shadow: 0 8px 30px rgb(0 0 0 / 18%);
+  color: var(--foreground);
+}
+
+.install-prompt__icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  flex-shrink: 0;
+}
+
+.install-prompt__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.install-prompt__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.install-prompt__text {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--gray-500);
+}
+
+.install-prompt__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.install-prompt__actions button {
+  font-size: 13px;
+  padding: 7px 12px;
+}
+
+/* Under about 380px the icon and two buttons stop fitting on one line and the
+   text is what gets squeezed to nothing, so the actions wrap below instead. */
+@media (max-width: 380px) {
+  .install-prompt {
+    flex-wrap: wrap;
+  }
+
+  .install-prompt__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+.app-footer__install {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--gray-500);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.app-footer__install:hover {
+  color: var(--crimson);
+}

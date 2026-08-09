@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CaptureMethod, CardPayload, MarkAttendanceResult, ResolvedCardStudent } from '../../api/client'
 import { ApiFailure } from '../../api/client'
+import { AccountMenu } from '../../components/AccountMenu'
 import { ThemeToggle } from '../../components/ThemeToggle'
 import { useAuth } from '../../features/auth/context'
 import { createBarcodeScanner, type BarcodeScannerStatus } from '../../features/marking/barcodeScanner'
@@ -397,8 +398,11 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
             first thing announced on this screen. */}
         <span className="brand-mark" aria-hidden="true">OD</span>
         <h1>Mark attendance</h1>
-        <p className="mark-who">{identity.name}</p>
         <ThemeToggle />
+        {/* This screen had no way to sign out at all — a coordinator marking on
+            a shared phone could not hand it over. The same control as the
+            portal, so the account lives in one place on every surface. */}
+        <AccountMenu />
       </header>
 
       <section className="mark-scope" aria-label="Event and category">

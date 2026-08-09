@@ -224,13 +224,6 @@
   font-size: 14px;
 }
 
-.account-actions > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 22ch;
-}
-
 /* --------------------------------------------------------------- workspace */
 
 /* Plain block flow — see the structural rule at the top of the file. The
@@ -449,16 +442,6 @@ button:disabled {
 .text-button:hover:not(:disabled) {
   background: var(--crimson-50);
   border-color: transparent;
-}
-
-/* Sign-out lives in the frosted topbar, not on a panel. */
-.account-actions .text-button {
-  color: var(--gray-700);
-}
-
-.account-actions .text-button:hover:not(:disabled) {
-  background: var(--tint-medium);
-  color: var(--foreground);
 }
 
 /* ------------------------------------------------------- brand on dark */
@@ -1429,17 +1412,6 @@ tbody tr:hover {
   color: var(--on-backdrop);
 }
 
-.mark-who {
-  margin: 0;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--on-backdrop-muted);
-  font-size: 13px;
-  font-weight: 600;
-}
-
 /* Shared panel treatment for the marking groups. */
 .mark-scope,
 .mark-capture,
@@ -1839,9 +1811,6 @@ tbody tr:hover {
     background: var(--control-bg);
   }
 
-  /* The address is the least useful thing in a 360px-wide bar. */
-  .account-actions > span { display: none; }
-
   .brand-name small { display: none; }
 
   .workspace { padding-bottom: 56px; }
@@ -1931,15 +1900,6 @@ tbody tr:hover {
   .populator-actions { min-width: 0; }
   .summary-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
   .summary-grid dd { font-size: 23px; }
-}
-
-/* The theme toggle costs the marking header ~44px, which is enough to wrap
-   "Mark attendance" onto two lines on a 390px phone. The account name goes
-   instead — exactly what the portal topbar does with the address at the same
-   width. The coordinator knows who they are; they need the title and the
-   control. */
-@media (max-width: 440px) {
-  .mark-who { display: none; }
 }
 
 /* At the narrowest supported width four meters across become unreadable, so
@@ -2509,4 +2469,106 @@ tbody tr:hover {
 
 .app-footer__install:hover {
   color: var(--crimson);
+}
+
+/* ------------------------------------------------------------ account menu */
+
+.account-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.account-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--chrome-border);
+  border-radius: 999px;
+  background: var(--control-bg);
+  cursor: pointer;
+}
+
+.account-menu__trigger:hover {
+  border-color: var(--crimson);
+}
+
+/* The focus ring has to be outside the circle: an inset one on a round control
+   is clipped by the border radius and all but disappears. */
+.account-menu__trigger:focus-visible {
+  outline: 2px solid var(--crimson);
+  outline-offset: 2px;
+}
+
+.account-menu__avatar {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: var(--crimson);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  /* Two uppercase initials at 12px are never wider than the circle, but a name
+     that produced something unexpected must not push it out of shape. */
+  overflow: hidden;
+}
+
+.account-menu__panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 70;
+  min-width: 220px;
+  max-width: min(300px, calc(100vw - 24px));
+  padding: 10px;
+  border: 1px solid var(--chrome-border);
+  border-radius: 12px;
+  background: var(--chrome);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: 0 10px 34px rgb(0 0 0 / 20%);
+}
+
+/* A roll-number address is long. It wraps rather than being clipped, because
+   the only reason this panel exists is to show it in full. */
+.account-menu__email {
+  margin: 0 0 8px;
+  padding: 0 4px;
+  color: var(--gray-600);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.account-menu__item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.account-menu__item:hover {
+  background: var(--tint-medium);
+  color: var(--crimson);
+}
+
+/* On the marking screen the header sits on the backdrop rather than on a panel,
+   so the trigger takes the on-backdrop palette like the theme toggle beside it. */
+.mark-header .account-menu__trigger {
+  background: var(--on-backdrop-fill);
+  border-color: transparent;
+}
+
+.mark-header .account-menu__trigger:hover {
+  background: var(--on-backdrop-fill-hover);
 }

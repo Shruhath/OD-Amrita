@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Branch, CreateEventInput, EventRecord, ValidationError } from '../../../api/client'
@@ -18,6 +18,8 @@ export default function EventsPortal() {
   const { api } = useAuth()
   const queryClient = useQueryClient()
   const [creating, setCreating] = useState(false)
+  const openerRef = useRef<HTMLButtonElement | null>(null)
+  const archiveOpenerRef = useRef<HTMLButtonElement | null>(null)
   const [page, setPage] = useState(1)
   const [archiveTarget, setArchiveTarget] = useState<EventRecord | null>(null)
   const [archiveError, setArchiveError] = useState<string | null>(null)
@@ -50,6 +52,7 @@ export default function EventsPortal() {
           <p className="text-foreground-muted">Plan university events across branches and retain a clear historical record.</p>
         </div>
         <button 
+          ref={openerRef}
           className="bg-foreground text-canvas px-6 py-3 rounded-xl font-medium active:scale-95 transition-transform disabled:opacity-50 disabled:active:scale-100" 
           type="button" 
           disabled={!canCreate} 
@@ -160,7 +163,7 @@ export default function EventsPortal() {
                       <button 
                         type="button" 
                         className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl border border-border/80 hover:border-status-error-fg/40 hover:bg-status-error-bg/20 hover:text-status-error-fg active:scale-95 transition-all"
-                        onClick={() => { setArchiveError(null); setArchiveTarget(event) }}
+                        onClick={(e) => { archiveOpenerRef.current = e.currentTarget; setArchiveError(null); setArchiveTarget(event) }}
                       >
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 012-2h10a2 2 0 012 2m-14 0v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
@@ -207,7 +210,10 @@ export default function EventsPortal() {
       {creating && (
         <CreateDialog
           branches={branchData}
-          onClose={() => setCreating(false)}
+          onClose={() => {
+            setCreating(false)
+            requestAnimationFrame(() => openerRef.current?.focus())
+          }}
           onCreated={(created) => {
             const firstPageKey = eventKey(1)
             queryClient.setQueryData(firstPageKey, (current: Awaited<ReturnType<typeof api.events>> | undefined) => current
@@ -220,14 +226,19 @@ export default function EventsPortal() {
         />
       )}
       {archiveTarget && (
-        <ShadcnDialog open onOpenChange={(open) => { if (!open && !archive.isPending) setArchiveTarget(null) }}>
+        <ShadcnDialog open onOpenChange={(open) => {
+          if (!open && !archive.isPending) {
+            setArchiveTarget(null)
+            requestAnimationFrame(() => archiveOpenerRef.current?.focus())
+          }
+        }}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Archive {archiveTarget.name}</DialogTitle>
               <DialogDescription>This preserves <strong>{archiveTarget.name}</strong> as read-only history. It cannot be reactivated.</DialogDescription>
             </DialogHeader>
           <div className="dialog-actions">
-            <button type="button" data-dialog-cancel disabled={archive.isPending} onClick={() => setArchiveTarget(null)}>Cancel</button>
+            <button type="button" data-dialog-cancel disabled={archive.isPending} onClick={() => { setArchiveTarget(null); requestAnimationFrame(() => archiveOpenerRef.current?.focus()) }}>Cancel</button>
             <button className="danger" type="button" disabled={archive.isPending} onClick={() => archive.mutate(archiveTarget.id)}>Archive event</button>
           </div>
           {archive.isPending && <p role="status">Archiving…</p>}

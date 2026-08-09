@@ -5,7 +5,6 @@ import { ApiFailure, type AttendanceRecord } from '../../../api/client'
 import { PortalShell } from '../../../components/PortalShell'
 import { useAuth } from '../../../features/auth/context'
 import { AnimatePresence, motion } from 'motion/react'
-import { RadixSelect, RadixSelectContent, RadixSelectItem, RadixSelectTrigger, RadixSelectValue } from '../../../components/ui/select-radix'
 import { Archive, ArrowClockwise, ClockCounterClockwise, Funnel, MagnifyingGlass, NotePencil, Trash } from '@phosphor-icons/react'
 import { Button } from '../../../components/ui/button'
 
@@ -22,6 +21,12 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`inline-flex items-center px-2 py-1 text-xs font-bold uppercase tracking-wider ${tone}`}>{status}</span>
 }
 
+/**
+ * A native <select> wrapper that gives Playwright (and assistive technology)
+ * a real combobox element. The filter panel uses this so that
+ * page.getByRole('combobox', …).selectOption(…) works in e2e specs.
+ * The correction-modal selects keep Radix for the richer dropdown UX.
+ */
 function StyledSelect({
   id,
   value,
@@ -37,14 +42,19 @@ function StyledSelect({
   options: Array<{ value: string; label: string }>
   label: string
 }) {
-  const emptyValue = '__empty__'
   return (
     <div className="flex flex-col gap-1">
       <label htmlFor={id} className="text-xs font-semibold uppercase tracking-wider text-foreground-muted">{label}</label>
-      <RadixSelect value={value || emptyValue} onValueChange={(next) => onChange(next === emptyValue ? '' : next)} disabled={disabled}>
-        <RadixSelectTrigger id={id} aria-label={label}><RadixSelectValue /></RadixSelectTrigger>
-        <RadixSelectContent>{options.map((option) => <RadixSelectItem key={option.value || emptyValue} value={option.value || emptyValue}>{option.label}</RadixSelectItem>)}</RadixSelectContent>
-      </RadixSelect>
+      <select
+        id={id}
+        aria-label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        className="bg-canvas border border-border focus:border-foreground focus:ring-1 focus:ring-foreground rounded-[10px] px-3 py-2 text-sm outline-none transition-all appearance-none"
+      >
+        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select>
     </div>
   )
 }
@@ -132,7 +142,7 @@ export default function ODRecordsPortal() {
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
             <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-primary">Attendance / Records</p>
-            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">OD record desk</h1>
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">OD Records</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-foreground-muted sm:text-base">Find attendance records, make a precise correction, or review the audit trail without losing context.</p>
           </div>
           <div className="flex items-center gap-2 text-sm font-semibold text-foreground-muted">
@@ -236,7 +246,11 @@ export default function ODRecordsPortal() {
                   </thead>
                   <tbody className="divide-y divide-border">
                     {records.data.data.map((row) => (
-                      <tr key={row.record_id} className="hover:bg-canvas/50 transition-colors">
+                      <tr
+                        key={row.record_id}
+                        aria-label={`${row.student.display_name} slot ${row.slot}`}
+                        className="hover:bg-canvas/50 transition-colors"
+                      >
                         <td className="py-3 px-4">
                           <div className="flex flex-col">
                             <span className="text-sm font-semibold">{row.student.display_name}</span>

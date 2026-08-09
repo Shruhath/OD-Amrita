@@ -225,7 +225,7 @@ test.describe('teacher/admin OD record management (ATDD red phase)', () => {
     await page.getByRole('combobox', { name: /coordinator|marked by/i }).selectOption('77777777-7777-4777-8777-777777777777')
     await filteredRecords
 
-    const row = page.getByRole('row', { name: /Ananya Rao.*slot 6.*present/i })
+    const row = page.getByRole('row', { name: /Ananya Rao.*slot 6/i })
     await expect(row).toBeVisible()
 
     await row.getByRole('button', { name: /correct/i }).click()

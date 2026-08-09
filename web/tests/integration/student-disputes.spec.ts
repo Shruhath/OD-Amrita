@@ -259,13 +259,16 @@ test.describe('real stack student disputes', () => {
     ).toContain(reference)
   })
 
-  // 0.11-RS-006 — a teacher sees the dispute and resolves it; the record itself
-  // is untouched (AC 11, 12, 14).
+  // 0.11-RS-006 — a teacher APPROVES, and the slot is credited against the real
+  // stack (AC 11, 12, 14).
   //
-  // The od_records total is read before and after through the admin attendance
-  // endpoint: resolving is an ANNOTATION, and a teacher who believes the record
-  // was fixed will not do the thing that fixes it (0.12 owns that).
-  test('[P0] a teacher resolves a dispute without changing any attendance record', async ({ page, request }) => {
+  // This test used to assert the opposite: that resolving never moved the
+  // attendance total. That WAS the defect — a teacher agreed a student had been
+  // missed, and the student stayed missing, because crediting the slot was a
+  // separate trip to another surface that nothing prompted. The attendance total
+  // is still read before and after through the admin endpoint; it now has to go
+  // UP by exactly one.
+  test('[P0] a teacher approves a dispute and the slot is credited', async ({ page, request }) => {
     const created = await request.post(`${portalAPI}/api/v1/public/disputes`, { data: submission({ slot: 9 }) })
     expect(created.status()).toBe(201)
     const reference = (await created.json()).reference as string
@@ -285,22 +288,28 @@ test.describe('real stack student disputes', () => {
     const detail = page.getByRole('region', { name: new RegExp(reference, 'i') })
     await expect(detail).toContainText(new RegExp(DISPUTE_STUDENT_ROLL.replace(/\./g, '\\.'), 'i'))
     await expect(detail).toContainText(new RegExp(DISPUTE_EVENT_NAME, 'i'))
-    // AC 14 — the copy must say plainly that this does not correct the record.
-    await expect(detail).toContainText(/does not (correct|change|fix)|records the decision|separate (action|step)/i)
+    // The copy must still say what the button does to the student's attendance —
+    // only the true statement has changed.
+    await expect(detail).toContainText(/marks the student present|mark(ed)? present/i)
 
     await detail.getByRole('textbox', { name: /note|resolution/i }).fill('Verified against the register.')
-    await detail.getByRole('button', { name: /resolve|mark resolved/i }).click()
+    await detail.getByRole('button', { name: /approve/i }).click()
 
-    await expect(detail).toContainText(/resolved/i)
+    await expect(detail).toContainText(/approved/i)
 
     const after = await request.get(`${portalAPI}/api/v1/admin/events/${DISPUTE_EVENT_ID}/attendance`, {
       headers: { Authorization: 'Bearer portal-admin-token' },
     })
+    const afterBody = await after.json()
     expect(
-      (await after.json()).total,
-      'the attendance total changed when a dispute was resolved. Resolving is an annotation; creating or ' +
-        'correcting the od_records row is Story 0.12 (T15)',
-    ).toBe(beforeTotal)
+      afterBody.total,
+      'approving a dispute did not create the attendance record. The student checks the public dashboard, and ' +
+        'an approval they cannot see is indistinguishable from one that never happened',
+    ).toBe(beforeTotal + 1)
+    // And the record says HOW it came to exist, rather than posing as a search.
+    const credited = afterBody.data.find((record: { slot: number }) => record.slot === 9)
+    expect(credited, 'no attendance record for the disputed slot').toBeTruthy()
+    expect(credited.capture_method).toBe('dispute')
   })
 
   // 0.11-RS-007 — a coordinator cannot read the dispute inbox (AC 11).

@@ -1,3 +1,4 @@
+import { rolesFor } from '../../access'
 import { lazyRoute } from '../../lazyRoute'
 import { Suspense } from 'react'
 import { SessionBoundary } from '../../../features/auth/AuthGate'
@@ -7,7 +8,7 @@ const CardPopulatorPortal = lazyRoute(() => import('./CardPopulatorPortal'))
 
 export default function CardPopulatorRoute() {
   return (
-    <SessionBoundary>
+    <SessionBoundary allowedRoles={rolesFor('/portal/card-populator')}>
       <Suspense fallback={<LoadingScreen label="Loading card populator" />}>
         <CardPopulatorPortal />
       </Suspense>

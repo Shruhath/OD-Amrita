@@ -1,16 +1,10 @@
 import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
+import { useAuth } from '../features/auth/context'
+import { sectionsFor } from '../routes/access'
 import { AccountMenu } from './AccountMenu'
 import { AppFooter } from './AppFooter'
 import { ThemeToggle } from './ThemeToggle'
-
-const sections = [
-  { to: '/portal/events', label: 'Events' },
-  { to: '/portal/disputes', label: 'Disputes' },
-  { to: '/portal/teachers', label: 'Teachers' },
-  { to: '/portal/students', label: 'Students' },
-  { to: '/portal/card-populator', label: 'Card populator' },
-]
 
 /**
  * The chrome every administration screen sits inside: university mark, the
@@ -22,6 +16,14 @@ const sections = [
  * route, so the active section can no longer drift out of sync either.
  */
 export function PortalShell({ children }: { children: ReactNode }) {
+  // Only the sections this role can actually open. The bar used to be the same
+  // five links for everyone, so a teacher was offered four screens that answer
+  // "Access denied" and was not offered the one they can use. The list and the
+  // route guards now come from the same declaration, so a link into a refusal is
+  // not a thing that can be written.
+  const { identity } = useAuth()
+  const sections = sectionsFor(identity?.role)
+
   return (
     <div className="portal-shell">
       <a className="skip-link" href="#workspace">Skip to content</a>

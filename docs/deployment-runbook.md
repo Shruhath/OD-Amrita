@@ -1,10 +1,15 @@
 # Deployment runbook — OD-Amrita
 
-**Last updated:** 2026-07-30
-**Status:** 🟡 **Configuration ships; nothing is deployed yet.** `api/fly.toml`, `web/vercel.json`
-and `api/scripts/smoke.sh` are in the repository and reviewed. Every step that costs money or
-needs a console — the Fly app, the Vercel project, the Neon role bootstrap, the Supabase
-redirect URL — is a human step and is tracked as an unchecked box in §8.
+**Last updated:** 2026-08-09
+**Status:** 🟢 **Live and verified end to end.** API on Fly (two machines, both healthy), web on
+Vercel, schema on Neon at version **17**, Supabase brokering sign-in. Verified 2026-08-09 by
+`api/scripts/smoke.sh`, a browser run against the production origin, and a direct read of the live
+schema. §8 records exactly what is done and the four items that still need a human.
+
+> ⚠️ **Two things are live but not right yet**, both in §9: the database is in the wrong region
+> (**H7**, ~0.5 s of every query is ocean) and the Neon plan still gives a 6-hour recovery window,
+> which does not cover an event plus the dispute days after it.
+
 **Owner:** Shruhath
 
 > This document records *exactly* what an operator runs to put OD-Amrita on the internet, and
@@ -57,10 +62,8 @@ The current deploy is on `sin` for that reason; move it back to `bom` once Mumba
 > from 0.639 s to 0.157 s — the network floor — by removing the ocean from the path entirely. What
 > it cannot do is remove it from the FIRST read, or from any write.
 >
-> This is the single largest latency cost in the system, and it is larger than everything the
-> caching layer can recover — the cache removes *repeat* queries, not the first one. It also lands
-> hardest exactly where the runbook says latency is felt directly: the synchronous mark path, where
-> a coordinator is standing in front of a student.
+> It lands hardest exactly where this runbook already says latency is felt directly: the
+> synchronous mark path, where a coordinator is standing in front of a student.
 >
 > **Fixing it means moving the database, not the API** — the API belongs near campus. Neon cannot
 > relocate a project between regions, so this is: create a project in `ap-southeast-1`, dump,
@@ -125,7 +128,27 @@ ALTER ROLE od_runtime  PASSWORD '<new-runtime-secret>';
 SQL
 ```
 
-**3. Apply the migrations** as `od_migrator` (keep the password out of the URI — libpq reads
+**3. Apply the migrations** as `od_migrator`.
+
+> ### ✅ Prefer the workflow — it works from any network
+>
+> **Actions → `db-migrate` → Run workflow**, type `migrate` to confirm. That is the normal way to
+> migrate this database and it is what applied `0014`–`0017` on 2026-08-09.
+>
+> This is not merely convenient. **Neon speaks Postgres on port 5432 and nothing else, and campus
+> wifi permits 80/443 outbound only** — so the local command below simply cannot reach production
+> from a machine on that network, and a migration that depends on which wifi someone is joined to
+> is a migration that gets skipped. A GitHub runner has open egress, and the migrator credential
+> then lives in one place (the `DATABASE_URL_MIGRATOR` repository secret) rather than on whichever
+> laptop happened to be somewhere unblocked.
+>
+> It is manual-trigger only, never `on: push` — a schema change against real attendance is a
+> decision someone makes, not a side effect of merging — and it has **no `down` path at all**,
+> because `0016`'s Down is a one-way door once a multi-day event has been marked (see the warning
+> below). It also asserts the applied version equals the highest migration in the repository, so a
+> run that quietly applied nothing cannot look like a success.
+
+The local equivalent, for a network with 5432 open (keep the password out of the URI — libpq reads
 `PGPASSWORD`, and a password in a connection string ends up in your shell log and in `ps`):
 
 ```bash
@@ -414,34 +437,38 @@ boot before it can honestly answer `db:"up"`.
 Everything below needs a console, an account, or money. A code agent cannot do any of it, which
 is why these are tracked here rather than assumed.
 
+A box is ticked here only when it was **observed**, not when it was believed — the note after each
+one says how.
+
 **Database (Neon)**
-- [ ] Run the **Neon** role bootstrap on the live `Amrita-OD` database — `00_roles.sql` as the owner role, then **change both role passwords** (§3.1–3.2).
-- [ ] Apply migrations as `od_migrator` and confirm `SELECT max(version_id) FROM goose_db_version` returns **14** (§3.3–3.4).
-- [ ] **Upgrade the Neon plan before the event.** Free gives a **6-hour** PITR window, which does not cover an event plus the days afterwards when disputes are raised (Launch = 7 days, Scale = 30 days). Record the new window in the backup runbook §2.2.
+- [x] Neon role bootstrap and both role passwords — *verified 2026-08-09: `od_migrator` applied migrations against the live database, which is only possible with the correct rotated password.*
+- [x] Migrations applied; `max(version_id)` is **17** — *verified 2026-08-09 by reading the live `goose_db_version` directly.* (This said **14** until today and was wrong: `0015`–`0017` shipped after it was written.)
+- [ ] ⚠️ **Upgrade the Neon plan before the event.** Free gives a **6-hour** PITR window, which does not cover an event plus the days afterwards when disputes are raised (Launch = 7 days, Scale = 30 days). Record the new window in the backup runbook §2.2. **Still open — this costs money, so it is yours to do.**
+- [ ] ⚠️ **Move the project to `ap-southeast-1`** — decision **H7**. Not a nice-to-have: ~0.5 s of every query is currently the Pacific. It is a dump-and-restore of live attendance data, so it is a deliberate human step.
 
 **API (Fly)**
-- [ ] Create the **Fly** app (`flyctl launch --no-deploy`) and set every secret from §4.2 — nothing with a credential in it goes into `fly.toml`.
-- [ ] Deploy, then `flyctl scale count 2 --region <fly.toml region>` (`bom` preferred, `sin` the current fallback), and confirm **two** machines pass the health check (§4.3–4.5).
-- [ ] Record the API origin in §6.
+- [x] Fly app created and every secret from §4.2 set — *verified 2026-08-09: all nine secrets present in `flyctl secrets list`, none in `fly.toml`.*
+- [x] Deployed and scaled to **two** machines, both passing the health check — *verified 2026-08-09 via `flyctl status`.*
+- [x] API origin recorded in §6 — `https://od-amrita-api.fly.dev`.
 
 **Web (Vercel)**
-- [ ] Create the **Vercel** project with Root Directory `web`, set the three `VITE_*` variables, and deploy (§5).
-- [ ] Record the production web origin in §6, and confirm a deep link such as `/portal/events` loads the app rather than a 404.
+- [x] Vercel project with Root Directory `web` and the three `VITE_*` variables — *verified 2026-08-09 by reading the deployed bundle: it points at the Fly origin and the Supabase project.*
+- [x] Production web origin recorded, and deep links load the app rather than a 404 — *verified 2026-08-09: `/portal/events`, `/mark` and `/attendance` all answer 200.*
 
 **Auth (Supabase)**
-- [ ] Add `<vercel-origin>/**` to **Supabase** → Authentication → URL Configuration → Redirect URLs, and set Site URL to the same origin (§6.1).
+- [x] Redirect URLs and Site URL — *verified 2026-08-09: `/authorize` accepts the Vercel origin as `redirect_to` and forwards it to Microsoft rather than substituting the Site URL, which it would do for an origin that is not allow-listed.*
 
 **Verification**
-- [ ] Run `BASE_URL=<api-origin> api/scripts/smoke.sh` and record the result below.
-- [ ] Complete one `@amrita.edu` login on the deployed web app **in Chrome on Android** (§7).
-- [ ] Register the uptime monitor against the now-known `/health` URL — see the backup runbook §4.2 and §7.
-- [ ] Bookmark the web origin on each coordinator device before the event (§6.2).
+- [x] `BASE_URL=https://od-amrita-api.fly.dev api/scripts/smoke.sh` — **PASSED** 2026-08-09 (db up; plain HTTP refused, not redirected).
+- [ ] Complete one `@amrita.edu` login on the deployed web app **in Chrome on Android** (§7). **Still open — needs a real university account on a real handset; nothing automated can stand in for it.**
+- [ ] Register the uptime monitor against `/health` — see the backup runbook §4.2 and §7. **Still open (console).**
+- [ ] Bookmark the web origin on each coordinator device before the event (§6.2). **Still open (physical).**
 
 **Deploy log** — record every deploy here, including the ones that went wrong:
 
 | Date | What changed | API origin | Web origin | Smoke result | Notes |
 |---|---|---|---|---|---|
-| `______` | `______` | `______` | `______` | `______` | `______` |
+| 2026-08-09 | Migrations `0014`–`0017` applied to Neon; API redeployed from six-days-stale image; CORS preflight fixed to advertise `PUT`; pool connection retirement jittered; public read cache | `https://od-amrita-api.fly.dev` | `https://od-amrita-web.vercel.app` | PASS | The stale image was answering **404 on every public route**. Health checks had been flapping hourly on both machines. |
 
 ---
 

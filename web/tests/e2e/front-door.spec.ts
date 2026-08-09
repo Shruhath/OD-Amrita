@@ -92,4 +92,44 @@ test.describe('the front door', () => {
     await expect(page).toHaveURL(`${portalOrigin}/`)
     await expect(page.getByRole('button', { name: /sign in with microsoft/i })).toBeVisible()
   })
+
+  // FRONT-E2E-004 — SIGNING OUT COMES BACK HERE.
+  //
+  // The defect: signing out cleared the identity but not the address bar, so a
+  // coordinator stayed on `/mark` and was handed a card offering the one thing
+  // they had just declined — sign in again — with no route to the public board
+  // short of typing a URL. This is an address-bar defect, so it is asserted in a
+  // browser: the URL after signing out is the claim.
+  test('[P0] signing out returns a coordinator to the front door, not to a sign-in wall', async ({ page }) => {
+    await installPortalSession(page, 'coordinator')
+    await page.route('**/api/v1/**', async (route) => {
+      const request = route.request()
+      if (request.method() === 'OPTIONS') return fulfilPreflight(route)
+      const path = new URL(request.url()).pathname
+
+      if (path.endsWith('/auth/me')) {
+        return json(route, {
+          user_id: '99999999-9999-4999-8999-999999999999',
+          email: 'coordinator@amrita.edu',
+          name: 'E2E coordinator',
+          role: 'coordinator',
+        })
+      }
+      if (path.endsWith('/public/od-records')) return json(route, publicEmptyDayAttendance())
+      return json(route, { data: [], total: 0, page: 1, page_size: 20 })
+    })
+
+    await page.goto(`${portalOrigin}/mark`)
+    await page.getByRole('button', { name: /account:/i }).click()
+    await page.getByRole('menuitem', { name: /sign out/i }).click()
+
+    await expect(page).toHaveURL(`${portalOrigin}/`)
+    await expect(page.getByRole('button', { name: /sign in with microsoft/i })).toBeVisible()
+    await expect(page.getByRole('link', { name: /public dashboard/i })).toBeVisible()
+
+    // `replace`, not a push: Back must not walk into the marking route and get
+    // bounced straight out of it again, which reads as the button not working.
+    await page.goBack()
+    await expect(page).not.toHaveURL(`${portalOrigin}/mark`)
+  })
 })

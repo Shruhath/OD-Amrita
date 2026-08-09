@@ -294,8 +294,13 @@ test.describe('Admin event administration E2E journeys (ATDD red phase)', () => 
 
     await page.goto('/portal/events')
 
-    await expect(page.getByRole('heading', { name: 'Sign in to OD-Amrita' })).toBeVisible()
+    // The refusal is now a redirect to the front door rather than a sign-in card
+    // rendered under the admin URL — see SessionBoundary. What the gate is FOR is
+    // unchanged and still asserted below: no admin screen, and no admin request.
+    await expect(page).toHaveURL(/\/$/)
     await expect(page.getByRole('button', { name: 'Sign in with Microsoft' })).toBeVisible()
+    await expect(page.getByRole('link', { name: /public dashboard/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Events' })).toBeHidden()
     expect(api.calls.branches).toBe(0)
     expect(api.calls.listEvents).toBe(0)
   })

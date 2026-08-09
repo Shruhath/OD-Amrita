@@ -4,7 +4,9 @@ import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test, vi } from 'vitest'
 import { server } from '../../test/server'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { AuthProvider, SessionBoundary } from './AuthGate'
+import HomeLanding from '../../routes/HomeLanding'
 import type { SessionPort } from './session'
 
 /**
@@ -33,6 +35,31 @@ function StatefulScreen() {
       <input id="draft" value={typed} onChange={(event) => setTyped(event.target.value)} />
       <p data-testid="mount-id">{mountID}</p>
     </div>
+  )
+}
+
+/**
+ * The guarded screen, at a guarded URL, inside a router.
+ *
+ * The router is not decoration. Losing the session no longer swaps a sign-in
+ * card in beneath the same URL — it REDIRECTS to `/`, so a bare render would
+ * throw rather than fail. `/` is wired to the real HomeLanding rather than a
+ * placeholder so "was the operator actually signed out?" is still asked of the
+ * page they land on, which is where the sign-in offer now lives.
+ */
+function renderGuarded(port: SessionPort) {
+  return render(
+    <AuthProvider session={port}>
+      <MemoryRouter initialEntries={['/portal/events']}>
+        <Routes>
+          <Route path="/" element={<HomeLanding />} />
+          <Route
+            path="/portal/events"
+            element={<SessionBoundary><StatefulScreen /></SessionBoundary>}
+          />
+        </Routes>
+      </MemoryRouter>
+    </AuthProvider>,
   )
 }
 
@@ -108,11 +135,7 @@ describe('returning to a backgrounded app', () => {
     identityResponds()
     const { port, returnToAppSlowly } = sessionPort()
 
-    render(
-      <AuthProvider session={port}>
-        <SessionBoundary><StatefulScreen /></SessionBoundary>
-      </AuthProvider>,
-    )
+    renderGuarded(port)
 
     const field = await screen.findByLabelText('Draft')
     await user.type(field, 'CSE')
@@ -138,11 +161,7 @@ describe('returning to a backgrounded app', () => {
     identityResponds()
     const { port, returnToAppSlowly } = sessionPort()
 
-    render(
-      <AuthProvider session={port}>
-        <SessionBoundary><StatefulScreen /></SessionBoundary>
-      </AuthProvider>,
-    )
+    renderGuarded(port)
     await screen.findByLabelText('Draft')
 
     const inFlight = returnToAppSlowly()
@@ -161,11 +180,7 @@ describe('returning to a backgrounded app', () => {
     identityResponds()
     const { port, returnToApp } = sessionPort()
 
-    render(
-      <AuthProvider session={port}>
-        <SessionBoundary><StatefulScreen /></SessionBoundary>
-      </AuthProvider>,
-    )
+    renderGuarded(port)
     await user.type(await screen.findByLabelText('Draft'), 'CSE')
 
     // A phone moving between wifi and mobile data. The credential is still good;
@@ -187,11 +202,7 @@ describe('returning to a backgrounded app', () => {
     identityResponds()
     const { port, returnToApp } = sessionPort()
 
-    render(
-      <AuthProvider session={port}>
-        <SessionBoundary><StatefulScreen /></SessionBoundary>
-      </AuthProvider>,
-    )
+    renderGuarded(port)
     await screen.findByLabelText('Draft')
 
     server.use(
@@ -210,11 +221,7 @@ describe('returning to a backgrounded app', () => {
     const token = { current: 'fresh-token' as string | null }
     const { port, returnToApp } = sessionPort({ accessToken: vi.fn(async () => token.current) })
 
-    render(
-      <AuthProvider session={port}>
-        <SessionBoundary><StatefulScreen /></SessionBoundary>
-      </AuthProvider>,
-    )
+    renderGuarded(port)
     await screen.findByLabelText('Draft')
 
     token.current = null
@@ -229,11 +236,7 @@ describe('returning to a backgrounded app', () => {
     identityResponds()
     const { port } = sessionPort()
 
-    render(
-      <AuthProvider session={port}>
-        <SessionBoundary><StatefulScreen /></SessionBoundary>
-      </AuthProvider>,
-    )
+    renderGuarded(port)
 
     expect(screen.getByRole('status')).toBeInTheDocument()
     await screen.findByLabelText('Draft')

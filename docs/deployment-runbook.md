@@ -233,7 +233,7 @@ flyctl secrets set \
   PORTAL_ALLOWED_ORIGINS='<vercel-production-origin>'
 ```
 
-`APP_ENV`, `API_PORT`, `TLS_ENABLED` and `HTTP_REDIRECT_LISTENER` are **not** secrets and are
+`APP_ENV`, `API_PORT`, `TLS_ENABLED`, `TLS_TERMINATED_BY_TRUSTED_PROXY` and `HTTP_REDIRECT_LISTENER` are **not** secrets and are
 already in `fly.toml`'s `[env]` block. Do not duplicate them here.
 
 > **`PORTAL_ALLOWED_ORIGINS` must be an EXACT origin** — scheme and host only, e.g.
@@ -284,8 +284,9 @@ flyctl logs --config api/fly.toml
 
 The log line `WARNING serving PLAINTEXT HTTP on :8443 — TLS_ENABLED=false` is **expected and
 correct** here. The Fly edge holds the certificate and terminates TLS; the container serves
-plain HTTP behind it. That warning exists so an *accidental* plaintext deployment is visible —
-on Fly it is the intended arrangement.
+plain HTTP behind it. `TLS_TERMINATED_BY_TRUSTED_PROXY=true` explicitly records that boundary;
+the API refuses to boot in production if `TLS_ENABLED=false` is used without it. The warning
+exists so an *accidental* plaintext deployment is visible — on Fly it is the intended arrangement.
 
 **5. Scale to two machines** (the count cannot be expressed in `fly.toml`):
 

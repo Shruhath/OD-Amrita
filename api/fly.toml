@@ -39,6 +39,10 @@ primary_region = "sin"
   # loud "serving PLAINTEXT HTTP" warning in this mode, which is expected and
   # correct here, not a misconfiguration.
   TLS_ENABLED = "false"
+  # Required acknowledgment that Fly's trusted edge terminates TLS before the
+  # request reaches this container. config.Load() rejects production plaintext
+  # without this explicit deployment boundary.
+  TLS_TERMINATED_BY_TRUSTED_PROXY = "true"
   # Stated explicitly even though false is the default: config.Load() refuses to
   # boot when this is true, naming NFR15. There is no redirect code path in the
   # API and there must never be one.

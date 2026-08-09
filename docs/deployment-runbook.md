@@ -377,11 +377,21 @@ fails differently and none of them fail at build time.
 
 | Setting | Where it is set | Value used | Confirmed |
 |---|---|---|---|
-| `PORTAL_ALLOWED_ORIGINS` | Fly secret (§4.2) | `https://od-amrita-web.vercel.app` | ✅ 2026-07-24 **(tunnel only)** — preflight 204 for this origin, 403 for an untrusted one; re-confirm on Fly |
+| `PORTAL_ALLOWED_ORIGINS` | Fly secret (§4.2) | `https://od-amrita-web.vercel.app,https://www.odamrita.in,https://odamrita.in` | ✅ 2026-08-09 **on Fly** — preflight returns the origin for all three, and no header at all for an untrusted one |
 | `VITE_API_BASE_URL` | Vercel env var (§5.3) | the API origin — **currently the pre-production tunnel**, see §6.3 | ✅ 2026-07-24 **(tunnel only)** — points at the tunnel, not the Fly origin yet |
-| Supabase **Redirect URLs** | Supabase console (§6.1) | `https://od-amrita-web.vercel.app/**` | ☐ |
+| Supabase **Redirect URLs** | Supabase console (§6.1) | `https://od-amrita-web.vercel.app/**` | ☐ — the two `odamrita.in` patterns are NOT added yet; see the note below |
 | Fly API origin | — | `______` (expected `https://od-amrita-api.fly.dev`) | ☐ not yet deployed |
 | Vercel production origin | — | `https://od-amrita-web.vercel.app` | ✅ 2026-07-24 (Vercel build live; the web origin is real, the API it talks to is still the tunnel) |
+
+> **The two `odamrita.in` origins are PRE-STAGED, not live.** The domain is registered but its DNS
+> is not yet pointed at Vercel, so nothing serves from it. They were added to the Fly secret ahead
+> of the cutover so that step costs no machine restart later; trusting them early is safe because
+> the domain is ours — an origin nobody else can serve from cannot be used against us.
+>
+> **Still outstanding for the cutover:** Vercel domains, the GoDaddy records, and the Supabase
+> redirect URLs. Without `https://www.odamrita.in/**` and `https://odamrita.in/**` in Supabase,
+> sign-in fails AFTER the Microsoft round-trip — which reads as the login being broken rather than
+> as a misconfiguration. CORS being ready does not make the domain usable on its own.
 
 **Vercel project settings in force** (recorded so they can be re-created): project `od-amrita-web`,
 Root Directory `web`, framework preset Vite, **Production Branch `0-event-mvp`**. The production

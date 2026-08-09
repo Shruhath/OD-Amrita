@@ -23,8 +23,8 @@ export const DARK_MEDIA_QUERY = '(prefers-color-scheme: dark)'
 
 /** The colour the browser paints its own chrome with, per theme. */
 const THEME_COLOR: Record<ResolvedTheme, string> = {
-  light: '#b50246',
-  dark: '#0d1017',
+  light: '#1D4ED8',
+  dark: '#0D0D0C',
 }
 
 export function isThemePreference(value: unknown): value is ThemePreference {

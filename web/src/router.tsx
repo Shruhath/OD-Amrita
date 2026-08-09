@@ -46,7 +46,7 @@ const routes = [
  * Every route carries the same error element.
  *
  * Without one, React Router renders its own developer fallback — the "Hey
- * developer 👋" page — and that was reaching students on the public dashboard
+ * developer page — and that was reaching students on the public dashboard
  * whenever a screen's code failed to download. Applied here rather than written
  * into each entry above so a route added later cannot be the one that forgets.
  */

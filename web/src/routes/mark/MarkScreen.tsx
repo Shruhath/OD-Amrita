@@ -9,6 +9,8 @@ import { Select } from '../../components/ui/Select'
 import { useAuth } from '../../features/auth/context'
 import { createBarcodeScanner, type BarcodeScannerStatus } from '../../features/marking/barcodeScanner'
 import { CardNfcError, createWebNfcAdapter, type WebNfcStatus } from '../../features/nfc/webNfc'
+import { enqueueScan, getPendingCount } from '../../lib/offline/storage'
+import { registerSyncListener, flushOfflineQueue } from '../../lib/offline/sync'
 
 /**
  * The coordinator marking surface.
@@ -85,6 +87,21 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
   // ---------------------------------------------------------------------
   const [failure, setFailure] = useState<string | null>(null)
   const [success, setSuccess] = useState<MarkAttendanceResult | null>(null)
+  const [pendingCount, setPendingCount] = useState<number>(0)
+
+  useEffect(() => {
+    void getPendingCount().then(setPendingCount)
+    const cleanup = registerSyncListener(api, (count) => {
+      setPendingCount((prev) => Math.max(0, prev - count))
+    })
+    // Also trigger initial sync check if online
+    if (navigator.onLine) {
+      void flushOfflineQueue(api, (count) => {
+        setPendingCount((prev) => Math.max(0, prev - count))
+      })
+    }
+    return cleanup
+  }, [api])
 
   const reportFailure = useCallback((message: string) => {
     setFailure(message)
@@ -180,7 +197,29 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
         queryKey: ['mark-status', variables.scope.eventID, variables.scope.categoryID],
       })
     },
-    onError(error, variables) {
+    async onError(error, variables) {
+      if (!navigator.onLine || (error instanceof TypeError && error.message.includes('Failed to fetch'))) {
+        try {
+          await enqueueScan({
+            eventID: variables.scope.eventID,
+            categoryID: variables.scope.categoryID,
+            captureMethod: variables.capture,
+            ...('card' in variables.identity
+              ? { cardPayload: variables.identity.card }
+              : { studentToken: variables.identity.studentID }),
+          })
+          setPendingCount((c) => c + 1)
+          setSuccess({
+            ok: true,
+            status: 'marked_present',
+            scanned_at: new Date().toISOString(),
+            student: { student_id: 'Offline Scan', roll_number: 'Queued', name: 'Saved to Device' },
+          } as any)
+          return
+        } catch {
+          // Fallthrough to regular failure reporting if storage fails
+        }
+      }
       reportFailure(markFailureMessage(error))
       if (error instanceof ApiFailure && error.body.code === 'CAPTURE_CREDIT_LIMIT_REACHED') {
         void queryClient.invalidateQueries({

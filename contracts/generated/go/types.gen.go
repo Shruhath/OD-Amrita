@@ -55,6 +55,33 @@ func (e AttendanceExportStatus) Valid() bool {
 	}
 }
 
+// Defines values for AttendanceImportStatus.
+const (
+	AttendanceImportStatusCompleted           AttendanceImportStatus = "completed"
+	AttendanceImportStatusCompletedWithErrors AttendanceImportStatus = "completed_with_errors"
+	AttendanceImportStatusFailed              AttendanceImportStatus = "failed"
+	AttendanceImportStatusProcessing          AttendanceImportStatus = "processing"
+	AttendanceImportStatusQueued              AttendanceImportStatus = "queued"
+)
+
+// Valid indicates whether the value is a known member of the AttendanceImportStatus enum.
+func (e AttendanceImportStatus) Valid() bool {
+	switch e {
+	case AttendanceImportStatusCompleted:
+		return true
+	case AttendanceImportStatusCompletedWithErrors:
+		return true
+	case AttendanceImportStatusFailed:
+		return true
+	case AttendanceImportStatusProcessing:
+		return true
+	case AttendanceImportStatusQueued:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AttendanceRecordActorRole.
 const (
 	AttendanceRecordActorRoleAdmin       AttendanceRecordActorRole = "admin"
@@ -557,6 +584,30 @@ type AttendanceExportFormat string
 
 // AttendanceExportStatus defines model for AttendanceExport.Status.
 type AttendanceExportStatus string
+
+// AttendanceImport defines model for AttendanceImport.
+type AttendanceImport struct {
+	AcceptedRows  int                    `json:"accepted_rows"`
+	DuplicateRows int                    `json:"duplicate_rows"`
+	ErrorSummary  *string                `json:"error_summary,omitempty"`
+	EventId       openapi_types.UUID     `json:"event_id"`
+	Id            openapi_types.UUID     `json:"id"`
+	InvalidRows   int                    `json:"invalid_rows"`
+	ProcessedRows int                    `json:"processed_rows"`
+	Status        AttendanceImportStatus `json:"status"`
+	TotalRows     int                    `json:"total_rows"`
+}
+
+// AttendanceImportStatus defines model for AttendanceImport.Status.
+type AttendanceImportStatus string
+
+// AttendanceImportError defines model for AttendanceImportError.
+type AttendanceImportError struct {
+	Code    string `json:"code"`
+	Field   string `json:"field"`
+	Message string `json:"message"`
+	Row     int    `json:"row"`
+}
 
 // AttendanceRecord defines model for AttendanceRecord.
 type AttendanceRecord struct {
@@ -1306,6 +1357,11 @@ type ListAdminEventAttendanceParams struct {
 	PageSize *int                `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
+// CreateAdminAttendanceImportMultipartBody defines parameters for CreateAdminAttendanceImport.
+type CreateAdminAttendanceImportMultipartBody struct {
+	File openapi_types.File `json:"file"`
+}
+
 // ListAdminStudentsParams defines parameters for ListAdminStudents.
 type ListAdminStudentsParams struct {
 	BranchId *openapi_types.UUID `form:"branch_id,omitempty" json:"branch_id,omitempty"`
@@ -1365,6 +1421,17 @@ type ListPortalMarkEventsParams struct {
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
+// ListPortalMarkEventAttendanceParams defines parameters for ListPortalMarkEventAttendance.
+type ListPortalMarkEventAttendanceParams struct {
+	CategoryId *openapi_types.UUID `form:"category_id,omitempty" json:"category_id,omitempty"`
+	Slot       *int                `form:"slot,omitempty" json:"slot,omitempty"`
+
+	// OdDate Narrow the list to one day. The live view sends today by default, which is the question this screen exists to answer.
+	OdDate   *openapi_types.Date `form:"od_date,omitempty" json:"od_date,omitempty"`
+	Page     *int                `form:"page,omitempty" json:"page,omitempty"`
+	PageSize *int                `form:"page_size,omitempty" json:"page_size,omitempty"`
+}
+
 // ListStudentODRecordHistoryParams defines parameters for ListStudentODRecordHistory.
 type ListStudentODRecordHistoryParams struct {
 	Page     *int `form:"page,omitempty" json:"page,omitempty"`
@@ -1396,6 +1463,9 @@ type ResolveAdminCardTokenJSONRequestBody = CardTokenResolveRequest
 
 // CreateAdminEventJSONRequestBody defines body for CreateAdminEvent for application/json ContentType.
 type CreateAdminEventJSONRequestBody = CreateEventRequest
+
+// CreateAdminAttendanceImportMultipartRequestBody defines body for CreateAdminAttendanceImport for multipart/form-data ContentType.
+type CreateAdminAttendanceImportMultipartRequestBody CreateAdminAttendanceImportMultipartBody
 
 // UpdateAdminEventCaptureCreditConfigJSONRequestBody defines body for UpdateAdminEventCaptureCreditConfig for application/json ContentType.
 type UpdateAdminEventCaptureCreditConfigJSONRequestBody = UpdateCaptureCreditConfigRequest

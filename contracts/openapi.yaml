@@ -1061,6 +1061,271 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/portal/mark/events/{event_id}/attendance:
+    get:
+      operationId: listPortalMarkEventAttendance
+      summary: List present attendance records the caller may review
+      description: >-
+        The teacher/admin live view of an event's marks. A SIBLING of
+        `/api/v1/admin/events/{event_id}/attendance`, never a replacement: this
+        one is BRANCH-SCOPED for a teacher, returning only records for students
+        in the branches they teach, which is the same rule that decides which
+        students they may mark. A teacher who cannot mark a student has no
+        reason to read that student's record either. An admin is unscoped here
+        and sees exactly what the admin route returns.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: category_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: slot
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 12
+        - name: od_date
+          in: query
+          description: >-
+            Narrow the list to one day. The live view sends today by default,
+            which is the question this screen exists to answer.
+          schema:
+            type: string
+            format: date
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Page of attendance rows the caller may review.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceRecordCollection"
+        "400":
+          description: Invalid filter or pagination value.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Teacher or administrator access is required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Event was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/events/{event_id}/attendance/imports:
+    post:
+      operationId: createAdminAttendanceImport
+      summary: Queue a bulk attendance CSV import
+      description: >-
+        Admin-only upload. The request stores the bounded CSV and returns a
+        durable River-backed import identifier immediately. Rows are processed
+        asynchronously and may be inspected through the status endpoint.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "202":
+          description: Import accepted for asynchronous processing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceImport"
+        "400":
+          description: Invalid event, filename, or upload.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Administrator access is required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Event was not found or is archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/events/{event_id}/attendance/imports/{import_id}:
+    get:
+      operationId: getAdminAttendanceImport
+      summary: Read bulk attendance import progress
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: import_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Current import state and counters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceImport"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Administrator access is required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Import was not found for this event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/events/{event_id}/attendance/imports/{import_id}/errors:
+    get:
+      operationId: listAdminAttendanceImportErrors
+      summary: List row errors from a bulk attendance import
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: import_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Invalid source rows, capped by the server error limit.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errors]
+                properties:
+                  errors:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AttendanceImportError"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Administrator access is required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Import was not found for this event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/events:
     get:
       operationId: listMarkableEvents

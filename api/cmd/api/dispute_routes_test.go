@@ -117,7 +117,7 @@ func composeDisputeRouter(t *testing.T, reached *reachCounter, loader rbac.Princ
 
 	public := newPublicGroup(router, groupLimiter.Middleware())
 	svc := reachingDisputeService{reached: reached}
-	handlerpublicattendance.RegisterPublicRoutes(public, reachingPublicService{reached: reached}, reachingPublicService{reached: reached}, reachingPublicService{reached: reached})
+	handlerpublicattendance.RegisterPublicRoutes(public, nil, reachingPublicService{reached: reached}, reachingPublicService{reached: reached}, reachingPublicService{reached: reached})
 	// The public dispute surface: the event read carries only the group limiter,
 	// the WRITE carries the group limiter plus its own stricter one.
 	handlerdispute.RegisterPublicRoutes(public, svc, writeLimiter.Middleware())

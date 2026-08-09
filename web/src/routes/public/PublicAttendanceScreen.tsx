@@ -48,8 +48,15 @@ import { campusToday, defaultDay, enumerateDays } from './days'
  */
 
 const SEARCH_DEBOUNCE_MS = 250
-/** How often the board refreshes itself while somebody is looking at it. */
-const BOARD_POLL_MS = 30_000
+/**
+ * How often the board refreshes itself while somebody is looking at it.
+ *
+ * Matched to the server's own cache lifetime. Polling faster cannot produce a
+ * newer answer — it can only re-fetch bytes the server is serving from memory —
+ * so the extra requests are pure cost, and they are multiplied by every student
+ * with the page open behind one campus NAT.
+ */
+const BOARD_POLL_MS = 60_000
 const MIN_SEARCH_RUNES = 3
 const MAX_SEARCH_RUNES = 64
 const SLOT_VALUES = Array.from({ length: 12 }, (_, index) => index + 1)

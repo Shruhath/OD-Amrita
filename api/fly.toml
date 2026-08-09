@@ -43,6 +43,25 @@ primary_region = "sin"
   # boot when this is true, naming NFR15. There is no redirect code path in the
   # API and there must never be one.
   HTTP_REDIRECT_LISTENER = "false"
+  # ── The public attendance board under a campus-sized crowd ────────────────
+  #
+  # Both of these are stated here rather than left on their defaults because
+  # this is the deployment where they bite: hundreds of students open the board
+  # at once, from behind ONE campus NAT.
+  #
+  # The cache is the load answer. The read collapses concurrent misses onto a
+  # single query (singleflight), so the database sees one query per minute no
+  # matter how many students are looking. It is deliberately NOT set to an hour:
+  # a board that lies for an hour tells a student who was just marked that they
+  # were not, which is indistinguishable from a real missed mark and produces
+  # disputes for records that already exist.
+  PUBLIC_CACHE_DAY_TTL_SECONDS = "60"
+  # The board's own rate-limit bucket. The group limiter is keyed on client IP,
+  # and campus wifi puts every student behind one — so the whole campus shares a
+  # single bucket, and at the group's 30/minute roughly fifteen open tabs
+  # exhaust it. Sized for a campus, not for one browser.
+  PUBLIC_BOARD_RATE_LIMIT_PER_MINUTE = "600"
+  PUBLIC_BOARD_RATE_LIMIT_BURST = "200"
 
 # ── NFR15: plain HTTP is REFUSED, not redirected ────────────────────────────
 #

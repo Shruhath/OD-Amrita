@@ -107,7 +107,24 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// The BOARD's own bucket. See RegisterPublicRoutes for why it is separate
+	// from the group's: campus wifi NATs every student behind one IP, so the
+	// group limiter is shared by the whole campus, and the board is the one
+	// endpoint the whole campus opens at once.
+	publicBoardLimiter, err := ratelimit.New(ratelimit.Config{
+		PerMinute:       cfg.PublicBoardRateLimit.PerMinute,
+		Burst:           cfg.PublicBoardRateLimit.Burst,
+		TrustEdgeHeader: os.Getenv("FLY_APP_NAME") != "",
+	})
+	if err != nil {
+		return err
+	}
+
 	publicGroup := newPublicGroup(router, publicLimiter.Middleware())
+	// Same prefix, same root router, DIFFERENT bucket. gin runs a group's
+	// middleware for every route on it, so the board could not get a looser
+	// limit while sharing this group — it would simply be bounded by both.
+	publicBoardGroup := newPublicGroup(router, publicBoardLimiter.Middleware())
 
 	var verifier svcauth.TokenVerifier = svcauth.RejectingVerifier{}
 	if cfg.Auth.JWKSURL != "" && cfg.Auth.Issuer != "" {
@@ -212,7 +229,7 @@ func run() error {
 	// The public dashboard's reads. The SAME student service serves the
 	// anonymous search — PublicSearch is a separate, actor-less, hard-capped
 	// method on it, not a relaxation of the authenticated Search.
-	handlerpublicattendance.RegisterPublicRoutes(publicGroup, cachedSearch, cachedRecords, cachedDay)
+	handlerpublicattendance.RegisterPublicRoutes(publicGroup, publicBoardGroup, cachedSearch, cachedRecords, cachedDay)
 	handlerdispute.RegisterPublicRoutes(publicGroup, publicDisputeSurface{
 		submitter: disputeSvc,
 		events:    cachedEvents,

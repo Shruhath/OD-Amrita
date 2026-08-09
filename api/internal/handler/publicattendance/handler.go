@@ -59,10 +59,38 @@ type DayService interface {
 // these on `api.Group("/public")` produces the identical URLs behind the auth
 // middleware and 401s every student. A route-composition test is what proves
 // which one happened.
-func RegisterPublicRoutes(group gin.IRouter, search PublicSearchService, records RecordsService, day DayService) {
+// `boardGroup` carries the board's OWN rate-limit bucket, INSTEAD of the
+// group's — pass nil to put the board on the same group as the rest.
+//
+// It exists because the group limiter is keyed on client IP and CAMPUS WIFI NATS
+// EVERY STUDENT BEHIND ONE. The whole campus therefore shares a single bucket,
+// and the board is the one endpoint the whole campus opens at once — at the
+// group's default of 30/minute, roughly fifteen students with the page open
+// exhaust it and everybody else gets a 429.
+//
+// Raising the GROUP limit instead would have loosened the roster search by the
+// same amount, and that endpoint is the directory oracle the search's whole
+// design is about. So the board gets a generous bucket of its own and the
+// search keeps the strict one — the same shape the dispute write already uses,
+// from the opposite direction.
+//
+// The board can afford it: it is one cached answer that is identical for every
+// visitor, so a flood costs a map lookup rather than a query. It is a bound
+// against a runaway client, not against a crowd.
+func RegisterPublicRoutes(group, boardGroup gin.IRouter, search PublicSearchService, records RecordsService, day DayService) {
 	group.GET("/students/search", SearchHandler(search))
 	group.GET("/students/:student_id/od-records", RecordsHandler(records))
-	group.GET("/od-records", DayHandler(day))
+	// A separate GROUP, not an extra middleware on this one. gin runs a group's
+	// middleware for every route registered on it, so adding a second limiter
+	// here would leave the board bounded by the STRICTER of the two — which is
+	// the group's, and is the whole problem. The board is registered on its own
+	// group from the same root router, so the two buckets are genuinely
+	// independent. A route-composition test asserts that rather than trusting
+	// this comment.
+	if boardGroup == nil {
+		boardGroup = group
+	}
+	boardGroup.GET("/od-records", DayHandler(day))
 }
 
 // DayHandler answers the public attendance board for one campus day.
@@ -100,10 +128,19 @@ func DayHandler(svc DayService) gin.HandlerFunc {
 			fail(c, convErr)
 			return
 		}
-		// Short, and for a different reason than the per-student read: this is
-		// the response a whole campus loads at once, so the seconds are spent
-		// absorbing that rather than protecting one student from staleness.
-		cacheFor(c, 15)
+		// `stale-while-revalidate` is what actually keeps a campus off this
+		// endpoint. `max-age` alone only helps a student who refreshes within
+		// the window; with SWR the browser RENDERS the cached copy instantly and
+		// refreshes in the background, so a reopened tab costs no wait at all
+		// and the request that does go out is not one anybody is waiting on.
+		//
+		// max-age stays SHORT deliberately. A long one would make the board lie
+		// to a student who was just marked, and "the board says I am not marked"
+		// is indistinguishable from a real missed mark — it produces disputes
+		// for records that exist, on the one screen built to prevent exactly
+		// that. Staleness is bounded by max-age; the load is absorbed by SWR
+		// and by the server-side cache behind it.
+		c.Header("Cache-Control", "public, max-age=30, stale-while-revalidate=300")
 		// The board is a roster. Keeping it out of search indexes does not make
 		// it private — it is a public URL and that is the decision — but an
 		// indexed roster outlives the day it describes, and turns "who was out

@@ -166,11 +166,14 @@ describe('public dispute form', () => {
     // listbox now, so its selected value lives in the trigger's own content and
     // a document-wide text match would also hit the option list behind it.
     expect(within(form).getByRole('combobox', { name: /slot/i })).toHaveTextContent(/slot\s*3\b/i)
+    // THE DAY IT SHOWS, not merely that it shows one. A day control that exists
+    // but is pre-filled with the wrong date files the dispute against a day the
+    // student never named, and reads on screen exactly like a correct one.
     expect(
       within(form).getByRole('combobox', { name: /day/i }),
       'the form does not show which DAY is being disputed. Under 0.12a an event spans a date range, so a ' +
         'dispute without a day is ambiguous across thirty of them (amended 2026-08-06)',
-    ).toBeInTheDocument()
+    ).toHaveTextContent(/28 July 2026|2026-07-28|July 28/i)
   })
 
   // 0.11-WEB-002 — a successful submission shows NFR50's EXACT copy plus the

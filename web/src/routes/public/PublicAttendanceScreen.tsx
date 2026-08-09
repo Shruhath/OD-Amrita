@@ -48,6 +48,8 @@ import { campusToday, defaultDay, enumerateDays } from './days'
  */
 
 const SEARCH_DEBOUNCE_MS = 250
+/** How often the board refreshes itself while somebody is looking at it. */
+const BOARD_POLL_MS = 30_000
 const MIN_SEARCH_RUNES = 3
 const MAX_SEARCH_RUNES = 64
 const SLOT_VALUES = Array.from({ length: 12 }, (_, index) => index + 1)
@@ -131,9 +133,14 @@ export default function PublicAttendanceScreen() {
         <p className="eyebrow">On-duty attendance</p>
         <h1>Check your OD record</h1>
         <p className="public-lede">
-          Search your roll number or name. No sign-in needed.
+          Today's on-duty list is below. Search to see your own record in full.
         </p>
       </header>
+
+      {/* The BOARD, above the search and rendered without being asked for. The
+          page's first answer is "here is who is out today", which is the
+          question almost everybody opening it has. */}
+      <DayBoard />
 
       <section className="public-search" aria-label="Find a student">
         <label className="public-field" htmlFor="public-student-search">
@@ -225,6 +232,167 @@ export default function PublicAttendanceScreen() {
         </section>
       )}
     </main>
+  )
+}
+
+
+/**
+ * The public attendance board: one campus day, everybody marked on it.
+ *
+ * IT LOADS WITHOUT BEING ASKED. That is the whole point — a visitor opens the
+ * page and the day's list is there, with no search and no sign-in. Every other
+ * surface in this app answers about ONE student; this one publishes a list, and
+ * that is a decision taken deliberately rather than a side effect.
+ *
+ * THE FILTERS GO TO THE SERVER. Narrowing the rows in the browser would mean
+ * the whole day's roster is downloaded whatever the visitor asked for — on this
+ * surface that is the difference between publishing one slot and publishing
+ * everything — and it would also break the moment a day exceeds the server's
+ * row cap, because the browser would be filtering a truncated list without
+ * knowing it.
+ */
+function DayBoard() {
+  // PLAIN STATE, not the persisted kind the portal screens use. AC 13 holds
+  // this page to writing nothing at all to localStorage or sessionStorage
+  // beyond the theme, and a filter selection is not worth being the exception
+  // that softens that rule — it costs a visitor one tap to set again.
+  const [slot, setSlot] = useState('')
+  const [categoryID, setCategoryID] = useState('')
+
+  const board = useQuery({
+    queryKey: ['public', 'board', slot, categoryID],
+    queryFn: () => api.publicDayAttendance({
+      slot: slot === '' ? undefined : Number(slot),
+      categoryID: categoryID === '' ? undefined : categoryID,
+    }),
+    // The board is a live list during an event, and it is the same answer for
+    // everybody, so the server caches it too — this interval decides how stale
+    // a screen left open goes, not how hard the database is hit.
+    refetchInterval: (query) => (query.state.error ? false : BOARD_POLL_MS),
+    gcTime: 0,
+  })
+
+  const students = board.data?.students ?? []
+  // Memoised because the effect below depends on it: a fresh [] every render
+  // would re-run the effect on every render.
+  const categories = useMemo(() => board.data?.categories ?? [], [board.data])
+
+  // A category that has gone — the board rolls over to a new day while a tab is
+  // left open — would otherwise leave the control showing a placeholder while
+  // still narrowing the read to nothing.
+  useEffect(() => {
+    if (categoryID !== '' && board.isSuccess && !categories.some((category) => category.id === categoryID)) {
+      setCategoryID('')
+    }
+  }, [board.isSuccess, categories, categoryID, setCategoryID])
+
+  return (
+    <section className="public-board" aria-label="Today's on-duty list">
+      <div className="public-board-heading">
+        <h2>On duty today</h2>
+        {board.data && (
+          <p className="public-hint" role="status">
+            {formatDate(board.data.od_date)} · {students.length}
+            {students.length === 1 ? ' student' : ' students'}
+          </p>
+        )}
+      </div>
+
+      <div className="public-board-filters">
+        <div className="public-field">
+          <span id="public-board-slot-label">Slot</span>
+          <Select
+            id="public-board-slot"
+            aria-labelledby="public-board-slot-label"
+            value={slot}
+            onChange={setSlot}
+            options={[{ value: '', label: 'All slots' }, ...SLOT_VALUES.map((value) => ({
+              value: String(value),
+              label: `Slot ${value}`,
+            }))]}
+          />
+        </div>
+        <div className="public-field">
+          <span id="public-board-category-label">Category</span>
+          <Select
+            id="public-board-category"
+            aria-labelledby="public-board-category-label"
+            value={categoryID}
+            onChange={setCategoryID}
+            disabled={categories.length === 0}
+            options={[{ value: '', label: 'All categories' }, ...categories.map((category) => ({
+              value: category.id,
+              label: category.name,
+            }))]}
+          />
+        </div>
+      </div>
+
+      {board.isPending && <p className="public-hint" role="status">Loading today's list…</p>}
+
+      {board.isError && (
+        <RetryableAlert
+          message={boardFailureMessage(board.error)}
+          onRetry={() => void board.refetch()}
+        />
+      )}
+
+      {/*
+        The cap bit. Saying so matters more here than anywhere else on the page:
+        a board that is silently short reads as "those students were not
+        marked", which is the one statement this whole surface exists never to
+        make by accident.
+      */}
+      {board.data?.truncated && (
+        <p className="public-alert" role="alert">
+          This day has more records than can be shown at once. Filter by slot or category to narrow it down.
+        </p>
+      )}
+
+      {board.isSuccess && students.length === 0 && (
+        <p className="public-hint">
+          {slot === '' && categoryID === ''
+            ? 'Nobody has been marked on duty yet today.'
+            : 'No on-duty records match that filter today.'}
+        </p>
+      )}
+
+      {students.length > 0 && (
+        <div className="public-board-scroll">
+          <table className="public-board-table" aria-label="On-duty students today">
+            <thead>
+              <tr>
+                <th scope="col">Roll number</th>
+                <th scope="col">Name</th>
+                <th scope="col">Slots</th>
+              </tr>
+            </thead>
+            <tbody>
+              {students.map((student) => (
+                <tr key={student.roll_no}>
+                  <td className="public-board-roll">{student.roll_no}</td>
+                  <td>{student.display_name}</td>
+                  <td>
+                    {/* The slot and what it was for, together. Which category
+                        belongs to which slot is the part a student actually
+                        checks, and a separate column could not say it once a
+                        student has marks in two categories on one day. */}
+                    <ul className="public-board-slots">
+                      {student.marks.map((mark) => (
+                        <li key={`${mark.slot}:${mark.category_id}`}>
+                          <strong>{mark.slot}</strong>
+                          <span>{mark.category_name}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -825,6 +993,16 @@ function RetryableAlert({
       </div>
     </div>
   )
+}
+
+function boardFailureMessage(error: unknown): string {
+  if (error instanceof ApiFailure) {
+    if (error.status === 429) return 'Too many requests from this connection. Please wait a moment and try again.'
+    if (error.status >= 500) return "Today's list could not be loaded right now. This is our problem, not yours — please try again."
+  }
+  // Worded so it can never be read as an attendance answer. An empty board and
+  // a failed read are different statements and must not look alike.
+  return "Today's list could not be loaded. Check your connection and try again."
 }
 
 function searchFailureMessage(error: unknown): string {

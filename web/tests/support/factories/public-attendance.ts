@@ -191,3 +191,76 @@ export function publicSearchResults(students: PublicStudent[] = [publicStudent()
 export function publicError(code: string, message: string) {
   return { code, message }
 }
+
+// ---------------------------------------------------------------------------
+// The public BOARD — one day's marked students, shown without any search.
+// ---------------------------------------------------------------------------
+//
+// A shape of its own, mirroring PublicDayAttendance. It carries roll number,
+// name, slot and category and NOTHING ELSE — no student id, no branch, no
+// marker, no note. A fixture that invents a field is a fixture that lets a
+// disclosure bug pass every mocked test in the suite, which is why these
+// factories are written narrow rather than spread from the record shapes above.
+
+export type PublicDayMark = {
+  slot: number
+  category_id: string
+  category_name: string
+  event_name: string
+}
+
+export type PublicDayStudent = {
+  roll_no: string
+  display_name: string
+  marks: PublicDayMark[]
+}
+
+export type PublicDayAttendance = {
+  od_date: string
+  students: PublicDayStudent[]
+  categories: { id: string; name: string }[]
+  truncated: boolean
+  generated_at: string
+}
+
+export const publicBoardCategoryID = '94000000-0000-4000-8000-000000000001'
+export const publicBoardSecondCategoryID = '94000000-0000-4000-8000-000000000002'
+
+export function publicDayMark(slot: number, overrides: Partial<PublicDayMark> = {}): PublicDayMark {
+  return {
+    slot,
+    category_id: publicBoardCategoryID,
+    category_name: 'Procession',
+    event_name: 'Onam Celebrations',
+    ...overrides,
+  }
+}
+
+/** The board's default student: slots 6, 7 and 10 — the example in the ask. */
+export function publicDayStudent(overrides: Partial<PublicDayStudent> = {}): PublicDayStudent {
+  return {
+    roll_no: publicStudentRoll,
+    display_name: 'Ananya Rao',
+    marks: [publicDayMark(6), publicDayMark(7), publicDayMark(10)],
+    ...overrides,
+  }
+}
+
+export function publicDayAttendance(overrides: Partial<PublicDayAttendance> = {}): PublicDayAttendance {
+  return {
+    od_date: '2026-08-09',
+    students: [publicDayStudent()],
+    categories: [
+      { id: publicBoardCategoryID, name: 'Procession' },
+      { id: publicBoardSecondCategoryID, name: 'Athletics' },
+    ],
+    truncated: false,
+    generated_at: '2026-08-09T16:30:00Z',
+    ...overrides,
+  }
+}
+
+/** A day nobody has been marked on. A SUCCESSFUL read, not an error. */
+export function publicEmptyDayAttendance(): PublicDayAttendance {
+  return publicDayAttendance({ students: [], categories: [] })
+}

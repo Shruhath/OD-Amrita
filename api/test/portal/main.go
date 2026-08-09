@@ -325,7 +325,7 @@ func main() {
 	}
 	publicGroup := router.Group("/api/v1/public")
 	publicGroup.Use(publicLimiter.Middleware())
-	handlerpublicattendance.RegisterPublicRoutes(publicGroup, studentService, publicAttendanceService)
+	handlerpublicattendance.RegisterPublicRoutes(publicGroup, studentService, publicAttendanceService, publicAttendanceService)
 	publicDisputeLimiter, err := ratelimit.New(ratelimit.Config{PerMinute: 6000, Burst: 600})
 	if err != nil {
 		log.Fatal(err)

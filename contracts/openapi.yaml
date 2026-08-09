@@ -181,6 +181,84 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/public/od-records:
+    get:
+      operationId: listPublicDayODRecords
+      summary: One day's present OD records for every marked student (public board)
+      description: >-
+        The public attendance board: everybody marked on one campus day, grouped
+        by student, so a visitor sees the day's list without searching for
+        anyone. This deliberately reverses the posture of
+        `/public/students/search`, whose whole design is that an empty query
+        cannot become a roster dump — publishing the day's list is a product
+        decision taken knowingly, and the mitigations live here rather than in
+        the shape of the query.
+
+        WHAT IT MAY CARRY IS FIXED AND SMALL: roll number, display name, slot,
+        category and event name. There is no email (the students table has no
+        such column), no actor identity, no `reason_note` — a teacher's free-text
+        justification for a correction must never be public — no capture method,
+        no card token and no fingerprint. The response type is separate from the
+        authenticated attendance family precisely so a column added there cannot
+        appear here.
+
+        Only `status = 'present'` rows. A removed record must not show a student
+        as marked. The row read is capped server-side and the response says so
+        when the cap bites, because a silently truncated board reads as "these
+        students were not marked".
+      parameters:
+        - name: od_date
+          in: query
+          required: false
+          description: >-
+            The campus day to show. Defaults to today in the campus timezone,
+            which is what makes the board answer without any input at all.
+          schema:
+            type: string
+            format: date
+        - name: slot
+          in: query
+          required: false
+          description: Narrow to a single slot.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 12
+        - name: category_id
+          in: query
+          required: false
+          description: Narrow to a single category.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: >-
+            The day's marked students, ordered by roll number. An empty list is a
+            valid answer and means nobody has been marked yet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicDayAttendance"
+        "400":
+          description: Malformed od_date, slot or category_id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "429":
+          description: Rate limited (RATE_LIMITED); carries a Retry-After header.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/public/events:
     get:
       operationId: listPublicEvents
@@ -2945,6 +3023,81 @@ components:
           description: Present records for this day, ordered by slot ascending.
           items:
             $ref: "#/components/schemas/PublicODRecord"
+
+    PublicDayMark:
+      type: object
+      description: >-
+        One slot a student was marked in, on the day being shown. The board's
+        whole payload per mark: which slot, and what it was for.
+      required: [slot, category_id, category_name, event_name]
+      properties:
+        slot:
+          type: integer
+          minimum: 1
+          maximum: 12
+        category_id:
+          type: string
+          format: uuid
+        category_name:
+          type: string
+        event_name:
+          type: string
+
+    PublicDayStudent:
+      type: object
+      description: >-
+        One row of the public board. Roll number and display name and nothing
+        else that identifies a person — no student id (the per-student view is
+        reached by searching, which is rate limited on its own terms), no
+        branch, section or batch, and no email.
+      required: [roll_no, display_name, marks]
+      properties:
+        roll_no:
+          type: string
+        display_name:
+          type: string
+        marks:
+          type: array
+          description: The student's marks on this day, ordered by slot ascending.
+          items:
+            $ref: "#/components/schemas/PublicDayMark"
+
+    PublicDayAttendance:
+      type: object
+      description: >-
+        One campus day's public attendance board. Unpaginated for the same reason
+        PublicODRecordCollection is — a page parameter cannot be reconciled with
+        grouping by student without splitting a student across pages — so the
+        server caps the row read and reports whether the cap bit.
+      required: [od_date, students, categories, truncated, generated_at]
+      properties:
+        od_date:
+          type: string
+          format: date
+          description: The day these rows belong to, echoed so the client never has to assume.
+        students:
+          type: array
+          description: Marked students ordered by roll number. Empty means nobody is marked yet.
+          items:
+            $ref: "#/components/schemas/PublicDayStudent"
+        categories:
+          type: array
+          description: >-
+            Every category with a mark on this day, for the filter control. Built
+            from the UNFILTERED day on purpose: a list derived from the filtered
+            rows would shrink to the one option already chosen, and there would
+            be no way back.
+          items:
+            $ref: "#/components/schemas/PublicEventCategory"
+        truncated:
+          type: boolean
+          description: >-
+            True when the server's row cap was reached and the board is showing
+            only part of the day. The screen must say so — a silently short board
+            reads as "these students were not marked".
+        generated_at:
+          type: string
+          format: date-time
 
     PublicODRecordCollection:
       type: object

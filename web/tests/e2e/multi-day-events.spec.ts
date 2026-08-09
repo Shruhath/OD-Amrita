@@ -75,6 +75,16 @@ const publicHistory = {
   generated_at: '2026-08-19T16:30:00Z',
 }
 
+// The board is not what these journeys are about; an empty day keeps it quiet
+// without letting it render a failure alert that their locators would match.
+const publicBoard = {
+  od_date: FESTIVAL_START,
+  students: [],
+  categories: [],
+  truncated: false,
+  generated_at: '2026-08-19T16:30:00Z',
+}
+
 const publicEvents = {
   data: [
     {
@@ -104,6 +114,11 @@ async function installPublicBackend(page: Page) {
   await page.route('**/api/v1/public/**', async (route: Route) => {
     if (route.request().method() === 'OPTIONS') return fulfilPreflight(route)
     const url = route.request().url()
+    // The BOARD (…/public/od-records) and one student's records
+    // (…/public/students/<id>/od-records) both end in the same segment, so the
+    // board has to be matched FIRST or every board request is answered with one
+    // student's history.
+    if (url.includes('/public/od-records')) return json(route, publicBoard)
     if (url.includes('/od-records')) return json(route, publicHistory)
     if (url.includes('/events')) return json(route, publicEvents)
     if (url.includes('/search')) return json(route, { data: [publicHistory.student] })

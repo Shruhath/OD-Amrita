@@ -117,7 +117,7 @@ func composeDisputeRouter(t *testing.T, reached *reachCounter, loader rbac.Princ
 
 	public := newPublicGroup(router, groupLimiter.Middleware())
 	svc := reachingDisputeService{reached: reached}
-	handlerpublicattendance.RegisterPublicRoutes(public, reachingPublicService{reached: reached}, reachingPublicService{reached: reached})
+	handlerpublicattendance.RegisterPublicRoutes(public, reachingPublicService{reached: reached}, reachingPublicService{reached: reached}, reachingPublicService{reached: reached})
 	// The public dispute surface: the event read carries only the group limiter,
 	// the WRITE carries the group limiter plus its own stricter one.
 	handlerdispute.RegisterPublicRoutes(public, svc, writeLimiter.Middleware())
@@ -288,9 +288,10 @@ func TestPublicGroupHoldsExactlyOneWriteAndItIsTheDispute(t *testing.T) {
 	if writes != 1 {
 		t.Errorf("[P0] the public group holds %d writes, want exactly 1", writes)
 	}
-	// Search + od-records + events + disputes.
-	if inspected != 4 {
-		t.Errorf("[P0] inspected %d public routes, want 4 (search, od-records, events, disputes)", inspected)
+	// Search + one student's od-records + the day board + events + disputes.
+	if inspected != 5 {
+		t.Errorf("[P0] inspected %d public routes, want 5 (search, one student's od-records, the day board, "+
+			"events, disputes)", inspected)
 	}
 }
 

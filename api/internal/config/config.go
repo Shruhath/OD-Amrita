@@ -90,6 +90,11 @@ type PublicCacheTTL struct {
 	// EventsSeconds covers the event and category list, which changes only when
 	// an administrator edits it.
 	EventsSeconds int
+	// DaySeconds covers the public attendance board. It is the SAME answer for
+	// every visitor, so it is the read where collapsing a campus-wide refresh
+	// onto one query is worth the most — and a board is read as "who is out
+	// today" rather than "has my mark landed", so it tolerates a few seconds.
+	DaySeconds int
 }
 
 // PublicRateLimit is the token-bucket tuning for the public group.
@@ -257,7 +262,16 @@ func parsePublicCacheTTL() (PublicCacheTTL, error) {
 	if err != nil {
 		return PublicCacheTTL{}, err
 	}
-	return PublicCacheTTL{RecordsSeconds: records, SearchSeconds: search, EventsSeconds: events}, nil
+	day, err := nonNegativeIntDefault("PUBLIC_CACHE_DAY_TTL_SECONDS", 15)
+	if err != nil {
+		return PublicCacheTTL{}, err
+	}
+	return PublicCacheTTL{
+		RecordsSeconds: records,
+		SearchSeconds:  search,
+		EventsSeconds:  events,
+		DaySeconds:     day,
+	}, nil
 }
 
 // nonNegativeIntDefault is positiveIntDefault with zero admitted, for settings

@@ -2150,6 +2150,108 @@ tbody tr:hover {
 /* The day filter. One row: an arrow, the picker, an arrow — so the two things a
    student does here (step back a day, jump to a day) are the same size and in
    the same place on a phone as on a laptop. */
+/* The public board — one day's marked students, above everything else on the
+   page because it is the answer most visitors came for. */
+.public-board {
+  margin: 24px 0 0;
+  padding: clamp(16px, 3vw, 22px);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.public-board-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.public-board-heading h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.public-board-filters {
+  display: grid;
+  /* Two side by side where there is room, stacked on a phone. auto-fit with a
+     min track is what does that without a media query. */
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 14px 0 4px;
+}
+
+/* The table scrolls INSIDE its own box. A roll number column plus a name plus a
+   slot list is wider than a phone, and the page itself must never scroll
+   sideways — that is asserted at 390px. */
+.public-board-scroll {
+  margin-top: 14px;
+  overflow-x: auto;
+}
+
+.public-board-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.public-board-table th,
+.public-board-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--surface-border);
+  vertical-align: top;
+}
+
+.public-board-table th {
+  font-size: 12px;
+  font-weight: 680;
+  color: var(--gray-600);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.public-board-roll {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  font-weight: 620;
+}
+
+/* One chip per slot: the number, and what it was for. Which category belongs to
+   which slot is the part a student actually checks, and a separate column could
+   not say it once somebody has marks in two categories on one day. */
+.public-board-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.public-board-slots li {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 1px solid var(--surface-border);
+  border-left: 3px solid var(--ring-success);
+  border-radius: 999px;
+  background: var(--surface-quiet);
+  white-space: nowrap;
+}
+
+.public-board-slots strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.public-board-slots span {
+  font-size: 12px;
+  color: var(--gray-600);
+}
+
 .public-day-filter {
   display: flex;
   align-items: flex-end;
@@ -2814,6 +2916,7 @@ tbody tr:hover {
 .mark-capture:has(.ui-select__list),
 .public-dispute-panel:has(.ui-select__list),
 .public-day-filter:has(.ui-select__list),
+.public-board:has(.ui-select__list),
 .category-form:has(.ui-select__list),
 .populator-filters:has(.ui-select__list) {
   position: relative;

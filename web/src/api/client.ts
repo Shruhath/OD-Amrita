@@ -48,6 +48,9 @@ export type PublicStudentSearchResults = components['schemas']['PublicStudentSea
 export type PublicEventCategory = components['schemas']['PublicEventCategory']
 export type PublicEvent = components['schemas']['PublicEvent']
 export type PublicEventCollection = components['schemas']['PublicEventCollection']
+export type PublicDayMark = components['schemas']['PublicDayMark']
+export type PublicDayStudent = components['schemas']['PublicDayStudent']
+export type PublicDayAttendance = components['schemas']['PublicDayAttendance']
 export type PublicDisputeRequest = components['schemas']['PublicDisputeRequest']
 export type PublicDisputeReceipt = components['schemas']['PublicDisputeReceipt']
 
@@ -205,6 +208,26 @@ export function createPublicApi() {
       return unwrap(await client.GET('/api/v1/public/students/{student_id}/od-records', {
         params: { path: { student_id: studentID } },
       }))
+    },
+
+    /**
+     * One campus day's public attendance board.
+     *
+     * The filters are sent to the SERVER rather than applied to the response.
+     * Narrowing in the browser would mean the whole day's roster is downloaded
+     * whatever was asked for, which on this surface is the difference between
+     * publishing one slot and publishing everything.
+     *
+     * `od_date` is omitted rather than defaulted here: the server decides what
+     * "today" means, in the campus timezone, and a device on another timezone
+     * must not get a different board from the one everybody else is looking at.
+     */
+    async publicDayAttendance(filter: { odDate?: string; slot?: number; categoryID?: string } = {}) {
+      const query: Record<string, string | number> = {}
+      if (filter.odDate) query.od_date = filter.odDate
+      if (filter.slot) query.slot = filter.slot
+      if (filter.categoryID) query.category_id = filter.categoryID
+      return unwrap(await client.GET('/api/v1/public/od-records', { params: { query } }))
     },
 
     /** Minimal public event/category options for a student with no OD records yet. */

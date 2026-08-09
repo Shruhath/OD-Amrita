@@ -67,6 +67,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/od-records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One day's present OD records for every marked student (public board)
+         * @description The public attendance board: everybody marked on one campus day, grouped by student, so a visitor sees the day's list without searching for anyone. This deliberately reverses the posture of `/public/students/search`, whose whole design is that an empty query cannot become a roster dump — publishing the day's list is a product decision taken knowingly, and the mitigations live here rather than in the shape of the query.
+         *     WHAT IT MAY CARRY IS FIXED AND SMALL: roll number, display name, slot, category and event name. There is no email (the students table has no such column), no actor identity, no `reason_note` — a teacher's free-text justification for a correction must never be public — no capture method, no card token and no fingerprint. The response type is separate from the authenticated attendance family precisely so a column added there cannot appear here.
+         *     Only `status = 'present'` rows. A removed record must not show a student as marked. The row read is capped server-side and the response says so when the cap bites, because a silently truncated board reads as "these students were not marked".
+         */
+        get: operations["listPublicDayODRecords"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/events": {
         parameters: {
             query?: never;
@@ -1027,6 +1049,37 @@ export interface components {
             /** @description Present records for this day, ordered by slot ascending. */
             records: components["schemas"]["PublicODRecord"][];
         };
+        /** @description One slot a student was marked in, on the day being shown. The board's whole payload per mark: which slot, and what it was for. */
+        PublicDayMark: {
+            slot: number;
+            /** Format: uuid */
+            category_id: string;
+            category_name: string;
+            event_name: string;
+        };
+        /** @description One row of the public board. Roll number and display name and nothing else that identifies a person — no student id (the per-student view is reached by searching, which is rate limited on its own terms), no branch, section or batch, and no email. */
+        PublicDayStudent: {
+            roll_no: string;
+            display_name: string;
+            /** @description The student's marks on this day, ordered by slot ascending. */
+            marks: components["schemas"]["PublicDayMark"][];
+        };
+        /** @description One campus day's public attendance board. Unpaginated for the same reason PublicODRecordCollection is — a page parameter cannot be reconciled with grouping by student without splitting a student across pages — so the server caps the row read and reports whether the cap bit. */
+        PublicDayAttendance: {
+            /**
+             * Format: date
+             * @description The day these rows belong to, echoed so the client never has to assume.
+             */
+            od_date: string;
+            /** @description Marked students ordered by roll number. Empty means nobody is marked yet. */
+            students: components["schemas"]["PublicDayStudent"][];
+            /** @description Every category with a mark on this day, for the filter control. Built from the UNFILTERED day on purpose: a list derived from the filtered rows would shrink to the one option already chosen, and there would be no way back. */
+            categories: components["schemas"]["PublicEventCategory"][];
+            /** @description True when the server's row cap was reached and the board is showing only part of the day. The screen must say so — a silently short board reads as "these students were not marked". */
+            truncated: boolean;
+            /** Format: date-time */
+            generated_at: string;
+        };
         /** @description A student's whole public attendance view. Deliberately unpaginated: the server caps the underlying row read instead, because a page parameter cannot be reconciled with day grouping without splitting a day across pages. */
         PublicODRecordCollection: {
             student: components["schemas"]["PublicStudent"];
@@ -1555,6 +1608,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Rate limited (RATE_LIMITED); carries a Retry-After header. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listPublicDayODRecords: {
+        parameters: {
+            query?: {
+                /** @description The campus day to show. Defaults to today in the campus timezone, which is what makes the board answer without any input at all. */
+                od_date?: string;
+                /** @description Narrow to a single slot. */
+                slot?: number;
+                /** @description Narrow to a single category. */
+                category_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The day's marked students, ordered by roll number. An empty list is a valid answer and means nobody has been marked yet. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicDayAttendance"];
+                };
+            };
+            /** @description Malformed od_date, slot or category_id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
                 };
             };
             /** @description Rate limited (RATE_LIMITED); carries a Retry-After header. */

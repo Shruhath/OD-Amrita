@@ -326,3 +326,63 @@ WHERE r.student_id = @student_id
       SELECT 1 FROM user_branches ub
       WHERE ub.user_id = sqlc.narg('viewer_id') AND ub.branch_id = s.branch_id
   ));
+
+-- name: ListPublicDayODRecords :many
+-- One campus day's present OD records, for the UNAUTHENTICATED public board.
+--
+-- THE SELECT LIST IS THE SECURITY BOUNDARY. This result is serialised to the
+-- open internet with no credential, so it is a separate query from
+-- ListAttendanceRecords rather than that query with a viewer of NULL — even
+-- though the joins and the day/slot/category predicates are the same shape. The
+-- authenticated one selects users.email, actor_user_id, capture_method and
+-- reason_note, and reason_note is a teacher's free-text justification for a
+-- correction ("removed, the student was not actually present"). Sharing the
+-- query would mean the next column added for administrators becomes public on
+-- the day it is added, with nothing failing. Duplicating five join lines is the
+-- cheaper mistake.
+--
+-- status = 'present' is NOT optional here. The admin view deliberately shows
+-- removed rows; a public board that did would show a student as marked after a
+-- teacher had removed the record, which is worse than showing nothing at all.
+--
+-- NO events.status FILTER, for the same reason ListPublicStudentODRecords has
+-- none (T6): archiving is an administrative act on the event, not a retraction
+-- of attendance.
+--
+-- Ordered by roll number so the board is scannable by the thing a student looks
+-- for first, then by slot so one student's marks read 6, 7, 10 in that order.
+--
+-- row_limit is a server-chosen ceiling, and the caller cannot raise it: a limit
+-- the open internet controls is a limit that gets set to 10,000. The service
+-- reads one row past the cap to tell "exactly full" from "truncated".
+SELECT
+    s.roll_no,
+    s.name       AS student_name,
+    r.slot,
+    c.id         AS category_id,
+    c.name       AS category_name,
+    e.name       AS event_name
+FROM od_records r
+JOIN students s ON s.id = r.student_id
+JOIN categories c ON c.id = r.category_id
+JOIN events e ON e.id = r.event_id
+WHERE r.od_date = @od_date
+  AND r.status = 'present'
+  AND (sqlc.narg('slot')::integer IS NULL OR r.slot = sqlc.narg('slot'))
+  AND (sqlc.narg('category_id')::uuid IS NULL OR r.category_id = sqlc.narg('category_id'))
+ORDER BY s.roll_no ASC, r.slot ASC, c.name ASC
+LIMIT @row_limit::bigint;
+
+-- name: ListPublicDayCategories :many
+-- The categories that have at least one present mark on a day.
+--
+-- Its own query rather than a distinct over the rows above, because it must be
+-- computed from the UNFILTERED day: derived from the filtered rows, the filter
+-- control would collapse to the single option already chosen and there would be
+-- no way back to the others.
+SELECT DISTINCT c.id, c.name
+FROM od_records r
+JOIN categories c ON c.id = r.category_id
+WHERE r.od_date = @od_date
+  AND r.status = 'present'
+ORDER BY c.name ASC;

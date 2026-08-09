@@ -3,6 +3,8 @@ import { fulfilPreflight, installPortalSession, json } from './support/portal-se
 import {
   publicAttendanceRoute,
   publicDay,
+  publicDayAttendance,
+  publicEmptyDayAttendance,
   publicEmptyRecordCollection,
   publicError,
   publicRecord,
@@ -30,6 +32,7 @@ type PublicRoutesOptions = {
   recordsStatus?: number
   searchStatus?: number
   records?: unknown
+  board?: unknown
 }
 
 async function installPublicRoutes(page: import('@playwright/test').Page, options: PublicRoutesOptions = {}) {
@@ -43,6 +46,9 @@ async function installPublicRoutes(page: import('@playwright/test').Page, option
 
     seen.authorization.push(request.headers()['authorization'] ?? null)
 
+    if (url.pathname.endsWith('/public/od-records')) {
+      return json(route, options.board ?? publicEmptyDayAttendance())
+    }
     if (url.pathname.endsWith('/public/students/search')) {
       seen.searches.push(url.searchParams.get('q') ?? '')
       if (options.searchStatus && options.searchStatus !== 200) {
@@ -119,6 +125,34 @@ test.describe('public attendance dashboard', () => {
     await page.reload()
     await expect(page.getByText(/Onam Celebrations/i).first()).toBeVisible()
     await expect(page.getByText(new RegExp(publicStudentRoll.replace(/\./g, '\\.'), 'i'))).toBeVisible()
+  })
+
+  // BOARD-E2E-001 — the board is on screen at phone width with no search, and
+  // the page still does not scroll sideways.
+  //
+  // A table of roll numbers, names and slot chips is the widest thing this page
+  // has ever rendered, and horizontal overflow on the one screen every student
+  // opens is the most visible possible defect. The table is allowed to scroll
+  // inside its own box; the PAGE is not.
+  test('[P0] the day board loads without searching and does not widen the page', async ({ page }) => {
+    await installPublicRoutes(page, { board: publicDayAttendance() });
+    await page.setViewportSize({ width: 390, height: 844 })
+
+    await page.goto(publicAttendanceRoute)
+
+    const table = page.getByRole('table', { name: /on-duty students/i })
+    await expect(table).toBeVisible()
+    const row = table.getByRole('row', { name: /CB\.SC\.U4CSE24101/ })
+    await expect(row).toContainText('Ananya Rao')
+    await expect(row).toContainText('Procession')
+
+    // Nothing was typed. The board is the page's first answer.
+    await expect(page.getByRole('searchbox', { name: /roll number|name|student/i })).toHaveValue('')
+
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    )
+    expect(overflow, 'the board makes the page scroll sideways on a phone').toBeLessThanOrEqual(1)
   })
 
   // 0.10-E2E-004 — the day shows the marked slots and NOTHING ELSE (AC 11).

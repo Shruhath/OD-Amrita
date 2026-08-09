@@ -64,6 +64,11 @@ func (s reachingPublicService) Records(_ context.Context, _ string) (publicatten
 	return publicattendance.RecordCollection{}, nil
 }
 
+func (s reachingPublicService) Day(_ context.Context, _ publicattendance.DayFilter) (publicattendance.DayAttendance, error) {
+	s.reached.hits++
+	return publicattendance.DayAttendance{ODDate: "2026-08-09"}, nil
+}
+
 // composePublicRouter builds the chain EXACTLY the way run() must: the public
 // group is created from the ROOT router, never from `api`, and carries only the
 // rate limiter.
@@ -90,7 +95,7 @@ func composePublicRouter(t *testing.T, reached *reachCounter, loader rbac.Princi
 	}
 
 	public := newPublicGroup(router, limiter.Middleware())
-	handlerpublicattendance.RegisterPublicRoutes(public, reachingPublicService{reached: reached}, reachingPublicService{reached: reached})
+	handlerpublicattendance.RegisterPublicRoutes(public, reachingPublicService{reached: reached}, reachingPublicService{reached: reached}, reachingPublicService{reached: reached})
 
 	return router
 }
@@ -192,7 +197,7 @@ func TestPublicRoutesAreNotNestedUnderAnAuthenticatedGroup(t *testing.T) {
 			t.Errorf("[P0] %s %s is under /admin", route.Method, route.Path)
 		}
 		if route.Method != http.MethodGet {
-			t.Errorf("[P0] %s %s — the public surface is two READS. There is no POST anywhere in this group "+
+			t.Errorf("[P0] %s %s — this group is READS ONLY. There is no POST anywhere in it "+
 				"(T2): a write reachable without authentication is an open door, not a feature",
 				route.Method, route.Path)
 		}
@@ -201,9 +206,11 @@ func TestPublicRoutesAreNotNestedUnderAnAuthenticatedGroup(t *testing.T) {
 	// Without this the whole loop is skippable: delete the route registration
 	// and every iteration `continue`s, the body never runs, and the test reports
 	// success for a public surface that does not exist.
-	if inspected != 2 {
-		t.Errorf("[P0] inspected %d public routes, want 2 (search + od-records). A test that asserts properties "+
-			"of routes it never found passes most loudly when the feature is missing", inspected)
+	// Search, one student's od-records, and the day board.
+	if inspected != 3 {
+		t.Errorf("[P0] inspected %d public routes, want 3 (search, one student's od-records, the day board). "+
+			"A test that asserts properties of routes it never found passes most loudly when the feature is "+
+			"missing", inspected)
 	}
 }
 
@@ -238,7 +245,7 @@ func TestRateLimiterGuardsThePublicGroupOnly(t *testing.T) {
 		t.Fatalf("build limiter: %v", err)
 	}
 	public := newPublicGroup(router, limiter.Middleware())
-	handlerpublicattendance.RegisterPublicRoutes(public, reachingPublicService{reached: reached}, reachingPublicService{reached: reached})
+	handlerpublicattendance.RegisterPublicRoutes(public, reachingPublicService{reached: reached}, reachingPublicService{reached: reached}, reachingPublicService{reached: reached})
 
 	send := func(path string) int {
 		request := httptest.NewRequest(http.MethodGet, path, nil)

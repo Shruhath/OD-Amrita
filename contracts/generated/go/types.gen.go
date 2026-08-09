@@ -885,6 +885,39 @@ type ODRecordMutationResultActorRole string
 // ODRecordMutationResultStatus defines model for ODRecordMutationResult.Status.
 type ODRecordMutationResultStatus string
 
+// PublicDayAttendance One campus day's public attendance board. Unpaginated for the same reason PublicODRecordCollection is — a page parameter cannot be reconciled with grouping by student without splitting a student across pages — so the server caps the row read and reports whether the cap bit.
+type PublicDayAttendance struct {
+	// Categories Every category with a mark on this day, for the filter control. Built from the UNFILTERED day on purpose: a list derived from the filtered rows would shrink to the one option already chosen, and there would be no way back.
+	Categories  []PublicEventCategory `json:"categories"`
+	GeneratedAt time.Time             `json:"generated_at"`
+
+	// OdDate The day these rows belong to, echoed so the client never has to assume.
+	OdDate openapi_types.Date `json:"od_date"`
+
+	// Students Marked students ordered by roll number. Empty means nobody is marked yet.
+	Students []PublicDayStudent `json:"students"`
+
+	// Truncated True when the server's row cap was reached and the board is showing only part of the day. The screen must say so — a silently short board reads as "these students were not marked".
+	Truncated bool `json:"truncated"`
+}
+
+// PublicDayMark One slot a student was marked in, on the day being shown. The board's whole payload per mark: which slot, and what it was for.
+type PublicDayMark struct {
+	CategoryId   openapi_types.UUID `json:"category_id"`
+	CategoryName string             `json:"category_name"`
+	EventName    string             `json:"event_name"`
+	Slot         int                `json:"slot"`
+}
+
+// PublicDayStudent One row of the public board. Roll number and display name and nothing else that identifies a person — no student id (the per-student view is reached by searching, which is rate limited on its own terms), no branch, section or batch, and no email.
+type PublicDayStudent struct {
+	DisplayName string `json:"display_name"`
+
+	// Marks The student's marks on this day, ordered by slot ascending.
+	Marks  []PublicDayMark `json:"marks"`
+	RollNo string          `json:"roll_no"`
+}
+
 // PublicDisputeReceipt Public creation receipt. It proves server-side roster auto-population by returning the resolved public student display shape, but deliberately never echoes submitted_email, user ids, card material, dispute content or resolution fields.
 type PublicDisputeReceipt struct {
 	DisputeId openapi_types.UUID         `json:"dispute_id"`
@@ -1288,6 +1321,18 @@ type ListStudentODRecordHistoryParams struct {
 // SubmitPublicDispute400JSONResponseBody defines parameters for SubmitPublicDispute.
 type SubmitPublicDispute400JSONResponseBody struct {
 	union json.RawMessage
+}
+
+// ListPublicDayODRecordsParams defines parameters for ListPublicDayODRecords.
+type ListPublicDayODRecordsParams struct {
+	// OdDate The campus day to show. Defaults to today in the campus timezone, which is what makes the board answer without any input at all.
+	OdDate *openapi_types.Date `form:"od_date,omitempty" json:"od_date,omitempty"`
+
+	// Slot Narrow to a single slot.
+	Slot *int `form:"slot,omitempty" json:"slot,omitempty"`
+
+	// CategoryId Narrow to a single category.
+	CategoryId *openapi_types.UUID `form:"category_id,omitempty" json:"category_id,omitempty"`
 }
 
 // SearchPublicStudentsParams defines parameters for SearchPublicStudents.

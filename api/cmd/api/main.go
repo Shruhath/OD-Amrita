@@ -207,11 +207,12 @@ func run() error {
 	cachedRecords := publiccache.NewRecords(publicAttendanceSvc, time.Duration(cacheTTL.RecordsSeconds)*time.Second)
 	cachedEvents := publiccache.NewEvents(publicAttendanceSvc, time.Duration(cacheTTL.EventsSeconds)*time.Second)
 	cachedSearch := publiccache.NewSearch(studentSvc, time.Duration(cacheTTL.SearchSeconds)*time.Second)
+	cachedDay := publiccache.NewDay(publicAttendanceSvc, time.Duration(cacheTTL.DaySeconds)*time.Second)
 
-	// The public dashboard's two reads. The SAME student service serves the
+	// The public dashboard's reads. The SAME student service serves the
 	// anonymous search — PublicSearch is a separate, actor-less, hard-capped
 	// method on it, not a relaxation of the authenticated Search.
-	handlerpublicattendance.RegisterPublicRoutes(publicGroup, cachedSearch, cachedRecords)
+	handlerpublicattendance.RegisterPublicRoutes(publicGroup, cachedSearch, cachedRecords, cachedDay)
 	handlerdispute.RegisterPublicRoutes(publicGroup, publicDisputeSurface{
 		submitter: disputeSvc,
 		events:    cachedEvents,

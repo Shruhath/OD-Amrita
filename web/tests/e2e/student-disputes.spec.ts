@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { fulfilPreflight, installPortalSession, json } from './support/portal-session'
 import {
   publicAttendanceRoute,
+  publicEmptyDayAttendance,
   publicRecordCollection,
   publicSearchResults,
   publicStudentID,
@@ -52,6 +53,7 @@ async function installDisputeRoutes(page: import('@playwright/test').Page, optio
 
     seen.authorization.push(request.headers()['authorization'] ?? null)
 
+    if (url.pathname.endsWith('/public/od-records')) return json(route, publicEmptyDayAttendance())
     if (url.pathname.endsWith('/public/students/search')) return json(route, publicSearchResults())
     if (url.pathname.includes('/public/students/') && url.pathname.endsWith('/od-records')) {
       return json(route, options.records ?? publicRecordCollection())

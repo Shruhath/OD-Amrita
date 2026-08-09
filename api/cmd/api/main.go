@@ -23,8 +23,8 @@ import (
 
 	"github.com/Shruhath/OD-Amrita/api/internal/config"
 	handleradmin "github.com/Shruhath/OD-Amrita/api/internal/handler/admin"
-	handlerattendanceimport "github.com/Shruhath/OD-Amrita/api/internal/handler/attendanceimport"
 	handlerattendanceexport "github.com/Shruhath/OD-Amrita/api/internal/handler/attendanceexport"
+	handlerattendanceimport "github.com/Shruhath/OD-Amrita/api/internal/handler/attendanceimport"
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
 	handlercardtoken "github.com/Shruhath/OD-Amrita/api/internal/handler/cardtoken"
 	handlerdispute "github.com/Shruhath/OD-Amrita/api/internal/handler/dispute"
@@ -35,27 +35,28 @@ import (
 	handlerscan "github.com/Shruhath/OD-Amrita/api/internal/handler/scan"
 	handlerstudent "github.com/Shruhath/OD-Amrita/api/internal/handler/student"
 	handlerteacher "github.com/Shruhath/OD-Amrita/api/internal/handler/teacher"
-	"github.com/Shruhath/OD-Amrita/api/internal/job/eod_audit"
-	jobattendanceimport "github.com/Shruhath/OD-Amrita/api/internal/job/attendance_import"
 	jobattendanceexport "github.com/Shruhath/OD-Amrita/api/internal/job/attendance_export"
+	jobattendanceimport "github.com/Shruhath/OD-Amrita/api/internal/job/attendance_import"
+	"github.com/Shruhath/OD-Amrita/api/internal/job/eod_audit"
+	jobscanpostprocess "github.com/Shruhath/OD-Amrita/api/internal/job/scan_postprocess"
 	"github.com/Shruhath/OD-Amrita/api/internal/jobs"
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
 	corsmw "github.com/Shruhath/OD-Amrita/api/internal/middleware/cors"
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/ratelimit"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
+	svcattendanceexport "github.com/Shruhath/OD-Amrita/api/internal/service/attendanceexport"
+	svcattendanceimport "github.com/Shruhath/OD-Amrita/api/internal/service/attendanceimport"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	svccardtoken "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
 	svcdispute "github.com/Shruhath/OD-Amrita/api/internal/service/dispute"
-	svcattendanceimport "github.com/Shruhath/OD-Amrita/api/internal/service/attendanceimport"
-	svcattendanceexport "github.com/Shruhath/OD-Amrita/api/internal/service/attendanceexport"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
 	svcmarking "github.com/Shruhath/OD-Amrita/api/internal/service/marking"
 	svcodrecord "github.com/Shruhath/OD-Amrita/api/internal/service/od_record"
 	svcpublicattendance "github.com/Shruhath/OD-Amrita/api/internal/service/publicattendance"
 	"github.com/Shruhath/OD-Amrita/api/internal/service/publiccache"
-	svcscan "github.com/Shruhath/OD-Amrita/api/internal/service/scan"
 	"github.com/Shruhath/OD-Amrita/api/internal/service/reconciliation"
+	svcscan "github.com/Shruhath/OD-Amrita/api/internal/service/scan"
 	svcstudent "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 	svcteacher "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
 	svcuser "github.com/Shruhath/OD-Amrita/api/internal/service/user"
@@ -98,6 +99,7 @@ func run() error {
 	river.AddWorker(workerRegistry.Workers(), &jobattendanceimport.Worker{Service: attendanceImportSvc})
 	attendanceExportSvc := svcattendanceexport.NewService(pool, riverClient)
 	river.AddWorker(workerRegistry.Workers(), &jobattendanceexport.Worker{Service: attendanceExportSvc})
+	river.AddWorker(workerRegistry.Workers(), &jobscanpostprocess.Worker{Pool: pool})
 	if err := jobs.Start(context.Background(), riverClient); err != nil {
 		return err
 	}
@@ -210,7 +212,7 @@ func run() error {
 	)
 	handlerodrecord.RegisterRoutes(markAPI, markSvc)
 	handlerodrecord.RegisterRecordManagementRoutes(markAPI, svcodrecord.NewManagementService(pool, st))
-	handlerscan.RegisterRoutes(markAPI, svcscan.NewService(markSvc, pool))
+	handlerscan.RegisterRoutes(markAPI, svcscan.NewService(markSvc, pool, riverClient))
 	handlerodrecord.RegisterPortalMarkRoutes(markAPI, portalMarkReads)
 	// The teacher-reachable live attendance read. Mounted on markAPI rather than
 	// the admin group; the service scopes a teacher to their own branches.

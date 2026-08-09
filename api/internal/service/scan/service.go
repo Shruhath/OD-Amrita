@@ -9,9 +9,12 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/riverqueue/river"
 
 	"github.com/Shruhath/OD-Amrita/api/internal/domain"
+	postjob "github.com/Shruhath/OD-Amrita/api/internal/job/scan_postprocess"
 	odsvc "github.com/Shruhath/OD-Amrita/api/internal/service/od_record"
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
 )
@@ -35,10 +38,11 @@ type Marker interface {
 type Service struct {
 	marker Marker
 	pool   *pgxpool.Pool
+	client *river.Client[pgx.Tx]
 }
 
-func NewService(marker Marker, pool *pgxpool.Pool) *Service {
-	return &Service{marker: marker, pool: pool}
+func NewService(marker Marker, pool *pgxpool.Pool, client *river.Client[pgx.Tx]) *Service {
+	return &Service{marker: marker, pool: pool, client: client}
 }
 
 type Outcome struct {
@@ -79,13 +83,10 @@ func (s *Service) Submit(ctx context.Context, actor Actor, item Item) (Outcome, 
 			input.Card.Version = *item.CardVersion
 		}
 	}
-	_, markErr := s.marker.Mark(ctx, actor, input)
+	markResult, markErr := s.marker.Mark(ctx, actor, input)
 	if markErr != nil {
 		var domainErr domain.DomainError
 		if errors.As(markErr, &domainErr) && domainErr.Code == contracts.ErrorCodeSCANDUPLICATE {
-			if err := s.remember(ctx, id, actor.UserID); err != nil {
-				return Outcome{}, err
-			}
 			return Outcome{Status: "duplicate"}, nil
 		}
 		if errors.As(markErr, &domainErr) {
@@ -93,22 +94,49 @@ func (s *Service) Submit(ctx context.Context, actor Actor, item Item) (Outcome, 
 		}
 		return Outcome{Status: "rejected", Reason: reasonFor(markErr)}, nil
 	}
-	if err := s.remember(ctx, id, actor.UserID); err != nil {
+	if err := s.rememberAndSchedule(ctx, id, actor.UserID, markResult); err != nil {
 		return Outcome{}, err
 	}
 	return Outcome{Status: "applied"}, nil
 }
 
-func (s *Service) remember(ctx context.Context, id uuid.UUID, actorID string) error {
+func (s *Service) rememberAndSchedule(ctx context.Context, id uuid.UUID, actorID string, result odsvc.MarkResult) error {
 	actor, err := uuid.Parse(actorID)
 	if err != nil {
 		return fmt.Errorf("scan: invalid actor id: %w", err)
 	}
-	_, err = s.pool.Exec(ctx, `
+	if s.client == nil {
+		return errors.New("scan: River client is nil")
+	}
+	eventID, err := uuid.Parse(result.EventID)
+	if err != nil {
+		return fmt.Errorf("scan: invalid marked event id: %w", err)
+	}
+	recordID, err := uuid.Parse(result.RecordID)
+	if err != nil {
+		return fmt.Errorf("scan: invalid marked record id: %w", err)
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO scan_idempotency_keys (scan_id, actor_user_id)
 		VALUES ($1, $2)
-		ON CONFLICT (scan_id) DO NOTHING`, id, actor)
-	return err
+		ON CONFLICT (scan_id) DO NOTHING`, id, actor); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO scan_post_processings (scan_id, event_id, record_id)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (scan_id) DO NOTHING`, id, eventID, recordID); err != nil {
+		return err
+	}
+	if _, err := s.client.InsertTx(ctx, tx, postjob.Args{ScanID: id.String()}, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true}}); err != nil {
+		return fmt.Errorf("scan: enqueue post-processing: %w", err)
+	}
+	return tx.Commit(ctx)
 }
 
 func reasonFor(err error) string {

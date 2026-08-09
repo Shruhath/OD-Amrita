@@ -14,7 +14,7 @@ func (markerMustNotRun) Mark(context.Context, Actor, odsvc.MarkInput) (odsvc.Mar
 }
 
 func TestSubmitRejectsNonUUIDv7BeforeDatabaseWork(t *testing.T) {
-	svc := NewService(markerMustNotRun{}, nil)
+	svc := NewService(markerMustNotRun{}, nil, nil)
 	outcome, err := svc.Submit(context.Background(), Actor{UserID: "not-used"}, Item{ID: "550e8400-e29b-41d4-a716-446655440000"})
 	if err != nil {
 		t.Fatalf("Submit returned error: %v", err)

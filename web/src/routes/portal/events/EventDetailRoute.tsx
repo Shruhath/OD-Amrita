@@ -1,3 +1,4 @@
+import { rolesFor } from '../../access'
 import { lazyRoute } from '../../lazyRoute'
 import { Suspense } from 'react'
 import { useParams } from 'react-router-dom'
@@ -10,7 +11,7 @@ export default function EventDetailRoute() {
   const { event_id: eventID = '' } = useParams()
 
   return (
-    <SessionBoundary>
+    <SessionBoundary allowedRoles={rolesFor('/portal/events/:event_id')}>
       <Suspense fallback={<LoadingScreen label="Loading event" />}>
         {/* Keyed by the event id so navigating from one event to another
             REMOUNTS the portal. React Router reuses a component instance when

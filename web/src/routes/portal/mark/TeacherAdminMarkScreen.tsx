@@ -139,7 +139,7 @@ export default function TeacherAdminMarkScreen() {
     <PortalShell>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">Event administration</p>
+          <p className="eyebrow">Attendance</p>
           <h1>Mark attendance</h1>
           <p>Search-mark present students for an event and category, with an explicit slot.</p>
         </div>
@@ -157,7 +157,14 @@ export default function TeacherAdminMarkScreen() {
           </div>
         )}
         {events.isSuccess && eventOptions.length === 0 && (
-          <p className="empty-note">No events available to mark.</p>
+          <div className="empty-state" role="status">
+            <h3>No events to mark yet</h3>
+            <p>
+              You can mark attendance for an active event that covers one of your branches. There
+              are none right now — an administrator adds your branch to an event to make it appear
+              here.
+            </p>
+          </div>
         )}
         {categories.isError && (
           <div className="notice error" role="alert">
@@ -169,6 +176,7 @@ export default function TeacherAdminMarkScreen() {
           <p className="empty-note">No categories available for this event.</p>
         )}
 
+        {events.isSuccess && eventOptions.length === 0 ? null : (
         <form className="category-form" onSubmit={submit} noValidate>
           <label htmlFor="teacher-mark-event">Event</label>
           <Select
@@ -209,6 +217,7 @@ export default function TeacherAdminMarkScreen() {
 
           <button className="primary" type="submit" disabled={markDisabled}>Mark present</button>
         </form>
+        )}
 
         {selectedStudent && (
           <p className="notice" role="status">

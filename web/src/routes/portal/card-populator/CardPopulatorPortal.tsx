@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { EventApi, ResolvedCardStudent, StudentCollection } from '../../../api/client'
 import { PortalShell } from '../../../components/PortalShell'
 import { Select } from '../../../components/ui/Select'
+import { asStringRecord, usePersistentState } from '../../../features/persistence/sessionState'
 import { useAuth } from '../../../features/auth/context'
 import { CardNfcError, createWebNfcAdapter, type WebNfcStatus } from '../../../features/nfc/webNfc'
 import { messageOf } from '../events/format'
@@ -79,8 +80,26 @@ export default function CardPopulatorPortal() {
   const [nfcStatus, setNfcStatus] = useState<WebNfcStatus>(() => nfc.status())
   useEffect(() => setNfcStatus(nfc.status()), [nfc])
 
-  const [draft, setDraft] = useState<Filters>({ branchID: '', batch: '', section: '' })
-  const [applied, setApplied] = useState<Filters | null>(null)
+  // BOTH the draft and the applied filters survive the app being backgrounded.
+  //
+  // `applied` is the one that matters: the roster query is keyed on it, so
+  // restoring it re-fetches the same roster from the server and the operator
+  // comes back to the screen they left. The roster itself is deliberately NOT
+  // stored — a resolved list of students on the device is exactly what AR20
+  // forbids — which is why restoring the SELECTION rather than the data is both
+  // the safe answer and the sufficient one.
+  //
+  // `draft` is stored too, so a half-filled form is not lost either.
+  const [draft, setDraft] = usePersistentState<Filters>(
+    'card-populator.draft.v1',
+    { branchID: '', batch: '', section: '' },
+    asStringRecord(['branchID', 'batch', 'section']),
+  )
+  const [applied, setApplied] = usePersistentState<Filters | null>(
+    'card-populator.applied.v1',
+    null,
+    (raw) => (raw === null ? null : asStringRecord(['branchID', 'batch', 'section'])(raw)),
+  )
   const [progress, setProgress] = useState<Record<string, CardProgress>>(readStoredProgress)
   const [activeStudentID, setActiveStudentID] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)

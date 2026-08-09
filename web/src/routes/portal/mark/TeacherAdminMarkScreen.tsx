@@ -4,6 +4,7 @@ import type { MarkAttendanceResult, ResolvedCardStudent } from '../../../api/cli
 import { ApiFailure } from '../../../api/client'
 import { PortalShell } from '../../../components/PortalShell'
 import { Select } from '../../../components/ui/Select'
+import { asString, usePersistentState } from '../../../features/persistence/sessionState'
 import { useAuth } from '../../../features/auth/context'
 
 const SEARCH_DEBOUNCE_MS = 250
@@ -14,9 +15,11 @@ const SLOT_VALUES = Array.from({ length: 12 }, (_, index) => index + 1)
 export default function TeacherAdminMarkScreen() {
   const { api } = useAuth()
   const queryClient = useQueryClient()
-  const [eventID, setEventID] = useState('')
-  const [categoryID, setCategoryID] = useState('')
-  const [slot, setSlot] = useState('1')
+  // The scope survives the app being backgrounded; the student search below
+  // deliberately does not, because its results are roster data.
+  const [eventID, setEventID] = usePersistentState('teacher-mark.event.v1', '', asString)
+  const [categoryID, setCategoryID] = usePersistentState('teacher-mark.category.v1', '', asString)
+  const [slot, setSlot] = usePersistentState('teacher-mark.slot.v1', '1', asString)
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [selectedStudent, setSelectedStudent] = useState<ResolvedCardStudent | null>(null)
@@ -39,7 +42,7 @@ export default function TeacherAdminMarkScreen() {
     if (!eventOptions.some((event) => event.id === eventID)) {
       setEventID(eventOptions[0].id)
     }
-  }, [eventID, eventOptions])
+  }, [eventID, eventOptions, setEventID])
 
   const categories = useQuery({
     queryKey: ['portal', 'mark', 'events', eventID, 'categories'],
@@ -53,7 +56,7 @@ export default function TeacherAdminMarkScreen() {
     if (!categoryOptions.some((category) => category.id === categoryID)) {
       setCategoryID(categoryOptions[0].id)
     }
-  }, [categoryID, categoryOptions])
+  }, [categoryID, categoryOptions, setCategoryID])
 
   useEffect(() => {
     setSelectedStudent(null)

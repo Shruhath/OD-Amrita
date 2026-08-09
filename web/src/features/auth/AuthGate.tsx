@@ -4,6 +4,7 @@ import { ThemeToggle } from '../../components/ThemeToggle'
 import { ApiFailure, createEventApi } from '../../api/client'
 import type { SessionPort } from './session'
 import { hasPendingAuthCallback } from './callback'
+import { clearPersistedState } from '../persistence/sessionState'
 import { LoadingScreen } from '../../components/ui/Spinner'
 import { AuthContext, useAuth, type AuthState } from './context'
 
@@ -13,9 +14,27 @@ export function AuthProvider({ children, session }: { children: ReactNode; sessi
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+  /**
+   * Resolves the signed-in identity.
+   *
+   * `background` is the difference between the FIRST resolution and a
+   * REVALIDATION, and it matters far more than it looks. Supabase fires an auth
+   * state change whenever it refreshes a token — including when a phone returns
+   * to the browser after the app was in the background. Every one of those used
+   * to set `loading` true, which made SessionBoundary swap the screen for the
+   * loading state, which UNMOUNTS the entire route beneath it. The screen was
+   * then rebuilt from scratch: a half-filled form, a loaded roster, a chosen
+   * event — all gone, because switching apps for a moment was indistinguishable
+   * from signing in for the first time.
+   *
+   * A background revalidation therefore keeps the current identity on screen and
+   * swaps it only if the answer actually changed.
+   */
+  const load = useCallback(async ({ background = false } = {}) => {
+    if (!background) {
+      setLoading(true)
+      setError(null)
+    }
     try {
       const token = await session.accessToken()
       if (!token) {
@@ -23,24 +42,34 @@ export function AuthProvider({ children, session }: { children: ReactNode; sessi
         return
       }
       setIdentity(await api.identity())
+      setError(null)
     } catch (cause) {
+      const unauthorized = cause instanceof ApiFailure && cause.status === 401
+      // A REVALIDATION THAT FAILED IS NOT A SIGN-OUT. A phone moving between
+      // wifi and mobile data drops requests routinely, and tearing the screen
+      // down for that would lose the operator's work over a blip they never saw.
+      // Only a 401 — the server actively refusing the credential — clears it;
+      // anything else leaves the last known identity in place and stays quiet,
+      // and the next revalidation or user action surfaces the problem honestly.
+      if (background && !unauthorized) return
+
       setIdentity(null)
       // The API client has already attempted one refresh and cleared an invalid
       // session on 401. Return to the sign-in state instead of presenting a
       // retry loop for credentials that no longer exist.
-      setError(cause instanceof ApiFailure && cause.status === 401
+      setError(unauthorized
         ? null
         : cause instanceof ApiFailure
           ? cause.body.message
           : 'Authentication could not be verified.')
     } finally {
-      setLoading(false)
+      if (!background) setLoading(false)
     }
   }, [api, session])
 
   useEffect(() => {
     void load()
-    return session.subscribe(() => void load())
+    return session.subscribe(() => void load({ background: true }))
   }, [load, session])
 
   const value: AuthState = {
@@ -58,6 +87,10 @@ export function AuthProvider({ children, session }: { children: ReactNode; sessi
     },
     async signOut() {
       await session.signOut()
+      // A coordinator's phone is passed around during an event, so the next
+      // person to sign in must not inherit the previous one's screen — including
+      // the card populator's per-student progress.
+      clearPersistedState()
       setIdentity(null)
     },
     reload: load,

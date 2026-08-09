@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { CategoryRecord, AttendanceRecordCollection } from '../../../api/client'
 import { Select } from '../../../components/ui/Select'
+import { asString, usePersistentState } from '../../../features/persistence/sessionState'
 import { useAuth } from '../../../features/auth/context'
 import { enumerateDays, formatDate, messageOf } from './format'
 
@@ -20,9 +21,14 @@ export function EventAttendanceSection({
   endDate: string
 }) {
   const { api } = useAuth()
-  const [categoryID, setCategoryID] = useState('')
-  const [slot, setSlot] = useState('')
-  const [odDate, setODDate] = useState('')
+  // Keyed PER EVENT, so returning to a different event does not inherit the
+  // filters from the last one — which would show an empty table and read as
+  // "nobody was marked" rather than as a filter that was still applied.
+  const [categoryID, setCategoryID] = usePersistentState(`attendance.${eventID}.category.v1`, '', asString)
+  const [slot, setSlot] = usePersistentState(`attendance.${eventID}.slot.v1`, '', asString)
+  const [odDate, setODDate] = usePersistentState(`attendance.${eventID}.day.v1`, '', asString)
+  // The page is NOT persisted. Coming back to page 7 of a table whose contents
+  // have moved on is worse than coming back to the top of it.
   const [page, setPage] = useState(1)
 
   // Bounded to the event's own days, like every other filter here. A free date
@@ -39,7 +45,7 @@ export function EventAttendanceSection({
     if (!categories.some((category) => category.id === categoryID)) {
       setCategoryID('')
     }
-  }, [categoryID, categories])
+  }, [categoryID, categories, setCategoryID])
 
   const attendance = useQuery({
     queryKey: ['admin', 'attendance', eventID, categoryID || 'all', slot || 'all', odDate || 'all', page],

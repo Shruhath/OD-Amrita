@@ -1,5 +1,5 @@
 import { selectByValue } from '../../../test/select'
-import { render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, test, vi } from 'vitest'
@@ -138,6 +138,62 @@ afterEach(() => {
   window.sessionStorage.clear()
   vi.unstubAllGlobals()
   delete (window as unknown as { NDEFReader?: unknown }).NDEFReader
+})
+
+describe('returning to a backgrounded app', () => {
+  // The reported failure, exactly: choose branch, batch and section, load the
+  // roster, glance at the phone's home screen, come back — and everything is
+  // gone. On Android the tab is discarded under memory pressure and the page is
+  // rebuilt from nothing, so surviving that means the SELECTION was stored and
+  // the roster re-fetched from it.
+  test('[P0] the roster is back without re-choosing branch, batch and section', async () => {
+    installNfc()
+    const user = userEvent.setup()
+    renderPopulator()
+
+    const table = await loadRoster(user)
+    expect(within(table).getAllByRole('row').length).toBeGreaterThan(1)
+
+    // The tab is discarded and the page rebuilt. A remount with no memory of the
+    // previous one is what the operator experiences as "it forgot".
+    cleanup()
+    renderPopulator()
+
+    // No interaction at all this time — the roster comes back on its own.
+    //
+    // Waiting on a STUDENT rather than on the table: the table renders its
+    // header while the fetch is still in flight, so waiting for the table alone
+    // would resolve against an empty one and pass whether or not the roster ever
+    // returned.
+    expect(await screen.findByText('CB.SC.U4CSE24001', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByText('CB.SC.U4CSE24002')).toBeInTheDocument()
+    expect(screen.getByLabelText('Batch')).toHaveValue('2024')
+    expect(screen.getByLabelText('Section')).toHaveValue('A')
+  })
+
+  // AR20. The roster comes BACK, but it must come back from the SERVER — a
+  // resolved list of students sitting on the device is the cached list the
+  // no-list rule exists to forbid, and it would outlive the screen that fetched
+  // it. Restoring the selection rather than the data is what makes the feature
+  // safe, so this asserts the data is genuinely absent.
+  test('[P0] no student name, roll number or card value is written to storage', async () => {
+    installNfc()
+    const user = userEvent.setup()
+    const { students } = renderPopulator()
+
+    await loadRoster(user)
+
+    const stored = Object.entries({ ...window.sessionStorage })
+      .map(([key, value]) => `${key}=${String(value)}`)
+      .join('\n')
+
+    for (const student of students) {
+      expect(stored, `a student roll number reached storage: ${student.roll_no}`).not.toContain(student.roll_no)
+      expect(stored, `a student name reached storage: ${student.display_name}`).not.toContain(student.display_name)
+    }
+    // The selection itself is expected to be there — that is the whole feature.
+    expect(stored).toContain(cardPopulatorBranch.id)
+  })
 })
 
 describe('Card populator portal', () => {

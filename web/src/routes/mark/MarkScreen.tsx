@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CaptureMethod, CardPayload, MarkAttendanceResult, ResolvedCardStudent } from '../../api/client'
 import { ApiFailure } from '../../api/client'
 import { AccountMenu } from '../../components/AccountMenu'
+import { asString, usePersistentState } from '../../features/persistence/sessionState'
 import { ThemeToggle } from '../../components/ThemeToggle'
 import { Select } from '../../components/ui/Select'
 import { useAuth } from '../../features/auth/context'
@@ -65,8 +66,13 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
   )
 
   const [mode, setMode] = useState<CaptureMode>('nfc')
-  const [eventID, setEventID] = useState('')
-  const [categoryID, setCategoryID] = useState('')
+  // Rule 4 above says the selected event and category MAY persist, and that an
+  // event id is public rather than identity data. This is where that is used:
+  // switching apps mid-event no longer costs the operator their scope. Nothing
+  // the scope FETCHES is stored — the roster, the search results and every card
+  // value stay in memory only.
+  const [eventID, setEventID] = usePersistentState('mark.event.v1', '', asString)
+  const [categoryID, setCategoryID] = usePersistentState('mark.category.v1', '', asString)
 
   // ---------------------------------------------------------------------
   // The banner, split in two on purpose.
@@ -111,7 +117,7 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
     if (!eventOptions.some((event) => event.id === eventID)) {
       setEventID(eventOptions[0].id)
     }
-  }, [eventID, eventOptions])
+  }, [eventID, eventOptions, setEventID])
 
   const categories = useQuery({
     queryKey: ['markable-categories', eventID],
@@ -126,7 +132,7 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
     if (!categoryOptions.some((category) => category.id === categoryID)) {
       setCategoryID(categoryOptions[0].id)
     }
-  }, [categoryID, categoryOptions])
+  }, [categoryID, categoryOptions, setCategoryID])
 
   const scopeReady = eventID !== '' && categoryID !== ''
 

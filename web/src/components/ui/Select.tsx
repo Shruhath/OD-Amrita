@@ -161,7 +161,7 @@ export function Select({
       onValueChange={(next) => onChange(next === emptyValue ? '' : next)}
       disabled={disabled}
     >
-      <RadixSelectTrigger ref={triggerRef} id={id} aria-label={aria['aria-label']} aria-labelledby={aria['aria-labelledby']} aria-describedby={aria['aria-describedby']} aria-activedescendant={open ? optionID(activeIndex) : undefined} onKeyDownCapture={handleKeyDown} className={className}>
+      <RadixSelectTrigger ref={triggerRef} id={id} data-value={value} aria-label={aria['aria-label']} aria-labelledby={aria['aria-labelledby']} aria-describedby={aria['aria-describedby']} aria-activedescendant={open ? optionID(activeIndex) : undefined} onKeyDownCapture={handleKeyDown} className={className}>
         <RadixSelectValue placeholder={placeholder} />
       </RadixSelectTrigger>
       <RadixSelectContent>

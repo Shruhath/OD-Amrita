@@ -81,9 +81,10 @@ func (e AuthenticatedIdentityRole) Valid() bool {
 
 // Defines values for CaptureMethod.
 const (
-	CaptureMethodCamera CaptureMethod = "camera"
-	CaptureMethodNfc    CaptureMethod = "nfc"
-	CaptureMethodSearch CaptureMethod = "search"
+	CaptureMethodCamera  CaptureMethod = "camera"
+	CaptureMethodDispute CaptureMethod = "dispute"
+	CaptureMethodNfc     CaptureMethod = "nfc"
+	CaptureMethodSearch  CaptureMethod = "search"
 )
 
 // Valid indicates whether the value is a known member of the CaptureMethod enum.
@@ -91,9 +92,29 @@ func (e CaptureMethod) Valid() bool {
 	switch e {
 	case CaptureMethodCamera:
 		return true
+	case CaptureMethodDispute:
+		return true
 	case CaptureMethodNfc:
 		return true
 	case CaptureMethodSearch:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DisputeOutcome.
+const (
+	DisputeOutcomeApproved DisputeOutcome = "approved"
+	DisputeOutcomeRejected DisputeOutcome = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the DisputeOutcome enum.
+func (e DisputeOutcome) Valid() bool {
+	switch e {
+	case DisputeOutcomeApproved:
+		return true
+	case DisputeOutcomeRejected:
 		return true
 	default:
 		return false
@@ -112,6 +133,24 @@ func (e DisputeStatus) Valid() bool {
 	case DisputeStatusOpen:
 		return true
 	case DisputeStatusResolved:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DisputeResolutionRequestOutcome.
+const (
+	DisputeResolutionRequestOutcomeApproved DisputeResolutionRequestOutcome = "approved"
+	DisputeResolutionRequestOutcomeRejected DisputeResolutionRequestOutcome = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the DisputeResolutionRequestOutcome enum.
+func (e DisputeResolutionRequestOutcome) Valid() bool {
+	switch e {
+	case DisputeResolutionRequestOutcomeApproved:
+		return true
+	case DisputeResolutionRequestOutcomeRejected:
 		return true
 	default:
 		return false
@@ -674,20 +713,24 @@ type CreateTeacherProfileRequest struct {
 
 // Dispute Authenticated teacher/admin dispute row. This shape includes submitted email and resolution fields, so no public schema may reference it.
 type Dispute struct {
-	CategoryId             openapi_types.UUID  `json:"category_id"`
-	CategoryName           string              `json:"category_name"`
-	ClaimedCoordinatorName *string             `json:"claimed_coordinator_name"`
-	DisputeId              openapi_types.UUID  `json:"dispute_id"`
-	EventDate              openapi_types.Date  `json:"event_date"`
-	EventId                openapi_types.UUID  `json:"event_id"`
-	EventName              string              `json:"event_name"`
-	OdDate                 openapi_types.Date  `json:"od_date"`
-	Reference              string              `json:"reference"`
-	ResolutionNote         *string             `json:"resolution_note"`
-	ResolvedAt             *time.Time          `json:"resolved_at"`
-	ResolvedByUserId       *openapi_types.UUID `json:"resolved_by_user_id"`
-	Slot                   int                 `json:"slot"`
-	Status                 DisputeStatus       `json:"status"`
+	CategoryId             openapi_types.UUID `json:"category_id"`
+	CategoryName           string             `json:"category_name"`
+	ClaimedCoordinatorName *string            `json:"claimed_coordinator_name"`
+	DisputeId              openapi_types.UUID `json:"dispute_id"`
+	EventDate              openapi_types.Date `json:"event_date"`
+	EventId                openapi_types.UUID `json:"event_id"`
+	EventName              string             `json:"event_name"`
+	OdDate                 openapi_types.Date `json:"od_date"`
+
+	// OdRecordId The attendance record an approved resolution created, returned only on the response to that resolution. Null when the outcome was rejected, when the student was already marked for the slot, and on every list read.
+	OdRecordId       *openapi_types.UUID `json:"od_record_id,omitempty"`
+	Outcome          *DisputeOutcome     `json:"outcome"`
+	Reference        string              `json:"reference"`
+	ResolutionNote   *string             `json:"resolution_note"`
+	ResolvedAt       *time.Time          `json:"resolved_at"`
+	ResolvedByUserId *openapi_types.UUID `json:"resolved_by_user_id"`
+	Slot             int                 `json:"slot"`
+	Status           DisputeStatus       `json:"status"`
 
 	// Student A student as the public dashboard shows them: display fields only. The `students` table has no email column and card material lives in `student_card_tokens`, which no public query joins, so this shape cannot be widened by accident — only deliberately.
 	Student        PublicStudent `json:"student"`
@@ -695,6 +738,9 @@ type Dispute struct {
 	SubmittedAt    time.Time     `json:"submitted_at"`
 	SubmittedEmail string        `json:"submitted_email"`
 }
+
+// DisputeOutcome defines model for Dispute.Outcome.
+type DisputeOutcome string
 
 // DisputeStatus defines model for Dispute.Status.
 type DisputeStatus string
@@ -709,8 +755,12 @@ type DisputeCollection struct {
 
 // DisputeResolutionRequest defines model for DisputeResolutionRequest.
 type DisputeResolutionRequest struct {
-	ResolutionNote string `json:"resolution_note"`
+	Outcome        DisputeResolutionRequestOutcome `json:"outcome"`
+	ResolutionNote string                          `json:"resolution_note"`
 }
+
+// DisputeResolutionRequestOutcome defines model for DisputeResolutionRequest.Outcome.
+type DisputeResolutionRequestOutcome string
 
 // Error Standard error envelope for all non-2xx responses. Clients branch on `code`, never on `message`.
 type Error struct {

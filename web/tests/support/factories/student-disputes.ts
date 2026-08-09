@@ -169,6 +169,10 @@ export function portalDispute(overrides: Partial<PortalDispute> = {}): PortalDis
   return {
     dispute_id: disputeID,
     status: 'open',
+    // Always present, and null exactly while the dispute is open — the same
+    // contract the wire has. A factory that omitted it would let a component
+    // test pass against a row the server can never send.
+    outcome: null,
     submitted_email: disputeEmail,
     submitted_at: '2026-07-28T17:05:00Z',
     slot: 3,

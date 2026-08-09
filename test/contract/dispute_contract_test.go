@@ -27,6 +27,7 @@ package contract
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -550,4 +551,79 @@ func requiredSet(schema map[string]any) map[string]bool {
 		}
 	}
 	return out
+}
+
+// A CLIENT MUST NOT BE ABLE TO CLAIM `capture_method: dispute`.
+//
+// `dispute` says a teacher approved a missed-slot claim, and it is now the
+// marker distinguishing a record the server wrote on their behalf from one
+// somebody searched for. If the marking request accepted it, any coordinator
+// could post a record that claims an approval that never happened — and the
+// audit trail would agree with them. The value belongs to CaptureMethod (what a
+// record may BE) and must stay out of MarkAttendanceRequest (what a client may
+// SEND).
+func TestDisputeContract_MarkingRequestCannotClaimADisputeCapture(t *testing.T) {
+	doc := loadSpec(t, repoRoot(t))
+	schemas := getMap(getMap(doc, "components"), "schemas")
+
+	record := enumStrings(resolveSchema(doc, getMap(schemas, "CaptureMethod")))
+	if !slices.Contains(record, "dispute") {
+		t.Errorf("[P0] CaptureMethod = %v, want dispute included — a record created by an approved dispute has "+
+			"to be distinguishable from a search mark", record)
+	}
+
+	request := getMap(schemas, "MarkAttendanceRequest")
+	if request == nil {
+		t.Fatal("[P0] components.schemas.MarkAttendanceRequest is missing")
+	}
+	sent := enumStrings(resolveSchema(doc, getMap(getMap(request, "properties"), "capture_method")))
+	if len(sent) == 0 {
+		t.Fatal("[P0] MarkAttendanceRequest.capture_method declares no enum, so it accepts any string — " +
+			"including dispute")
+	}
+	if slices.Contains(sent, "dispute") {
+		t.Errorf("[P0] MarkAttendanceRequest.capture_method = %v and admits `dispute`. A client that can send it "+
+			"can forge a record claiming a teacher approved a dispute, and the audit row would agree", sent)
+	}
+	// The request's enum must otherwise stay a SUBSET of what a record may be —
+	// a client value the record schema cannot express would be unrenderable.
+	for _, value := range sent {
+		if !slices.Contains(record, value) {
+			t.Errorf("[P0] MarkAttendanceRequest.capture_method admits %q, which CaptureMethod does not", value)
+		}
+	}
+}
+
+// The resolution request must carry an outcome, and it must be required.
+//
+// Optional-with-a-default is the failure mode worth naming: whichever way the
+// default fell, it would decide "credit this student or not" without the teacher
+// saying so.
+func TestDisputeContract_ResolutionRequiresAnExplicitOutcome(t *testing.T) {
+	doc := loadSpec(t, repoRoot(t))
+	schemas := getMap(getMap(doc, "components"), "schemas")
+
+	request := getMap(schemas, "DisputeResolutionRequest")
+	if request == nil {
+		t.Fatal("[P0] components.schemas.DisputeResolutionRequest is missing")
+	}
+	if missing := missingRequired(request, "resolution_note", "outcome"); len(missing) > 0 {
+		t.Errorf("[P0] DisputeResolutionRequest required is missing %v", missing)
+	}
+	outcome := getMap(getMap(request, "properties"), "outcome")
+	if got := enumStrings(resolveSchema(doc, outcome)); !slices.Equal(got, []string{"approved", "rejected"}) {
+		t.Errorf("[P0] outcome enum = %v, want [approved rejected]", got)
+	}
+	if _, hasDefault := outcome["default"]; hasDefault {
+		t.Errorf("[P0] outcome declares a default. A default decides whether a student's slot is credited " +
+			"without the teacher choosing, in whichever direction it happens to fall")
+	}
+
+	// And the resolved dispute reports the outcome back, as a REQUIRED key —
+	// nullable while open, but never absent, or a client cannot tell "still open"
+	// from "this server is too old to report one".
+	resolved := getMap(schemas, "Dispute")
+	if missing := missingRequired(resolved, "outcome"); len(missing) > 0 {
+		t.Errorf("[P0] Dispute required is missing %v", missing)
+	}
 }

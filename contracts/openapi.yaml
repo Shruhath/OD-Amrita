@@ -425,12 +425,19 @@ paths:
   /api/v1/disputes/{dispute_id}/resolution:
     post:
       operationId: resolveDispute
-      summary: Resolve a dispute with an annotation only
+      summary: Resolve a dispute, crediting the slot when it is approved
       description: >-
-        Marks an open dispute resolved with a non-empty note and co-commits a
-        dispute.resolved audit row. This does not create, correct or delete an
-        OD record; manual record repair belongs to the later record-management
-        surface.
+        Marks an open dispute resolved with a non-empty note and a required
+        outcome, and co-commits a dispute.resolved audit row. An APPROVED
+        resolution also writes the disputed slot into od_records in the SAME
+        transaction — with capture_method `dispute`, the resolver as actor and
+        the resolution note as reason_note — and co-commits an od.created row for
+        it, so the student appears on the public dashboard immediately. A
+        REJECTED resolution records the refusal and writes no record. If the
+        student was already marked for that slot the approval is moot rather than
+        failed: the dispute resolves, no duplicate row is written, and
+        od_record_id comes back null. Nothing here corrects or deletes an
+        existing record; that remains the record-management surface.
       security:
         - bearerAuth: []
       parameters:
@@ -2976,8 +2983,12 @@ components:
 
     CaptureMethod:
       type: string
-      enum: [nfc, camera, search]
-      x-enum-varnames: [Nfc, Camera, Search]
+      # `dispute` is not a capture at all — it is how a record created by an
+      # APPROVED missed-slot dispute is distinguished from one a teacher searched
+      # for. Recording those as `search` would put a lie in the one table whose
+      # job is to say who marked a student and how.
+      enum: [nfc, camera, search, dispute]
+      x-enum-varnames: [Nfc, Camera, Search, Dispute]
 
     StudentSearchResults:
       type: object
@@ -3401,6 +3412,7 @@ components:
         - claimed_coordinator_name
         - student_note
         - status
+        - outcome
         - submitted_at
         - resolution_note
         - resolved_by_user_id
@@ -3447,6 +3459,25 @@ components:
         status:
           type: string
           enum: [open, resolved]
+        outcome:
+          type: string
+          # REQUIRED as well as nullable, for the same reason MarkStatus.slot is:
+          # it is always present, and it is null exactly while the dispute is
+          # open. Merely optional lets the generator emit `omitempty`, and a
+          # client then cannot tell "still open" from "this server is too old to
+          # report an outcome" — which is the difference between a slot that will
+          # be credited and one that silently never was.
+          nullable: true
+          enum: [approved, rejected]
+        od_record_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            The attendance record an approved resolution created, returned only
+            on the response to that resolution. Null when the outcome was
+            rejected, when the student was already marked for the slot, and on
+            every list read.
         submitted_at:
           type: string
           format: date-time
@@ -3484,12 +3515,19 @@ components:
 
     DisputeResolutionRequest:
       type: object
-      required: [resolution_note]
+      required: [resolution_note, outcome]
       properties:
         resolution_note:
           type: string
           minLength: 1
           maxLength: 2000
+        outcome:
+          type: string
+          # REQUIRED, with no default. An absent outcome is ambiguous in the one
+          # direction that matters: defaulting to approved credits slots nobody
+          # approved, defaulting to rejected silently drops the credit the
+          # teacher meant to give.
+          enum: [approved, rejected]
 
     MarkStatus:
       type: object

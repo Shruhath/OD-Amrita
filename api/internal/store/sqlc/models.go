@@ -69,6 +69,8 @@ type Dispute struct {
 	ResolvedByUserID       pgtype.UUID        `json:"resolved_by_user_id"`
 	ResolvedAt             pgtype.Timestamptz `json:"resolved_at"`
 	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	// approved credits the disputed slot in od_records; rejected records the refusal. NULL only while open.
+	Outcome pgtype.Text `json:"outcome"`
 }
 
 type Event struct {

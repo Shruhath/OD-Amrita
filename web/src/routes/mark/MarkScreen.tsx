@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { CaptureMethod, CardPayload, MarkAttendanceResult, ResolvedCardStudent } from '../../api/client'
+import type { MarkCaptureMethod, CardPayload, MarkAttendanceResult, ResolvedCardStudent } from '../../api/client'
 import { ApiFailure } from '../../api/client'
 import { AccountMenu } from '../../components/AccountMenu'
 import { asString, usePersistentState } from '../../features/persistence/sessionState'
@@ -155,7 +155,7 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
   // ---------------------------------------------------------------------
 
   const mark = useMutation({
-    mutationFn: (input: { identity: MarkIdentity; capture: CaptureMethod; scope: Scope }) =>
+    mutationFn: (input: { identity: MarkIdentity; capture: MarkCaptureMethod; scope: Scope }) =>
       api.mark({
         // The scope travels WITH the capture rather than being read from state
         // at request time. A camera decode resolves through the search endpoint
@@ -197,7 +197,7 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
   const scopeRef = useRef<Scope>({ eventID, categoryID })
   scopeRef.current = { eventID, categoryID }
 
-  const submit = useCallback((identity: MarkIdentity, capture: CaptureMethod, scope: Scope) => {
+  const submit = useCallback((identity: MarkIdentity, capture: MarkCaptureMethod, scope: Scope) => {
     // A capture taken with no scope selected would POST an empty event_id and
     // come back as a validation error naming controls the coordinator cannot
     // fix. Refuse it here, and say which selection is missing.

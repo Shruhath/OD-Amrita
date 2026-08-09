@@ -159,8 +159,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Resolve a dispute with an annotation only
-         * @description Marks an open dispute resolved with a non-empty note and co-commits a dispute.resolved audit row. This does not create, correct or delete an OD record; manual record repair belongs to the later record-management surface.
+         * Resolve a dispute, crediting the slot when it is approved
+         * @description Marks an open dispute resolved with a non-empty note and a required outcome, and co-commits a dispute.resolved audit row. An APPROVED resolution also writes the disputed slot into od_records in the SAME transaction — with capture_method `dispute`, the resolver as actor and the resolution note as reason_note — and co-commits an od.created row for it, so the student appears on the public dashboard immediately. A REJECTED resolution records the refusal and writes no record. If the student was already marked for that slot the approval is moot rather than failed: the dispute resolves, no duplicate row is written, and od_record_id comes back null. Nothing here corrects or deletes an existing record; that remains the record-management surface.
          */
         post: operations["resolveDispute"];
         delete?: never;
@@ -1019,7 +1019,7 @@ export interface components {
             token: string;
         };
         /** @enum {string} */
-        CaptureMethod: "nfc" | "camera" | "search";
+        CaptureMethod: "nfc" | "camera" | "search" | "dispute";
         /** @description The authenticated roster search read. Deliberately unpaginated — the server caps the result count instead — and bounded to display fields only: `students` has no email column and card tokens are stored as fingerprints, so neither can appear here. */
         StudentSearchResults: {
             data: components["schemas"]["ResolvedCardStudent"][];
@@ -1214,6 +1214,13 @@ export interface components {
             student_note: string | null;
             /** @enum {string} */
             status: "open" | "resolved";
+            /** @enum {string|null} */
+            outcome: "approved" | "rejected" | null;
+            /**
+             * Format: uuid
+             * @description The attendance record an approved resolution created, returned only on the response to that resolution. Null when the outcome was rejected, when the student was already marked for the slot, and on every list read.
+             */
+            od_record_id?: string | null;
             /** Format: date-time */
             submitted_at: string;
             resolution_note: string | null;
@@ -1230,6 +1237,8 @@ export interface components {
         };
         DisputeResolutionRequest: {
             resolution_note: string;
+            /** @enum {string} */
+            outcome: "approved" | "rejected";
         };
         /** @description Everything the marking screen needs that the client must not compute for itself. `slot: null` is the explicit "no slot is open" state — never slot 0 — and `server_time` shares one clock read with the slot decision. */
         MarkStatus: {

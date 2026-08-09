@@ -67,6 +67,16 @@ export type MarkCounters = components['schemas']['MarkCounters']
 export type MarkAttendanceInput = components['schemas']['MarkAttendanceRequest']
 export type MarkAttendanceResult = components['schemas']['MarkAttendanceResult']
 export type CaptureMethod = components['schemas']['CaptureMethod']
+/**
+ * The capture methods a CLIENT may send.
+ *
+ * Narrower than CaptureMethod on purpose: that enum also carries `dispute`,
+ * which is how a record created by an approved missed-slot dispute is recorded.
+ * Only the server may write that one — a client able to send it could forge a
+ * record that claims a teacher approved a dispute — so the marking request keeps
+ * its own three-value enum and this type follows it rather than the wider one.
+ */
+export type MarkCaptureMethod = components['schemas']['MarkAttendanceRequest']['capture_method']
 
 export class ApiFailure extends Error {
   readonly status: number

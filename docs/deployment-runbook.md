@@ -164,7 +164,7 @@ unset PGPASSWORD
 psql "$DATABASE_URL_MIGRATOR" -c 'SELECT max(version_id) FROM goose_db_version;'
 ```
 
-Expect **19** — migrations `0001`–`0019`. A lower number, or a missing table, means the
+Expect **20** — migrations `0001`–`0020`. A lower number, or a missing table, means the
 migrations did not all apply; stop and fix that before deploying, because the API will fail at
 runtime rather than at boot.
 
@@ -187,7 +187,7 @@ runtime rather than at boot.
 > usage back into the single row the pre-`0017` schema held, because `usage_date` is being
 > dropped anyway and no information survives either way.
 >
-> Take a dump immediately before applying `0015`–`0019` to a database that already holds
+> Take a dump immediately before applying `0015`–`0020` to a database that already holds
 > records.
 
 > **⚠️ `0018` is a one-way door once a record has been removed.**
@@ -209,6 +209,22 @@ runtime rather than at boot.
 >
 > `0019` also creates `app_settings`, seeded with `extended_slots_enabled = false`. **The seeded
 > default is OFF**, so applying this migration changes no behaviour on its own.
+
+> **⚠️ `0020` widens `od_records.capture_method` to admit `dispute`, and its `Down` narrows it
+> back.**
+>
+> The `Up` is safe to apply ahead of the code, like `0019`: widening a CHECK cannot invalidate a
+> row that already exists, and every marking path in use keeps working unchanged. It also adds
+> `disputes.outcome` as a NULLable column with a `NOT VALID` state constraint, so disputes resolved
+> under the old annotate-only rule are left exactly as they are — there is no honest way to backfill
+> whether a teacher meant to credit the slot, and guessing either way fabricates a decision.
+>
+> The `Down` aborts once any record has been created by an approved dispute, and that is correct:
+> those are real attendance records. Do not rewrite them to `search` or delete them to make a
+> rollback succeed — that would falsify who marked a student and how.
+>
+> **What changes on apply:** nothing on its own. Resolving a dispute credits the slot only once the
+> API that sends an `outcome` is deployed; the column defaults to NULL and no existing row moves.
 
 **5. Build the runtime connection string** for the next section from the **`od_runtime`**
 password — never the migrator's. The application pool must not be able to run DDL.

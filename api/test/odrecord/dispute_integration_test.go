@@ -126,6 +126,13 @@ func seedDisputeStudent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, r
 		if _, err := pool.Exec(cleanupCtx, `DELETE FROM disputes WHERE student_id = $1`, id); err != nil {
 			t.Errorf("cleanup disputes for %s: %v", rollNo, err)
 		}
+		// An APPROVED dispute now creates an od_records row, and
+		// od_records_student_id_fkey is ON DELETE RESTRICT — so without this the
+		// student delete below fails and every approving test reports a cleanup
+		// error instead of its own result.
+		if _, err := pool.Exec(cleanupCtx, `DELETE FROM od_records WHERE student_id = $1`, id); err != nil {
+			t.Errorf("cleanup od records for %s: %v", rollNo, err)
+		}
 		if _, err := pool.Exec(cleanupCtx, `DELETE FROM students WHERE id = $1`, id); err != nil {
 			t.Errorf("cleanup dispute student %s: %v", rollNo, err)
 		}
@@ -303,7 +310,7 @@ func TestDispute_ConcurrentDuplicateSubmissionsLeaveExactlyOneRow(t *testing.T) 
 	// whole reason the index is PARTIAL rather than total. If a student's first
 	// dispute was resolved wrongly they must be able to file again.
 	if _, err := migrator.Exec(ctx, `
-		UPDATE disputes SET status = 'resolved', resolution_note = 'closed by test',
+		UPDATE disputes SET status = 'resolved', outcome = 'rejected', resolution_note = 'closed by test',
 			resolved_by_user_id = $2, resolved_at = now()
 		WHERE student_id = $1 AND event_id = $3 AND slot = 5`,
 		studentID, fixture.adminID, fixture.eventID); err != nil {
@@ -566,7 +573,7 @@ func TestDispute_TeacherSeesOnlyTheirOwnBranchAndAdminSeesAll(t *testing.T) {
 	// A teacher targeting an out-of-branch dispute is a 403, NOT a 404. A 404
 	// here would tell a branch-scoped caller whether a dispute exists, which is
 	// the same disclosure the public refusal spends T3 closing.
-	_, err = svc.Resolve(ctx, teacher, outOfBranch.DisputeID, "Not mine to resolve.")
+	_, err = svc.Resolve(ctx, teacher, outOfBranch.DisputeID, "Not mine to resolve.", dispute.OutcomeApproved)
 	var domainErr domain.DomainError
 	if !errors.As(err, &domainErr) {
 		t.Fatalf("[P0] out-of-branch resolve returned %v, want a typed domain error", err)
@@ -591,7 +598,7 @@ func TestDispute_TeacherSeesOnlyTheirOwnBranchAndAdminSeesAll(t *testing.T) {
 // The last assertion is the one that matters most for FR37's meaning: resolving
 // records a DECISION and does not touch od_records. 0.12 owns the repair, and a
 // teacher who believes this fixed the record will not do the thing that does.
-func TestDispute_ResolutionAnnotatesAndTheSecondAttemptIsRefused(t *testing.T) {
+func TestDispute_RejectionAnnotatesOnlyAndTheSecondAttemptIsRefused(t *testing.T) {
 	ctx := testCtx(t)
 	migrator := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_MIGRATOR"))
 	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
@@ -611,7 +618,7 @@ func TestDispute_ResolutionAnnotatesAndTheSecondAttemptIsRefused(t *testing.T) {
 
 	admin := dispute.Actor{UserID: fixture.adminID, Role: "admin"}
 	const note = "Verified against the register; the coordinator confirmed attendance."
-	if _, err := svc.Resolve(ctx, admin, receipt.DisputeID, note); err != nil {
+	if _, err := svc.Resolve(ctx, admin, receipt.DisputeID, note, dispute.OutcomeRejected); err != nil {
 		t.Fatalf("[P0] Resolve: %v", err)
 	}
 
@@ -657,16 +664,30 @@ func TestDispute_ResolutionAnnotatesAndTheSecondAttemptIsRefused(t *testing.T) {
 			"runtime (T12)", domain.ActionDisputeResolved, err)
 	}
 
-	// T15/AC 14: resolving is an ANNOTATION. It must not create, correct or
-	// remove an od_records row — that is 0.12.
+	// A REJECTION MANUFACTURES NO ATTENDANCE.
+	//
+	// This assertion used to say that NO resolution may touch od_records, when
+	// resolving was annotate-only. That rule was the defect: a teacher agreed a
+	// student had been missed and the student still never appeared anywhere.
+	// Approving now writes the record (see the approval test below); rejecting
+	// still must not, and that is the direction worth guarding — a rejection is
+	// the teacher saying the student was NOT there.
 	if got := countRows(t, ctx, migrator, "od_records"); got != beforeRecords {
-		t.Errorf("[P0] od_records went %d -> %d across a dispute resolution. Resolving records the DECISION; "+
-			"repairing the record is Story 0.12 and the epic names that dependency explicitly (T15)",
+		t.Errorf("[P0] od_records went %d -> %d across a REJECTED dispute. A rejection records the refusal and "+
+			"nothing else; crediting it manufactures attendance the teacher explicitly declined",
 			beforeRecords, got)
+	}
+	var storedOutcome *string
+	if err := migrator.QueryRow(ctx, `SELECT outcome FROM disputes WHERE id = $1`, receipt.DisputeID).Scan(&storedOutcome); err != nil {
+		t.Fatalf("[P0] read outcome: %v", err)
+	}
+	if storedOutcome == nil || *storedOutcome != "rejected" {
+		t.Errorf("[P0] stored outcome = %v, want rejected — an inbox that cannot tell an approval from a "+
+			"refusal cannot be audited", storedOutcome)
 	}
 
 	// The second attempt.
-	_, err = svc.Resolve(ctx, admin, receipt.DisputeID, "Resolving again.")
+	_, err = svc.Resolve(ctx, admin, receipt.DisputeID, "Resolving again.", dispute.OutcomeApproved)
 	var domainErr domain.DomainError
 	if !errors.As(err, &domainErr) {
 		t.Fatalf("[P0] the second resolution returned %v, want a typed domain error", err)
@@ -685,7 +706,7 @@ func TestDispute_ResolutionAnnotatesAndTheSecondAttemptIsRefused(t *testing.T) {
 	}
 
 	// An unknown id is a 404 — a different answer from "already resolved".
-	_, err = svc.Resolve(ctx, admin, uuid.NewString(), "Resolving a ghost.")
+	_, err = svc.Resolve(ctx, admin, uuid.NewString(), "Resolving a ghost.", dispute.OutcomeApproved)
 	if !errors.As(err, &domainErr) || domainErr.Code != contracts.ErrorCodeDISPUTENOTFOUND {
 		t.Errorf("[P0] unknown dispute id returned %v, want DISPUTE_NOT_FOUND (404)", err)
 	}

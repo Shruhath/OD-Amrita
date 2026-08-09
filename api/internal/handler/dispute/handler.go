@@ -26,7 +26,7 @@ type PublicService interface {
 
 type AuthenticatedService interface {
 	List(context.Context, svcdispute.Actor, svcdispute.ListFilter) (svcdispute.Collection, error)
-	Resolve(context.Context, svcdispute.Actor, string, string) (svcdispute.Record, error)
+	Resolve(ctx context.Context, actor svcdispute.Actor, disputeID, note, outcome string) (svcdispute.Record, error)
 }
 
 func RegisterPublicRoutes(group gin.IRouter, svc PublicService, writeLimiter gin.HandlerFunc) {
@@ -237,7 +237,7 @@ func ResolveDisputeHandler(svc AuthenticatedService) gin.HandlerFunc {
 			fail(c, validation("$", "invalid_json", "Request body is invalid."))
 			return
 		}
-		record, err := svc.Resolve(c.Request.Context(), actor, disputeID, body.ResolutionNote)
+		record, err := svc.Resolve(c.Request.Context(), actor, disputeID, body.ResolutionNote, string(body.Outcome))
 		if err != nil {
 			fail(c, err)
 			return
@@ -334,6 +334,19 @@ func disputeContract(record svcdispute.Record) (contracts.Dispute, error) {
 	if err != nil {
 		return contracts.Dispute{}, err
 	}
+	var outcome *contracts.DisputeOutcome
+	if record.Outcome != nil {
+		value := contracts.DisputeOutcome(*record.Outcome)
+		outcome = &value
+	}
+	var odRecordID *openapi_types.UUID
+	if record.ODRecordID != nil {
+		parsed, err := uuid.Parse(*record.ODRecordID)
+		if err != nil {
+			return contracts.Dispute{}, err
+		}
+		odRecordID = &parsed
+	}
 	var resolvedBy *openapi_types.UUID
 	if record.ResolvedByUserID != nil {
 		parsed, err := uuid.Parse(*record.ResolvedByUserID)
@@ -357,6 +370,8 @@ func disputeContract(record svcdispute.Record) (contracts.Dispute, error) {
 		ClaimedCoordinatorName: record.ClaimedCoordinatorName,
 		StudentNote:            record.StudentNote,
 		Status:                 contracts.DisputeStatus(record.Status),
+		Outcome:                outcome,
+		OdRecordId:             odRecordID,
 		SubmittedAt:            record.SubmittedAt,
 		ResolutionNote:         record.ResolutionNote,
 		ResolvedByUserId:       resolvedBy,

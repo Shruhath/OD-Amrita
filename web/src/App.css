@@ -3000,3 +3000,12 @@ tbody tr:hover {
      prompt, which must stay reachable over any screen. */
   z-index: 20;
 }
+
+/* The two dispute decisions sit side by side and wrap on a phone. They are
+   deliberately NOT the same weight: approving writes an attendance record. */
+.resolution-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}

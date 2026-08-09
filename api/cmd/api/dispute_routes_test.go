@@ -77,7 +77,7 @@ func (s reachingDisputeService) List(_ context.Context, _ dispute.Actor, _ dispu
 	return dispute.Collection{}, nil
 }
 
-func (s reachingDisputeService) Resolve(_ context.Context, _ dispute.Actor, _ string, _ string) (dispute.Record, error) {
+func (s reachingDisputeService) Resolve(_ context.Context, _ dispute.Actor, _, _, _ string) (dispute.Record, error) {
 	s.reached.hits++
 	return dispute.Record{}, nil
 }

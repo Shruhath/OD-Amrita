@@ -10,11 +10,5 @@
  * the middle of the frame that would otherwise compete with the content.
  */
 export function AppBackdrop() {
-  return (
-    <div className="app-backdrop" aria-hidden="true">
-      <div className="app-backdrop__image" />
-      <div className="app-backdrop__mask" />
-      <div className="app-backdrop__pattern" />
-    </div>
-  )
+  return null
 }

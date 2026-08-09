@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
+import { motion } from 'motion/react'
 import type { Identity } from '../../api/client'
 import { ThemeToggle } from '../../components/ThemeToggle'
 import { ApiFailure, createEventApi } from '../../api/client'
@@ -116,21 +117,26 @@ export function SessionLoading() {
  * The university lockup that heads every signed-out surface, plus the theme
  * control — these cards have no chrome of their own, so without it the toggle
  * would be unreachable for anyone who is not signed in.
+ *
+ * Exported because the front door renders it too: HomeLanding is the screen a
+ * signed-out visitor actually lands on, and it is not inside any gate.
  */
 export function AuthBrand() {
   return (
-    <>
-      <div className="auth-toolbar">
+    <div className="relative w-full flex justify-end mb-8">
+      <div className="absolute top-0 right-0">
         <ThemeToggle />
       </div>
-      <img
-        className="auth-brand"
-        src="/brand/amrita-logo.png"
-        alt="Amrita Vishwa Vidyapeetham"
-        width={600}
-        height={155}
-      />
-    </>
+      <div className="w-full flex justify-center mt-12 mb-4">
+        <img
+          className="h-16 md:h-20 w-auto object-contain transition-all duration-300"
+          src="/brand/amrita-logo.png"
+          alt="Amrita Vishwa Vidyapeetham"
+          width={600}
+          height={155}
+        />
+      </div>
+    </div>
   )
 }
 
@@ -156,11 +162,26 @@ export function SessionBoundary({
   }
   if (auth.error) {
     return (
-      <main className="center-state">
-        <AuthBrand />
-        <h1>Sign in to OD-Amrita</h1>
-        <p role="alert">{auth.error}</p>
-        <button type="button" onClick={() => void auth.reload()}>Try again</button>
+      <main className="min-h-screen flex items-center justify-center p-4">
+        <motion.div 
+          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ type: "spring", damping: 25, stiffness: 300 }}
+          className="w-full max-w-md bg-surface border border-border rounded-2xl shadow-sm p-8 text-center"
+        >
+          <AuthBrand />
+          <h1 className="text-2xl font-bold mb-4 tracking-tight">Sign in to OD-Amrita</h1>
+          <div role="alert" className="bg-status-error-bg text-status-error-fg p-4 rounded-xl mb-6 text-sm font-medium">
+            {auth.error}
+          </div>
+          <button 
+            type="button" 
+            onClick={() => void auth.reload()}
+            className="primary w-full py-3.5"
+          >
+            Try again
+          </button>
+        </motion.div>
       </main>
     )
   }
@@ -185,12 +206,27 @@ export function SessionBoundary({
   }
   if (!allowedRoles.includes(auth.identity.role)) {
     return (
-      <main className="center-state">
-        <AuthBrand />
-        <p className="eyebrow">OD-Amrita portal</p>
-        <h1>Access denied</h1>
-        <p>{deniedReason(allowedRoles)}</p>
-        <button type="button" onClick={() => void auth.signOut()}>Sign out</button>
+      <main className="min-h-screen flex items-center justify-center p-4">
+        <motion.div 
+          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ type: "spring", damping: 25, stiffness: 300 }}
+          className="w-full max-w-md bg-surface border border-border rounded-2xl shadow-sm p-8 text-center"
+        >
+          <AuthBrand />
+          <p className="text-xs uppercase tracking-widest text-foreground-muted font-bold mb-2">OD-Amrita portal</p>
+          <h1 className="text-2xl font-bold mb-4 tracking-tight">Access denied</h1>
+          <p className="text-foreground-muted mb-8 leading-relaxed">
+            {deniedReason(allowedRoles)}
+          </p>
+          <button 
+            type="button" 
+            onClick={() => void auth.signOut()}
+            className="secondary w-full py-3.5"
+          >
+            Sign out
+          </button>
+        </motion.div>
       </main>
     )
   }

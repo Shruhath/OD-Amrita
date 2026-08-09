@@ -161,9 +161,13 @@ describe('public dispute form', () => {
     // pre-filled from the day the dashboard was showing. A dispute without a day
     // is ambiguous across the thirty an event can span, and the column exists
     // from creation precisely so the day is never guessed.
-    expect(within(form).getByText(/slot\s*3\b/i)).toBeInTheDocument()
+    //
+    // Read off the combobox rather than by free text: the field is a Radix
+    // listbox now, so its selected value lives in the trigger's own content and
+    // a document-wide text match would also hit the option list behind it.
+    expect(within(form).getByRole('combobox', { name: /slot/i })).toHaveTextContent(/slot\s*3\b/i)
     expect(
-      within(form).getByText(/28 July 2026|2026-07-28|July 28/i),
+      within(form).getByRole('combobox', { name: /day/i }),
       'the form does not show which DAY is being disputed. Under 0.12a an event spans a date range, so a ' +
         'dispute without a day is ambiguous across thirty of them (amended 2026-08-06)',
     ).toBeInTheDocument()

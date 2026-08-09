@@ -3,7 +3,13 @@ import { useQuery } from '@tanstack/react-query'
 import { ApiFailure } from '../../../api/client'
 import { PortalShell } from '../../../components/PortalShell'
 import { Select } from '../../../components/ui/Select'
-import { Spinner } from '../../../components/ui/Spinner'
+// Icons are imported ONE PER MODULE rather than from the package barrel.
+// The barrel pulls the whole set through Vite's dependency optimiser, which
+// produces a single ~7 MB module the dev server then refuses to parse — every
+// browser journey fails at once, each screenshotting a page still on its
+// spinner. Per-icon paths keep the dev server honest and the chunk small.
+import { ClipboardText } from '@phosphor-icons/react/dist/icons/ClipboardText'
+import { Hourglass } from '@phosphor-icons/react/dist/icons/Hourglass'
 import { useAuth } from '../../../features/auth/context'
 import { asString, usePersistentState } from '../../../features/persistence/sessionState'
 import { campusToday } from './campusDay'
@@ -23,23 +29,11 @@ function formatTime(value: string): string {
 
 /**
  * The live view of a day's on-duty marks.
- *
- * WHAT IT ANSWERS: "who has been marked so far today?" — the question a teacher
- * asks repeatedly during an event, and which they previously had no way to ask
- * at all. The attendance read existed but was admin-only at both the route and
- * the service, so a teacher could mark students and then never see the result.
- *
- * The server scopes a teacher to the branches they teach. This screen does no
- * filtering of its own and must not start: a client-side filter over a wider
- * response would mean the rows were sent to the browser regardless.
  */
 export default function LivePortal() {
   const { api, identity } = useAuth()
 
   const [eventID, setEventID] = usePersistentState('live.event.v1', '', asString)
-  // The day is deliberately NOT persisted: this screen is about TODAY, and
-  // coming back tomorrow to yesterday's list — while the heading says Live —
-  // would be worse than losing a selection.
   const [odDate, setODDate] = usePersistentState('live.day.v1', campusToday(), asString)
 
   const events = useQuery({
@@ -55,8 +49,6 @@ export default function LivePortal() {
     }
   }, [eventID, eventOptions, setEventID])
 
-  // A stored day from a previous visit is snapped back to today on arrival —
-  // see the note above.
   useEffect(() => {
     const today = campusToday()
     setODDate((current) => (current && current < today ? today : current || today))
@@ -88,8 +80,6 @@ export default function LivePortal() {
     queryKey: ['portal', 'live', eventID, odDate],
     queryFn: () => api.portalAttendance(eventID, { odDate, pageSize: 100 }),
     enabled: eventID !== '',
-    // Stops polling once it has failed, so a refused or broken read does not
-    // retry every five seconds for as long as the tab is open.
     refetchInterval: (query) => (query.state.error ? false : LIVE_POLL_MS),
   })
 
@@ -97,116 +87,147 @@ export default function LivePortal() {
 
   return (
     <PortalShell>
-      <div className="page-heading">
+      {/* Page Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
-          <p className="eyebrow">Attendance</p>
-          <h1>Live</h1>
-          <p>
+          <p className="text-xs uppercase tracking-widest text-foreground-muted font-bold mb-1">Attendance</p>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold tracking-tight">Live</h1>
+            {/* Live pulse indicator */}
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-status-success-fg bg-status-success-bg px-2.5 py-1 rounded-full border border-status-success-fg/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-status-success-fg animate-pulse" aria-hidden="true" />
+              Live
+            </span>
+          </div>
+          <p className="text-foreground-muted mt-1">
             {identity?.role === 'admin'
               ? 'Marks as they land, for the selected event and day.'
               : 'Marks as they land for students in the branches you teach.'}
           </p>
         </div>
+
+        {/* Controls */}
+        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+          {attendance.isFetching && (
+            <span className="flex items-center gap-2 text-xs text-foreground-muted">
+              <span className="animate-spin inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full" />
+              Refreshing…
+            </span>
+          )}
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="flex flex-col gap-1">
+              <label htmlFor="live-event" className="text-xs font-semibold uppercase tracking-wider text-foreground-muted">Event</label>
+              <Select
+                id="live-event"
+                value={eventID}
+                onChange={setEventID}
+                disabled={eventOptions.length === 0}
+                placeholder="No events"
+                options={eventOptions.map((event) => ({ value: event.id, label: event.name }))}
+              />
+            </div>
+            {dayOptions.length > 1 && (
+              <div className="flex flex-col gap-1">
+                <label htmlFor="live-day" className="text-xs font-semibold uppercase tracking-wider text-foreground-muted">Day</label>
+                <Select
+                  id="live-day"
+                  value={odDate}
+                  onChange={setODDate}
+                  options={dayOptions.map((value) => ({ value, label: value }))}
+                />
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
-      <section className="detail-section">
-        <div className="category-form" style={{ marginBottom: 18 }}>
-          <label htmlFor="live-event">Event</label>
-          <Select
-            id="live-event"
-            value={eventID}
-            onChange={setEventID}
-            disabled={eventOptions.length === 0}
-            placeholder="No events"
-            options={eventOptions.map((event) => ({ value: event.id, label: event.name }))}
-          />
-
-          {dayOptions.length > 1 && (
-            <>
-              <label htmlFor="live-day">Day</label>
-              <Select
-                id="live-day"
-                value={odDate}
-                onChange={setODDate}
-                options={dayOptions.map((value) => ({ value, label: value }))}
-              />
-            </>
-          )}
-
-          {attendance.isFetching ? <Spinner label="Refreshing" size="small" /> : null}
+      {/* Empty state: no events */}
+      {events.isSuccess && eventOptions.length === 0 && (
+        <div className="bg-surface border border-border rounded-[10px] p-12 flex flex-col items-center text-center gap-3" role="status">
+          <ClipboardText size={40} weight="duotone" aria-hidden="true" className="text-foreground-muted" />
+          <h2 className="text-xl font-bold tracking-tight">No events to show</h2>
+          <p className="text-foreground-muted max-w-sm">
+            Live attendance appears for an active event that covers one of your branches. An
+            administrator adds your branch to an event to make it appear here.
+          </p>
         </div>
+      )}
 
-        {events.isSuccess && eventOptions.length === 0 && (
-          <div className="empty-state" role="status">
-            <h3>No events to show</h3>
-            <p>
-              Live attendance appears for an active event that covers one of your branches. An
-              administrator adds your branch to an event to make it appear here.
-            </p>
-          </div>
-        )}
+      {/* Error state */}
+      {attendance.isError && (
+        <div className="flex items-center justify-between bg-status-error-bg text-status-error-fg p-4 rounded-[10px] border border-status-error-fg/20 mb-6" role="alert">
+          <span className="font-medium text-sm">
+            {attendance.error instanceof ApiFailure
+              ? attendance.error.body.message
+              : 'Attendance could not be loaded.'}
+          </span>
+          <button
+            type="button"
+            onClick={() => void attendance.refetch()}
+            className="text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-[10px] border border-status-error-fg/30 hover:bg-status-error-fg/10 active:scale-95 transition-all"
+          >
+            Try again
+          </button>
+        </div>
+      )}
 
-        {attendance.isError && (
-          <div className="notice error" role="alert">
-            <span>
-              {attendance.error instanceof ApiFailure
-                ? attendance.error.body.message
-                : 'Attendance could not be loaded.'}
-            </span>
-            <button type="button" onClick={() => void attendance.refetch()}>Try again</button>
-          </div>
-        )}
+      {/* Empty state: nothing marked yet */}
+      {eventID !== '' && attendance.isSuccess && rows.length === 0 && (
+        <div className="bg-surface border border-border rounded-[10px] p-12 flex flex-col items-center text-center gap-3" role="status">
+          <Hourglass size={40} weight="duotone" aria-hidden="true" className="text-foreground-muted" />
+          <h2 className="text-xl font-bold tracking-tight">Nothing marked yet</h2>
+          <p className="text-foreground-muted max-w-sm">
+            No on-duty attendance has been recorded for this day. New marks appear here on their
+            own, without reloading.
+          </p>
+        </div>
+      )}
 
-        {eventID !== '' && attendance.isSuccess && rows.length === 0 && (
-          <div className="empty-state" role="status">
-            <h3>Nothing marked yet</h3>
-            <p>
-              No on-duty attendance has been recorded for this day. New marks appear here on their
-              own, without reloading.
-            </p>
-          </div>
-        )}
+      {/* Records table */}
+      {rows.length > 0 && (
+        <div className="flex flex-col gap-4">
+          <p className="text-sm font-medium text-foreground-muted" role="status">
+            <span className="font-bold text-foreground">{attendance.data?.total ?? rows.length}</span> marked on {odDate}
+          </p>
 
-        {rows.length > 0 && (
-          <>
-            <p className="empty-note" role="status">
-              {attendance.data?.total ?? rows.length} marked on {odDate}
-            </p>
-            <div className="table-wrap">
-              <table aria-label="Live attendance">
-                <thead>
+          <div className="bg-surface border border-border rounded-[10px] overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse" aria-label="Live attendance">
+                <thead className="bg-canvas border-b border-border">
                   <tr>
-                    <th scope="col">Roll number</th>
-                    <th scope="col">Name</th>
-                    <th scope="col">Branch</th>
-                    <th scope="col">Slot</th>
-                    <th scope="col">Category</th>
-                    <th scope="col">Marked at</th>
-                    <th scope="col">Marked by</th>
+                    {['Roll number', 'Name', 'Branch', 'Slot', 'Category', 'Marked at', 'Marked by'].map((col) => (
+                      <th key={col} scope="col" className="py-3 px-4 text-xs font-semibold uppercase tracking-wider text-foreground-muted whitespace-nowrap">
+                        {col}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-border">
                   {rows.map((record) => (
-                    <tr key={record.record_id}>
-                      <td>{record.student.roll_no}</td>
-                      <td>{record.student.display_name}</td>
-                      <td>{record.student.branch}</td>
-                      <td>{record.slot}</td>
-                      <td>{record.category.name}</td>
-                      <td>{formatTime(record.server_received_at)}</td>
-                      {/* NAME AND ROLE ONLY. `marked_by` also carries the
-                          actor's email, and this table is read by teachers
-                          across an event — there is no reason for a colleague's
-                          address to be on it. */}
-                      <td>{record.marked_by.name ?? record.actor_role}</td>
+                    <tr key={record.record_id} className="hover:bg-canvas/50 transition-colors">
+                      <td className="py-3 px-4 font-mono text-sm font-medium">{record.student.roll_no}</td>
+                      <td className="py-3 px-4 text-sm">{record.student.display_name}</td>
+                      <td className="py-3 px-4">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold bg-canvas border border-border">
+                          {record.student.branch}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-sm text-center">
+                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-foreground/10 text-xs font-bold">
+                          {record.slot}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-sm">{record.category.name}</td>
+                      <td className="py-3 px-4 text-sm text-foreground-muted tabular-nums">{formatTime(record.server_received_at)}</td>
+                      <td className="py-3 px-4 text-sm text-foreground-muted">{record.marked_by.name ?? record.actor_role}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </>
-        )}
-      </section>
+          </div>
+        </div>
+      )}
     </PortalShell>
   )
 }

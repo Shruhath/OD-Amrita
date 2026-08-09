@@ -153,6 +153,24 @@ test.describe('public attendance dashboard', () => {
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     )
     expect(overflow, 'the board makes the page scroll sideways on a phone').toBeLessThanOrEqual(1)
+
+    // THE PAGE NOT SCROLLING IS NOT THE SAME AS THE BOARD FITTING, and reading
+    // only the first of those let a genuine break through: the board sized
+    // itself to the table and hung off BOTH edges of a 390px screen, clipped
+    // rather than scrollable, so the roll-number column could be neither read
+    // nor reached — while scrollWidth stayed exactly equal to clientWidth and
+    // this test stayed green. The board's own box is therefore measured against
+    // the viewport, and the sideways scrolling is asserted to live INSIDE it,
+    // which is what .public-board-scroll exists to provide.
+    const board = page.getByRole('region', { name: /on-duty list/i })
+    const box = await board.boundingBox()
+    expect(box, 'the board has no box at all').not.toBeNull()
+    expect(box!.x, 'the board hangs off the left edge of the phone').toBeGreaterThanOrEqual(0)
+    expect(box!.x + box!.width, 'the board hangs off the right edge of the phone').toBeLessThanOrEqual(390)
+
+    const scroller = page.locator('.public-board-scroll')
+    const scrolls = await scroller.evaluate((node) => node.scrollWidth > node.clientWidth)
+    expect(scrolls, 'the wide table does not scroll inside the board, so its columns are unreachable').toBe(true)
   })
 
   // 0.10-E2E-004 — the day shows the marked slots and NOTHING ELSE (AC 11).

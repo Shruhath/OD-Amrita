@@ -21,6 +21,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+
 	"github.com/Shruhath/OD-Amrita/api/internal/config"
 	handleradmin "github.com/Shruhath/OD-Amrita/api/internal/handler/admin"
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
@@ -71,6 +74,22 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
+
+	// Initialize embedded River background worker pool.
+	workers := river.NewWorkers()
+	riverClient, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
+		Queues: map[string]river.QueueConfig{
+			river.QueueDefault: {MaxWorkers: 10},
+		},
+		Workers: workers,
+	})
+	if err != nil {
+		return err
+	}
+
+	if err := riverClient.Start(context.Background()); err != nil {
+		return err
+	}
 
 	if cfg.AppEnv != "development" {
 		gin.SetMode(gin.ReleaseMode)
@@ -276,6 +295,12 @@ func run() error {
 		log.Printf("api: received %s, draining", sig)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+
+		log.Printf("api: stopping embedded background worker...")
+		if err := riverClient.Stop(ctx); err != nil {
+			log.Printf("api: error stopping embedded worker: %v", err)
+		}
+
 		return srv.Shutdown(ctx)
 	}
 }

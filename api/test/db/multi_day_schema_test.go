@@ -622,7 +622,7 @@ func TestMultiDaySchema_BackfillClampsALegacyRowIntoTheEventRange(t *testing.T) 
 	// And the clamped row must satisfy the guard the same migration installed —
 	// the property that makes it legal data rather than merely differently wrong.
 	if _, err := pool.Exec(ctx, `
-		UPDATE od_records SET od_date = od_date WHERE id = $1::uuid`, recordID); err != nil {
+		UPDATE od_records SET od_date = od_date, reason_note = 'legacy correction verified after migration' WHERE id = $1::uuid`, recordID); err != nil {
 		t.Fatalf("[P0] the backfilled row does not satisfy its own range guard: %v", err)
 	}
 }

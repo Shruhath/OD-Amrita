@@ -90,6 +90,7 @@ describe('teacher/admin mark route red-phase scaffold', () => {
     await selectByValue(user, screen.getByRole('combobox', { name: /slot/i }), '4')
     await user.type(screen.getByRole('searchbox', { name: /student/i }), 'CB.SC.U4CSE24')
     await user.click(await screen.findByRole('option', { name: /CB\.SC\.U4CSE/i }))
+    await user.type(screen.getByRole('textbox', { name: /reason note/i }), 'Student attended the make-up session.')
     await user.click(screen.getByRole('button', { name: /mark present/i }))
 
     await waitFor(() => expect(posts).toHaveLength(1))
@@ -99,6 +100,7 @@ describe('teacher/admin mark route red-phase scaffold', () => {
       student_id: expect.any(String),
       capture_method: 'search',
       slot: 4,
+      reason_note: 'Student attended the make-up session.',
     })
     expect(await screen.findByText(/Marked .* present in slot 4\./i)).toBeInTheDocument()
   })

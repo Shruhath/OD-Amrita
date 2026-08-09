@@ -23,6 +23,11 @@ export type CreateTeacherProfileInput = components['schemas']['CreateTeacherProf
 export type AttendanceActor = components['schemas']['AttendanceActor']
 export type AttendanceRecord = components['schemas']['AttendanceRecord']
 export type AttendanceRecordCollection = components['schemas']['AttendanceRecordCollection']
+export type ODRecordHistoryCollection = components['schemas']['ODRecordHistoryCollection']
+export type RecordCorrectionInput = components['schemas']['RecordCorrectionRequest']
+export type RecordRemovalInput = components['schemas']['RecordRemovalRequest']
+export type ODRecordMutationResult = components['schemas']['ODRecordMutationResult']
+export type AuditLogEntryCollection = components['schemas']['AuditLogEntryCollection']
 export type StudentRosterImportResult = components['schemas']['StudentRosterImportResult']
 export type StudentRosterImportError = components['schemas']['StudentRosterImportError']
 export type StudentCollection = components['schemas']['StudentCollection']
@@ -415,6 +420,37 @@ export function createEventApi(session: SessionPort) {
       return unwrap(await client.GET('/api/v1/portal/mark/events/{event_id}/attendance', {
         params: { path: { event_id: eventID }, query },
       }))
+    },
+
+    async portalRecords(
+      eventID: string,
+      filters: { categoryID?: string; slot?: number; odDate?: string; section?: string; actorUserID?: string; page?: number; pageSize?: number } = {},
+    ) {
+      const query: Record<string, string | number> = { page: filters.page ?? 1, page_size: filters.pageSize ?? 50 }
+      if (filters.categoryID) query.category_id = filters.categoryID
+      if (filters.slot !== undefined) query.slot = filters.slot
+      if (filters.odDate) query.od_date = filters.odDate
+      if (filters.section) query.section = filters.section
+      if (filters.actorUserID) query.actor_user_id = filters.actorUserID
+      return unwrap(await client.GET('/api/v1/portal/events/{event_id}/records', { params: { path: { event_id: eventID }, query } }))
+    },
+
+    async studentODHistory(studentID: string, page = 1, pageSize = 50) {
+      return unwrap(await client.GET('/api/v1/portal/students/{student_id}/od-records', {
+        params: { path: { student_id: studentID }, query: { page, page_size: pageSize } },
+      }))
+    },
+
+    async correctODRecord(recordID: string, input: RecordCorrectionInput) {
+      return unwrap(await client.POST('/api/v1/portal/records/{record_id}/correction', { params: { path: { record_id: recordID } }, body: input }))
+    },
+
+    async removeODRecord(recordID: string, input: RecordRemovalInput) {
+      return unwrap(await client.POST('/api/v1/portal/records/{record_id}/removal', { params: { path: { record_id: recordID } }, body: input }))
+    },
+
+    async odRecordAudit(recordID: string) {
+      return unwrap(await client.GET('/api/v1/portal/records/{record_id}/audit', { params: { path: { record_id: recordID } } }))
     },
 
     async adminAttendance(

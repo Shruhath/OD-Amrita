@@ -118,12 +118,14 @@ func TestTeacherAndAdminUseExplicitSearchSlotOutsideLiveWindow(t *testing.T) {
 		t.Run(actor.Role, func(t *testing.T) {
 			fixture := newServiceFixture(t, time.Date(2026, 8, 3, 19, 0, 0, 0, campusLocation(t)))
 			svc := NewService(fixture.reader, fixture.cardResolver, fixture.writer, fixture.auditStore, fixture.clock, AllowAnyScope{}, fixture.creditLedger)
+			reason := "manual attendance recorded after slot close"
 			result, err := svc.Mark(context.Background(), actor, MarkInput{
 				EventID:       fixture.eventID,
 				CategoryID:    fixture.categoryID,
 				CaptureMethod: CaptureMethodSearch,
 				StudentID:     &fixture.studentID,
 				Slot:          intPtr(12),
+				ReasonNote:    &reason,
 			})
 			if err != nil {
 				t.Fatalf("Mark search slot: %v", err)

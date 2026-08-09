@@ -16,7 +16,7 @@ SQLC := GOWORK=off go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
 # green while CI goes red, which defeats the purpose of running it locally.
 # Keep POSTGRES_IMAGE in sync with .github/workflows/api-ci.yml.
 POSTGRES_IMAGE   := docker.io/library/postgres:17
-DB_CONTAINER     := od-postgres
+DB_CONTAINER     ?= od-postgres
 CONTAINER_ENGINE ?= podman
 # A user-defined network so the DB browser can resolve the database by container
 # name. The database ALSO publishes its port to the host, because the Go test

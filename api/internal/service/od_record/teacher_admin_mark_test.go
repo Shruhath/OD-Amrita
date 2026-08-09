@@ -33,6 +33,7 @@ func TestTeacherAdminMark_TeacherSearchMarkRequiresBranchAuthorization(t *testin
 	credits := stubCreditLedger()
 	studentID := scaffoldStudentID
 	slot := 4
+	reason := "manual attendance correction"
 	svc := NewService(stubReader(), stubCardResolver(), writer, stubAuditStore(), scaffoldClock{}, branchScopingGuard{}, credits)
 
 	_, err := svc.Mark(context.Background(), Actor{
@@ -45,6 +46,7 @@ func TestTeacherAdminMark_TeacherSearchMarkRequiresBranchAuthorization(t *testin
 		CaptureMethod: CaptureMethodSearch,
 		StudentID:     &studentID,
 		Slot:          &slot,
+		ReasonNote:    &reason,
 	})
 
 	if err != nil {
@@ -64,6 +66,7 @@ func TestTeacherAdminMark_RejectsTeacherOutsideStudentBranchBeforeWrite(t *testi
 	writer := &countingWriter{}
 	studentID := scaffoldStudentID
 	slot := 4
+	reason := "manual attendance correction"
 	svc := NewService(stubReader(), stubCardResolver(), writer, stubAuditStore(), scaffoldClock{}, branchScopingGuard{}, stubCreditLedger())
 
 	_, err := svc.Mark(context.Background(), Actor{
@@ -76,6 +79,7 @@ func TestTeacherAdminMark_RejectsTeacherOutsideStudentBranchBeforeWrite(t *testi
 		CaptureMethod: CaptureMethodSearch,
 		StudentID:     &studentID,
 		Slot:          &slot,
+		ReasonNote:    &reason,
 	})
 
 	if err == nil {
@@ -83,6 +87,31 @@ func TestTeacherAdminMark_RejectsTeacherOutsideStudentBranchBeforeWrite(t *testi
 	}
 	if writer.inserts != 0 {
 		t.Fatalf("[P0] unauthorized teacher branch mismatch wrote %d rows, want 0", writer.inserts)
+	}
+}
+
+func TestTeacherAdminMark_RequiresReasonBeforeReadingOrWriting(t *testing.T) {
+	writer := &countingWriter{}
+	studentID := scaffoldStudentID
+	slot := 4
+	svc := NewService(stubReader(), stubCardResolver(), writer, stubAuditStore(), scaffoldClock{}, branchScopingGuard{}, stubCreditLedger())
+
+	_, err := svc.Mark(context.Background(), Actor{
+		UserID: scaffoldActorID,
+		Email:  "teacher@amrita.edu",
+		Role:   "teacher",
+	}, MarkInput{
+		EventID:       scaffoldEventID,
+		CategoryID:    scaffoldCategoryID,
+		CaptureMethod: CaptureMethodSearch,
+		StudentID:     &studentID,
+		Slot:          &slot,
+	})
+	if err == nil || !strings.Contains(err.Error(), "VALIDATION_FAILED") {
+		t.Fatalf("teacher mark without reason = %v, want VALIDATION_FAILED", err)
+	}
+	if writer.inserts != 0 {
+		t.Fatalf("teacher mark without reason wrote %d rows, want 0", writer.inserts)
 	}
 }
 

@@ -120,7 +120,8 @@ type OdRecord struct {
 	ServerReceivedAt pgtype.Timestamptz `json:"server_received_at"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	// Campus-local day the OD belongs to, never the day the row was written. Derived server-side; never accepted from a client.
-	OdDate pgtype.Date `json:"od_date"`
+	OdDate     pgtype.Date `json:"od_date"`
+	ReasonNote pgtype.Text `json:"reason_note"`
 }
 
 type Student struct {

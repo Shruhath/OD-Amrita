@@ -709,8 +709,8 @@ func seedDisputeJourney(ctx context.Context, tx pgx.Tx) error {
 	for _, slot := range []int{1, 2, 4} {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO od_records
-				(student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role, server_received_at)
-			VALUES ($1, $2, $3, $4, $5, 'present', 'search', '90000000-0000-4000-8000-000000000004', 'teacher', now())
+				(student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role, reason_note, server_received_at)
+			VALUES ($1, $2, $3, $4, $5, 'present', 'search', '90000000-0000-4000-8000-000000000004', 'teacher', 'portal dispute fixture', now())
 		`, disputeStudentID, disputeEventID, disputeCategoryID, slot, eventDate); err != nil {
 			return fmt.Errorf("seed dispute od record slot %d: %w", slot, err)
 		}

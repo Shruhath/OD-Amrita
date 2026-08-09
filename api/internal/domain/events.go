@@ -25,6 +25,7 @@ type Action string
 const (
 	ActionODCreated          Action = "od.created"
 	ActionODOverridden       Action = "od.overridden"
+	ActionODRemoved          Action = "od.removed"
 	ActionSyncCompleted      Action = "sync.completed"
 	ActionOfflineEntered     Action = "offline.entered"
 	ActionAuthLoginSucceeded Action = "auth.login_succeeded"
@@ -61,6 +62,7 @@ const (
 var AllActions = []Action{
 	ActionODCreated,
 	ActionODOverridden,
+	ActionODRemoved,
 	ActionSyncCompleted,
 	ActionOfflineEntered,
 	ActionAuthLoginSucceeded,

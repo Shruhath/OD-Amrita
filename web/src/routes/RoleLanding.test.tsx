@@ -58,6 +58,7 @@ function renderLanding(session: SessionPort) {
           <Route path="/" element={<RoleLanding />} />
           <Route path="/portal/events" element={<p>Events workspace</p>} />
           <Route path="/portal/mark" element={<p>Teacher marking</p>} />
+          <Route path="/portal/od-records" element={<p>Record management</p>} />
           <Route path="/mark" element={<p>Coordinator marking</p>} />
           <Route path="/attendance" element={<p>Public dashboard</p>} />
         </Routes>
@@ -73,7 +74,7 @@ afterEach(() => {
 describe('role landing after sign-in', () => {
   test.each([
     ['admin', 'Events workspace'],
-    ['teacher', 'Teacher marking'],
+    ['teacher', 'Record management'],
     ['coordinator', 'Coordinator marking'],
     ['student', 'Public dashboard'],
   ])('[P0] a %s lands on the screen their own role admits', async (role, destination) => {

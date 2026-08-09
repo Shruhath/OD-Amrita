@@ -164,7 +164,7 @@ unset PGPASSWORD
 psql "$DATABASE_URL_MIGRATOR" -c 'SELECT max(version_id) FROM goose_db_version;'
 ```
 
-Expect **17** — migrations `0001`–`0017`. A lower number, or a missing table, means the
+Expect **18** — migrations `0001`–`0018`. A lower number, or a missing table, means the
 migrations did not all apply; stop and fix that before deploying, because the API will fail at
 runtime rather than at boot.
 
@@ -187,8 +187,15 @@ runtime rather than at boot.
 > usage back into the single row the pre-`0017` schema held, because `usage_date` is being
 > dropped anyway and no information survives either way.
 >
-> Take a dump immediately before applying `0015`–`0017` to a database that already holds
+> Take a dump immediately before applying `0015`–`0018` to a database that already holds
 > records.
+
+> **⚠️ `0018` is a one-way door once a record has been removed.**
+>
+> Its `Down` restores the old `status = 'present'` CHECK. After a removal, that CHECK correctly
+> rejects the historical `removed` row, so rollback aborts atomically and the widened status
+> constraint remains in place. Do not convert removed records back to present or delete them merely
+> to make a rollback succeed; reconcile the records deliberately or restore from PITR/a dump.
 
 **5. Build the runtime connection string** for the next section from the **`od_runtime`**
 password — never the migrator's. The application pool must not be able to run DDL.

@@ -119,6 +119,13 @@ func (s *PortalMarkReadService) Categories(ctx context.Context, actor Actor, eve
 // fact would page a teacher through somebody else's data and report a total
 // that does not match what they can see.
 func (s *PortalMarkReadService) Attendance(ctx context.Context, actor Actor, eventID string, categoryID *string, slot *int, odDate *string, page, pageSize int) (AttendancePage, error) {
+	return s.RecordList(ctx, actor, eventID, AttendanceFilters{CategoryID: categoryID, Slot: slot, ODDate: odDate}, page, pageSize)
+}
+
+// RecordList is the teacher/admin management list. Unlike the legacy
+// attendance read, it accepts section and actor filters in addition to the
+// established event/category/slot/day filters.
+func (s *PortalMarkReadService) RecordList(ctx context.Context, actor Actor, eventID string, filters AttendanceFilters, page, pageSize int) (AttendancePage, error) {
 	if err := assertTeacherOrAdmin(actor); err != nil {
 		return AttendancePage{}, err
 	}
@@ -145,8 +152,8 @@ func (s *PortalMarkReadService) Attendance(ctx context.Context, actor Actor, eve
 	}
 
 	var parsedCategory pgtype.UUID
-	if categoryID != nil && strings.TrimSpace(*categoryID) != "" {
-		categoryUUID, err := uuid.Parse(strings.TrimSpace(*categoryID))
+	if filters.CategoryID != nil && strings.TrimSpace(*filters.CategoryID) != "" {
+		categoryUUID, err := uuid.Parse(strings.TrimSpace(*filters.CategoryID))
 		if err != nil {
 			return AttendancePage{}, portalValidation("category_id", "invalid_format", "category_id must be a UUID.")
 		}
@@ -162,38 +169,58 @@ func (s *PortalMarkReadService) Attendance(ctx context.Context, actor Actor, eve
 	}
 
 	var parsedSlot pgtype.Int4
-	if slot != nil {
-		parsedSlot = pgtype.Int4{Int32: int32(*slot), Valid: true}
+	if filters.Slot != nil {
+		parsedSlot = pgtype.Int4{Int32: int32(*filters.Slot), Valid: true}
 	}
 
 	var parsedODDate pgtype.Date
-	if odDate != nil && strings.TrimSpace(*odDate) != "" {
-		trimmed := strings.TrimSpace(*odDate)
+	if filters.ODDate != nil && strings.TrimSpace(*filters.ODDate) != "" {
+		trimmed := strings.TrimSpace(*filters.ODDate)
 		day, parseErr := time.Parse(time.DateOnly, trimmed)
 		if parseErr != nil || day.Format(time.DateOnly) != trimmed {
 			return AttendancePage{}, portalValidation("od_date", "invalid_format", "od_date must be a valid YYYY-MM-DD date.")
 		}
 		parsedODDate = pgtype.Date{Time: day, Valid: true}
 	}
+	var section pgtype.Text
+	if filters.Section != nil && strings.TrimSpace(*filters.Section) != "" {
+		trimmed := strings.TrimSpace(*filters.Section)
+		if len([]rune(trimmed)) > 64 {
+			return AttendancePage{}, portalValidation("section", "max_length", "section must not exceed 64 characters.")
+		}
+		section = pgtype.Text{String: trimmed, Valid: true}
+	}
+	var actorUserID pgtype.UUID
+	if filters.ActorUserID != nil && strings.TrimSpace(*filters.ActorUserID) != "" {
+		parsed, parseErr := uuid.Parse(strings.TrimSpace(*filters.ActorUserID))
+		if parseErr != nil {
+			return AttendancePage{}, portalValidation("actor_user_id", "invalid_format", "actor_user_id must be a UUID.")
+		}
+		actorUserID = dbUUID(parsed)
+	}
 
 	total, err := s.queries.CountAttendanceRecords(ctx, sqlc.CountAttendanceRecordsParams{
-		EventID:    dbUUID(parsedEvent),
-		CategoryID: parsedCategory,
-		Slot:       parsedSlot,
-		OdDate:     parsedODDate,
-		ViewerID:   viewer,
+		EventID:     dbUUID(parsedEvent),
+		CategoryID:  parsedCategory,
+		Slot:        parsedSlot,
+		OdDate:      parsedODDate,
+		Section:     section,
+		ActorUserID: actorUserID,
+		ViewerID:    viewer,
 	})
 	if err != nil {
 		return AttendancePage{}, err
 	}
 	rows, err := s.queries.ListAttendanceRecords(ctx, sqlc.ListAttendanceRecordsParams{
-		EventID:    dbUUID(parsedEvent),
-		CategoryID: parsedCategory,
-		Slot:       parsedSlot,
-		OdDate:     parsedODDate,
-		ViewerID:   viewer,
-		PageOffset: int64((page - 1) * pageSize),
-		PageSize:   int64(pageSize),
+		EventID:     dbUUID(parsedEvent),
+		CategoryID:  parsedCategory,
+		Slot:        parsedSlot,
+		OdDate:      parsedODDate,
+		Section:     section,
+		ActorUserID: actorUserID,
+		ViewerID:    viewer,
+		PageOffset:  int64((page - 1) * pageSize),
+		PageSize:    int64(pageSize),
 	})
 	if err != nil {
 		return AttendancePage{}, err
@@ -201,6 +228,57 @@ func (s *PortalMarkReadService) Attendance(ctx context.Context, actor Actor, eve
 	data := make([]AttendanceRecord, 0, len(rows))
 	for _, row := range rows {
 		record, mapErr := attendanceRecordFromRow(row)
+		if mapErr != nil {
+			return AttendancePage{}, mapErr
+		}
+		data = append(data, record)
+	}
+	return AttendancePage{Data: data, Page: page, PageSize: pageSize, Total: int(total)}, nil
+}
+
+// StudentHistory returns every status for one student. Teachers are scoped to
+// branches they teach; an empty result for an existing foreign student must not
+// be treated as an authorized absence, so we resolve and authorize the student
+// before running the paginated history query.
+func (s *PortalMarkReadService) StudentHistory(ctx context.Context, actor Actor, studentID string, page, pageSize int) (AttendancePage, error) {
+	if err := assertTeacherOrAdmin(actor); err != nil {
+		return AttendancePage{}, err
+	}
+	parsedStudent, err := uuid.Parse(strings.TrimSpace(studentID))
+	if err != nil {
+		return AttendancePage{}, portalValidation("student_id", "invalid_format", "student_id must be a UUID.")
+	}
+	if _, err := s.queries.GetMarkStudentByID(ctx, dbUUID(parsedStudent)); errors.Is(err, pgx.ErrNoRows) {
+		return AttendancePage{}, domain.DomainError{Code: contracts.ErrorCodeSTUDENTNOTFOUND, Message: "Student not found."}
+	} else if err != nil {
+		return AttendancePage{}, err
+	}
+	var viewer pgtype.UUID
+	if actor.Role == "teacher" {
+		viewerID, parseErr := uuid.Parse(strings.TrimSpace(actor.UserID))
+		if parseErr != nil {
+			return AttendancePage{}, forbiddenPortal("Teacher principal is invalid.")
+		}
+		viewer = dbUUID(viewerID)
+		allowed, queryErr := s.queries.TeacherCanViewStudentODHistory(ctx, sqlc.TeacherCanViewStudentODHistoryParams{UserID: viewer, StudentID: dbUUID(parsedStudent)})
+		if queryErr != nil {
+			return AttendancePage{}, queryErr
+		}
+		if !allowed {
+			return AttendancePage{}, forbiddenPortal("Teacher may view only students in taught branches.")
+		}
+	}
+	total, err := s.queries.CountODRecordsForStudent(ctx, sqlc.CountODRecordsForStudentParams{StudentID: dbUUID(parsedStudent), ViewerID: viewer})
+	if err != nil {
+		return AttendancePage{}, err
+	}
+	rows, err := s.queries.ListODRecordsForStudent(ctx, sqlc.ListODRecordsForStudentParams{StudentID: dbUUID(parsedStudent), ViewerID: viewer, PageOffset: int64((page - 1) * pageSize), PageSize: int64(pageSize)})
+	if err != nil {
+		return AttendancePage{}, err
+	}
+	data := make([]AttendanceRecord, 0, len(rows))
+	for _, row := range rows {
+		record, mapErr := attendanceRecordFromHistoryRow(row)
 		if mapErr != nil {
 			return AttendancePage{}, mapErr
 		}
@@ -335,8 +413,45 @@ func attendanceRecordFromRow(row sqlc.ListAttendanceRecordsRow) (AttendanceRecor
 		Slot:             int(row.Slot),
 		ODDate:           row.OdDate.Time.Format(time.DateOnly),
 		CaptureMethod:    row.CaptureMethod,
+		Status:           row.Status,
+		ReasonNote:       nullableText(row.ReasonNote),
 		MarkedBy:         markedBy,
 		ActorRole:        row.ActorRole,
 		ServerReceivedAt: row.ServerReceivedAt.Time,
 	}, nil
+}
+
+func attendanceRecordFromHistoryRow(row sqlc.ListODRecordsForStudentRow) (AttendanceRecord, error) {
+	if !row.ID.Valid || !row.StudentID.Valid || !row.EventID.Valid || !row.CategoryID.Valid || !row.CategoryCreatedAt.Valid || !row.OdDate.Valid || !row.ServerReceivedAt.Valid {
+		return AttendanceRecord{}, errors.New("marking: student history row contains invalid required values")
+	}
+	var markedBy AttendanceActor
+	if row.ActorUserID.Valid {
+		value := uuid.UUID(row.ActorUserID.Bytes).String()
+		markedBy.UserID = &value
+	}
+	if row.ActorEmail.Valid {
+		value := row.ActorEmail.String
+		markedBy.Email = &value
+	}
+	if row.ActorName.Valid {
+		value := row.ActorName.String
+		markedBy.Name = &value
+	}
+	return AttendanceRecord{
+		RecordID: uuid.UUID(row.ID.Bytes).String(),
+		Student:  Student{StudentID: uuid.UUID(row.StudentID.Bytes).String(), RollNo: row.RollNo, DisplayName: row.StudentName, Branch: row.Branch, Section: row.Section, Batch: row.Batch},
+		EventID:  uuid.UUID(row.EventID.Bytes).String(),
+		Category: Category{CategoryID: uuid.UUID(row.CategoryID.Bytes).String(), EventID: uuid.UUID(row.EventID.Bytes).String(), Name: row.CategoryName, CreatedAt: row.CategoryCreatedAt.Time},
+		Slot:     int(row.Slot), ODDate: row.OdDate.Time.Format(time.DateOnly), CaptureMethod: row.CaptureMethod, Status: row.Status,
+		ReasonNote: nullableText(row.ReasonNote), MarkedBy: markedBy, ActorRole: row.ActorRole, ServerReceivedAt: row.ServerReceivedAt.Time,
+	}, nil
+}
+
+func nullableText(value pgtype.Text) *string {
+	if !value.Valid {
+		return nil
+	}
+	text := value.String
+	return &text
 }

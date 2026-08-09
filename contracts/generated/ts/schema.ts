@@ -244,6 +244,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/events/{event_id}/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List teacher/admin manageable OD records for one event */
+        get: operations["listPortalODRecords"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/students/{student_id}/od-records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List a student's complete teacher/admin OD history */
+        get: operations["listStudentODRecordHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/records/{record_id}/correction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Correct an OD record with a mandatory reason */
+        post: operations["correctODRecord"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/records/{record_id}/removal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Remove an OD record with a mandatory reason */
+        post: operations["removeODRecord"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/records/{record_id}/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the immutable audit trail for one OD record */
+        get: operations["listODRecordAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/events/{event_id}/attendance": {
         parameters: {
             query?: never;
@@ -252,8 +337,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List present attendance records for one event
-         * @description Admin-only event verification read. Filters are applied server-side before pagination, returns present OD rows only, and exposes display and actor fields needed to verify the live event without revealing card tokens, fingerprints, fallback-credit internals, disputes, reasons, or private student email.
+         * List attendance records for one event
+         * @description Admin-only event verification read. Filters are applied server-side before pagination, returns present and removed OD rows, and exposes display, actor, status, and record-reason fields needed to verify the event without revealing card tokens, fingerprints, fallback-credit internals, dispute records or resolution notes, or private student email.
          */
         get: operations["listAdminEventAttendance"];
         put?: never;
@@ -1098,6 +1183,8 @@ export interface components {
             student_id?: string;
             card?: components["schemas"]["CardTokenResolveRequest"];
             slot?: number;
+            /** @description Required for teacher/admin manual search marks; optional for coordinator capture. */
+            reason_note?: string | null;
         } & ({
             /** Format: uuid */
             student_id: string;
@@ -1113,6 +1200,9 @@ export interface components {
             /** Format: uuid */
             category_id: string;
             slot: number;
+            /** Format: date */
+            od_date: string;
+            reason_note?: string | null;
             capture_method: components["schemas"]["CaptureMethod"];
             /** Format: date-time */
             server_received_at: string;
@@ -1147,6 +1237,9 @@ export interface components {
              * @description The day this OD belongs to. Without it a thirty-day event's list interleaves thirty days of the same slot with nothing on screen distinguishing them.
              */
             od_date: string;
+            /** @enum {string} */
+            status: "present" | "removed";
+            reason_note?: string | null;
             capture_method: components["schemas"]["CaptureMethod"];
             marked_by: components["schemas"]["AttendanceActor"];
             /** @enum {string} */
@@ -1159,6 +1252,45 @@ export interface components {
             page: number;
             page_size: number;
             total: number;
+        };
+        RecordCorrectionRequest: {
+            reason_note: string;
+            slot?: number;
+            /** Format: uuid */
+            category_id?: string;
+            /** Format: date */
+            od_date?: string;
+        };
+        RecordRemovalRequest: {
+            reason_note: string;
+        };
+        ODRecordMutationResult: {
+            /** Format: uuid */
+            record_id: string;
+            /** Format: uuid */
+            event_id: string;
+            /** @enum {string} */
+            status: "present" | "removed";
+        };
+        ODRecordHistoryCollection: {
+            data: components["schemas"]["AttendanceRecord"][];
+            page: number;
+            page_size: number;
+            total: number;
+        };
+        AuditLogEntry: {
+            action: string;
+            /** Format: email */
+            actor_email: string | null;
+            actor_role: string | null;
+            /** Format: date-time */
+            occurred_at: string;
+            payload: {
+                [key: string]: unknown;
+            } | null;
+        };
+        AuditLogEntryCollection: {
+            data: components["schemas"]["AuditLogEntry"][];
         };
         /** @description Health probe shape — overall service status plus database connectivity. */
         HealthStatus: {
@@ -1179,7 +1311,7 @@ export interface components {
              * @description Canonical SCREAMING_SNAKE error code. This enum is the WIRE source of truth; the Go `errors.go` const registry mirrors it. Do not invent free-text codes.
              * @enum {string}
              */
-            code: "AUTH_DOMAIN_REJECTED" | "AUTH_TOKEN_INVALID" | "RBAC_FORBIDDEN" | "SCAN_DUPLICATE" | "SLOT_CLOSED" | "CARD_NOT_RECOGNIZED" | "CAPTURE_CREDIT_LIMIT_REACHED" | "QR_LIMIT_REACHED" | "RATE_LIMITED" | "INVALID_SCAN_ID" | "VALIDATION_FAILED" | "EVENT_NOT_FOUND" | "EVENT_ARCHIVED" | "CATEGORY_NOT_FOUND" | "USER_NOT_FOUND" | "STUDENT_NOT_FOUND" | "ROLE_ALREADY_ASSIGNED" | "COORDINATOR_ASSIGNMENT_EXISTS" | "DISPUTE_IDENTITY_UNVERIFIED" | "DISPUTE_ALREADY_OPEN" | "DISPUTE_NOT_FOUND" | "DISPUTE_ALREADY_RESOLVED" | "INTERNAL";
+            code: "AUTH_DOMAIN_REJECTED" | "AUTH_TOKEN_INVALID" | "RBAC_FORBIDDEN" | "SCAN_DUPLICATE" | "SLOT_CLOSED" | "CARD_NOT_RECOGNIZED" | "CAPTURE_CREDIT_LIMIT_REACHED" | "QR_LIMIT_REACHED" | "RATE_LIMITED" | "INVALID_SCAN_ID" | "VALIDATION_FAILED" | "EVENT_NOT_FOUND" | "EVENT_ARCHIVED" | "CATEGORY_NOT_FOUND" | "OD_RECORD_NOT_FOUND" | "OD_RECORD_ALREADY_REMOVED" | "USER_NOT_FOUND" | "STUDENT_NOT_FOUND" | "ROLE_ALREADY_ASSIGNED" | "COORDINATOR_ASSIGNMENT_EXISTS" | "DISPUTE_IDENTITY_UNVERIFIED" | "DISPUTE_ALREADY_OPEN" | "DISPUTE_NOT_FOUND" | "DISPUTE_ALREADY_RESOLVED" | "INTERNAL";
             /** @description Human-readable message. For diagnostics/display only — branch on `code`. */
             message: string;
             /** @description Optional, freeform context for generic errors. Typed validation failures use ValidationError.details (a typed array) instead. */
@@ -2048,6 +2180,378 @@ export interface operations {
                 };
             };
             /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listPortalODRecords: {
+        parameters: {
+            query?: {
+                category_id?: string;
+                slot?: number;
+                od_date?: string;
+                section?: string;
+                actor_user_id?: string;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of present and removed records */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceRecordCollection"];
+                };
+            };
+            /** @description Invalid filter */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller cannot manage these records */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listStudentODRecordHistory: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                student_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of present and removed records */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ODRecordHistoryCollection"];
+                };
+            };
+            /** @description Invalid id or pagination */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller cannot access this student's branch */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Student not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    correctODRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordCorrectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Corrected record */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ODRecordMutationResult"];
+                };
+            };
+            /** @description Validation failed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller cannot manage this record */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Record not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Record state conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    removeODRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordRemovalRequest"];
+            };
+        };
+        responses: {
+            /** @description Removed record */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ODRecordMutationResult"];
+                };
+            };
+            /** @description Validation failed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller cannot manage this record */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Record not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Record state conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listODRecordAudit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ordered audit entries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditLogEntryCollection"];
+                };
+            };
+            /** @description Invalid record id */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller cannot access this record */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Record not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error */
             500: {
                 headers: {
                     [name: string]: unknown;

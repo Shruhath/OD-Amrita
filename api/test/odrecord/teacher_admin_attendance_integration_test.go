@@ -52,6 +52,7 @@ func TestTeacherAdminSearchMarkIntegration_AuditConservationAndNoCreditDebit(t *
 	svc := roleAwareMarkService(runtime, fixture)
 	slot := 4
 	studentID := fixture.studentID
+	reason := "manual attendance for student without card"
 	result, err := svc.Mark(ctx,
 		odsvc.Actor{UserID: teacherID, Email: "teacher@amrita.edu", Role: "teacher"},
 		odsvc.MarkInput{
@@ -60,6 +61,7 @@ func TestTeacherAdminSearchMarkIntegration_AuditConservationAndNoCreditDebit(t *
 			CaptureMethod: odsvc.CaptureMethodSearch,
 			StudentID:     &studentID,
 			Slot:          &slot,
+			ReasonNote:    &reason,
 		})
 	if err != nil {
 		t.Fatalf("[P0] teacher search mark in-branch = %v, want nil", err)
@@ -104,6 +106,7 @@ func TestTeacherAdminSearchMarkIntegration_DuplicateConcurrentMarksConserveRows(
 	actor := odsvc.Actor{UserID: teacherID, Email: "teacher@amrita.edu", Role: "teacher"}
 	slot := 5
 	studentID := fixture.studentID
+	reason := "manual attendance race test"
 
 	var wg sync.WaitGroup
 	errs := make(chan error, 2)
@@ -117,6 +120,7 @@ func TestTeacherAdminSearchMarkIntegration_DuplicateConcurrentMarksConserveRows(
 				CaptureMethod: odsvc.CaptureMethodSearch,
 				StudentID:     &studentID,
 				Slot:          &slot,
+				ReasonNote:    &reason,
 			})
 			errs <- err
 		}()
@@ -235,6 +239,7 @@ func TestAdminAttendanceIntegration_NullActorStillRendersRecord(t *testing.T) {
 	svc := roleAwareMarkService(runtime, fixture)
 	slot := 6
 	studentID := fixture.studentID
+	reason := "manual attendance for actor deletion test"
 	if _, err := svc.Mark(ctx,
 		odsvc.Actor{UserID: teacherID, Email: "teacher@amrita.edu", Role: "teacher"},
 		odsvc.MarkInput{
@@ -243,6 +248,7 @@ func TestAdminAttendanceIntegration_NullActorStillRendersRecord(t *testing.T) {
 			CaptureMethod: odsvc.CaptureMethodSearch,
 			StudentID:     &studentID,
 			Slot:          &slot,
+			ReasonNote:    &reason,
 		}); err != nil {
 		t.Fatalf("seed the mark to later orphan: %v", err)
 	}
@@ -342,8 +348,8 @@ func seedAttendanceRecord(
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO od_records
-			(id, student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role, server_received_at)
-		VALUES ($1, $2, $3, $4, $5, $8::date, 'present', 'search', $6, $7, now())`,
+			(id, student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role, reason_note, server_received_at)
+		VALUES ($1, $2, $3, $4, $5, $8::date, 'present', 'search', $6, $7, 'attendance integration seed', now())`,
 		uuid.NewString(), studentID, eventID, categoryID, slot, actorUserID, actorRole, odDate); err != nil {
 		t.Fatalf("seed attendance record: %v", err)
 	}

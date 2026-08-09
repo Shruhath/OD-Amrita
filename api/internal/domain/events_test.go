@@ -35,6 +35,7 @@ func TestAllActions_MatchesDeclaredConstants(t *testing.T) {
 	want := map[Action]string{
 		ActionODCreated:               "od.created",
 		ActionODOverridden:            "od.overridden",
+		ActionODRemoved:               "od.removed",
 		ActionSyncCompleted:           "sync.completed",
 		ActionOfflineEntered:          "offline.entered",
 		ActionAuthLoginSucceeded:      "auth.login_succeeded",

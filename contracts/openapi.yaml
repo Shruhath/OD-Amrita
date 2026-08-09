@@ -728,16 +728,108 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/portal/events/{event_id}/records:
+    get:
+      operationId: listPortalODRecords
+      summary: List teacher/admin manageable OD records for one event
+      security: [{bearerAuth: []}]
+      parameters:
+        - {name: event_id, in: path, required: true, schema: {type: string, format: uuid}}
+        - {name: category_id, in: query, schema: {type: string, format: uuid}}
+        - {name: slot, in: query, schema: {type: integer, minimum: 1, maximum: 12}}
+        - {name: od_date, in: query, schema: {type: string, format: date}}
+        - {name: section, in: query, schema: {type: string, maxLength: 64}}
+        - {name: actor_user_id, in: query, schema: {type: string, format: uuid}}
+        - {name: page, in: query, schema: {type: integer, minimum: 1, default: 1}}
+        - {name: page_size, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+      responses:
+        "200": {description: Page of present and removed records, content: {application/json: {schema: {$ref: "#/components/schemas/AttendanceRecordCollection"}}}}
+        "400": {description: Invalid filter, content: {application/json: {schema: {$ref: "#/components/schemas/ValidationError"}}}}
+        "401": {description: Unauthenticated, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "403": {description: Caller cannot manage these records, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "404": {description: Event not found, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "500": {description: Internal error, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+
+  /api/v1/portal/students/{student_id}/od-records:
+    get:
+      operationId: listStudentODRecordHistory
+      summary: List a student's complete teacher/admin OD history
+      security: [{bearerAuth: []}]
+      parameters:
+        - {name: student_id, in: path, required: true, schema: {type: string, format: uuid}}
+        - {name: page, in: query, schema: {type: integer, minimum: 1, default: 1}}
+        - {name: page_size, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+      responses:
+        "200": {description: Page of present and removed records, content: {application/json: {schema: {$ref: "#/components/schemas/ODRecordHistoryCollection"}}}}
+        "400": {description: Invalid id or pagination, content: {application/json: {schema: {$ref: "#/components/schemas/ValidationError"}}}}
+        "401": {description: Unauthenticated, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "403": {description: Caller cannot access this student's branch, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "404": {description: Student not found, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "500": {description: Internal error, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+
+  /api/v1/portal/records/{record_id}/correction:
+    post:
+      operationId: correctODRecord
+      summary: Correct an OD record with a mandatory reason
+      security: [{bearerAuth: []}]
+      parameters:
+        - {name: record_id, in: path, required: true, schema: {type: string, format: uuid}}
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/RecordCorrectionRequest"}}}
+      responses:
+        "200": {description: Corrected record, content: {application/json: {schema: {$ref: "#/components/schemas/ODRecordMutationResult"}}}}
+        "400": {description: Validation failed, content: {application/json: {schema: {$ref: "#/components/schemas/ValidationError"}}}}
+        "401": {description: Unauthenticated, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "403": {description: Caller cannot manage this record, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "404": {description: Record not found, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "409": {description: Record state conflict, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "500": {description: Internal error, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+
+  /api/v1/portal/records/{record_id}/removal:
+    post:
+      operationId: removeODRecord
+      summary: Remove an OD record with a mandatory reason
+      security: [{bearerAuth: []}]
+      parameters:
+        - {name: record_id, in: path, required: true, schema: {type: string, format: uuid}}
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/RecordRemovalRequest"}}}
+      responses:
+        "200": {description: Removed record, content: {application/json: {schema: {$ref: "#/components/schemas/ODRecordMutationResult"}}}}
+        "400": {description: Validation failed, content: {application/json: {schema: {$ref: "#/components/schemas/ValidationError"}}}}
+        "401": {description: Unauthenticated, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "403": {description: Caller cannot manage this record, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "404": {description: Record not found, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "409": {description: Record state conflict, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "500": {description: Internal error, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+
+  /api/v1/portal/records/{record_id}/audit:
+    get:
+      operationId: listODRecordAudit
+      summary: List the immutable audit trail for one OD record
+      security: [{bearerAuth: []}]
+      parameters:
+        - {name: record_id, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        "200": {description: Ordered audit entries, content: {application/json: {schema: {$ref: "#/components/schemas/AuditLogEntryCollection"}}}}
+        "400": {description: Invalid record id, content: {application/json: {schema: {$ref: "#/components/schemas/ValidationError"}}}}
+        "401": {description: Unauthenticated, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "403": {description: Caller cannot access this record, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "404": {description: Record not found, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "500": {description: Internal error, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+
   /api/v1/admin/events/{event_id}/attendance:
     get:
       operationId: listAdminEventAttendance
-      summary: List present attendance records for one event
+      summary: List attendance records for one event
       description: >-
         Admin-only event verification read. Filters are applied server-side
-        before pagination, returns present OD rows only, and exposes display and
-        actor fields needed to verify the live event without revealing card
-        tokens, fingerprints, fallback-credit internals, disputes, reasons, or
-        private student email.
+        before pagination, returns present and removed OD rows, and exposes
+        display, actor, status, and record-reason fields needed to verify the
+        event without revealing card tokens, fingerprints, fallback-credit
+        internals, dispute records or resolution notes, or private student email.
       security:
         - bearerAuth: []
       parameters:
@@ -3252,6 +3344,12 @@ components:
           type: integer
           minimum: 1.0
           maximum: 12.0
+        reason_note:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 2000
+          description: Required for teacher/admin manual search marks; optional for coordinator capture.
 
     MarkAttendanceResult:
       type: object
@@ -3261,6 +3359,7 @@ components:
         - event_id
         - category_id
         - slot
+        - od_date
         - capture_method
         - server_received_at
       properties:
@@ -3279,6 +3378,13 @@ components:
           type: integer
           minimum: 1.0
           maximum: 12.0
+        od_date:
+          type: string
+          format: date
+        reason_note:
+          type: string
+          nullable: true
+          maxLength: 2000
         capture_method:
           $ref: "#/components/schemas/CaptureMethod"
         server_received_at:
@@ -3332,6 +3438,7 @@ components:
         - category
         - slot
         - od_date
+        - status
         - capture_method
         - marked_by
         - actor_role
@@ -3358,6 +3465,13 @@ components:
             The day this OD belongs to. Without it a thirty-day event's list
             interleaves thirty days of the same slot with nothing on screen
             distinguishing them.
+        status:
+          type: string
+          enum: [present, removed]
+        reason_note:
+          type: string
+          nullable: true
+          maxLength: 2000
         capture_method:
           $ref: "#/components/schemas/CaptureMethod"
         marked_by:
@@ -3387,6 +3501,97 @@ components:
         total:
           type: integer
           minimum: 0
+
+    RecordCorrectionRequest:
+      type: object
+      required: [reason_note]
+      properties:
+        reason_note:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        slot:
+          type: integer
+          minimum: 1
+          maximum: 12
+        category_id:
+          type: string
+          format: uuid
+        od_date:
+          type: string
+          format: date
+
+    RecordRemovalRequest:
+      type: object
+      required: [reason_note]
+      properties:
+        reason_note:
+          type: string
+          minLength: 1
+          maxLength: 2000
+
+    ODRecordMutationResult:
+      type: object
+      required: [record_id, event_id, status]
+      properties:
+        record_id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [present, removed]
+
+    ODRecordHistoryCollection:
+      type: object
+      required: [data, page, page_size, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttendanceRecord"
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
+
+    AuditLogEntry:
+      type: object
+      required: [action, actor_email, actor_role, occurred_at, payload]
+      properties:
+        action:
+          type: string
+        actor_email:
+          type: string
+          format: email
+          nullable: true
+        actor_role:
+          type: string
+          nullable: true
+        occurred_at:
+          type: string
+          format: date-time
+        payload:
+          type: object
+          nullable: true
+          additionalProperties: true
+
+    AuditLogEntryCollection:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditLogEntry"
 
     HealthStatus:
       type: object
@@ -3443,6 +3648,8 @@ components:
             - EVENT_NOT_FOUND
             - EVENT_ARCHIVED
             - CATEGORY_NOT_FOUND
+            - OD_RECORD_NOT_FOUND
+            - OD_RECORD_ALREADY_REMOVED
             - USER_NOT_FOUND
             - STUDENT_NOT_FOUND
             - ROLE_ALREADY_ASSIGNED

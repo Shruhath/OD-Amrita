@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/Shruhath/OD-Amrita/api/internal/domain"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
@@ -61,6 +62,7 @@ type markRequestShape struct {
 	StudentID     *json.RawMessage `json:"student_id"`
 	Card          *json.RawMessage `json:"card"`
 	Slot          *json.RawMessage `json:"slot"`
+	ReasonNote    *json.RawMessage `json:"reason_note"`
 }
 
 func bindMarkRequest(c *gin.Context, actor odsvc.Actor) (contracts.MarkAttendanceRequest, error) {
@@ -92,6 +94,9 @@ func bindMarkRequest(c *gin.Context, actor odsvc.Actor) (contracts.MarkAttendanc
 	}
 	if actor.Role == "coordinator" && shape.Slot != nil {
 		return contracts.MarkAttendanceRequest{}, requestValidation("slot", "forbidden", "coordinator marks use server-derived slot only.")
+	}
+	if (actor.Role == "teacher" || actor.Role == "admin") && !rawProvided(shape.ReasonNote) {
+		return contracts.MarkAttendanceRequest{}, requestValidation("reason_note", "required", "reason_note is required for teacher and admin marks.")
 	}
 
 	var body contracts.MarkAttendanceRequest
@@ -125,6 +130,7 @@ func serviceInput(body contracts.MarkAttendanceRequest) odsvc.MarkInput {
 		CategoryID:    body.CategoryId.String(),
 		CaptureMethod: odsvc.CaptureMethod(body.CaptureMethod),
 		Slot:          body.Slot,
+		ReasonNote:    body.ReasonNote,
 	}
 	if body.StudentId != nil {
 		studentID := body.StudentId.String()
@@ -153,11 +159,14 @@ func resultContract(result odsvc.MarkResult) (contracts.MarkAttendanceResult, er
 	if err != nil {
 		return contracts.MarkAttendanceResult{}, err
 	}
+	odDate := openapi_types.Date{Time: result.ODDate}
 	return contracts.MarkAttendanceResult{
 		RecordId:         recordID,
 		EventId:          eventID,
 		CategoryId:       categoryID,
 		Slot:             result.Slot,
+		OdDate:           odDate,
+		ReasonNote:       result.ReasonNote,
 		CaptureMethod:    contracts.CaptureMethod(result.CaptureMethod),
 		ServerReceivedAt: result.ServerReceivedAt,
 		Student: contracts.MarkedStudent{

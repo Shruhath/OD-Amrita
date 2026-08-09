@@ -144,9 +144,9 @@ func seedTwoBranchAttendance(t *testing.T, ctx context.Context, pool *pgxpool.Po
 		taughtStudent, "CB.SC.U4A"+token, taughtBranch,
 		otherStudent, "CB.SC.U4B"+token, otherBranch)
 
-	exec(`INSERT INTO od_records (id, student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role)
-	      VALUES (gen_random_uuid(),$1,$2,$3,1,CURRENT_DATE,'present','search',$4,'teacher'),
-	             (gen_random_uuid(),$5,$2,$3,1,CURRENT_DATE,'present','search',$4,'teacher')`,
+	exec(`INSERT INTO od_records (id, student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role, reason_note)
+	      VALUES (gen_random_uuid(),$1,$2,$3,1,CURRENT_DATE,'present','search',$4,'teacher','scope test seed'),
+	             (gen_random_uuid(),$5,$2,$3,1,CURRENT_DATE,'present','search',$4,'teacher','scope test seed')`,
 		taughtStudent, fixture.eventID, category, fixture.adminID, otherStudent)
 
 	return fixture

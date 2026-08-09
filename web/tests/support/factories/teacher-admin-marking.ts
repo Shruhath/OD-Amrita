@@ -65,6 +65,8 @@ export function attendanceRecord(overrides: Partial<AttendanceRecord> = {}): Att
     // The day the OD belongs to. Distinct from server_received_at below, which
     // is when the row was written — on a correction they are different days.
     od_date: new Date().toISOString().slice(0, 10),
+    status: 'present',
+    reason_note: null,
     capture_method: 'search',
     marked_by: {
       user_id: '77777777-7777-4777-8777-777777777777',

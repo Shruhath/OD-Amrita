@@ -20,6 +20,8 @@ type AttendanceRecord struct {
 	// the row was written, and on a correction the two are different days.
 	ODDate           string
 	CaptureMethod    string
+	Status           string
+	ReasonNote       *string
 	MarkedBy         AttendanceActor
 	ActorRole        string
 	ServerReceivedAt time.Time
@@ -31,4 +33,16 @@ type AttendancePage struct {
 	Page     int
 	PageSize int
 	Total    int
+}
+
+// AttendanceFilters are the optional server-side filters used by the record
+// management view. They intentionally do not include status: that view must
+// show both present and removed rows so an auditor cannot mistake a filtered
+// absence for an erased history.
+type AttendanceFilters struct {
+	CategoryID  *string
+	Slot        *int
+	ODDate      *string
+	Section     *string
+	ActorUserID *string
 }

@@ -21,7 +21,7 @@ import { SessionBoundary, SessionLoading } from '../features/auth/AuthGate'
  */
 const LANDING_BY_ROLE: Record<string, string> = {
   admin: '/portal/events',
-  teacher: '/portal/mark',
+  teacher: '/portal/od-records',
   coordinator: '/mark',
   // A student has no authenticated surface of their own. The public dashboard is
   // the one screen that answers their actual question — "was I marked?" — and it

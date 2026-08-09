@@ -1584,6 +1584,77 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/admin/events/{event_id}/closeout:
+    post:
+      operationId: createAdminEventCloseout
+      summary: Queue an archived-event closeout report
+      description: >-
+        Queues reconciliation and report generation for an archived event. The
+        request returns before the background work completes.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "202":
+          description: Closeout accepted for asynchronous processing.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EventCloseout" }
+        "400":
+          description: The event id is malformed.
+          content: { application/json: { schema: { $ref: "#/components/schemas/ValidationError" } } }
+        "401":
+          description: Authentication is required.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "403":
+          description: Caller is not an administrator.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "404":
+          description: No event exists with the supplied id.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "409":
+          description: The event is not archived.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "500":
+          description: Internal error.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
+  /api/v1/admin/events/{event_id}/closeout/{closeout_id}:
+    get:
+      operationId: getAdminEventCloseout
+      summary: Read event closeout status
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: event_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: closeout_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Current closeout status.
+          content: { application/json: { schema: { $ref: "#/components/schemas/EventCloseout" } } }
+        "404":
+          description: Closeout not found.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
+  /api/v1/admin/events/{event_id}/closeout/{closeout_id}/report:
+    get:
+      operationId: downloadAdminEventCloseoutReport
+      summary: Download a completed event closeout report
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: event_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: closeout_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: CSV report.
+          content: { text/csv: { schema: { type: string } } }
+        "409":
+          description: Report generation is not complete.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
   /api/v1/admin/events/{event_id}/categories:
     parameters:
       - name: event_id
@@ -2834,6 +2905,27 @@ components:
           enum: [queued, processing, completed, failed]
         row_count:
           type: integer
+          minimum: 0
+        error_summary:
+          type: string
+          nullable: true
+
+    EventCloseout:
+      type: object
+      required: [id, event_id, status, total_records]
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, processing, completed, failed]
+        total_records:
+          type: integer
+          format: int64
           minimum: 0
         error_summary:
           type: string

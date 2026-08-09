@@ -244,6 +244,30 @@ func (e ErrorCode) Valid() bool {
 	}
 }
 
+// Defines values for EventCloseoutStatus.
+const (
+	EventCloseoutStatusCompleted  EventCloseoutStatus = "completed"
+	EventCloseoutStatusFailed     EventCloseoutStatus = "failed"
+	EventCloseoutStatusProcessing EventCloseoutStatus = "processing"
+	EventCloseoutStatusQueued     EventCloseoutStatus = "queued"
+)
+
+// Valid indicates whether the value is a known member of the EventCloseoutStatus enum.
+func (e EventCloseoutStatus) Valid() bool {
+	switch e {
+	case EventCloseoutStatusCompleted:
+		return true
+	case EventCloseoutStatusFailed:
+		return true
+	case EventCloseoutStatusProcessing:
+		return true
+	case EventCloseoutStatusQueued:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for EventStatus.
 const (
 	EventStatusActive   EventStatus = "active"
@@ -797,6 +821,18 @@ type Event struct {
 	Name      string             `json:"name"`
 	Status    EventStatus        `json:"status"`
 }
+
+// EventCloseout defines model for EventCloseout.
+type EventCloseout struct {
+	ErrorSummary *string             `json:"error_summary,omitempty"`
+	EventId      openapi_types.UUID  `json:"event_id"`
+	Id           openapi_types.UUID  `json:"id"`
+	Status       EventCloseoutStatus `json:"status"`
+	TotalRecords int64               `json:"total_records"`
+}
+
+// EventCloseoutStatus defines model for EventCloseout.Status.
+type EventCloseoutStatus string
 
 // EventCollection defines model for EventCollection.
 type EventCollection struct {

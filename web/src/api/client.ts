@@ -33,6 +33,7 @@ export type StudentRosterImportError = components['schemas']['StudentRosterImpor
 export type AttendanceImport = components['schemas']['AttendanceImport']
 export type AttendanceImportError = components['schemas']['AttendanceImportError']
 export type AttendanceExport = components['schemas']['AttendanceExport']
+export type EventCloseout = components['schemas']['EventCloseout']
 export type StudentCollection = components['schemas']['StudentCollection']
 export type ResolvedCardStudent = components['schemas']['ResolvedCardStudent']
 export type CardSeal = components['schemas']['CardSeal']
@@ -353,6 +354,24 @@ export function createEventApi(session: SessionPort) {
     async downloadAttendanceExport(eventID: string, exportID: string) {
       const response = await client.GET('/api/v1/admin/events/{event_id}/attendance/exports/{export_id}/download', {
         params: { path: { event_id: eventID, export_id: exportID } },
+        parseAs: 'text',
+      })
+      if (response.data !== undefined) return response.data
+      throw new ApiFailure(response.response.status, errorEnvelope(response.error, response.response))
+    },
+    async createEventCloseout(eventID: string) {
+      return unwrap(await client.POST('/api/v1/admin/events/{event_id}/closeout', {
+        params: { path: { event_id: eventID } },
+      }))
+    },
+    async eventCloseout(eventID: string, closeoutID: string) {
+      return unwrap(await client.GET('/api/v1/admin/events/{event_id}/closeout/{closeout_id}', {
+        params: { path: { event_id: eventID, closeout_id: closeoutID } },
+      }))
+    },
+    async downloadEventCloseoutReport(eventID: string, closeoutID: string) {
+      const response = await client.GET('/api/v1/admin/events/{event_id}/closeout/{closeout_id}/report', {
+        params: { path: { event_id: eventID, closeout_id: closeoutID } },
         parseAs: 'text',
       })
       if (response.data !== undefined) return response.data

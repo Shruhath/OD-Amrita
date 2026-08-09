@@ -29,6 +29,7 @@ import (
 	handlercardtoken "github.com/Shruhath/OD-Amrita/api/internal/handler/cardtoken"
 	handlerdispute "github.com/Shruhath/OD-Amrita/api/internal/handler/dispute"
 	handlerevent "github.com/Shruhath/OD-Amrita/api/internal/handler/event"
+	handlereventcloseout "github.com/Shruhath/OD-Amrita/api/internal/handler/eventcloseout"
 	"github.com/Shruhath/OD-Amrita/api/internal/handler/health"
 	handlerodrecord "github.com/Shruhath/OD-Amrita/api/internal/handler/od_record"
 	handlerpublicattendance "github.com/Shruhath/OD-Amrita/api/internal/handler/publicattendance"
@@ -38,6 +39,7 @@ import (
 	jobattendanceexport "github.com/Shruhath/OD-Amrita/api/internal/job/attendance_export"
 	jobattendanceimport "github.com/Shruhath/OD-Amrita/api/internal/job/attendance_import"
 	"github.com/Shruhath/OD-Amrita/api/internal/job/eod_audit"
+	jobeventcloseout "github.com/Shruhath/OD-Amrita/api/internal/job/event_closeout"
 	jobscanpostprocess "github.com/Shruhath/OD-Amrita/api/internal/job/scan_postprocess"
 	"github.com/Shruhath/OD-Amrita/api/internal/jobs"
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
@@ -51,6 +53,7 @@ import (
 	svccardtoken "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
 	svcdispute "github.com/Shruhath/OD-Amrita/api/internal/service/dispute"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
+	svceventcloseout "github.com/Shruhath/OD-Amrita/api/internal/service/eventcloseout"
 	svcmarking "github.com/Shruhath/OD-Amrita/api/internal/service/marking"
 	svcodrecord "github.com/Shruhath/OD-Amrita/api/internal/service/od_record"
 	svcpublicattendance "github.com/Shruhath/OD-Amrita/api/internal/service/publicattendance"
@@ -100,6 +103,8 @@ func run() error {
 	attendanceExportSvc := svcattendanceexport.NewService(pool, riverClient)
 	river.AddWorker(workerRegistry.Workers(), &jobattendanceexport.Worker{Service: attendanceExportSvc})
 	river.AddWorker(workerRegistry.Workers(), &jobscanpostprocess.Worker{Pool: pool})
+	eventCloseoutSvc := svceventcloseout.NewService(pool, riverClient)
+	river.AddWorker(workerRegistry.Workers(), &jobeventcloseout.Worker{Service: eventCloseoutSvc})
 	if err := jobs.Start(context.Background(), riverClient); err != nil {
 		return err
 	}
@@ -261,6 +266,7 @@ func run() error {
 	admin := newAdminGroup(api, principalLoader)
 	handlerattendanceimport.RegisterAdminRoutes(admin, attendanceImportSvc)
 	handlerattendanceexport.RegisterAdminRoutes(admin, attendanceExportSvc)
+	handlereventcloseout.RegisterAdminRoutes(admin, eventCloseoutSvc)
 	admin.POST("/users/:user_id/sessions/revoke", handleradmin.RevokeSessionsHandler(revSvc))
 	eventSvc := svcevent.NewService(eventReader, st, svcevent.NewSQLCWriter())
 	handlerevent.RegisterAdminRoutes(admin, eventSvc)

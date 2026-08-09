@@ -477,7 +477,7 @@ one says how.
 
 **Database (Neon)**
 - [x] Neon role bootstrap and both role passwords — *verified 2026-08-09: `od_migrator` applied migrations against the live database, which is only possible with the correct rotated password.*
-- [ ] Migrations applied; `max(version_id)` is **23**, including reconciliation, attendance-import, attendance-export, and scan post-processing tables.
+- [ ] Migrations applied; `max(version_id)` is **24**, including reconciliation, attendance-import, attendance-export, scan post-processing, and event closeout tables.
 - [ ] ⚠️ **Upgrade the Neon plan before the event.** Free gives a **6-hour** PITR window, which does not cover an event plus the days afterwards when disputes are raised (Launch = 7 days, Scale = 30 days). Record the new window in the backup runbook §2.2. **Still open — this costs money, so it is yours to do.**
 - [ ] ⚠️ **Move the project to `ap-southeast-1`** — decision **H7**. Not a nice-to-have: ~0.5 s of every query is currently the Pacific. It is a dump-and-restore of live attendance data, so it is a deliberate human step.
 

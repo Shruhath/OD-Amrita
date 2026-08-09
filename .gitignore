@@ -73,3 +73,8 @@ sprint-status.yaml
 # build input. Both spellings are ignored so a rename cannot quietly un-ignore it.
 old-od-app/
 old-od-app
+
+# Personal go-live checklist — a one-time working document, not a repository artifact.
+# It was committed by accident on 2026-08-09 and untracked again; docs/deployment-runbook.md
+# is the reference that belongs here.
+docs/deploy-walkthrough.md

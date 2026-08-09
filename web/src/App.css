@@ -2150,6 +2150,71 @@ tbody tr:hover {
 /* The day filter. One row: an arrow, the picker, an arrow — so the two things a
    student does here (step back a day, jump to a day) are the same size and in
    the same place on a phone as on a laptop. */
+/* ── The front door ───────────────────────────────────────────────────────── */
+
+.home-landing {
+  /* The two actions are the point of the page, so they get room rather than
+     being crammed under the lockup. */
+  gap: 4px;
+}
+
+.home-toolbar {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top));
+  right: max(16px, env(safe-area-inset-right));
+}
+
+.home-lede {
+  max-width: 46ch;
+  margin: 4px auto 0;
+  color: var(--gray-600);
+}
+
+/* Stacked on a phone and side by side once there is room. Both actions are the
+   SAME width in the stacked case: a visitor choosing between two things should
+   not be nudged by one of them being bigger. */
+.home-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  width: min(320px, 100%);
+  margin: 20px auto 8px;
+}
+
+.home-actions > * {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+/* The public dashboard is a LINK, so it needs the button's shape without the
+   button's weight — it is the alternative, not the lesser option. */
+.home-secondary {
+  padding: 12px 18px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.home-secondary:hover {
+  background: var(--surface-strong);
+}
+
+@media (min-width: 560px) {
+  .home-actions {
+    flex-direction: row;
+    width: auto;
+    justify-content: center;
+  }
+}
+
 /* The public board — one day's marked students, above everything else on the
    page because it is the answer most visitors came for. */
 .public-board {

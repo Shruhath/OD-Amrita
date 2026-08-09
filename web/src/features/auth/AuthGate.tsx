@@ -116,7 +116,7 @@ export function SessionLoading() {
  * control — these cards have no chrome of their own, so without it the toggle
  * would be unreachable for anyone who is not signed in.
  */
-function AuthBrand() {
+export function AuthBrand() {
   return (
     <>
       <div className="auth-toolbar">

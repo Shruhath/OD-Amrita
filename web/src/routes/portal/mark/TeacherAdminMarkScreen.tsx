@@ -308,7 +308,7 @@ export default function TeacherAdminMarkScreen() {
 
             {/* Selected student status */}
             {selectedStudent && (
-              <div className="flex items-center gap-3 p-3 bg-status-info-bg rounded-[10px] border border-status-info-fg/20" role="status">
+              <div className="flex items-center gap-3 p-3 bg-status-info-bg rounded-[10px] border border-status-info-fg/20" aria-live="polite">
                 <div className="w-8 h-8 rounded-full bg-status-info-fg/20 flex items-center justify-center text-xs font-bold shrink-0 text-status-info-fg">
                   {selectedStudent.display_name.slice(0, 2).toUpperCase()}
                 </div>

@@ -351,14 +351,14 @@ function CreateDialog({ branches, onClose, onCreated }: { branches: Branch[]; on
               >
                 <input
                   type="checkbox"
-                  className="sr-only"
+                  className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
                   checked={selected.includes(branch.id)}
                   onChange={() => toggle(branch.id)}
                   onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
                     if (event.key === ' ') { event.preventDefault(); toggle(branch.id) }
                   }}
                 />
-                <span>{branch.code}<span className="sr-only">{branch.name}</span></span>
+                <span className="pointer-events-none">{branch.code}<span className="sr-only">{branch.name}</span></span>
               </label>
             ))}
           </div>

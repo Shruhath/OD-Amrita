@@ -116,7 +116,10 @@ func TestRecordManagementSchema_DownRefusesAfterRemovedRecord(t *testing.T) {
 		        $5::uuid, 'teacher', 'duplicate entry removed')`,
 		removedID, fixture.studentID, fixture.eventID, fixture.categoryID, fixture.actorID)
 
-	argv := []string{"-dir", migrationsDir(t), "postgres", dsn, "down"}
+	t.Cleanup(func() {
+		_ = exec.Command("goose", "-dir", migrationsDir(t), "postgres", dsn, "up").Run()
+	})
+	argv := []string{"-dir", migrationsDir(t), "postgres", dsn, "down-to", "17"}
 	output, err := exec.Command("goose", argv...).CombinedOutput()
 	if err == nil {
 		t.Fatal("[P0] 0018 Down succeeded after a removed record; it must never erase or rewrite attendance history")

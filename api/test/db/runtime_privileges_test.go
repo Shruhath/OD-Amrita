@@ -61,6 +61,18 @@ var runtimePrivileges = map[string][]string{
 	"event_capture_credit_config":   {"SELECT", "INSERT", "UPDATE"},
 	"event_capture_credit_usage":    {"SELECT", "INSERT", "UPDATE"},
 	"disputes":                      {"SELECT", "INSERT", "UPDATE"},
+
+	// Offline scan identities and asynchronous workflow state are durable
+	// application records. They may advance through their lifecycle, but the
+	// runtime role must never hard-delete audit-supporting history.
+	"scan_idempotency_keys":  {"SELECT", "INSERT"},
+	"reconciliation_runs":    {"SELECT", "INSERT", "UPDATE"},
+	"reconciliation_issues":  {"SELECT", "INSERT", "UPDATE"},
+	"attendance_imports":     {"SELECT", "INSERT", "UPDATE"},
+	"attendance_import_rows": {"SELECT", "INSERT", "UPDATE"},
+	"attendance_exports":     {"SELECT", "INSERT", "UPDATE"},
+	"scan_post_processings":  {"SELECT", "INSERT", "UPDATE"},
+	"event_closeouts":        {"SELECT", "INSERT", "UPDATE"},
 }
 
 // gooseBookkeeping is goose's own version table. It is created by od_migrator and

@@ -2741,3 +2741,34 @@ tbody tr:hover {
     }
   }
 }
+
+/* A DROPDOWN CANNOT ESCAPE ITS OWN STACKING CONTEXT.
+ *
+ * Every panel in this app sets `backdrop-filter`, and that creates a stacking
+ * context whether or not anyone asked for one. So the list inside a panel is
+ * confined to that panel: the next panel in the document — a roster table, a
+ * results section — paints over it, and no `z-index` on the list itself can
+ * ever win, because the two are not competing in the same context.
+ *
+ * The symptom is not subtle. The open list is covered, and its options cannot
+ * even be clicked: the panel below swallows the pointer events. It shows up
+ * exactly where a picker matters most, which is a filter with its own results
+ * underneath it.
+ *
+ * So the PANEL is what gets raised, for as long as it holds an open list. `:has`
+ * is what makes that expressible in CSS rather than needing the component to
+ * reach up and mark its own ancestor.
+ */
+.detail-section:has(.ui-select__list),
+.table-wrap:has(.ui-select__list),
+.empty-state:has(.ui-select__list),
+.mark-scope:has(.ui-select__list),
+.mark-capture:has(.ui-select__list),
+.public-dispute-panel:has(.ui-select__list),
+.category-form:has(.ui-select__list),
+.populator-filters:has(.ui-select__list) {
+  position: relative;
+  /* Above a sibling panel (auto), below the account menu and the install
+     prompt, which must stay reachable over any screen. */
+  z-index: 20;
+}

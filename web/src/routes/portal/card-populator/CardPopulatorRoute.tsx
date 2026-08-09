@@ -1,8 +1,9 @@
-import { lazy, Suspense } from 'react'
+import { lazyRoute } from '../../lazyRoute'
+import { Suspense } from 'react'
 import { SessionBoundary } from '../../../features/auth/AuthGate'
 import { LoadingScreen } from '../../../components/ui/Spinner'
 
-const CardPopulatorPortal = lazy(() => import('./CardPopulatorPortal'))
+const CardPopulatorPortal = lazyRoute(() => import('./CardPopulatorPortal'))
 
 export default function CardPopulatorRoute() {
   return (

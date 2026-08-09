@@ -1,7 +1,8 @@
-import { Component, lazy, Suspense, type ReactNode } from 'react'
+import { lazyRoute } from '../lazyRoute'
+import { Component, Suspense, type ReactNode } from 'react'
 import { LoadingScreen } from '../../components/ui/Spinner'
 
-const PublicAttendanceScreen = lazy(() => import('./PublicAttendanceScreen'))
+const PublicAttendanceScreen = lazyRoute(() => import('./PublicAttendanceScreen'))
 
 /**
  * Catches a failed chunk load.

@@ -1,8 +1,9 @@
-import { lazy, Suspense } from 'react'
+import { lazyRoute } from '../../lazyRoute'
+import { Suspense } from 'react'
 import { LoadingScreen } from '../../../components/ui/Spinner'
 import { SessionBoundary } from '../../../features/auth/AuthGate'
 
-const EventsPortal = lazy(() => import('./EventsPortal'))
+const EventsPortal = lazyRoute(() => import('./EventsPortal'))
 
 export default function EventsRoute() {
   return (

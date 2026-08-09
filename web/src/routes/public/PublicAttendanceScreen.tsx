@@ -117,29 +117,30 @@ export default function PublicAttendanceScreen() {
   const closeDispute = () => setDisputeDraft(null)
 
   return (
-    <main className="public-page">
-      <header className="public-header">
-        <div className="public-toolbar">
+    <main className="min-h-screen bg-canvas text-foreground flex flex-col items-center p-4 md:p-12 transition-colors duration-200">
+      <header className="w-full max-w-3xl flex flex-col items-center text-center mb-12">
+        <div className="w-full flex justify-end mb-4">
           <ThemeToggle />
         </div>
         <img
-          className="public-brand"
+          className="h-16 md:h-20 w-auto object-contain transition-all duration-300 mb-6"
           src="/brand/amrita-logo.png"
           alt="Amrita Vishwa Vidyapeetham"
           width={600}
           height={155}
         />
-        <p className="eyebrow">On-duty attendance</p>
-        <h1>Check your OD record</h1>
-        <p className="public-lede">
+        <p className="text-xs uppercase tracking-widest text-foreground-muted font-bold mb-2">On-duty attendance</p>
+        <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-4">Check your OD record</h1>
+        <p className="text-foreground-muted text-lg">
           Search your roll number or name. No sign-in needed.
         </p>
       </header>
 
-      <section className="public-search" aria-label="Find a student">
-        <label className="public-field" htmlFor="public-student-search">
-          <span>Roll number or name</span>
+      <section className="w-full max-w-2xl bg-surface border border-border p-6 md:p-8 rounded-2xl shadow-sm mb-8" aria-label="Find a student">
+        <label className="flex flex-col gap-2 mb-4" htmlFor="public-student-search">
+          <span className="font-semibold text-sm">Roll number or name</span>
           <input
+            className="w-full bg-canvas border border-border focus:border-foreground focus:ring-1 focus:ring-foreground rounded-xl p-4 text-lg transition-all outline-none"
             id="public-student-search"
             type="search"
             autoComplete="off"
@@ -153,31 +154,40 @@ export default function PublicAttendanceScreen() {
 
         {/* A hint, not an error: someone three keystrokes in has not done
             anything wrong, they simply have not finished. */}
-        {tooShort && <p className="public-hint">Keep typing — at least 3 characters.</p>}
-        {tooLong && <p className="public-hint">That is longer than 64 characters. Try just the roll number.</p>}
+        {tooShort && <p className="text-sm text-foreground-muted">Keep typing — at least 3 characters.</p>}
+        {tooLong && <p className="text-sm text-status-error-fg bg-status-error-bg p-3 rounded-lg">That is longer than 64 characters. Try just the roll number.</p>}
 
-        {search.isFetching && <p className="public-hint" role="status">Searching…</p>}
+        {search.isFetching && <p className="text-sm text-status-info-fg bg-status-info-bg p-3 rounded-lg flex items-center gap-2" role="status">
+          <span className="animate-spin inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full" /> Searching…
+        </p>}
 
         {search.isError && (
-          <RetryableAlert
-            message={searchFailureMessage(search.error)}
-            onRetry={() => void search.refetch()}
-          />
+          <div className="mt-4">
+            <RetryableAlert
+              message={searchFailureMessage(search.error)}
+              onRetry={() => void search.refetch()}
+            />
+          </div>
         )}
 
         {searchable && search.isSuccess && results.length === 0 && (
-          <p className="public-hint">No student matches that search.</p>
+          <p className="text-sm text-foreground-muted bg-canvas p-4 rounded-xl border border-border">No student matches that search.</p>
         )}
 
         {results.length > 0 && (
-          <>
-            <ul className="public-results" role="listbox" aria-label="Matching students">
+          <div className="mt-6 border-t border-border pt-4">
+            <ul className="flex flex-col gap-2" role="listbox" aria-label="Matching students">
               {results.map((student) => (
                 <li
                   key={student.student_id}
                   role="option"
                   aria-selected={student.student_id === selectedStudentID}
                   tabIndex={0}
+                  className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl cursor-pointer transition-all active:scale-97 border ${
+                    student.student_id === selectedStudentID 
+                      ? 'bg-foreground text-canvas border-foreground' 
+                      : 'bg-canvas hover:bg-surface border-border'
+                  }`}
                   onClick={() => selectStudent(student)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
@@ -186,26 +196,27 @@ export default function PublicAttendanceScreen() {
                     }
                   }}
                 >
-                  <strong>{student.roll_no}</strong>
-                  <span>{student.display_name} · {student.branch}-{student.section}</span>
+                  <strong className="font-mono text-lg">{student.roll_no}</strong>
+                  <span className={`text-sm ${student.student_id === selectedStudentID ? 'text-canvas/80' : 'text-foreground-muted'}`}>
+                    {student.display_name} · {student.branch}-{student.section}
+                  </span>
                 </li>
               ))}
             </ul>
-            {/* The server caps this at 10 and accepts no limit from the client,
-                so a common name can genuinely be cut off. Say so rather than
-                letting someone conclude they are not on the roster. */}
             {results.length >= 10 && (
-              <p className="public-hint">
+              <p className="text-xs text-foreground-muted mt-4 text-center">
                 Showing the first 10 matches. Type your full roll number to narrow it down.
               </p>
             )}
-          </>
+          </div>
         )}
       </section>
 
       {selectedStudentID !== '' && (
-        <section className="public-records" aria-label="OD records">
-          {records.isPending && <p className="public-hint" role="status">Loading records…</p>}
+        <section className="w-full max-w-3xl flex flex-col gap-6" aria-label="OD records">
+          {records.isPending && <p className="text-sm text-status-info-fg bg-status-info-bg p-4 rounded-xl flex items-center justify-center gap-2" role="status">
+            <span className="animate-spin inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full" /> Loading records…
+          </p>}
 
           {records.isError && (
             <RetryableAlert
@@ -217,39 +228,38 @@ export default function PublicAttendanceScreen() {
 
           {records.isSuccess && (
             <>
-              <div className="public-student">
-                <h2>{records.data.student.display_name}</h2>
-                <p className="public-student-meta">
+              <div className="bg-foreground text-canvas p-6 md:p-8 rounded-2xl shadow-lg flex flex-col gap-2">
+                <h2 className="text-2xl md:text-3xl font-bold tracking-tight">{records.data.student.display_name}</h2>
+                <p className="text-canvas/80 font-mono text-sm">
                   {records.data.student.roll_no} · {records.data.student.branch}-{records.data.student.section}
                   {' · '}Batch {records.data.student.batch}
                 </p>
-                {/*
-                  role="status" is 0.10's, and it stays. It was removed while
-                  adding the dispute form so a new findByRole('status') locator
-                  would not match two elements — silently deleting a live-region
-                  announcement to make a test unambiguous. The dispute success
-                  is scoped by its own panel label instead.
-                */}
-                <p className="public-asof" role="status">
+                <p className="text-xs text-canvas/50 mt-2 font-medium uppercase tracking-widest" role="status">
                   As of {formatTime(records.data.generated_at)}
                 </p>
               </div>
 
               {records.data.days.length === 0 ? (
-                <div className="public-empty">
-                  <p>No OD records found for this student yet.</p>
-                  <button type="button" onClick={() => setDisputeDraft({ day: '', slot: 1, eventID: '', categoryID: '' })}>
+                <div className="bg-surface border border-border p-8 rounded-2xl text-center flex flex-col items-center gap-4">
+                  <p className="text-foreground-muted">No OD records found for this student yet.</p>
+                  <button 
+                    type="button" 
+                    className="primary mt-4"
+                    onClick={() => setDisputeDraft({ day: '', slot: 1, eventID: '', categoryID: '' })}
+                  >
                     Report a missed slot
                   </button>
                 </div>
               ) : (
-                records.data.days.map((day) => (
-                  <DaySlots
-                    key={day.od_date}
-                    day={day}
-                    onReport={(draft) => setDisputeDraft(draft)}
-                  />
-                ))
+                <div className="flex flex-col gap-8 mt-4">
+                  {records.data.days.map((day) => (
+                    <DaySlots
+                      key={day.od_date}
+                      day={day}
+                      onReport={(draft) => setDisputeDraft(draft)}
+                    />
+                  ))}
+                </div>
               )}
 
               {disputeDraft && (
@@ -309,51 +319,52 @@ function DaySlots({ day, onReport }: { day: PublicODDay; onReport(draft: Dispute
   }
 
   return (
-    <section className="public-day" aria-label={`OD records for ${formatDate(day.od_date)}`}>
-      <h3>{formatDate(day.od_date)}</h3>
-      <ul className="public-slots">
+    <section className="bg-surface border border-border rounded-2xl p-6 md:p-8 shadow-sm" aria-label={`OD records for ${formatDate(day.od_date)}`}>
+      <h3 className="text-xl font-bold tracking-tight mb-6">{formatDate(day.od_date)}</h3>
+      <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {SLOT_VALUES.map((slot) => {
           const records = bySlot.get(slot) ?? []
+          const isPresent = records.length > 0
+          
           return (
-            <li key={slot} className={records.length > 0 ? 'public-slot is-present' : 'public-slot is-absent'}>
-              {/* The trailing colon is load-bearing, not decoration. A row's
-                  textContent concatenates its children with no separator, so
-                  without it "Slot 3" runs straight into "No record" and any
-                  "slot 3 as a whole word" match — including a screen reader
-                  pausing at the label — sees "Slot 3No". */}
-              <span className="public-slot-label">Slot {slot}:</span>
-              {records.length > 0 ? (
-                <span className="public-slot-detail">
+            <li 
+              key={slot} 
+              className={`p-4 rounded-xl flex flex-col gap-2 border ${
+                isPresent 
+                  ? 'bg-status-success-bg border-status-success-fg/20 text-status-success-fg' 
+                  : 'bg-canvas border-border hover:border-foreground/20'
+              }`}
+            >
+              <span className="font-semibold text-sm opacity-80">Slot {slot}:</span>
+              {isPresent ? (
+                <div className="flex flex-col gap-3">
                   {records.map((record) => (
-                    <span className="public-slot-mark" key={record.record_id}>
-                      <strong>{record.event_name}</strong>
-                      <span>{record.category_name}</span>
-                      <span>
+                    <div className="flex flex-col gap-1" key={record.record_id}>
+                      <strong className="font-bold leading-tight">{record.event_name}</strong>
+                      <span className="text-xs uppercase tracking-wider font-bold opacity-75">{record.category_name}</span>
+                      <span className="text-[11px] leading-relaxed opacity-80 mt-1">
                         Marked by {record.marked_by_name ?? 'a former staff member'} ({record.marked_by_role})
-                        {' at '}{formatTime(record.marked_at)}
+                        <br/>at {formatTime(record.marked_at)}
                       </span>
-                    </span>
+                    </div>
                   ))}
-                </span>
+                </div>
               ) : (
-                <span className="public-slot-detail public-slot-empty">
-                  <span>No record</span>
+                <div className="flex flex-col gap-3 flex-1 justify-between">
+                  <span className="text-foreground-muted font-medium">No record</span>
                   <button
                     type="button"
-                    className="secondary"
+                    className="secondary w-full text-xs py-2 mt-auto"
                     onClick={() => onReport({
                       day: day.od_date,
                       slot,
-                      // An ABSENT slot has no record of its own, so the event
-                      // comes from the other records on THIS day rather than
-                      // from the first event across the whole history.
                       eventID: day.records[0]?.event_id ?? '',
                       categoryID: day.records[0]?.category_id ?? '',
                     })}
                   >
-                    Report a missed slot
+                    Report missed slot
                   </button>
-                </span>
+                </div>
               )}
             </li>
           )
@@ -504,9 +515,9 @@ function PublicDisputeForm({
 
   if (receipt) {
     return (
-      <section className="public-dispute-panel" aria-label="Dispute receipt">
-        <p className="public-success" role="status">
-          {DISPUTE_CONFIRMATION} Reference {receipt.reference}.
+      <section className="bg-surface border border-status-success-bg p-8 rounded-2xl flex flex-col items-center text-center shadow-sm" aria-label="Dispute receipt">
+        <p className="text-status-success-fg font-medium mb-6" role="status">
+          {DISPUTE_CONFIRMATION} Reference <strong className="font-mono bg-status-success-bg px-2 py-1 rounded">{receipt.reference}</strong>.
         </p>
         {/*
           Without a way out, this panel was permanent: `receipt` lives in the
@@ -514,7 +525,11 @@ function PublicDisputeForm({
           rendering this same success and a student who missed two slots could
           only ever report one.
         */}
-        <button type="button" className="text-button" onClick={onClose}>
+        <button 
+          type="button" 
+          className="primary mt-2" 
+          onClick={onClose}
+        >
           Report another slot
         </button>
       </section>
@@ -522,24 +537,31 @@ function PublicDisputeForm({
   }
 
   return (
-    <form className="public-dispute-panel" aria-label="Report a missed slot dispute" role="form" onSubmit={onSubmit} noValidate>
-      <div className="public-dispute-heading">
+    <form className="bg-surface border border-border rounded-2xl shadow-sm p-6 md:p-8 flex flex-col gap-6" aria-label="Report a missed slot dispute" role="form" onSubmit={onSubmit} noValidate>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-6">
         <div>
-          <h3>Report a missed slot</h3>
-          <p>Resolving this report records a decision. Correcting the OD record is a separate staff action.</p>
+          <h3 className="text-2xl font-bold tracking-tight mb-2">Report a missed slot</h3>
+          <p className="text-foreground-muted text-sm">Resolving this report records a decision. Correcting the OD record is a separate staff action.</p>
         </div>
-        <button type="button" className="text-button" onClick={onClose} disabled={submit.isPending}>Close</button>
+        <button 
+          type="button" 
+          className="secondary self-start md:self-auto py-2" 
+          onClick={onClose} 
+          disabled={submit.isPending}
+        >
+          Close
+        </button>
       </div>
 
-      <dl className="public-readonly-fields" aria-label="Student details">
-        <div><dt>Roll number</dt><dd>{student.roll_no}</dd></div>
-        <div><dt>Name</dt><dd>{student.display_name}</dd></div>
-        <div><dt>Branch</dt><dd>{student.branch}</dd></div>
-        <div><dt>Section</dt><dd>{student.section}</dd></div>
-        <div><dt>Batch</dt><dd>{student.batch}</dd></div>
+      <dl className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 bg-canvas p-4 rounded-xl border border-border" aria-label="Student details">
+        <div className="flex flex-col"><dt className="text-xs uppercase font-bold text-foreground-muted mb-1">Roll number</dt><dd className="font-mono text-sm">{student.roll_no}</dd></div>
+        <div className="flex flex-col"><dt className="text-xs uppercase font-bold text-foreground-muted mb-1">Name</dt><dd className="text-sm font-medium">{student.display_name}</dd></div>
+        <div className="flex flex-col"><dt className="text-xs uppercase font-bold text-foreground-muted mb-1">Branch</dt><dd className="text-sm font-medium">{student.branch}</dd></div>
+        <div className="flex flex-col"><dt className="text-xs uppercase font-bold text-foreground-muted mb-1">Section</dt><dd className="text-sm font-medium">{student.section}</dd></div>
+        <div className="flex flex-col"><dt className="text-xs uppercase font-bold text-foreground-muted mb-1">Batch</dt><dd className="text-sm font-medium">{student.batch}</dd></div>
       </dl>
 
-      {publicEvents.isPending && eventOptions.length === 0 && <p className="public-hint" role="status">Loading events…</p>}
+      {publicEvents.isPending && eventOptions.length === 0 && <p className="text-sm text-status-info-fg bg-status-info-bg p-4 rounded-xl flex items-center gap-2" role="status"><span className="animate-spin inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full" /> Loading events…</p>}
       {publicEvents.isError && eventOptions.length === 0 && (
         <RetryableAlert
           message="Events could not be loaded right now. Please try again."
@@ -552,82 +574,95 @@ function PublicDisputeForm({
         form looked broken rather than inapplicable.
       */}
       {!publicEvents.isPending && !publicEvents.isError && eventOptions.length === 0 && (
-        <p className="public-alert" role="alert">
+        <p className="text-sm text-status-warning-fg bg-status-warning-bg p-4 rounded-xl border border-status-warning-fg/20" role="alert">
           There are no events available to report against yet. Please check with your teacher.
         </p>
       )}
       {eventOptions.length > 0 && categoryOptions.length === 0 && (
-        <p className="public-alert" role="alert">
+        <p className="text-sm text-status-warning-fg bg-status-warning-bg p-4 rounded-xl border border-status-warning-fg/20" role="alert">
           This event has no categories yet, so a slot cannot be reported against it. Please check with your teacher.
         </p>
       )}
 
-      <label className="public-field" htmlFor="public-dispute-email">
-        <span>University email</span>
-        <input
-          id="public-dispute-email"
-          type="email"
-          autoComplete="email"
-          value={email}
-          maxLength={320}
-          onChange={(event) => setEmail(event.target.value)}
-        />
-      </label>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <label className="flex flex-col gap-2" htmlFor="public-dispute-email">
+          <span className="font-semibold text-sm">University email</span>
+          <input
+            className="w-full bg-canvas border border-border focus:border-foreground focus:ring-1 focus:ring-foreground rounded-xl p-3 transition-all outline-none"
+            id="public-dispute-email"
+            type="email"
+            autoComplete="email"
+            value={email}
+            maxLength={320}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+        </label>
 
-      <label className="public-field" htmlFor="public-dispute-event">
-        <span>Event</span>
-        <Select
-          id="public-dispute-event"
-          value={eventID}
-          onChange={(value) => { setEventID(value); setFailure(null) }}
-          options={eventOptions.map((event) => ({ value: event.event_id, label: event.name }))}
-        />
-      </label>
+        <label className="flex flex-col gap-2" htmlFor="public-dispute-event">
+          <span className="font-semibold text-sm">Event</span>
+          <div className="relative">
+            <Select
+              id="public-dispute-event"
+              value={eventID}
+              onChange={(value) => { setEventID(value); setFailure(null) }}
+              options={eventOptions.map((event) => ({ value: event.event_id, label: event.name }))}
+            />
+          </div>
+        </label>
 
-      <label className="public-field" htmlFor="public-dispute-category">
-        <span>Category</span>
-        <Select
-          id="public-dispute-category"
-          value={categoryID}
-          onChange={(value) => { setCategoryID(value); setFailure(null) }}
-          disabled={categoryOptions.length === 0}
-          options={categoryOptions.map((category) => ({ value: category.id, label: category.name }))}
-        />
-      </label>
+        <label className="flex flex-col gap-2" htmlFor="public-dispute-category">
+          <span className="font-semibold text-sm">Category</span>
+          <div className="relative">
+            <Select
+              id="public-dispute-category"
+              value={categoryID}
+              onChange={(value) => { setCategoryID(value); setFailure(null) }}
+              disabled={categoryOptions.length === 0}
+              options={categoryOptions.map((category) => ({ value: category.id, label: category.name }))}
+            />
+          </div>
+        </label>
 
-      <label className="public-field" htmlFor="public-dispute-day">
-        <span>Day</span>
-        <Select
-          id="public-dispute-day"
-          value={odDate}
-          onChange={(value) => { setODDate(value); setFailure(null) }}
-          options={dayOptions.map((value) => ({ value, label: `${formatDate(value)} (${value})` }))}
-        />
-      </label>
+        <label className="flex flex-col gap-2" htmlFor="public-dispute-day">
+          <span className="font-semibold text-sm">Day</span>
+          <div className="relative">
+            <Select
+              id="public-dispute-day"
+              value={odDate}
+              onChange={(value) => { setODDate(value); setFailure(null) }}
+              options={dayOptions.map((value) => ({ value, label: `${formatDate(value)} (${value})` }))}
+            />
+          </div>
+        </label>
 
-      <label className="public-field" htmlFor="public-dispute-slot">
-        <span>Slot</span>
-        <Select
-          id="public-dispute-slot"
-          value={slot}
-          onChange={(value) => { setSlot(value); setFailure(null) }}
-          options={SLOT_VALUES.map((value) => ({ value: String(value), label: `Slot ${value}` }))}
-        />
-      </label>
+        <label className="flex flex-col gap-2" htmlFor="public-dispute-slot">
+          <span className="font-semibold text-sm">Slot</span>
+          <div className="relative">
+            <Select
+              id="public-dispute-slot"
+              value={slot}
+              onChange={(value) => { setSlot(value); setFailure(null) }}
+              options={SLOT_VALUES.map((value) => ({ value: String(value), label: `Slot ${value}` }))}
+            />
+          </div>
+        </label>
 
-      <label className="public-field" htmlFor="public-dispute-coordinator">
-        <span>Coordinator name (optional)</span>
-        <input
-          id="public-dispute-coordinator"
-          value={coordinator}
-          maxLength={200}
-          onChange={(event) => setCoordinator(event.target.value)}
-        />
-      </label>
+        <label className="flex flex-col gap-2" htmlFor="public-dispute-coordinator">
+          <span className="font-semibold text-sm">Coordinator name (optional)</span>
+          <input
+            className="w-full bg-canvas border border-border focus:border-foreground focus:ring-1 focus:ring-foreground rounded-xl p-3 transition-all outline-none"
+            id="public-dispute-coordinator"
+            value={coordinator}
+            maxLength={200}
+            onChange={(event) => setCoordinator(event.target.value)}
+          />
+        </label>
+      </div>
 
-      <label className="public-field" htmlFor="public-dispute-note">
-        <span>Student note (optional)</span>
+      <label className="flex flex-col gap-2" htmlFor="public-dispute-note">
+        <span className="font-semibold text-sm">Student note (optional)</span>
         <textarea
+          className="w-full bg-canvas border border-border focus:border-foreground focus:ring-1 focus:ring-foreground rounded-xl p-3 transition-all outline-none resize-none"
           id="public-dispute-note"
           value={note}
           maxLength={1000}
@@ -636,9 +671,16 @@ function PublicDisputeForm({
         />
       </label>
 
-      <button className="primary" type="submit" disabled={submitDisabled}>Submit dispute</button>
-      {submit.isPending && <p className="public-hint">Submitting dispute…</p>}
-      {failure && <p className="public-alert" role="alert">{failure}</p>}
+      <div className="pt-4 border-t border-border flex flex-col gap-3">
+        <button 
+          type="submit" 
+          className="primary w-full" 
+          disabled={submitDisabled}
+        >
+          {submit.isPending ? 'Submitting dispute…' : 'Submit dispute'}
+        </button>
+        {failure && <p className="text-sm text-status-error-fg bg-status-error-bg p-4 rounded-xl border border-status-error-fg/20" role="alert">{failure}</p>}
+      </div>
     </form>
   )
 }
@@ -723,11 +765,14 @@ function RetryableAlert({
   onDismiss?: () => void
 }) {
   return (
-    <div className="public-alert" role="alert">
-      <p>{message}</p>
-      <div className="public-alert-actions">
-        <button type="button" onClick={onRetry}>Try again</button>
-        {onDismiss && <button type="button" onClick={onDismiss}>Search for someone else</button>}
+    <div
+      className="bg-status-error-bg border border-status-error-fg/20 text-status-error-fg rounded-[10px] p-4 flex flex-col gap-3"
+      role="alert"
+    >
+      <p className="text-sm font-medium">{message}</p>
+      <div className="flex gap-3 flex-wrap">
+        <button type="button" className="primary" onClick={onRetry}>Try again</button>
+        {onDismiss && <button type="button" className="secondary" onClick={onDismiss}>Search for someone else</button>}
       </div>
     </div>
   )

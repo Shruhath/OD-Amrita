@@ -51,6 +51,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26"
+          # There is no go.sum at the repository root (the modules live under
+          # api/ and contracts/), and the default module cache lookup logs a
+          # failure line for it on every run. Nothing here is built from the
+          # workspace — goose is fetched by version — so the cache buys nothing.
+          cache: false
 
       - name: Install database migration tool
         # Pinned to the same version api/Makefile pins. An unpinned @latest here
@@ -88,8 +93,11 @@ jobs:
           latest_on_disk="$(ls api/db/migrations/*.sql \
             | sed -E 's#.*/0*([0-9]+)_.*#\1#' \
             | sort -n | tail -1)"
+          # goose writes `<timestamp> goose: version 17` to stderr — the number is
+          # the last whitespace-separated field, and matching on it that way
+          # avoids depending on the log prefix or on where goose puts its colons.
           applied="$(goose -dir api/db/migrations postgres "$DATABASE_URL_MIGRATOR" version 2>&1 \
-            | sed -E 's/.*version: *([0-9]+).*/\1/')"
+            | tail -1 | awk '{print $NF}')"
           echo "highest migration on disk: $latest_on_disk, applied: $applied"
           [ "$latest_on_disk" = "$applied" ] || {
             echo "the database is at $applied but the repository ships $latest_on_disk"

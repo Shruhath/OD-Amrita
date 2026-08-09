@@ -224,6 +224,11 @@ export function Select({
         type="button"
         className="ui-select__trigger"
         role="combobox"
+        // The stand-in for a native select's `value` property. The trigger shows
+        // a LABEL, so without this the chosen id is not present anywhere in the
+        // DOM while the list is closed — and the id is what the screen actually
+        // acts on. Anything driving or inspecting the control reads it here.
+        data-value={value}
         aria-expanded={open}
         aria-controls={listboxID}
         aria-haspopup="listbox"

@@ -12,6 +12,22 @@ import { expect, type Locator, type Page } from '@playwright/test'
  * closer account of the interaction than `selectOption` ever was.
  */
 
+/**
+ * The value a dropdown currently holds.
+ *
+ * The stand-in for `locator.inputValue()`, which only reads a real form control.
+ * The trigger displays a label, so the chosen id lives in `data-value` — the
+ * same place a native select kept it, just spelled differently.
+ */
+export async function selectedValue(combobox: Locator): Promise<string> {
+  return (await combobox.getAttribute('data-value')) ?? ''
+}
+
+/** Asserts a dropdown has settled on some option — the async-load guard. */
+export async function expectSomethingSelected(combobox: Locator) {
+  await expect(combobox).not.toHaveAttribute('data-value', '')
+}
+
 /** Picks by option value — the id the screen acts on. */
 export async function selectValue(page: Page, combobox: Locator, value: string) {
   await combobox.click()

@@ -1,3 +1,4 @@
+import { expectSomethingSelected, selectedValue } from '../support/select'
 import { expect, test } from '@playwright/test'
 
 const portalAPI = 'http://127.0.0.1:8081'
@@ -8,11 +9,11 @@ const secondCreditRoll = 'CB.SC.U4CSE24005'
 async function selectedScope(page: import('@playwright/test').Page) {
   const eventSelect = page.getByRole('combobox', { name: /event/i })
   const categorySelect = page.getByRole('combobox', { name: /category/i })
-  await expect(eventSelect).not.toHaveValue('')
-  await expect(categorySelect).not.toHaveValue('')
+  await expectSomethingSelected(eventSelect)
+  await expectSomethingSelected(categorySelect)
   return {
-    eventID: await eventSelect.inputValue(),
-    categoryID: await categorySelect.inputValue(),
+    eventID: await selectedValue(eventSelect),
+    categoryID: await selectedValue(categorySelect),
   }
 }
 

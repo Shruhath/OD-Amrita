@@ -249,7 +249,29 @@ already in `fly.toml`'s `[env]` block. Do not duplicate them here.
 
 **3. Deploy:**
 
+> ### ⚠️ Migrate FIRST, and deploy from a CLEAN tree
+>
+> Two mistakes are easy here, and on 2026-08-09 both were made at once, taking the attendance
+> views down with a 500 in production.
+>
+> **`flyctl deploy` builds from your WORKING DIRECTORY, not from git.** `api/Dockerfile` COPYs
+> `api/`, `contracts/` and `test/` out of the build context, which is whatever is on disk —
+> uncommitted edits, another agent's half-finished feature, a debug print. The running image then
+> corresponds to no commit at all, so "what is deployed?" has no answer. **Check `git status` is
+> clean and you are on the commit you mean to ship before running this.**
+>
+> **Schema goes up BEFORE code, never after.** Code that reads a column its migration has not
+> created yet fails at query time, not at boot — so the deploy looks successful, `/health` stays
+> green (it only pings the pool), and the failure surfaces later as a 500 on whichever screen
+> happens to run that query first. Run the `db-migrate` workflow, confirm the version, then
+> deploy.
+>
+> The reverse order is safe for an ADDITIVE migration — a new nullable column that nothing yet
+> reads — which is why migrating first is the habit worth having rather than a rule with
+> exceptions to memorise.
+
 ```bash
+git status --short          # must be empty
 flyctl deploy --config api/fly.toml --dockerfile api/Dockerfile
 ```
 

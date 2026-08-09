@@ -1,509 +1,287 @@
-/* Design tokens.
+@import "tailwindcss";
 
-   The visual language is the previous OD Manager app's, taken further: a campus
-   photograph behind everything, a dark mask over it, and translucent frosted
-   panels floating on top. The old app expressed that with two Tailwind utility
-   clusters (`glass-card`, `enhanced-card`); here it is a token set, so every
-   surface in the app derives from the same handful of values.
-
-   Two rules hold the system together:
-
-   1. Panels are LIGHT and text inside them is dark. The backdrop is dark, so a
-      light panel is both the readable choice for a dense roster in daylight and
-      the one that matches the old app's near-white cards.
-   2. Anything sitting directly on the backdrop uses the --on-backdrop colours.
-      Inheriting --foreground out there is near-black on near-black.
-*/
-
-:root {
-  /* Achromatic base — the old app's values, unchanged. */
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --muted-surface: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --radius: 0.625rem;
-
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  /* Panels are larger and softer than the old app's 10px corners; at this size
-     a tighter radius reads as a box rather than as a pane of glass. */
-  --radius-2xl: 20px;
-
-  /* Neutral ramp. The old app reached for Tailwind's gray-* utilities directly;
-     these are those exact values, named so the plain-CSS layer can use them.
-     --gray-900 was referenced by the camera viewfinder but never defined, which
-     left that panel with no fill at all. */
-  --gray-50: #f9fafb;
-  --gray-100: #f3f4f6;
-  --gray-200: #e5e7eb;
-  --gray-300: #d1d5db;
-  --gray-400: #9ca3af;
-  --gray-500: #6b7280;
-  --gray-600: #4b5563;
-  --gray-700: #374151;
-  --gray-800: #1f2937;
-  --gray-900: #111827;
-
-  /* Semantic accents. The old app used the -600 weight for text and borders and
-     the -50 weight for fills, and nothing else. Kept to that discipline. */
-  --red-600: #dc2626;
-  --red-700: #b91c1c;
-  --red-200: #fecaca;
-  --red-50: #fef2f2;
-  --green-600: #16a34a;
-  --green-700: #15803d;
-  --green-200: #bbf7d0;
-  --green-50: #f0fdf4;
-  --blue-600: #2563eb;
-  --blue-700: #1d4ed8;
-  --blue-200: #bfdbfe;
-  --blue-50: #eff6ff;
-  --amber-600: #ca8a04;
-  --amber-700: #a16207;
-  --amber-200: #fef08a;
-  --amber-50: #fefce8;
-
-  /* Amrita crimson, sampled from the official lockup in the brand identity
-     sheet (the solid reverse block and the footer bar both read rgb(181,2,70)).
-     --crimson-light is the same hue lifted until it clears 4.5:1 against the
-     masked backdrop: the base crimson is a dark ink and disappears out there. */
-  --crimson: #b50246;
-  --crimson-700: #8d0136;
-  --crimson-200: #f4b9cf;
-  --crimson-50: #fdf2f6;
-  --crimson-light: #ff8db5;
-  --focus-ring: rgb(255 255 255 / 0.85);
-  --focus-ring-dark: rgb(181 2 70 / 0.45);
-
-  /* ------------------------------------------------------------------ glass */
-
-  /* One blur value, three fills. The fill is what changes with density: the
-     more a surface has to be read, the more opaque it gets. Anything below
-     ~0.72 stops being legible for body copy over a photograph. */
-  --glass-blur: 22px;
-  --glass-blur-sm: 14px;
-  --glass-saturate: 1.4;
-
-  /* Dense work panels: tables, sections, the marking surface. */
-  --surface: rgb(255 255 255 / 0.86);
-  /* Nested rows and chips inside a panel — reads as a tint, not a second pane. */
-  --surface-quiet: rgb(255 255 255 / 0.55);
-  /* Dialogs and the auth card, which sit alone over the backdrop. */
-  --surface-strong: rgb(255 255 255 / 0.94);
-  /* Sticky cells must fully hide the content scrolling under them, so this one
-     is opaque by design — a translucent pinned column ghosts. */
-  --surface-solid: #fbfbfc;
-
-  /* The lit top edge is what makes a translucent panel read as glass rather
-     than as a washed-out box. It is applied as an inset highlight, never a
-     border, so it survives on the top edge only. */
-  --surface-border: rgb(255 255 255 / 0.5);
-  --surface-highlight: rgb(255 255 255 / 0.65);
-  /* Dividers INSIDE a panel: a grey line over a translucent fill turns muddy,
-     so internal rules are a low-alpha ink instead. */
-  --surface-line: rgb(17 24 39 / 0.1);
-  --surface-line-strong: rgb(17 24 39 / 0.16);
-
-  /* Chrome (topbar, footer, the marking header) is the same glass one step
-     quieter, so the panels below it stay the brightest thing on screen. */
-  --chrome: rgb(255 255 255 / 0.72);
-  --chrome-border: rgb(255 255 255 / 0.4);
-
-  /* ------------------------------------------------- inside a panel */
-
-  /* Everything from here down describes the INSIDE of a panel, and every one of
-     these flips wholesale in dark mode. They exist because the component layer
-     used to spell these out as literal rgb() values, and a literal cannot be
-     re-themed. Nothing below may be a bare colour in App.css. */
-
-  /* Tints: a wash of the text colour over the panel fill, used for nested rows,
-     chips, inset tables and dividers. Ink over light, light over ink. */
-  --tint-weak: rgb(17 24 39 / 0.03);
-  --tint-soft: rgb(17 24 39 / 0.045);
-  --tint-medium: rgb(17 24 39 / 0.06);
-  --tint-strong: rgb(17 24 39 / 0.1);
-  --tint-line: rgb(17 24 39 / 0.05);
-  --tint-border: rgb(17 24 39 / 0.08);
-
-  /* Controls that sit ON a panel: inputs, selects, raised list rows. */
-  --control-bg: #fff;
-  --panel-raise: rgb(255 255 255 / 0.7);
-  --row-hover: rgb(255 255 255 / 0.55);
-
-  /* Table cells that scroll under a sticky neighbour. Opaque by necessity. */
-  --thead-bg: rgb(248 249 251 / 0.94);
-  --nested-head-bg: #f2f3f5;
-  --sticky-bg: #fbfbfc;
-  --sticky-head-bg: #f4f6f8;
-  --sticky-archived-bg: #f2f3f5;
-  --sticky-failed-bg: #fdf0f1;
-  --archived-row-bg: rgb(17 24 39 / 0.035);
-
-  /* Status surfaces. Each is a fill plus the hairline ring around it; the text
-     colour comes from the matching semantic accent above. */
-  --fill-error: rgb(254 242 242 / 0.92);
-  --ring-error: rgb(220 38 38 / 0.22);
-  --fill-success: rgb(240 253 244 / 0.92);
-  --ring-success: rgb(22 163 74 / 0.45);
-  --fill-caution: rgb(254 252 232 / 0.92);
-  --ring-caution: rgb(202 138 4 / 0.35);
-  --fill-info: rgb(37 99 235 / 0.07);
-  --ring-info: rgb(37 99 235 / 0.16);
-  --fill-brand: rgb(253 242 246 / 0.94);
-  --ring-brand: rgb(181 2 70 / 0.5);
-  --ring-brand-soft: rgb(181 2 70 / 0.14);
-  /* The halo on a focused input — softer than the focus outline, which is for
-     keyboard traversal; this one just says "typing happens here". */
-  --focus-glow: rgb(181 2 70 / 0.1);
-  --fill-danger-row: rgb(220 38 38 / 0.07);
-  --fill-danger-row-hover: rgb(220 38 38 / 0.1);
-
-  /* The one accent that lives on the BACKDROP rather than on a panel: the
-     status badge in the event summary. It never themes, because the backdrop
-     never themes. */
-  --on-backdrop-success: #4ade80;
-
-  /* The camera viewfinder is a lens, not a surface: it stays near-black in both
-     themes, so it is deliberately NOT part of the neutral ramp. */
-  --viewfinder-bg: #111827;
-
-  /* Text sitting directly on the backdrop. */
-  --on-backdrop: #ffffff;
-  --on-backdrop-muted: rgb(255 255 255 / 0.74);
-  --on-backdrop-faint: rgb(255 255 255 / 0.55);
-  --on-backdrop-line: rgb(255 255 255 / 0.16);
-  --on-backdrop-fill: rgb(255 255 255 / 0.1);
-  --on-backdrop-fill-hover: rgb(255 255 255 / 0.18);
-  /* White type over a photograph needs its own shadow; the mask alone does not
-     guarantee a dark pixel under every glyph. */
-  --on-backdrop-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 28px rgb(0 0 0 / 0.35);
-
-  /* --------------------------------------------------------------- backdrop */
-
-  /* The photograph, per breakpoint (set in App.css so the phone never downloads
-     the wide crop), then a mask, then a faint dot lattice.
-
-     The supplied crops have "FOR ON DUTY" burned into the middle of the frame,
-     so the image layer is blurred hard: at this radius the lettering resolves to
-     a soft bloom instead of a word competing with the UI. Replace the crops with
-     clean ones and --backdrop-blur can drop to ~8px. */
-  --backdrop-image: linear-gradient(140deg, #2b2b2b 0%, #0f0f0f 55%, #242424 100%);
-  /* The blur is now depth-of-field, not censorship: the asset it is applied to
-     has no lettering in it, so this only has to keep the ridge from competing
-     with the content. The scale hides the transparent margin the blur samples
-     past the element's edge. */
-  --backdrop-blur: 22px;
-  --backdrop-scale: 1.14;
-  --backdrop-opacity: 1;
-  /* The mask is the one value to touch if the photograph reads too strongly or
-     too faintly. It multiplies with --backdrop-opacity, so the old app's flat
-     0.7 black on top of a 0.38 image left ~11% of the photograph on screen —
-     which is why it looked like a grey void rather than a campus. */
-  --backdrop-mask: linear-gradient(155deg, rgb(9 12 20 / 0.48) 0%, rgb(6 8 13 / 0.58) 45%, rgb(16 9 18 / 0.5) 100%);
-  --backdrop-glow: radial-gradient(120% 90% at 88% -10%, rgb(181 2 70 / 0.32) 0%, rgb(181 2 70 / 0) 55%);
-
-  /* -------------------------------------------------------------- elevation */
-
-  /* Glass casts a wide, soft, low-alpha shadow — a tight dark one reads as
-     paper. The inset line in --shadow-panel is the lit top edge. */
-  --shadow-panel:
-    inset 0 1px 0 var(--surface-highlight),
-    0 1px 2px rgb(0 0 0 / 0.16),
-    0 18px 40px -18px rgb(0 0 0 / 0.5);
-  --shadow-raised:
-    inset 0 1px 0 var(--surface-highlight),
-    0 2px 6px rgb(0 0 0 / 0.14),
-    0 32px 64px -24px rgb(0 0 0 / 0.6);
-  --shadow-card: 0 10px 32px rgb(0 0 0 / 0.06);
-  --shadow-lifted: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
-  --shadow-glass: 0 24px 70px rgb(0 0 0 / 0.35);
-
-  /* Vertical rhythm between panels in a workspace. */
-  --stack: clamp(16px, 2.4vw, 22px);
-
-  /* A target below this is not reliably hittable with a thumb. Every
-     interactive control in the app is sized against it. */
-  --tap: 44px;
-
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  color: var(--foreground);
-  background: var(--background);
-
-  /* Tells the browser to render its OWN widgets to match — the date picker
-     dropdown, the select popup, the caret, autofill, and the default
-     scrollbars. Without it those stay light on a dark page, and the calendar
-     icon in the event-date field is the first thing to give it away. */
-  color-scheme: light;
+@theme {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-muted: var(--surface-muted);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-status-success-bg: var(--status-success-bg);
+  --color-status-success-fg: var(--status-success-fg);
+  --color-status-warning-bg: var(--status-warning-bg);
+  --color-status-warning-fg: var(--status-warning-fg);
+  --color-status-error-bg: var(--status-error-bg);
+  --color-status-error-fg: var(--status-error-fg);
+  --color-status-info-bg: var(--status-info-bg);
+  --color-status-info-fg: var(--status-info-fg);
+  --radius-sm: 10px;
+  --radius-md: 10px;
+  --radius-lg: 10px;
+  --radius-xl: 10px;
+  --radius-2xl: 10px;
 }
 
-/* ---------------------------------------------------------------- dark theme
-
-   `data-theme` is written to <html> before first paint by the boot script in
-   index.html, so this is a plain attribute selector rather than a media query:
-   the preference may be an explicit choice OR the system setting, and resolving
-   that in one place beats duplicating this block behind a media query.
-
-   The BACKDROP is deliberately not overridden. It is a dark photograph in both
-   themes — that is the constant the whole design hangs on. What flips is the
-   glass on top of it: light panels with dark text become dark panels with light
-   text, and everything on the backdrop itself (headings, the campus, the mask)
-   stays exactly as it was. */
-:root[data-theme='dark'] {
-  color-scheme: dark;
-
-  --background: oklch(0.16 0 0);
-  --foreground: oklch(0.97 0 0);
-  --card: oklch(0.19 0 0);
-  /* The filled action inverts: a near-black button is invisible on a dark
-     panel, so in dark mode it is near-white with dark type. */
-  --primary: oklch(0.97 0 0);
-  --primary-foreground: oklch(0.18 0 0);
-  --secondary: oklch(0.26 0 0);
-  --muted-surface: oklch(0.26 0 0);
-  --muted-foreground: oklch(0.72 0 0);
-  --destructive: #f87171;
-  --border: rgb(255 255 255 / 0.14);
-  --ring: oklch(0.55 0 0);
-
-  /* The neutral ramp is INVERTED rather than re-pointed. Every use of it in the
-     component layer is inside a panel — muted body text, hairline borders, a
-     quiet fill — so flipping the ramp flips all of them correctly at once, and
-     no rule has to know which theme it is in. */
-  --gray-50: #14171e;
-  --gray-100: #191d25;
-  --gray-200: #21262f;
-  --gray-300: #363c48;
-  --gray-400: #525a68;
-  --gray-500: #9aa2af;
-  --gray-600: #b8bec9;
-  --gray-700: #d5d9e0;
-  --gray-800: #e9ebef;
-  --gray-900: #f6f7f9;
-
-  /* Accents lifted until they clear 4.5:1 on a dark panel. The -600/-700 pairs
-     keep their roles: -600 is the mark, -700 the text weight. */
-  --red-600: #f87171;
-  --red-700: #fca5a5;
-  --red-200: rgb(248 113 113 / 0.35);
-  --red-50: rgb(248 113 113 / 0.1);
-  --green-600: #4ade80;
-  --green-700: #86efac;
-  --green-200: rgb(74 222 128 / 0.35);
-  --green-50: rgb(74 222 128 / 0.1);
-  --blue-600: #60a5fa;
-  --blue-700: #93c5fd;
-  --blue-200: rgb(96 165 250 / 0.35);
-  --blue-50: rgb(96 165 250 / 0.1);
-  --amber-600: #fbbf24;
-  --amber-700: #fcd34d;
-  --amber-200: rgb(251 191 36 / 0.35);
-  --amber-50: rgb(251 191 36 / 0.1);
-
-  /* The ink crimson is a dark colour; on a dark panel it reads as a smudge. In
-     dark mode the accent IS the light tint that the backdrop already uses. */
-  --crimson: #ff8db5;
-  --crimson-700: #ffb3cd;
-  --crimson-200: rgb(255 141 181 / 0.4);
-  --crimson-50: rgb(255 141 181 / 0.12);
-  --focus-ring-dark: rgb(255 255 255 / 0.55);
-
-  /* Glass, inverted. The fills are darker than the masked backdrop rather than
-     lighter, so a panel still reads as an object sitting on the photograph. */
-  --surface: rgb(18 21 29 / 0.76);
-  --surface-quiet: rgb(255 255 255 / 0.05);
-  --surface-strong: rgb(20 23 32 / 0.92);
-  --surface-solid: #161922;
-  --surface-border: rgb(255 255 255 / 0.13);
-  /* Much fainter than in light mode: a bright top edge on a dark panel reads as
-     a seam rather than as a lit rim. */
-  --surface-highlight: rgb(255 255 255 / 0.09);
-  --surface-line: rgb(255 255 255 / 0.09);
-  --surface-line-strong: rgb(255 255 255 / 0.16);
-  --chrome: rgb(14 17 24 / 0.72);
-  --chrome-border: rgb(255 255 255 / 0.11);
-
-  --tint-weak: rgb(255 255 255 / 0.035);
-  --tint-soft: rgb(255 255 255 / 0.05);
-  --tint-medium: rgb(255 255 255 / 0.07);
-  --tint-strong: rgb(255 255 255 / 0.12);
-  --tint-line: rgb(255 255 255 / 0.07);
-  --tint-border: rgb(255 255 255 / 0.1);
-
-  --control-bg: #1b1f29;
-  --panel-raise: rgb(255 255 255 / 0.06);
-  --row-hover: rgb(255 255 255 / 0.05);
-
-  --thead-bg: rgb(26 30 39 / 0.94);
-  --nested-head-bg: #1b1f29;
-  --sticky-bg: #161922;
-  --sticky-head-bg: #1b1f29;
-  --sticky-archived-bg: #13161d;
-  --sticky-failed-bg: #2b161a;
-  --archived-row-bg: rgb(255 255 255 / 0.03);
-
-  --fill-error: rgb(48 20 24 / 0.88);
-  --ring-error: rgb(248 113 113 / 0.34);
-  --fill-success: rgb(18 42 28 / 0.88);
-  --ring-success: rgb(74 222 128 / 0.4);
-  --fill-caution: rgb(48 36 12 / 0.88);
-  --ring-caution: rgb(251 191 36 / 0.38);
-  --fill-info: rgb(24 38 64 / 0.8);
-  --ring-info: rgb(96 165 250 / 0.3);
-  --fill-brand: rgb(52 16 32 / 0.9);
-  --ring-brand: rgb(255 141 181 / 0.5);
-  --ring-brand-soft: rgb(255 141 181 / 0.3);
-  --focus-glow: rgb(255 141 181 / 0.18);
-  --fill-danger-row: rgb(248 113 113 / 0.09);
-  --fill-danger-row-hover: rgb(248 113 113 / 0.14);
-
-  --viewfinder-bg: #05070b;
-
-  /* A dark panel needs a deeper, tighter shadow to separate from a dark ground;
-     the light-mode values disappear entirely. */
-  --shadow-panel:
-    inset 0 1px 0 var(--surface-highlight),
-    0 1px 2px rgb(0 0 0 / 0.4),
-    0 20px 44px -20px rgb(0 0 0 / 0.85);
-  --shadow-raised:
-    inset 0 1px 0 var(--surface-highlight),
-    0 2px 8px rgb(0 0 0 / 0.45),
-    0 36px 70px -26px rgb(0 0 0 / 0.9);
-}
-
-/* Safari before 18 and every Firefox build without the pref support neither
-   backdrop-filter nor its -webkit- alias. There the translucency would simply
-   show unreadable photograph through body copy, so the panels go near-opaque
-   and the design degrades to the old app's white cards. */
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+@layer base {
   :root {
-    --surface: rgb(255 255 255 / 0.96);
-    --surface-quiet: rgb(248 249 251 / 0.96);
-    --surface-strong: rgb(255 255 255 / 0.99);
-    --chrome: rgb(255 255 255 / 0.96);
+    color-scheme: light;
+    --canvas: #F7F7F5;
+    --surface: #FFFFFF;
+    --surface-raised: #FFFFFF;
+    --surface-muted: #F1F1EF;
+    --foreground: #171717;
+    --foreground-muted: #6B6B67;
+    --border: #E4E4E1;
+    --border-strong: #D2D2CE;
+    --primary: #1D4ED8;
+    --primary-foreground: #ffffff;
+    --accent: #E8EEF9;
+    --accent-foreground: #171717;
+    --destructive: #C53D3D;
+    --brand-accent: #1D4ED8;
+    --brand-accent-soft: #3568B8;
+    --brand-accent-wash: #E8EEF9;
+    --crimson: var(--brand-accent);
+    --crimson-light: var(--brand-accent-soft);
+    --crimson-50: var(--brand-accent-wash);
+    --gray-50: #F1F1EF;
+    --gray-300: #cbd5df;
+    --gray-400: #a8b3bf;
+    --gray-500: #738091;
+    --gray-600: #657180;
+    --gray-700: #465261;
+    --gray-800: #293542;
+    --green-600: #198754;
+    --green-700: #136b42;
+    --blue-600: #2563a9;
+    --blue-700: #1d4f86;
+    --amber-700: #8a5a00;
+    --red-600: #c23737;
+    --red-700: #a52c2c;
+    --surface-border: #E4E4E1;
+    --surface-line: #e8ecf0;
+    --surface-line-strong: #dce1e7;
+    --surface-quiet: #F1F1EF;
+    --surface-strong: #ffffff;
+    --surface-solid: #ffffff;
+    --chrome: rgb(255 255 255 / 0.92);
+    --chrome-border: #E4E4E1;
+    --control-bg: #ffffff;
+    --control-border: #D2D2CE;
+    --panel-raise: #ffffff;
+    --row-hover: #f8fafc;
+    --thead-bg: #f7f8fa;
+    --nested-head-bg: #eef1f4;
+    --sticky-bg: #ffffff;
+    --sticky-head-bg: #f7f8fa;
+    --sticky-failed-bg: #fff2f2;
+    --archived-row-bg: #f5f6f8;
+    --tint-weak: rgb(23 32 43 / 0.025);
+    --tint-soft: rgb(23 32 43 / 0.04);
+    --tint-medium: rgb(23 32 43 / 0.06);
+    --tint-strong: rgb(23 32 43 / 0.1);
+    --tint-line: rgb(23 32 43 / 0.05);
+    --tint-border: rgb(23 32 43 / 0.08);
+    --fill-error: #fff3f2;
+    --fill-success: #eefaf3;
+    --fill-caution: #fff8e8;
+    --fill-info: #eef6ff;
+    --fill-brand: #E8EEF9;
+    --fill-danger-row: #fff4f4;
+    --fill-danger-row-hover: #ffebeb;
+    --ring-error: rgb(180 35 24 / 0.25);
+    --ring-success: rgb(25 135 84 / 0.35);
+    --ring-caution: rgb(138 90 0 / 0.3);
+    --ring-info: rgb(37 99 169 / 0.22);
+    --ring-brand: rgb(29 78 216 / 0.35);
+    --ring-brand-soft: rgb(29 78 216 / 0.12);
+    --focus-ring: rgb(29 78 216 / 0.55);
+    --focus-ring-dark: rgb(29 78 216 / 0.55);
+    --focus-glow: rgb(29 78 216 / 0.12);
+    --on-backdrop: var(--foreground);
+    --on-backdrop-muted: var(--foreground-muted);
+    --on-backdrop-faint: #8b96a3;
+    --on-backdrop-line: var(--border);
+    --on-backdrop-fill: var(--surface);
+    --on-backdrop-fill-hover: var(--gray-50);
+    --on-backdrop-shadow: none;
+    --on-backdrop-success: var(--green-600);
+    --viewfinder-bg: #141a22;
+    --glass-blur: 14px;
+    --glass-blur-sm: 8px;
+    --glass-saturate: 1.1;
+    --shadow-panel: 0 1px 2px rgb(23 32 43 / 0.04), 0 10px 28px rgb(23 32 43 / 0.06);
+    --shadow-raised: 0 14px 34px rgb(23 32 43 / 0.1);
+    --stack: clamp(16px, 2.4vw, 24px);
+    --tap: 44px;
+    --status-success-bg: #EAF6EE;
+    --status-success-fg: #287A4A;
+    --status-warning-bg: #FFF6DD;
+    --status-warning-fg: #9A6700;
+    --status-error-bg: #FCECEC;
+    --status-error-fg: #C53D3D;
+    --status-info-bg: #EAF1FC;
+    --status-info-fg: #3568B8;
   }
 
   :root[data-theme='dark'] {
-    --surface: rgb(18 21 29 / 0.97);
-    --surface-quiet: rgb(26 30 39 / 0.97);
-    --surface-strong: rgb(20 23 32 / 0.99);
-    --chrome: rgb(14 17 24 / 0.97);
+    color-scheme: dark;
+    --canvas: #0D0D0C;
+    --surface: #151514;
+    --surface-raised: #1B1B19;
+    --surface-muted: #1B1B19;
+    --foreground: #F5F5F2;
+    --foreground-muted: #A3A39D;
+    --border: #2B2B28;
+    --border-strong: #3A3A36;
+    --primary: #E4B94F;
+    --primary-foreground: #171717;
+    --accent: #2A2413;
+    --accent-foreground: #F5F5F2;
+    --destructive: #FF7777;
+    --brand-accent: #E4B94F;
+    --brand-accent-soft: #E4B94F;
+    --brand-accent-wash: #2A2413;
+    --crimson: var(--brand-accent);
+    --crimson-light: var(--brand-accent-soft);
+    --crimson-50: var(--brand-accent-wash);
+    --gray-50: #151514;
+    --gray-300: #43505e;
+    --gray-400: #5d6a78;
+    --gray-500: #8d9aaa;
+    --gray-600: #a5b0bc;
+    --gray-700: #c1cad3;
+    --gray-800: #e2e8ed;
+    --green-600: #65c997;
+    --green-700: #8be0b3;
+    --blue-600: #82b9f3;
+    --blue-700: #afd3fa;
+    --amber-700: #f0c36d;
+    --red-600: #f0847d;
+    --red-700: #ffaaa2;
+    --surface-border: #2B2B28;
+    --surface-line: rgb(255 255 255 / 0.1);
+    --surface-line-strong: rgb(255 255 255 / 0.16);
+    --surface-quiet: #1B1B19;
+    --surface-strong: #1B1B19;
+    --surface-solid: #151514;
+    --chrome: rgb(21 21 20 / 0.94);
+    --chrome-border: #2B2B28;
+    --control-bg: #1B1B19;
+    --control-border: #3A3A36;
+    --panel-raise: #1B1B19;
+    --row-hover: #1B1B19;
+    --thead-bg: #1B1B19;
+    --nested-head-bg: #1B1B19;
+    --sticky-bg: #151514;
+    --sticky-head-bg: #1B1B19;
+    --sticky-failed-bg: #3a2528;
+    --archived-row-bg: #151c24;
+    --tint-weak: rgb(255 255 255 / 0.025);
+    --tint-soft: rgb(255 255 255 / 0.04);
+    --tint-medium: rgb(255 255 255 / 0.07);
+    --tint-strong: rgb(255 255 255 / 0.12);
+    --tint-line: rgb(255 255 255 / 0.06);
+    --tint-border: rgb(255 255 255 / 0.1);
+    --fill-error: rgb(240 132 125 / 0.12);
+    --fill-success: rgb(101 201 151 / 0.12);
+    --fill-caution: rgb(240 195 109 / 0.12);
+    --fill-info: rgb(130 185 243 / 0.12);
+    --fill-brand: #18243A;
+    --fill-danger-row: rgb(240 132 125 / 0.1);
+    --fill-danger-row-hover: rgb(240 132 125 / 0.16);
+    --ring-error: rgb(240 132 125 / 0.4);
+    --ring-success: rgb(101 201 151 / 0.45);
+    --ring-caution: rgb(240 195 109 / 0.4);
+    --ring-info: rgb(130 185 243 / 0.35);
+    --ring-brand: rgb(107 156 255 / 0.45);
+    --ring-brand-soft: rgb(107 156 255 / 0.18);
+    --focus-ring: rgb(107 156 255 / 0.7);
+    --focus-ring-dark: rgb(107 156 255 / 0.7);
+    --focus-glow: rgb(107 156 255 / 0.15);
+    --on-backdrop: var(--foreground);
+    --on-backdrop-muted: var(--foreground-muted);
+    --on-backdrop-faint: #8793a1;
+    --on-backdrop-line: var(--border);
+    --on-backdrop-fill: var(--surface);
+    --on-backdrop-fill-hover: var(--gray-50);
+    --on-backdrop-shadow: none;
+    --on-backdrop-success: var(--green-600);
+    --shadow-panel: 0 1px 2px rgb(0 0 0 / 0.16), 0 12px 30px rgb(0 0 0 / 0.18);
+    --shadow-raised: 0 16px 36px rgb(0 0 0 / 0.25);
+    --status-success-bg: #14261B;
+    --status-success-fg: #65C98A;
+    --status-warning-bg: #2A2413;
+    --status-warning-fg: #E4B94F;
+    --status-error-bg: #301717;
+    --status-error-fg: #FF7777;
+    --status-info-bg: #172338;
+    --status-info-fg: #76A5F5;
   }
-}
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
-
-html {
-  min-width: 320px;
-  /* The backdrop is fixed and the shell is transparent, so an overscroll past
-     either end would otherwise expose white paper behind the design. */
-  background: #090c14;
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
-}
-
-body {
-  margin: 0;
-  min-width: 320px;
-  min-height: 100vh;
-  min-height: 100dvh;
-  /* MUST stay transparent. `.app-backdrop` sits at z-index -10 inside #root, and
-     the negative-z-index layer is painted before the backgrounds of in-flow
-     descendants — so an opaque fill here covers the photograph completely
-     rather than sitting behind it. The dark base belongs on `html`, whose
-     background paints the canvas underneath the whole stacking context. */
-  background: transparent;
-  /* No rubber-band past the app shell — this is a tool, not a document. */
-  overscroll-behavior-y: none;
-  -webkit-tap-highlight-color: transparent;
-}
-
-#root {
-  min-height: 100vh;
-  min-height: 100dvh;
-}
-
-h1, h2, h3, h4 {
-  line-height: 1.25;
-  letter-spacing: -0.02em;
-  /* An event name is user-supplied and can be one long token. */
-  overflow-wrap: break-word;
-}
-
-/* 16px is the threshold below which iOS zooms the viewport on focus. Every
-   text-entry control in the app therefore sits at or above it. */
-input, select, textarea, button {
-  font: inherit;
-  font-size: max(16px, 1rem);
-}
-
-img, svg {
-  max-width: 100%;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { overflow-x: clip; }
+  html { background: var(--canvas); }
+  body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+    min-height: 100dvh;
+    background: var(--canvas);
+    color: var(--foreground);
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
   }
+  button, input, select, textarea { font: inherit; }
+  button {
+    cursor: pointer;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: inherit;
+    transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+  }
+  button:hover:not(:disabled) { background: var(--surface-muted); }
+  button:disabled { cursor: not-allowed; }
+  input, select, textarea {
+    border: 1px solid var(--control-border);
+    border-radius: 10px;
+    background: var(--control-bg);
+    color: var(--foreground);
+    outline: none;
+  }
+  input, select { min-height: 44px; }
+  textarea { min-height: 96px; resize: vertical; }
+  input::placeholder, textarea::placeholder { color: var(--foreground-muted); opacity: 1; }
+  input:focus-visible, select:focus-visible, textarea:focus-visible { border-color: var(--primary); box-shadow: 0 0 0 3px var(--focus-glow); }
+  select { appearance: none; }
+  input[type='checkbox'], input[type='radio'] { min-height: 1rem; accent-color: var(--primary); }
+  input[type='file'] { border: 0; border-radius: 0; background: transparent; }
+  a { color: inherit; }
+  h1, h2, h3, h4, p { overflow-wrap: break-word; }
+  :focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+  ::selection { background: var(--brand-accent-wash); color: var(--foreground); }
 }
 
-/* The old app's 8px scrollbar, re-tuned for a dark page. */
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-::-webkit-scrollbar-track {
-  background: rgb(255 255 255 / 0.06);
-  border-radius: 5px;
-}
-
-::-webkit-scrollbar-thumb {
-  background: rgb(255 255 255 / 0.24);
-  border-radius: 5px;
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgb(255 255 255 / 0.4);
-  background-clip: content-box;
-}
-
-/* Scrollbars inside a panel run against the panel's own fill, not the backdrop,
-   so they use the panel tints and flip with the theme. */
-.table-wrap::-webkit-scrollbar-track,
-.dialog::-webkit-scrollbar-track {
-  background: var(--tint-line);
-}
-
-.table-wrap::-webkit-scrollbar-thumb,
-.dialog::-webkit-scrollbar-thumb {
-  background: var(--gray-400);
-  background-clip: content-box;
-}
-
-::selection {
-  background: var(--crimson);
-  color: #fff;
+@layer components {
+  .primary, .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-[10px] px-5 py-2.5 font-semibold transition-all;
+    background: var(--primary); color: var(--primary-foreground); border: 1px solid var(--primary);
+  }
+  .primary:hover:not(:disabled), .btn-primary:hover:not(:disabled) { filter: brightness(0.96); }
+  .primary:active:not(:disabled), .secondary:active:not(:disabled) { transform: translateY(1px); }
+  .secondary, .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-[10px] px-5 py-2.5 font-semibold transition-all;
+    background: var(--surface); color: var(--foreground); border: 1px solid var(--border);
+  }
+  .secondary:hover:not(:disabled), .btn-secondary:hover:not(:disabled) { background: var(--surface-quiet); border-color: var(--gray-400); }
 }

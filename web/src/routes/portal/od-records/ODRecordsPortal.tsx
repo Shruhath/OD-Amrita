@@ -259,7 +259,13 @@ export default function ODRecordsPortal() {
                     {records.data.data.map((row) => (
                       <tr
                         key={row.record_id}
-                        aria-label={`${row.student.display_name} slot ${row.slot}`}
+                        // NO aria-label. A row's accessible name is its own cell
+                        // text, and an explicit label REPLACES that rather than
+                        // adding to it — the status and the reason note dropped
+                        // straight out of the name, which is how "the present
+                        // record for slot 6" became unaddressable and a journey
+                        // had to be loosened to keep passing. The slot cell below
+                        // carries the word "Slot" for the same reason.
                         className="hover:bg-canvas/50 transition-colors"
                       >
                         <td className="py-3 px-4">
@@ -270,6 +276,7 @@ export default function ODRecordsPortal() {
                         </td>
                         <td className="py-3 px-4 text-sm">{row.category.name}</td>
                         <td className="py-3 px-4 text-center">
+                          <span className="sr-only">Slot </span>
                           <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-foreground/10 text-xs font-bold">
                             {row.slot}
                           </span>

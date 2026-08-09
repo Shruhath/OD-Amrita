@@ -152,6 +152,9 @@ type StudentCardToken struct {
 	TokenSha256 []byte             `json:"token_sha256"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	// When an admin last read this card back through the populator and the server recognised it. NULL means issued but never verified — which is NOT the same as written.
+	VerifiedAt       pgtype.Timestamptz `json:"verified_at"`
+	VerifiedByUserID pgtype.UUID        `json:"verified_by_user_id"`
 }
 
 type StudentRosterImport struct {

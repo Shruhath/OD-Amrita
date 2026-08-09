@@ -1189,6 +1189,24 @@ type ScanResult struct {
 // ScanResultStatus Per-item outcome. `applied` = newly accepted/enqueued; `duplicate` = idempotency key already seen (safe no-op); `rejected` = not accepted (see `reason`).
 type ScanResultStatus string
 
+// SectionCardStatus One student's card state. Deliberately carries no token, fingerprint or seal version — the populator is reading PROGRESS, and card material it is not about to write has no business on the wire.
+type SectionCardStatus struct {
+	// Issued A token row exists. NOT proof the card took the write.
+	Issued     bool               `json:"issued"`
+	StudentId  openapi_types.UUID `json:"student_id"`
+	VerifiedAt *time.Time         `json:"verified_at"`
+}
+
+// SectionCardStatusCollection defines model for SectionCardStatusCollection.
+type SectionCardStatusCollection struct {
+	Data   []SectionCardStatus `json:"data"`
+	Issued int                 `json:"issued"`
+
+	// Total Students in the section.
+	Total    int `json:"total"`
+	Verified int `json:"verified"`
+}
+
 // SessionRevocationResult Result of recording a forced-logout revocation.
 type SessionRevocationResult struct {
 	// AlreadyRevoked True when this exact session was already revoked (an idempotent no-op; no new audit row was written).
@@ -1285,6 +1303,13 @@ type ValidationErrorDetail struct {
 
 // bearerAuthContextKey is the context key for bearerAuth security scheme
 type bearerAuthContextKey string
+
+// ListSectionCardStatusParams defines parameters for ListSectionCardStatus.
+type ListSectionCardStatusParams struct {
+	BranchId openapi_types.UUID `form:"branch_id" json:"branch_id"`
+	Batch    string             `form:"batch" json:"batch"`
+	Section  string             `form:"section" json:"section"`
+}
 
 // ListAdminEventsParams defines parameters for ListAdminEvents.
 type ListAdminEventsParams struct {

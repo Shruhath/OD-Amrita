@@ -817,6 +817,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/card-tokens/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Durable card-population progress for one section
+         * @description What the SERVER knows about a section's cards, so the populator's counts survive a sign-out and follow the operator to another device. `issued` means a token row exists — NOT that the card took the write. `verified_at` is set only when an admin read the card back through the resolve endpoint above and the server recognised it, and that is the only state that may be reported as done. Scoped to the ACTIVE seal version: a token sealed under a retired key is not the card about to be written. Carries no token, fingerprint or key material.
+         */
+        get: operations["listSectionCardStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1239,6 +1259,22 @@ export interface components {
             resolution_note: string;
             /** @enum {string} */
             outcome: "approved" | "rejected";
+        };
+        /** @description One student's card state. Deliberately carries no token, fingerprint or seal version — the populator is reading PROGRESS, and card material it is not about to write has no business on the wire. */
+        SectionCardStatus: {
+            /** Format: uuid */
+            student_id: string;
+            /** @description A token row exists. NOT proof the card took the write. */
+            issued: boolean;
+            /** Format: date-time */
+            verified_at: string | null;
+        };
+        SectionCardStatusCollection: {
+            data: components["schemas"]["SectionCardStatus"][];
+            /** @description Students in the section. */
+            total: number;
+            issued: number;
+            verified: number;
         };
         /** @description Everything the marking screen needs that the client must not compute for itself. `slot: null` is the explicit "no slot is open" state — never slot 0 — and `server_time` shares one clock read with the slot decision. */
         MarkStatus: {
@@ -4499,6 +4535,66 @@ export interface operations {
             };
             /** @description Token was not recognized (CARD_NOT_RECOGNIZED). */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listSectionCardStatus: {
+        parameters: {
+            query: {
+                branch_id: string;
+                batch: string;
+                section: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One entry per student in the section, in roll-number order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SectionCardStatusCollection"];
+                };
+            };
+            /** @description Request validation failed with typed field details. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -28,6 +28,12 @@ async function mockPopulatorApi(page: Page, role: 'admin' | 'student' = 'admin')
   )
   await page.route('**/api/v1/admin/branches', (route) => json(route, { data: [cardPopulatorBranch] }))
   await page.route('**/api/v1/admin/students?**', (route) => json(route, studentCollection(students)))
+  // The populator's durable progress. Defaulted to an untouched section so these
+  // journeys assert what THIS session does; without it the screen shows the
+  // "saved progress could not be loaded" alert and every other alert assertion
+  // here resolves to two elements.
+  await page.route('**/api/v1/admin/card-tokens/status?**', (route) =>
+    json(route, { data: [], total: 0, issued: 0, verified: 0 }))
   await page.route('**/api/v1/admin/students/*/card-seal', async (route) => {
     if (route.request().method() === 'OPTIONS') return fulfilPreflight(route)
     cardRequests.push(route.request())

@@ -164,7 +164,7 @@ unset PGPASSWORD
 psql "$DATABASE_URL_MIGRATOR" -c 'SELECT max(version_id) FROM goose_db_version;'
 ```
 
-Expect **20** — migrations `0001`–`0020`. A lower number, or a missing table, means the
+Expect **21** — migrations `0001`–`0021`. A lower number, or a missing table, means the
 migrations did not all apply; stop and fix that before deploying, because the API will fail at
 runtime rather than at boot.
 
@@ -187,7 +187,7 @@ runtime rather than at boot.
 > usage back into the single row the pre-`0017` schema held, because `usage_date` is being
 > dropped anyway and no information survives either way.
 >
-> Take a dump immediately before applying `0015`–`0020` to a database that already holds
+> Take a dump immediately before applying `0015`–`0021` to a database that already holds
 > records.
 
 > **⚠️ `0018` is a one-way door once a record has been removed.**
@@ -225,6 +225,15 @@ runtime rather than at boot.
 >
 > **What changes on apply:** nothing on its own. Resolving a dispute credits the slot only once the
 > API that sends an `outcome` is deployed; the column defaults to NULL and no existing row moves.
+
+> **`0021` is fully reversible.** It adds `verified_at` / `verified_by_user_id` to
+> `student_card_tokens` so the card populator's progress survives a sign-out and follows the
+> operator to another device. Its `Down` drops both columns, which discards the verification
+> history — the populator then falls back to per-device progress, which is the behaviour it had
+> before. Nothing else reads these columns.
+>
+> **What changes on apply:** nothing on its own. Both columns are NULL until an admin verifies a
+> card through the populator with the API that writes them deployed.
 
 **5. Build the runtime connection string** for the next section from the **`od_runtime`**
 password — never the migrator's. The application pool must not be able to run DDL.

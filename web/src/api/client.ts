@@ -528,6 +528,12 @@ export function createEventApi(session: SessionPort) {
       }))
     },
 
+    async sectionCardStatus(input: { branchID: string; batch: string; section: string }) {
+      return unwrap(await client.GET('/api/v1/admin/card-tokens/status', {
+        params: { query: { branch_id: input.branchID, batch: input.batch, section: input.section } },
+      }))
+    },
+
     async resolveDispute(disputeID: string, input: DisputeResolutionRequest) {
       return unwrap(await client.POST('/api/v1/disputes/{dispute_id}/resolution', {
         params: { path: { dispute_id: disputeID } },

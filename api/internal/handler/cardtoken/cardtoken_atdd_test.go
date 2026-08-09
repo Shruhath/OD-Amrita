@@ -138,6 +138,7 @@ func TestResolveHandlerEnforcesGeneratedStringBounds(t *testing.T) {
 type fakeService struct {
 	seal     cardtokensvc.SealResult
 	resolved cardtokensvc.ResolvedStudent
+	section  []cardtokensvc.CardStatus
 	err      error
 	calls    int
 }
@@ -150,6 +151,11 @@ func (f *fakeService) Seal(ctx context.Context, actor cardtokensvc.Actor, input 
 func (f *fakeService) Resolve(ctx context.Context, actor cardtokensvc.Actor, input cardtokensvc.ResolveInput) (cardtokensvc.ResolvedStudent, error) {
 	f.calls++
 	return f.resolved, f.err
+}
+
+func (f *fakeService) SectionStatus(context.Context, cardtokensvc.Actor, cardtokensvc.SectionFilter) ([]cardtokensvc.CardStatus, error) {
+	f.calls++
+	return f.section, f.err
 }
 
 func cardTokenRouter(svc Service, role string) *gin.Engine {

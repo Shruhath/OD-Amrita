@@ -2487,6 +2487,72 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/admin/card-tokens/status:
+    get:
+      operationId: listSectionCardStatus
+      summary: Durable card-population progress for one section
+      description: >-
+        What the SERVER knows about a section's cards, so the populator's counts
+        survive a sign-out and follow the operator to another device. `issued`
+        means a token row exists — NOT that the card took the write. `verified_at`
+        is set only when an admin read the card back through the resolve endpoint
+        above and the server recognised it, and that is the only state that may
+        be reported as done. Scoped to the ACTIVE seal version: a token sealed
+        under a retired key is not the card about to be written. Carries no
+        token, fingerprint or key material.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: branch_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: batch
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 32
+        - name: section
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 32
+      responses:
+        "200":
+          description: One entry per student in the section, in roll-number order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SectionCardStatusCollection"
+        "400":
+          description: Request validation failed with typed field details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Missing, malformed, expired, or revoked token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a provisioned Admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -3528,6 +3594,49 @@ components:
           # approved, defaulting to rejected silently drops the credit the
           # teacher meant to give.
           enum: [approved, rejected]
+
+    SectionCardStatus:
+      type: object
+      description: >-
+        One student's card state. Deliberately carries no token, fingerprint or
+        seal version — the populator is reading PROGRESS, and card material it is
+        not about to write has no business on the wire.
+      required: [student_id, issued, verified_at]
+      properties:
+        student_id:
+          type: string
+          format: uuid
+        issued:
+          type: boolean
+          description: A token row exists. NOT proof the card took the write.
+        verified_at:
+          type: string
+          format: date-time
+          # REQUIRED as well as nullable: always present, null when the card has
+          # never been read back. Merely optional lets the generator omit the key,
+          # and a client then cannot tell "not verified" from "this server does
+          # not track verification" — the difference between a card that needs a
+          # tap and one that does not.
+          nullable: true
+
+    SectionCardStatusCollection:
+      type: object
+      required: [data, total, issued, verified]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/SectionCardStatus"
+        total:
+          type: integer
+          minimum: 0
+          description: Students in the section.
+        issued:
+          type: integer
+          minimum: 0
+        verified:
+          type: integer
+          minimum: 0
 
     MarkStatus:
       type: object

@@ -482,3 +482,140 @@ describe('Card populator portal', () => {
     expect(stored).not.toMatch(/token|payload|hmac|secret|key/i)
   })
 })
+
+/**
+ * Progress that outlives the session.
+ *
+ * THE REPORTED DEFECT. Per-student progress lived only in sessionStorage, so
+ * signing out and back in — which clears persisted state deliberately, so a
+ * shared phone does not hand the next operator the previous one's screen —
+ * showed "0 written · 0 verified" with every row reading "Not written". The
+ * cards were fine; the screen had simply forgotten, and there was no way to tell
+ * which of them were already done short of tapping all of them again.
+ *
+ * These render with EMPTY local storage on purpose. That is what a fresh login,
+ * or a second device, actually looks like.
+ */
+function installSavedProgress(rows: { student_id: string; issued: boolean; verified_at: string | null }[]) {
+  server.use(
+    http.get('*/api/v1/admin/card-tokens/status', () =>
+      HttpResponse.json({
+        data: rows,
+        total: rows.length,
+        issued: rows.filter((row) => row.issued).length,
+        verified: rows.filter((row) => row.verified_at !== null).length,
+      }),
+    ),
+  )
+}
+
+describe('progress that survives signing out', () => {
+  test('[P0] a fresh session shows what the database says was verified', async () => {
+    installNfc()
+    const user = userEvent.setup()
+    const { ordered } = renderPopulator()
+    installSavedProgress([
+      { student_id: ordered[0].student_id, issued: true, verified_at: '2026-08-09T10:00:00Z' },
+      { student_id: ordered[1].student_id, issued: true, verified_at: null },
+    ])
+
+    const table = await loadRoster(user)
+
+    // Nothing was written in THIS session, and there is no stored progress —
+    // every one of these facts came from the server.
+    const first = within(table).getAllByRole('row')[1]!
+    expect(
+      within(first).getByText(/verified/i),
+      'a card the database says was verified is showing as unwritten. That is the whole defect: the operator ' +
+        'has no way to tell which cards are done and taps all of them again',
+    ).toBeInTheDocument()
+
+    const second = within(table).getAllByRole('row')[2]!
+    expect(
+      within(second).getByText(/written, awaiting verify/i),
+      'a card with a token but no read-back must show as written, NOT verified — issued is not proof the card ' +
+        'took the write, and reporting it as done sends a student to the event with a blank card',
+    ).toBeInTheDocument()
+
+    expect(await screen.findByText(/1 verified/)).toBeInTheDocument()
+    expect(screen.getByText(/2 written/)).toBeInTheDocument()
+  })
+
+  // The count must not read 0 when the section genuinely has none — that is a
+  // true answer, and it has to be reachable.
+  test('[P0] an untouched section still reads zero', async () => {
+    installNfc()
+    const user = userEvent.setup()
+    const { ordered } = renderPopulator()
+    installSavedProgress([
+      { student_id: ordered[0].student_id, issued: false, verified_at: null },
+      { student_id: ordered[1].student_id, issued: false, verified_at: null },
+    ])
+
+    const table = await loadRoster(user)
+    expect(within(within(table).getAllByRole('row')[1]!).getByText(/not written/i)).toBeInTheDocument()
+    expect(await screen.findByText(/0 verified/)).toBeInTheDocument()
+  })
+
+  // A FAILED STATUS READ MUST SAY SO.
+  //
+  // Falling back to local-only progress silently is how "0 verified" looked like
+  // a true answer instead of a missing one — which is exactly how this defect
+  // went unnoticed until cards were being written for real.
+  test('[P0] progress that could not be loaded is reported, not shown as zero', async () => {
+    installNfc()
+    const user = userEvent.setup()
+    renderPopulator()
+    server.use(
+      http.get('*/api/v1/admin/card-tokens/status', () =>
+        HttpResponse.json({ code: 'INTERNAL', message: 'Saved progress is unavailable.' }, { status: 500 }),
+      ),
+    )
+
+    await loadRoster(user)
+
+    expect(
+      await screen.findByText(/only what this device has done/i),
+      'a failed progress read showed no error, so an empty count is indistinguishable from a section nobody ' +
+        'has started',
+    ).toBeInTheDocument()
+  })
+
+  // Verifying a card updates the DURABLE count, not just this device's.
+  test('[P0] verifying re-reads the saved count', async () => {
+    installNfc()
+    const user = userEvent.setup()
+    const { ordered } = renderPopulator()
+
+    let verified = 0
+    server.use(
+      http.get('*/api/v1/admin/card-tokens/status', () =>
+        HttpResponse.json({
+          data: [
+            { student_id: ordered[0].student_id, issued: true, verified_at: verified > 0 ? '2026-08-09T10:00:00Z' : null },
+            { student_id: ordered[1].student_id, issued: false, verified_at: null },
+          ],
+          total: 2,
+          issued: 1,
+          verified,
+        }),
+      ),
+      http.post('*/api/v1/admin/card-tokens/resolve', () => {
+        verified = 1
+        return HttpResponse.json(ordered[0])
+      }),
+    )
+
+    const table = await loadRoster(user)
+    expect(await screen.findByText(/0 verified/)).toBeInTheDocument()
+
+    const row = within(table).getAllByRole('row')[1]!
+    await user.click(within(row).getByRole('button', { name: /^verify card for/i }))
+
+    expect(
+      await screen.findByText(/1 verified/, {}, { timeout: 5000 }),
+      'the saved count did not move after a verification, so the number the operator uses to decide whether a ' +
+        'section is finished is stale until they reload',
+    ).toBeInTheDocument()
+  })
+})

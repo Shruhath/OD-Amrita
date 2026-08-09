@@ -26,4 +26,16 @@ export const server = setupServer(
   http.get('*/api/v1/admin/settings/extended-slots', () =>
     HttpResponse.json({ enabled: false, max_slot: 12, updated_at: null }),
   ),
+  // The card populator's DURABLE progress. It loads unconditionally whenever a
+  // section is opened, so without a default every populator test about something
+  // else would render the "saved progress could not be loaded" alert and collide
+  // with its own role="alert" locator.
+  //
+  // The default is an EMPTY section — no cards issued, none verified — so a test
+  // that means to assert something about saved progress has to install its own
+  // handler and say so. A populated default would let a count assertion pass on
+  // fixture data the test never chose.
+  http.get('*/api/v1/admin/card-tokens/status', () =>
+    HttpResponse.json({ data: [], total: 0, issued: 0, verified: 0 }),
+  ),
 )

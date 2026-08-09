@@ -8,8 +8,6 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
-
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
 	importsvc "github.com/Shruhath/OD-Amrita/api/internal/service/attendanceimport"
 )
@@ -102,9 +100,6 @@ func CreateHandler(svc Service) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		c.JSON(http.StatusAccepted, struct {
-			ID     uuid.UUID `json:"id"`
-			Status string    `json:"status"`
-		}{ID: result.ID, Status: result.Status})
+		c.JSON(http.StatusAccepted, result)
 	}
 }

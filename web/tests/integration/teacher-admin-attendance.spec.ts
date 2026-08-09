@@ -1,3 +1,4 @@
+import { selectValue } from '../support/select'
 import { expect, test } from '@playwright/test'
 
 /**
@@ -54,9 +55,9 @@ test.describe('real stack teacher/admin search marking', () => {
     // attendance view (MARKING_EVENT_ID); leaving the selection implicit made
     // those two the same event only by luck. Selecting it here makes the two
     // ends agree by construction, which is the property the test is really about.
-    await page.getByRole('combobox', { name: /event/i }).selectOption(MARKING_EVENT_ID)
+    await selectValue(page, page.getByRole('combobox', { name: /event/i }), MARKING_EVENT_ID)
 
-    await page.getByRole('combobox', { name: /slot/i }).selectOption('4')
+    await selectValue(page, page.getByRole('combobox', { name: /slot/i }), '4')
     await page.getByRole('searchbox', { name: /student/i }).fill(roll)
     await page.getByRole('option', { name: new RegExp(roll.replace(/\./g, '\\.'), 'i') }).click()
     await page.getByRole('button', { name: /mark present/i }).click()
@@ -94,7 +95,7 @@ test.describe('real stack teacher/admin search marking', () => {
 
     await openTeacherMarkScreen(page)
 
-    await page.getByRole('combobox', { name: /slot/i }).selectOption('7')
+    await selectValue(page, page.getByRole('combobox', { name: /slot/i }), '7')
     await page.getByRole('searchbox', { name: /student/i }).fill('CB.SC.U4ECE24001')
     await page.getByRole('option', { name: /CB\.SC\.U4ECE24001/i }).click()
     await page.getByRole('button', { name: /mark present/i }).click()

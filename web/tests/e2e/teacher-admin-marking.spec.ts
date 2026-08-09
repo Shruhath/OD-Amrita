@@ -1,3 +1,4 @@
+import { selectValue } from '../support/select'
 import { expect, test } from '@playwright/test'
 import { fulfilPreflight, installPortalSession, json } from './support/portal-session'
 import {
@@ -65,7 +66,7 @@ test.describe('teacher/admin search marking', () => {
     await expect(page.getByRole('heading', { name: /mark attendance/i })).toBeVisible()
     await expect(page.getByRole('button', { name: /tap|nfc/i })).toHaveCount(0)
     await expect(page.getByRole('button', { name: /camera|scan/i })).toHaveCount(0)
-    await page.getByRole('combobox', { name: /slot/i }).selectOption('4')
+    await selectValue(page, page.getByRole('combobox', { name: /slot/i }), '4')
     await page.getByRole('searchbox', { name: /student/i }).fill('CB.SC.U4CSE24')
     await page.getByRole('option', { name: /CB\.SC\.U4CSE/i }).click()
     await page.getByRole('button', { name: /mark present/i }).click()
@@ -81,7 +82,7 @@ test.describe('teacher/admin search marking', () => {
     await page.goto('/portal/events/11111111-1111-4111-8111-111111111111')
 
     await expect(page.getByRole('heading', { name: /attendance/i })).toBeVisible()
-    await page.getByRole('combobox', { name: /slot/i }).selectOption('4')
+    await selectValue(page, page.getByRole('combobox', { name: /slot/i }), '4')
     const attendanceTable = page.locator('.table-wrap')
     await expect(attendanceTable.getByText(/CB\.SC\.U4CSE/i)).toBeVisible()
     await expect(attendanceTable.getByRole('cell', { name: 'admin', exact: true })).toBeVisible()

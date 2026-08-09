@@ -222,8 +222,9 @@ test.describe('public dispute form', () => {
 
     const events = form.getByRole('combobox', { name: /event/i })
     await expect(events).toBeVisible()
+    await events.click()
     await expect(
-      events.getByRole('option', { name: /Sports Day Relay/i }),
+      page.getByRole('listbox').getByRole('option', { name: /Sports Day Relay/i }),
       'the archived event is missing from the picker; a student notices a missing slot AFTER the event, which ' +
         'is usually after it has been archived (T8)',
     ).toHaveCount(1)

@@ -1,3 +1,4 @@
+import { selectValue } from '../support/select'
 import { test, type Browser, type Page } from '@playwright/test'
 import { fulfilPreflight, installPortalSession, json, type PortalRole } from './support/portal-session'
 
@@ -150,7 +151,7 @@ const surfaces: Surface[] = [
     prepare: async (page) => {
       // By role, not by label: "Section" also matches the nav landmark named
       // "Administration sections".
-      await page.getByRole('combobox', { name: 'Branch' }).selectOption(branch.id)
+      await selectValue(page, page.getByRole('combobox', { name: 'Branch' }), branch.id)
       await page.getByRole('textbox', { name: 'Batch' }).fill('2024')
       await page.getByRole('textbox', { name: 'Section' }).fill('A')
       await page.getByRole('button', { name: 'Load roster' }).click()

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { useQuery } from '@tanstack/react-query'
 import type { EventApi, ResolvedCardStudent, StudentCollection } from '../../../api/client'
 import { PortalShell } from '../../../components/PortalShell'
+import { Select } from '../../../components/ui/Select'
 import { useAuth } from '../../../features/auth/context'
 import { CardNfcError, createWebNfcAdapter, type WebNfcStatus } from '../../../features/nfc/webNfc'
 import { messageOf } from '../events/format'
@@ -259,16 +260,15 @@ export default function CardPopulatorPortal() {
         <form className="populator-filters" onSubmit={loadRoster} noValidate>
           <div>
             <label htmlFor="populator-branch">Branch</label>
-            <select
+            <Select
               id="populator-branch"
               value={draft.branchID}
-              onChange={(event) => setDraft((current) => ({ ...current, branchID: event.target.value }))}
-            >
-              <option value="">Select a branch</option>
-              {(branches.data?.data ?? []).map((branch) => (
-                <option key={branch.id} value={branch.id}>{branch.code}</option>
-              ))}
-            </select>
+              onChange={(value) => setDraft((current) => ({ ...current, branchID: value }))}
+              options={[
+                { value: '', label: 'Select a branch' },
+                ...(branches.data?.data ?? []).map((branch) => ({ value: branch.id, label: branch.code })),
+              ]}
+            />
           </div>
           <div>
             <label htmlFor="populator-batch">Batch</label>

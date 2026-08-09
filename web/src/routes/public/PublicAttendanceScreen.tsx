@@ -10,6 +10,7 @@ import {
   type PublicStudent,
 } from '../../api/client'
 import { ThemeToggle } from '../../components/ThemeToggle'
+import { Select } from '../../components/ui/Select'
 import { enumerateDays } from './days'
 
 /**
@@ -575,30 +576,43 @@ function PublicDisputeForm({
 
       <label className="public-field" htmlFor="public-dispute-event">
         <span>Event</span>
-        <select id="public-dispute-event" value={eventID} onChange={(event) => { setEventID(event.target.value); setFailure(null) }}>
-          {eventOptions.map((event) => <option value={event.event_id} key={event.event_id}>{event.name}</option>)}
-        </select>
+        <Select
+          id="public-dispute-event"
+          value={eventID}
+          onChange={(value) => { setEventID(value); setFailure(null) }}
+          options={eventOptions.map((event) => ({ value: event.event_id, label: event.name }))}
+        />
       </label>
 
       <label className="public-field" htmlFor="public-dispute-category">
         <span>Category</span>
-        <select id="public-dispute-category" value={categoryID} onChange={(event) => { setCategoryID(event.target.value); setFailure(null) }} disabled={categoryOptions.length === 0}>
-          {categoryOptions.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}
-        </select>
+        <Select
+          id="public-dispute-category"
+          value={categoryID}
+          onChange={(value) => { setCategoryID(value); setFailure(null) }}
+          disabled={categoryOptions.length === 0}
+          options={categoryOptions.map((category) => ({ value: category.id, label: category.name }))}
+        />
       </label>
 
       <label className="public-field" htmlFor="public-dispute-day">
         <span>Day</span>
-        <select id="public-dispute-day" value={odDate} onChange={(event) => { setODDate(event.target.value); setFailure(null) }}>
-          {dayOptions.map((value) => <option value={value} key={value}>{formatDate(value)} ({value})</option>)}
-        </select>
+        <Select
+          id="public-dispute-day"
+          value={odDate}
+          onChange={(value) => { setODDate(value); setFailure(null) }}
+          options={dayOptions.map((value) => ({ value, label: `${formatDate(value)} (${value})` }))}
+        />
       </label>
 
       <label className="public-field" htmlFor="public-dispute-slot">
         <span>Slot</span>
-        <select id="public-dispute-slot" value={slot} onChange={(event) => { setSlot(event.target.value); setFailure(null) }}>
-          {SLOT_VALUES.map((value) => <option value={value} key={value}>Slot {value}</option>)}
-        </select>
+        <Select
+          id="public-dispute-slot"
+          value={slot}
+          onChange={(value) => { setSlot(value); setFailure(null) }}
+          options={SLOT_VALUES.map((value) => ({ value: String(value), label: `Slot ${value}` }))}
+        />
       </label>
 
       <label className="public-field" htmlFor="public-dispute-coordinator">

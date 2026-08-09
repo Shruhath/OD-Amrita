@@ -1,3 +1,4 @@
+import { selectByValue } from '../../../test/select'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
@@ -124,8 +125,9 @@ async function loadRoster(user: ReturnType<typeof userEvent.setup>) {
   await screen.findByRole('heading', { name: 'Card populator' })
   // The branch list is fetched, so the option has to arrive before it can be
   // chosen — selecting eagerly would race the query rather than test it.
-  await screen.findByRole('option', { name: new RegExp(cardPopulatorBranch.code) })
-  await user.selectOptions(screen.getByLabelText('Branch'), cardPopulatorBranch.id)
+  // selectByValue does that waiting now: the options do not exist in the DOM
+  // until the control is opened, so there is nothing to wait for before then.
+  await selectByValue(user, screen.getByLabelText('Branch'), cardPopulatorBranch.id)
   await user.type(screen.getByLabelText('Batch'), '2024')
   await user.type(screen.getByLabelText('Section'), 'A')
   await user.click(screen.getByRole('button', { name: 'Load roster' }))
@@ -193,8 +195,7 @@ describe('Card populator portal', () => {
     renderPopulator('admin')
 
     await screen.findByRole('heading', { name: 'Card populator' })
-    await screen.findByRole('option', { name: new RegExp(cardPopulatorBranch.code) })
-    await user.selectOptions(screen.getByLabelText('Branch'), cardPopulatorBranch.id)
+    await selectByValue(user, screen.getByLabelText('Branch'), cardPopulatorBranch.id)
     await user.click(screen.getByRole('button', { name: 'Load roster' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/branch, batch and section/i)
@@ -218,8 +219,7 @@ describe('Card populator portal', () => {
     render(<Application session={sessionPort()} router={createPortalMemoryRouter(['/portal/card-populator'])} />)
 
     await screen.findByRole('heading', { name: 'Card populator' })
-    await screen.findByRole('option', { name: new RegExp(cardPopulatorBranch.code) })
-    await user.selectOptions(screen.getByLabelText('Branch'), cardPopulatorBranch.id)
+    await selectByValue(user, screen.getByLabelText('Branch'), cardPopulatorBranch.id)
     await user.type(screen.getByLabelText('Batch'), '2024')
     await user.type(screen.getByLabelText('Section'), 'a')
     await user.click(screen.getByRole('button', { name: 'Load roster' }))

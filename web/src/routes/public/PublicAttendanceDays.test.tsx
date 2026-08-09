@@ -1,3 +1,4 @@
+import { openedOptionValues, selectByLabel } from '../../test/select'
 /**
  * Red-phase component tests for the public dashboard's DAY grouping and the
  * dispute form's widened day picker (AC 11, 12, 15).
@@ -131,8 +132,11 @@ describe('the public dashboard across a multi-day event', () => {
     await user.click(within(dayOne as HTMLElement).getAllByRole('button', { name: /report|missed|dispute/i })[0])
 
     const dayControl = await screen.findByRole('combobox', { name: /day|date/i })
+    // The chosen day is what the control DISPLAYS. Its label carries the iso
+    // date alongside the long form (see PublicAttendanceScreen), so asserting on
+    // it still pins the exact day rather than merely "some day in August".
     await waitFor(() => {
-      expect(dayControl).toHaveValue('2026-08-10')
+      expect(dayControl).toHaveTextContent('2026-08-10')
     })
   })
 
@@ -152,13 +156,20 @@ describe('the public dashboard across a multi-day event', () => {
     await user.click((await screen.findAllByRole('button', { name: /report|missed|dispute/i }))[0])
 
     const dayControl = await screen.findByRole('combobox', { name: /day|date/i })
-    expect(dayControl.tagName).toBe('SELECT')
+    // The control must remain a BOUNDED PICKER. It is no longer a native
+    // `<select>` — the app draws its own dropdown — so the tag name is not the
+    // property worth asserting; what matters is that the day can only be chosen
+    // from an enumerated list. A free `<input type="date">` on this anonymous
+    // write path would let anyone file a dispute dated 1970, leaving the
+    // database guard as the only thing between the teacher inbox and rows no
+    // event ever covered.
+    expect(dayControl.tagName).not.toBe('INPUT')
     expect(dayControl).not.toHaveAttribute('type', 'date')
 
-    const options = within(dayControl as HTMLElement).getAllByRole('option')
-    expect(options).toHaveLength(multiDayDisputeDayCount)
-    expect(options[0]).toHaveValue(multiDayDisputeStart)
-    expect(options[options.length - 1]).toHaveValue(multiDayDisputeEnd)
+    const offered = await openedOptionValues(user, dayControl)
+    expect(offered).toHaveLength(multiDayDisputeDayCount)
+    expect(offered[0]).toBe(multiDayDisputeStart)
+    expect(offered[offered.length - 1]).toBe(multiDayDisputeEnd)
   })
 
   // 0.12a-WEB-008 — a single-day event still offers exactly ONE day.
@@ -174,9 +185,8 @@ describe('the public dashboard across a multi-day event', () => {
     await user.click((await screen.findAllByRole('button', { name: /report|missed|dispute/i }))[0])
 
     const dayControl = await screen.findByRole('combobox', { name: /day|date/i })
-    const options = within(dayControl as HTMLElement).getAllByRole('option')
-    expect(options).toHaveLength(1)
-    expect(options[0]).toHaveValue('2026-07-28')
+    const offered = await openedOptionValues(user, dayControl)
+    expect(offered).toEqual(['2026-07-28'])
   })
 
   // 0.12a-WEB-009 — the day options RE-SCOPE when the event changes.
@@ -198,17 +208,17 @@ describe('the public dashboard across a multi-day event', () => {
     const eventControl = await screen.findByRole('combobox', { name: /event/i })
     const dayControl = await screen.findByRole('combobox', { name: /day|date/i })
 
-    expect(within(dayControl as HTMLElement).getAllByRole('option')).toHaveLength(multiDayDisputeDayCount)
+    // Only one dropdown is open at a time, so each list is read in turn.
+    expect(await openedOptionValues(user, dayControl)).toHaveLength(multiDayDisputeDayCount)
 
-    // Switch to the single-day event the record history contributes.
-    const otherOption = within(eventControl as HTMLElement)
-      .getAllByRole('option')
-      .find((option) => !/Amritotsavam/i.test(option.textContent ?? ''))
-    expect(otherOption).toBeDefined()
-    await user.selectOptions(eventControl, (otherOption as HTMLOptionElement).value)
+    // Switch to the single-day event the record history contributes, named as
+    // "the one that is not the festival". If a third event ever appears here
+    // this throws on an ambiguous match rather than silently picking one, which
+    // is the right failure — the test would no longer mean what it says.
+    await selectByLabel(user, eventControl, /^(?!.*Amritotsavam).*$/i)
 
-    await waitFor(() => {
-      expect(within(dayControl as HTMLElement).getAllByRole('option').length).toBeLessThan(multiDayDisputeDayCount)
+    await waitFor(async () => {
+      expect((await openedOptionValues(user, dayControl)).length).toBeLessThan(multiDayDisputeDayCount)
     })
   })
 })

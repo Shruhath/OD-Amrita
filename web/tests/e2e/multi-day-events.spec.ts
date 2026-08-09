@@ -1,3 +1,4 @@
+import { selectValue } from '../support/select'
 /**
  * Mocked browser journey for the multi-day event (AC 3, 11, 12, 15, 16).
  *
@@ -141,9 +142,16 @@ test.describe('the public dashboard across a thirty-day festival', () => {
 
     const dayControl = page.getByRole('combobox', { name: /day|date/i })
     await expect(dayControl).toBeVisible()
-    await expect(dayControl.locator('option')).toHaveCount(FESTIVAL_DAY_COUNT)
-    await expect(dayControl.locator('option').first()).toHaveAttribute('value', FESTIVAL_START)
-    await expect(dayControl.locator('option').last()).toHaveAttribute('value', FESTIVAL_END)
+
+    // The app draws its own dropdown, so the options exist once it is opened —
+    // which is also when a visitor can see them. What this test protects is
+    // unchanged: the day is chosen from an ENUMERATED list, never typed. A free
+    // date input on this anonymous write path accepts any day in history.
+    await dayControl.click()
+    const options = page.getByRole('listbox').getByRole('option')
+    await expect(options).toHaveCount(FESTIVAL_DAY_COUNT)
+    await expect(options.first()).toHaveAttribute('data-value', FESTIVAL_START)
+    await expect(options.last()).toHaveAttribute('data-value', FESTIVAL_END)
     await expect(page.locator('input[type="date"]')).toHaveCount(0)
   })
 
@@ -157,7 +165,9 @@ test.describe('the public dashboard across a thirty-day festival', () => {
     const firstDaySection = page.locator('section.public-day').filter({ hasText: '10 August 2026' })
     await firstDaySection.getByRole('button', { name: /report|missed|dispute/i }).first().click()
 
-    await expect(page.getByRole('combobox', { name: /day|date/i })).toHaveValue(FESTIVAL_START)
+    // The chosen day is what the control DISPLAYS; its label carries the iso
+    // date alongside the long form, so this still pins the exact day.
+    await expect(page.getByRole('combobox', { name: /day|date/i })).toContainText(FESTIVAL_START)
   })
 })
 
@@ -213,7 +223,7 @@ test.describe('the admin surfaces for a multi-day event', () => {
 
     const dayFilter = page.getByRole('combobox', { name: /day|date/i })
     await expect(dayFilter).toBeVisible()
-    await dayFilter.selectOption('2026-08-19')
+    await selectValue(page, dayFilter, '2026-08-19')
 
     await expect
       .poll(() => attendanceQueries.some((url) => url.includes('od_date=2026-08-19')))

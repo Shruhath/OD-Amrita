@@ -20,6 +20,7 @@ export type Role = 'admin' | 'teacher' | 'coordinator' | 'student'
 export const ROUTE_ROLES = {
   '/portal/events': ['admin'],
   '/portal/events/:event_id': ['admin'],
+  '/portal/live': ['teacher', 'admin'],
   '/portal/mark': ['teacher', 'admin'],
   '/portal/disputes': ['teacher', 'admin'],
   '/portal/teachers': ['admin'],
@@ -41,6 +42,7 @@ export type GuardedPath = keyof typeof ROUTE_ROLES
  */
 const SECTIONS = [
   { to: '/portal/events', label: 'Events' },
+  { to: '/portal/live', label: 'Live' },
   { to: '/portal/mark', label: 'Mark' },
   { to: '/portal/disputes', label: 'Disputes' },
   { to: '/portal/teachers', label: 'Teachers' },

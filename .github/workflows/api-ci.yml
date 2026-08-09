@@ -25,6 +25,14 @@ on:
       - "api/**"
       - "contracts/**"
       - "test/**"
+      # The ops suite under api/test/ops asserts the SHAPE of the runbooks —
+      # that the smoke script is referenced, that no credential is pasted in,
+      # that every human step is tracked as a checklist item. Those files live
+      # under docs/, so without this a documentation-only edit cannot trigger
+      # the gate that guards it: the runbook change on 2026-08-09 merged green
+      # and failed later, on an unrelated commit that happened to touch api/.
+      # A gate that reports late blames the wrong change.
+      - "docs/**"
       - "go.work"
       - ".github/workflows/api-ci.yml"
   pull_request:
@@ -32,6 +40,14 @@ on:
       - "api/**"
       - "contracts/**"
       - "test/**"
+      # The ops suite under api/test/ops asserts the SHAPE of the runbooks —
+      # that the smoke script is referenced, that no credential is pasted in,
+      # that every human step is tracked as a checklist item. Those files live
+      # under docs/, so without this a documentation-only edit cannot trigger
+      # the gate that guards it: the runbook change on 2026-08-09 merged green
+      # and failed later, on an unrelated commit that happened to touch api/.
+      # A gate that reports late blames the wrong change.
+      - "docs/**"
       - "go.work"
       - ".github/workflows/api-ci.yml"
 

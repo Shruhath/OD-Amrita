@@ -76,6 +76,22 @@ func uncheckedBoxes(doc string) []string {
 	return out
 }
 
+// trackedBoxes returns every task-list item, DONE OR NOT.
+//
+// The distinction from uncheckedBoxes carries the whole point of the checklist
+// assertions: whether a step is TRACKED is a permanent property, while whether
+// it is still OWED changes the day someone does it. Asserting the first with a
+// helper that only sees the second makes a completed checklist indistinguishable
+// from a missing one.
+func trackedBoxes(doc string) []string {
+	re := regexp.MustCompile(`(?m)^\s*[-*]\s+\[[ xX]\]\s+(.*)$`)
+	var out []string
+	for _, m := range re.FindAllStringSubmatch(doc, -1) {
+		out = append(out, m[1])
+	}
+	return out
+}
+
 // B1 [P0] The runbook exists.
 func TestRunbook_Exists(t *testing.T) {
 	doc := readArtifact(t, runbookRel, runbookWhy)

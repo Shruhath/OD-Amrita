@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   ApiFailure,
   createPublicApi,
@@ -128,6 +128,19 @@ export default function PublicAttendanceScreen() {
     <main className="public-page">
       <header className="public-header">
         <div className="public-toolbar">
+          {/*
+            THE WAY BACK. This page is reachable directly — a shared link, a
+            bookmark, a QR code — and it had no route to anywhere else. A
+            coordinator who landed here had to edit the URL to reach sign-in,
+            which is the same friction the front door was built to remove; it was
+            simply still present one screen further in.
+
+            A real <Link>, so it can be opened in a new tab and behaves like the
+            destination it is. `/` decides what to show: the front door for a
+            signed-out visitor, and their own screen for anyone already signed
+            in — which is why this says "Home" rather than "Sign in".
+          */}
+          <Link className="public-home-link" to="/">← Home</Link>
           <ThemeToggle />
         </div>
         <img
@@ -141,6 +154,14 @@ export default function PublicAttendanceScreen() {
         <h1>Check your OD record</h1>
         <p className="public-lede">
           Today's on-duty list is below. Search to see your own record in full.
+        </p>
+        {/*
+          Staff arrive here too — the dashboard is the one link students share,
+          so it is the one link that gets forwarded. Naming sign-in explicitly
+          saves them working out that "Home" is where it lives.
+        */}
+        <p className="public-hint">
+          Staff marking attendance? <Link to="/">Sign in</Link>.
         </p>
       </header>
 

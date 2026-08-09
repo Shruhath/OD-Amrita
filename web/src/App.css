@@ -141,11 +141,43 @@
 }
 
 .topbar > div,
+.brand-home,
 .account-actions {
   display: flex;
   align-items: center;
   gap: 12px;
   min-width: 0;
+}
+
+/* The brand is a link now — the way back to `/` from any portal screen. It must
+   not look like body copy turned blue, so it keeps the header's own colour and
+   only signals itself on hover and focus. */
+.brand-home {
+  color: inherit;
+  text-decoration: none;
+  border-radius: 12px;
+}
+
+.brand-home:hover .brand-name {
+  text-decoration: underline;
+}
+
+.brand-home:focus-visible {
+  outline: 2px solid var(--ring-focus, currentColor);
+  outline-offset: 3px;
+}
+
+/* Same treatment on the public dashboard's way out. */
+.public-home-link {
+  margin-right: auto;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.public-home-link:hover {
+  text-decoration: underline;
 }
 
 .brand-mark {
@@ -1780,7 +1812,7 @@ tbody tr:hover {
     padding-bottom: 8px;
   }
 
-  .topbar > div:first-child { grid-area: brand; min-height: 60px; }
+  .topbar > .brand-home { grid-area: brand; min-height: 60px; }
   .account-actions { grid-area: account; }
 
   .portal-nav {
@@ -1930,7 +1962,11 @@ tbody tr:hover {
 
 .public-toolbar {
   display: flex;
+  /* Was flex-end for a lone theme toggle. The home link sits at the other edge
+     (it carries margin-right: auto), so the row now has two ends to hold. */
+  align-items: center;
   justify-content: flex-end;
+  gap: 12px;
 }
 
 .public-brand {

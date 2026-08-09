@@ -137,6 +137,10 @@ describe('public attendance dashboard', () => {
     renderPublicRoute()
 
     expect(await screen.findByRole('searchbox', { name: /roll number|name|student/i })).toBeInTheDocument()
+    // No sign-in WALL. Scoped to a button on purpose: that is the shape
+    // SessionBoundary's card takes, and a card here means the route was wrapped
+    // and every student is refused. A LINK away to the home page is a different
+    // thing entirely — it gates nothing, and the test below requires one.
     expect(screen.queryByRole('button', { name: /sign in|log in|continue with microsoft/i })).not.toBeInTheDocument()
     expect(screen.queryByText(/access denied/i)).not.toBeInTheDocument()
   })
@@ -440,5 +444,43 @@ describe('public attendance dashboard', () => {
     // goes green in precisely the scenario this test exists to catch.
     expect(session.refresh).not.toHaveBeenCalled()
     expect(session.signOut).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The way out.
+ *
+ * THE GAP THIS CLOSES. `/attendance` is reachable directly — a shared link, a
+ * bookmark, a QR code on a noticeboard — and it had no route to anywhere else.
+ * A coordinator who landed here had to edit the URL to reach sign-in, which is
+ * the same friction the front door was built to remove; it was simply still
+ * present one screen further in.
+ */
+describe('leaving the public dashboard', () => {
+  test('[P0] a visitor can get back to the home page', async () => {
+    const user = userEvent.setup()
+    installPublicBackend()
+    const { router } = renderPublicRoute()
+    await screen.findByRole('searchbox', { name: /roll number|name|student/i })
+
+    await user.click(screen.getByRole('link', { name: /home/i }))
+
+    // The ROUTER's location, not window.location — see renderPublicRoute.
+    expect(
+      router.state.location.pathname,
+      'the home link did not navigate. A dashboard with no way off it leaves anyone who is not a student ' +
+        'editing the URL by hand',
+    ).toBe('/')
+  })
+
+  test('[P0] staff are told where signing in lives', async () => {
+    installPublicBackend()
+    renderPublicRoute()
+    await screen.findByRole('searchbox', { name: /roll number|name|student/i })
+
+    // A LINK, not a button: it is a destination, so it must be openable in a new
+    // tab and reachable by the browser controls people actually use.
+    const signIn = screen.getByRole('link', { name: /sign in/i })
+    expect(signIn).toHaveAttribute('href', '/')
   })
 })

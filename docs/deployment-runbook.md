@@ -2,9 +2,18 @@
 
 **Last updated:** 2026-08-09
 **Status:** 🟢 **Live and verified end to end.** API on Fly (two machines, both healthy), web on
-Vercel, schema on Neon at version **17**, Supabase brokering sign-in. Verified 2026-08-09 by
-`api/scripts/smoke.sh`, a browser run against the production origin, and a direct read of the live
-schema. §8 records exactly what is done and the four items that still need a human.
+Vercel served from **`odamrita.in`**, schema on Neon at version **21**, Supabase brokering sign-in.
+Verified 2026-08-09 by `api/scripts/smoke.sh`, a browser run against the production origin, and a
+direct read of the live schema. §8 records exactly what is done and what still needs a human.
+
+> 🚨 **ONE THING CAN BREAK SIGN-IN TOMORROW, and only a console can fix it.** The domain cutover to
+> `odamrita.in` is **done** — DNS resolves, Vercel serves both the apex and `www`, and
+> `od-amrita-web.vercel.app` now permanently redirects to `https://www.odamrita.in`. But this
+> runbook has never recorded the two `odamrita.in` patterns being added to the Supabase **Redirect
+> URLs**. If they are still missing, sign-in fails *after* the Microsoft round-trip, and because the
+> old Vercel origin now redirects to the new domain **there is no longer a working way in**.
+> **Check the Supabase console before the event** — §6.1. This cannot be verified from outside the
+> auth boundary; see the note in §8 about why the old `/authorize` check did not prove it.
 
 > ⚠️ **Two things are live but not right yet**, both in §9: the database is in the wrong region
 > (**H7**, ~0.5 s of every query is ocean) and the Neon plan still gives a 6-hour recovery window,
@@ -394,36 +403,41 @@ Routing happens in the browser; the host has to serve the app for every non-asse
 The API and the web app are on **different origins**, so three settings have to agree. Each one
 fails differently and none of them fail at build time.
 
-> **Read the ✅ marks below as _tunnel/pre-production_, not production.** The top-of-document status
-> is still "nothing is deployed to Fly yet" — the checks that pass here were run against the
-> development tunnel + local container of §6.3, which does **not** meet the production transport
-> posture (NFR15 in particular). Each ✅ says what was actually exercised; none of them asserts the
-> Fly deploy.
+> **These are production checks as of 2026-08-09.** The tunnel arrangement described in §6.3 is
+> history — the Fly app is deployed and the web app is served from `odamrita.in`. Each ✅ says what
+> was actually exercised and how, so a claim can be re-run rather than believed.
 
 | Setting | Where it is set | Value used | Confirmed |
 |---|---|---|---|
-| `PORTAL_ALLOWED_ORIGINS` | Fly secret (§4.2) | `https://od-amrita-web.vercel.app,https://www.odamrita.in,https://odamrita.in` | ✅ 2026-08-09 **on Fly** — preflight returns the origin for all three, and no header at all for an untrusted one |
-| `VITE_API_BASE_URL` | Vercel env var (§5.3) | the API origin — **currently the pre-production tunnel**, see §6.3 | ✅ 2026-07-24 **(tunnel only)** — points at the tunnel, not the Fly origin yet |
-| Supabase **Redirect URLs** | Supabase console (§6.1) | `https://od-amrita-web.vercel.app/**` | ☐ — the two `odamrita.in` patterns are NOT added yet; see the note below |
-| Fly API origin | — | `______` (expected `https://od-amrita-api.fly.dev`) | ☐ not yet deployed |
-| Vercel production origin | — | `https://od-amrita-web.vercel.app` | ✅ 2026-07-24 (Vercel build live; the web origin is real, the API it talks to is still the tunnel) |
+| `PORTAL_ALLOWED_ORIGINS` | Fly secret (§4.2) | `https://od-amrita-web.vercel.app,https://www.odamrita.in,https://odamrita.in` | ✅ 2026-08-09 **on Fly** — preflight echoes the origin for all three, and an untrusted origin is refused with **403** |
+| `VITE_API_BASE_URL` | Vercel env var (§5.3) | `https://od-amrita-api.fly.dev` | ✅ 2026-08-09 — read out of the deployed bundle on the live origin |
+| Supabase **Redirect URLs** | Supabase console (§6.1) | must be `https://od-amrita-web.vercel.app/**`, `https://www.odamrita.in/**`, `https://odamrita.in/**` | 🚨 **UNKNOWN — check the console.** Not verifiable from outside; see §8 |
+| Fly API origin | — | `https://od-amrita-api.fly.dev` | ✅ 2026-08-09 — `/health` returns `{"db":"up","status":"ok"}` |
+| Vercel production origin | — | `https://www.odamrita.in` (apex `https://odamrita.in` also serves) | ✅ 2026-08-09 — both answer 200; the `vercel.app` origin 308-redirects here |
 
-> **The two `odamrita.in` origins are PRE-STAGED, not live.** The domain is registered but its DNS
-> is not yet pointed at Vercel, so nothing serves from it. They were added to the Fly secret ahead
-> of the cutover so that step costs no machine restart later; trusting them early is safe because
-> the domain is ours — an origin nobody else can serve from cannot be used against us.
+> **The cutover to `odamrita.in` HAS HAPPENED** — this note previously said the origins were
+> pre-staged and the DNS was not pointed at Vercel. Both are now live and serving.
 >
-> **Still outstanding for the cutover:** Vercel domains, the GoDaddy records, and the Supabase
-> redirect URLs. Without `https://www.odamrita.in/**` and `https://odamrita.in/**` in Supabase,
-> sign-in fails AFTER the Microsoft round-trip — which reads as the login being broken rather than
-> as a misconfiguration. CORS being ready does not make the domain usable on its own.
+> **What that changes about the risk.** The Fly secret already trusted these origins, so CORS
+> needed no restart and is confirmed working. The Supabase redirect URLs are the piece that does
+> **not** carry over, and the cutover made them *more* urgent rather than less: the old
+> `od-amrita-web.vercel.app` origin now 308-redirects to `www.odamrita.in`, so it is no longer a
+> fallback way in. If the two `odamrita.in` patterns are missing from Supabase, sign-in fails after
+> the Microsoft round-trip — which reads as "the login is broken", not as a misconfiguration — and
+> there is no other origin left to sign in from. **Read the list in the console and add them if
+> absent.**
 
 **Vercel project settings in force** (recorded so they can be re-created): project `od-amrita-web`,
 Root Directory `web`, framework preset Vite, **Production Branch `0-event-mvp`**. The production
 branch is *not* the repository default — see the warning in §5 step 2; a deployment built from the
 default branch serves an application without this work and looks like a broken deploy.
 
-### 6.3 ⚠️ Pre-production: the API is on a development tunnel, not Fly
+### 6.3 🕓 HISTORICAL — the pre-production tunnel (superseded 2026-08-09)
+
+> **This no longer describes reality.** The API is deployed on Fly at
+> `https://od-amrita-api.fly.dev` and the tunnel is gone. Kept because it records *why* the
+> transport posture is written the way it is, and because the same arrangement is the fastest way
+> to reproduce a production-shaped stack locally. Nothing below is a live setting.
 
 Until the Fly app exists, the API runs **on an operator laptop** behind a development tunnel that
 terminates TLS and forwards to the local container. This is a **testing arrangement only** and is
@@ -519,7 +533,7 @@ one says how.
 
 **Database (Neon)**
 - [x] Neon role bootstrap and both role passwords — *verified 2026-08-09: `od_migrator` applied migrations against the live database, which is only possible with the correct rotated password.*
-- [x] Migrations applied; `max(version_id)` is **17** — *verified 2026-08-09 by reading the live `goose_db_version` directly.* (This said **14** until today and was wrong: `0015`–`0017` shipped after it was written.)
+- [x] Migrations applied; `max(version_id)` is **21** — *verified 2026-08-09 by the `db-migrate` workflow run, whose final assertion printed `highest migration on disk: 21, applied: 21`.* (This said **14**, then **17**, and was wrong both times: migrations kept shipping after it was written. The number here is only ever as fresh as the last run — trust the assertion in the workflow log, not this line.)
 - [ ] ⚠️ **Upgrade the Neon plan before the event.** Free gives a **6-hour** PITR window, which does not cover an event plus the days afterwards when disputes are raised (Launch = 7 days, Scale = 30 days). Record the new window in the backup runbook §2.2. **Still open — this costs money, so it is yours to do.**
 - [ ] ⚠️ **Move the project to `ap-southeast-1`** — decision **H7**. Not a nice-to-have: ~0.5 s of every query is currently the Pacific. It is a dump-and-restore of live attendance data, so it is a deliberate human step.
 
@@ -530,10 +544,23 @@ one says how.
 
 **Web (Vercel)**
 - [x] Vercel project with Root Directory `web` and the three `VITE_*` variables — *verified 2026-08-09 by reading the deployed bundle: it points at the Fly origin and the Supabase project.*
-- [x] Production web origin recorded, and deep links load the app rather than a 404 — *verified 2026-08-09: `/portal/events`, `/mark` and `/attendance` all answer 200.*
+- [x] Production web origin recorded, and deep links load the app rather than a 404 — *verified 2026-08-09 against `https://www.odamrita.in`: `/portal/events`, `/mark` and `/attendance` all answer 200.*
+- [x] **Custom domain cutover to `odamrita.in` is live** — *verified 2026-08-09: `https://odamrita.in` and `https://www.odamrita.in` both answer 200, and `https://od-amrita-web.vercel.app` returns a 308 to `https://www.odamrita.in`.* The apex and `www` both serve; `www` is the canonical origin.
+- [x] The deployed bundle is the current code, not a stale build — *verified 2026-08-09 by fetching all 20 chunks from the live origin and finding the newest UI in them.* **Check every chunk, not just `index-*.js`** — the app is code-split, so grepping the entry bundle alone reports the newest work as missing when it is present in a lazy chunk.
 
 **Auth (Supabase)**
-- [x] Redirect URLs and Site URL — *verified 2026-08-09: `/authorize` accepts the Vercel origin as `redirect_to` and forwards it to Microsoft rather than substituting the Site URL, which it would do for an origin that is not allow-listed.*
+- [ ] 🚨 **Redirect URLs must include `https://www.odamrita.in/**` and `https://odamrita.in/**`.** **Open — console step, and the one item that can break sign-in tomorrow.** The cutover to `odamrita.in` has happened and the old Vercel origin now redirects to it, so if these two patterns are missing there is no working way in at all.
+
+  > **The earlier ✅ on this line was not a real verification and has been withdrawn.** It claimed
+  > that `/auth/v1/authorize` "forwards the origin to Microsoft rather than substituting the Site
+  > URL, which it would do for an origin that is not allow-listed." Re-run 2026-08-09 with a
+  > deliberately bogus origin (`https://evil-not-allowed-12345.example.com`) as a control: Supabase
+  > forwarded that one **identically**. This build of GoTrue does not validate `redirect_to` at
+  > `/authorize` at all — it validates at the callback, after Microsoft. So the check cannot tell an
+  > allow-listed origin from any other, and it never could.
+  >
+  > **The only honest test is a real sign-in on the deployed origin**, which needs an `@amrita.edu`
+  > account and is therefore the human step below. Read the list in the Supabase console instead.
 
 **Verification**
 - [x] `BASE_URL=https://od-amrita-api.fly.dev api/scripts/smoke.sh` — **PASSED** 2026-08-09 (db up; plain HTTP refused, not redirected).
@@ -546,6 +573,7 @@ one says how.
 | Date | What changed | API origin | Web origin | Smoke result | Notes |
 |---|---|---|---|---|---|
 | 2026-08-09 | Migrations `0014`–`0017` applied to Neon; API redeployed from six-days-stale image; CORS preflight fixed to advertise `PUT`; pool connection retirement jittered; public read cache | `https://od-amrita-api.fly.dev` | `https://od-amrita-web.vercel.app` | PASS | The stale image was answering **404 on every public route**. Health checks had been flapping hourly on both machines. |
+| 2026-08-09 (later) | Migrations `0019`–`0021` applied (`applied: 21`); domain cutover to `odamrita.in`; public on-duty board, evening slots 13–20, dispute crediting, card-verification persistence merged to `main` | `https://od-amrita-api.fly.dev` | `https://www.odamrita.in` | PASS | Live surfaces verified current *before* the merge, so this merge published no new behaviour — it brought `main` up to what was already serving. Vercel's Production Branch is `0-event-mvp`, so `main` does not deploy. **Sign-in on the new domain is unverified** — see the Supabase item above. |
 
 ---
 

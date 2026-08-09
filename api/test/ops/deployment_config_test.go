@@ -693,14 +693,30 @@ func TestDeploymentRunbook_ReferencesTheSmokeScriptAndTracksThePaidStepsAsUnchec
 		t.Errorf("[P0] %s must reference api/scripts/smoke.sh as the \"did the deploy actually work\" check (Task 6)", deployRunbookRel)
 	}
 
-	// H5: this slice lands `blocked`, and the remaining ACs are gated on console
-	// steps that cost money. Tracking them as unchecked boxes is what lets a
-	// human see at a glance what is still owed — the same convention the backup
-	// runbook uses and TestRunbook_TracksBlockedOperatorStepsAsUncheckedBoxes
-	// enforces next door.
-	boxes := uncheckedBoxes(doc)
+	// H5: every step that needs a console, an account or money must be VISIBLE AS
+	// A CHECKLIST ITEM rather than buried in prose, so nothing is silently
+	// dropped.
+	//
+	// TRACKED, not unchecked. This asserted `- [ ]` specifically until 2026-08-09,
+	// which quietly also asserted that the work was never done — so the day Fly,
+	// Vercel and Supabase were actually deployed and verified, ticking them off
+	// turned this red. A checklist that cannot be completed is not a checklist,
+	// and the only ways to keep it green were to make the runbook claim nothing
+	// was deployed or to invent open items to satisfy a string match. The
+	// guarantee worth having is the one the error messages below already describe:
+	// the step is tracked. Whether it is still owed is asserted separately, just
+	// underneath.
+	boxes := trackedBoxes(doc)
 	if len(boxes) == 0 {
-		t.Errorf("[P0] %s tracks no unchecked operator steps — the Neon role bootstrap, the Fly deploy, the Vercel env vars, the Supabase redirect URL and the plan upgrade are all human/paid steps (H5) and must be visible as `- [ ]` items, not buried in prose", deployRunbookRel)
+		t.Errorf("[P0] %s tracks no operator steps — the Neon role bootstrap, the Fly deploy, the Vercel env vars, the Supabase redirect URL and the plan upgrade are all human/paid steps (H5) and must be visible as `- [ ]` / `- [x]` items, not buried in prose", deployRunbookRel)
+	}
+	// The teeth that survive: whatever is genuinely still owed must remain
+	// visible as an unchecked box. A runbook with every box ticked while paid
+	// steps are outstanding is exactly the false all-clear this file exists to
+	// prevent — it is just no longer tied to one specific step being undone
+	// forever.
+	if len(uncheckedBoxes(doc)) == 0 {
+		t.Errorf("[P0] %s has no unchecked steps at all — the Neon plan upgrade, the uptime monitor and the on-device sign-in are still owed, and a checklist showing all-clear while they are outstanding is worse than none (H5)", deployRunbookRel)
 	}
 	joined := strings.ToLower(strings.Join(boxes, "\n"))
 	for _, step := range []struct{ key, why string }{
@@ -710,7 +726,7 @@ func TestDeploymentRunbook_ReferencesTheSmokeScriptAndTracksThePaidStepsAsUnchec
 		{"supabase", "the redirect URL addition without which OAuth cannot return (AC 6)"},
 	} {
 		if !strings.Contains(joined, step.key) {
-			t.Errorf("[P0] %s's operator checklist has no unchecked step mentioning %q — %s", deployRunbookRel, step.key, step.why)
+			t.Errorf("[P0] %s's operator checklist has no tracked step mentioning %q — %s", deployRunbookRel, step.key, step.why)
 		}
 	}
 }

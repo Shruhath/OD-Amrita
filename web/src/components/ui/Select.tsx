@@ -21,9 +21,28 @@ export type SelectProps = {
 }
 
 /**
- * Website-wide select primitive. Every dropdown uses Radix Select so the
- * trigger, portal, collision handling, keyboard navigation, outside-close,
- * focus return, and dark/light styling stay identical across the app.
+ * The application's dropdown, replacing the browser's `<select>`.
+ *
+ * WHY THIS EXISTS AT ALL. A native `<select>` renders its list with the
+ * operating system, not the page: the options are drawn by Android, iOS or the
+ * desktop shell, ignore every colour in this app, and ignore the dark theme
+ * entirely. On a phone the whole thing becomes a full-screen system sheet. There
+ * is no CSS that reaches inside it — this is the one control that cannot be
+ * styled — so replacing it is the only way for the picker to look like the rest
+ * of the app.
+ *
+ * IT IS STILL THE ARIA COMBOBOX PATTERN, just no longer hand-written. The
+ * behaviour a native select gives you for free is the floor, not a nice-to-have:
+ * arrows move, Home and End jump, typing jumps to a match, Enter and Space
+ * commit, Escape cancels, focus returns to the trigger, and the list closes on
+ * an outside press. Radix Select supplies all of that plus collision handling
+ * against the viewport edge, which the hand-written version did not have.
+ *
+ * The trigger keeps `role="combobox"` and the list is a real `listbox` of
+ * `option`s, so every existing accessibility query — and every browser journey
+ * that drives this control through `tests/support/select.ts` — still addresses
+ * it the same way. The chosen id stays on the trigger as `data-value`, which is
+ * where a native select kept it, just spelled differently.
  */
 export function Select({
   id,

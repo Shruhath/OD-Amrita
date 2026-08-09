@@ -1,4 +1,5 @@
 import { lazy, Suspense } from 'react'
+import { LoadingScreen } from '../../components/ui/Spinner'
 import { SessionBoundary } from '../../features/auth/AuthGate'
 
 const MarkScreen = lazy(() => import('./MarkScreen'))
@@ -17,7 +18,7 @@ const MarkScreen = lazy(() => import('./MarkScreen'))
 export default function MarkRoute() {
   return (
     <SessionBoundary allowedRoles={['coordinator']}>
-      <Suspense fallback={<main className="center-state"><p role="status">Loading marking screen…</p></main>}>
+      <Suspense fallback={<LoadingScreen label="Loading marking screen" />}>
         <MarkScreen />
       </Suspense>
     </SessionBoundary>

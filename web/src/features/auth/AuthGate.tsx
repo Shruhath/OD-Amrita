@@ -4,6 +4,7 @@ import { ThemeToggle } from '../../components/ThemeToggle'
 import { ApiFailure, createEventApi } from '../../api/client'
 import type { SessionPort } from './session'
 import { hasPendingAuthCallback } from './callback'
+import { LoadingScreen } from '../../components/ui/Spinner'
 import { AuthContext, useAuth, type AuthState } from './context'
 
 export function AuthProvider({ children, session }: { children: ReactNode; session: SessionPort }) {
@@ -74,7 +75,7 @@ export function AuthProvider({ children, session }: { children: ReactNode; sessi
  * then receives them.
  */
 export function SessionLoading() {
-  return <main className="center-state"><p role="status">Checking your session…</p></main>
+  return <LoadingScreen label="Checking your session" />
 }
 
 /**

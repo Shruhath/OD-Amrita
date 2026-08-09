@@ -1,12 +1,13 @@
 import { lazy, Suspense } from 'react'
 import { SessionBoundary } from '../../../features/auth/AuthGate'
+import { LoadingScreen } from '../../../components/ui/Spinner'
 
 const CardPopulatorPortal = lazy(() => import('./CardPopulatorPortal'))
 
 export default function CardPopulatorRoute() {
   return (
     <SessionBoundary>
-      <Suspense fallback={<main className="center-state"><p role="status">Loading card populator…</p></main>}>
+      <Suspense fallback={<LoadingScreen label="Loading card populator" />}>
         <CardPopulatorPortal />
       </Suspense>
     </SessionBoundary>

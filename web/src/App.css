@@ -1331,15 +1331,19 @@ tbody tr:hover {
   font-size: 13px;
 }
 
+/* Underlined at rest, not only on hover. It is the one interactive thing in the
+   footer and it dials a phone — a link that only looks like a link once the
+   pointer is on it is invisible on the touch screens this is mostly read from,
+   where there is no hover at all. */
 .app-footer__credit a {
-  color: var(--foreground);
+  color: var(--crimson);
   font-weight: 700;
-  text-decoration: none;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .app-footer__credit a:hover {
-  color: var(--crimson);
-  text-decoration: underline;
+  color: var(--foreground);
 }
 
 /* ----------------------------------------------------------------- utility */
@@ -2681,4 +2685,59 @@ tbody tr:hover {
 /* On the marking screen the fields sit on the backdrop rather than a panel. */
 .mark-field .ui-select__trigger {
   background: var(--control-bg);
+}
+
+/* ------------------------------------------------------------- ui: spinner */
+
+.spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.spinner__ring {
+  display: block;
+  border-radius: 50%;
+  /* A ring with one coloured quarter: the gap is what makes the rotation
+     visible. A fully coloured circle would spin without appearing to. */
+  border: 3px solid var(--tint-medium);
+  border-top-color: var(--crimson);
+  animation: spinner-rotate 720ms linear infinite;
+}
+
+.spinner--medium .spinner__ring {
+  width: 34px;
+  height: 34px;
+}
+
+.spinner--small .spinner__ring {
+  width: 18px;
+  height: 18px;
+  border-width: 2px;
+}
+
+@keyframes spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Motion sensitivity: a continuous rotation is exactly the pattern that
+   triggers it. The ring still has to say "working", so it pulses in place
+   instead of stopping dead — a frozen spinner reads as a hung page, which is
+   the misunderstanding this control exists to prevent. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner__ring {
+    animation: spinner-pulse 1.4s ease-in-out infinite;
+  }
+
+  @keyframes spinner-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.4;
+    }
+  }
 }

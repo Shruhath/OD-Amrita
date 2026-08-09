@@ -911,6 +911,156 @@ paths:
 
 
 
+  /api/v1/admin/events/{event_id}/attendance/exports:
+    post:
+      operationId: createAdminAttendanceExport
+      summary: Queue a CSV attendance export
+      description: >-
+        Admin-only report request. The export is generated asynchronously in
+        bounded database chunks and can be downloaded after completion.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "202":
+          description: Export accepted for asynchronous processing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceExport"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Administrator access is required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Event was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/events/{event_id}/attendance/exports/{export_id}:
+    get:
+      operationId: getAdminAttendanceExport
+      summary: Read CSV attendance export progress
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: export_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Current export state and row count.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceExport"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Administrator access is required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Export was not found for this event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/events/{event_id}/attendance/exports/{export_id}/download:
+    get:
+      operationId: downloadAdminAttendanceExport
+      summary: Download a completed CSV attendance export
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: export_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: CSV report.
+          content:
+            text/csv:
+              schema:
+                type: string
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Administrator access is required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Export was not found for this event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Export is not completed yet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/events:
     get:
       operationId: listMarkableEvents
@@ -2665,6 +2815,29 @@ components:
           type: string
         message:
           type: string
+
+    AttendanceExport:
+      type: object
+      required: [id, event_id, format, status, row_count]
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
+        format:
+          type: string
+          enum: [csv]
+        status:
+          type: string
+          enum: [queued, processing, completed, failed]
+        row_count:
+          type: integer
+          minimum: 0
+        error_summary:
+          type: string
+          nullable: true
 
     StudentCollection:
       type: object

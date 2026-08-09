@@ -16,6 +16,45 @@ const (
 	BearerAuthScopes bearerAuthContextKey = "bearerAuth.Scopes"
 )
 
+// Defines values for AttendanceExportFormat.
+const (
+	AttendanceExportFormatCsv AttendanceExportFormat = "csv"
+)
+
+// Valid indicates whether the value is a known member of the AttendanceExportFormat enum.
+func (e AttendanceExportFormat) Valid() bool {
+	switch e {
+	case AttendanceExportFormatCsv:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AttendanceExportStatus.
+const (
+	AttendanceExportStatusCompleted  AttendanceExportStatus = "completed"
+	AttendanceExportStatusFailed     AttendanceExportStatus = "failed"
+	AttendanceExportStatusProcessing AttendanceExportStatus = "processing"
+	AttendanceExportStatusQueued     AttendanceExportStatus = "queued"
+)
+
+// Valid indicates whether the value is a known member of the AttendanceExportStatus enum.
+func (e AttendanceExportStatus) Valid() bool {
+	switch e {
+	case AttendanceExportStatusCompleted:
+		return true
+	case AttendanceExportStatusFailed:
+		return true
+	case AttendanceExportStatusProcessing:
+		return true
+	case AttendanceExportStatusQueued:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AttendanceRecordActorRole.
 const (
 	AttendanceRecordActorRoleAdmin       AttendanceRecordActorRole = "admin"
@@ -478,6 +517,22 @@ type AttendanceActor struct {
 	Name   *string              `json:"name"`
 	UserId *openapi_types.UUID  `json:"user_id"`
 }
+
+// AttendanceExport defines model for AttendanceExport.
+type AttendanceExport struct {
+	ErrorSummary *string                `json:"error_summary,omitempty"`
+	EventId      openapi_types.UUID     `json:"event_id"`
+	Format       AttendanceExportFormat `json:"format"`
+	Id           openapi_types.UUID     `json:"id"`
+	RowCount     int                    `json:"row_count"`
+	Status       AttendanceExportStatus `json:"status"`
+}
+
+// AttendanceExportFormat defines model for AttendanceExport.Format.
+type AttendanceExportFormat string
+
+// AttendanceExportStatus defines model for AttendanceExport.Status.
+type AttendanceExportStatus string
 
 // AttendanceRecord defines model for AttendanceRecord.
 type AttendanceRecord struct {

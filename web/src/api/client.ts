@@ -32,6 +32,7 @@ export type StudentRosterImportResult = components['schemas']['StudentRosterImpo
 export type StudentRosterImportError = components['schemas']['StudentRosterImportError']
 export type AttendanceImport = components['schemas']['AttendanceImport']
 export type AttendanceImportError = components['schemas']['AttendanceImportError']
+export type AttendanceExport = components['schemas']['AttendanceExport']
 export type StudentCollection = components['schemas']['StudentCollection']
 export type ResolvedCardStudent = components['schemas']['ResolvedCardStudent']
 export type CardSeal = components['schemas']['CardSeal']
@@ -338,6 +339,24 @@ export function createEventApi(session: SessionPort) {
       return unwrap(await client.GET('/api/v1/admin/events/{event_id}/attendance/imports/{import_id}/errors', {
         params: { path: { event_id: eventID, import_id: importID } },
       }))
+    },
+    async createAttendanceExport(eventID: string) {
+      return unwrap(await client.POST('/api/v1/admin/events/{event_id}/attendance/exports', {
+        params: { path: { event_id: eventID } },
+      }))
+    },
+    async attendanceExport(eventID: string, exportID: string) {
+      return unwrap(await client.GET('/api/v1/admin/events/{event_id}/attendance/exports/{export_id}', {
+        params: { path: { event_id: eventID, export_id: exportID } },
+      }))
+    },
+    async downloadAttendanceExport(eventID: string, exportID: string) {
+      const response = await client.GET('/api/v1/admin/events/{event_id}/attendance/exports/{export_id}/download', {
+        params: { path: { event_id: eventID, export_id: exportID } },
+        parseAs: 'text',
+      })
+      if (response.data !== undefined) return response.data
+      throw new ApiFailure(response.response.status, errorEnvelope(response.error, response.response))
     },
     /**
      * One page of the card-populator roster.

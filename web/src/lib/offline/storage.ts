@@ -66,20 +66,28 @@ async function encryptionKey(): Promise<CryptoKey> {
   return key
 }
 
-function base64(bytes: ArrayBuffer): string {
-  return btoa(String.fromCharCode(...new Uint8Array(bytes)))
+function base64(value: ArrayBuffer | Uint8Array): string {
+  const bytes = value instanceof ArrayBuffer ? new Uint8Array(value) : value
+  return btoa(String.fromCharCode(...bytes))
 }
 
-function bytes(value: string): Uint8Array {
-  return Uint8Array.from(atob(value), (character) => character.charCodeAt(0))
+function bytes(value: string): Uint8Array<ArrayBuffer> {
+  const decoded = atob(value)
+  const output = new Uint8Array(new ArrayBuffer(decoded.length))
+  for (let index = 0; index < decoded.length; index += 1) output[index] = decoded.charCodeAt(index)
+  return output
 }
 
 async function encryptCardPayload(payload: CardPayload): Promise<EncryptedCardPayload> {
-  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const iv = new Uint8Array(new ArrayBuffer(12))
+  crypto.getRandomValues(iv)
+  const encoded = new TextEncoder().encode(JSON.stringify(payload))
+  const plaintext = new Uint8Array(new ArrayBuffer(encoded.byteLength))
+  plaintext.set(encoded)
   const ciphertext = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
     await encryptionKey(),
-    new TextEncoder().encode(JSON.stringify(payload)),
+    plaintext,
   )
   return { version: payload.version, iv: base64(iv), ciphertext: base64(ciphertext) }
 }

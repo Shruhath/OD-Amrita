@@ -21,6 +21,7 @@ export default function TeacherAdminMarkScreen() {
   const [categoryID, setCategoryID] = usePersistentState('teacher-mark.category.v1', '', asString)
   const [slot, setSlot] = usePersistentState('teacher-mark.slot.v1', '1', asString)
   const [query, setQuery] = useState('')
+  const [reasonNote, setReasonNote] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [selectedStudent, setSelectedStudent] = useState<ResolvedCardStudent | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
@@ -79,6 +80,7 @@ export default function TeacherAdminMarkScreen() {
         capture_method: 'search',
         student_id: selectedStudent.student_id,
         slot: Number(slot),
+        reason_note: reasonNote.trim(),
       })
     },
     onSuccess(result) {
@@ -99,7 +101,7 @@ export default function TeacherAdminMarkScreen() {
   })
 
   const eventReady = eventID !== '' && categoryID !== ''
-  const markDisabled = !eventReady || !selectedStudent || mark.isPending
+  const markDisabled = !eventReady || !selectedStudent || reasonNote.trim() === '' || mark.isPending
 
   const changeQuery = (value: string) => {
     setQuery(value)
@@ -214,6 +216,15 @@ export default function TeacherAdminMarkScreen() {
             aria-describedby="teacher-mark-student-help"
           />
           <p id="teacher-mark-student-help" className="empty-note">Search by roll number or name.</p>
+
+          <label htmlFor="teacher-mark-reason">Reason note</label>
+          <textarea
+            id="teacher-mark-reason"
+            value={reasonNote}
+            onChange={(event) => { setReasonNote(event.target.value); setFailure(null); setSuccess(null) }}
+            maxLength={2000}
+            required
+          />
 
           <button className="primary" type="submit" disabled={markDisabled}>Mark present</button>
         </form>

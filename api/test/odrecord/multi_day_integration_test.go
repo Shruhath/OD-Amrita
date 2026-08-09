@@ -372,6 +372,7 @@ func TestMultiDay_TeacherCorrectionAfterTheEventClampsIntoTheRange(t *testing.T)
 	// one-day event and is a perfectly ordinary time to notice a missed mark.
 	theMorningAfter := campusDay(t, 2026, time.August, 6, 9, 0)
 	slot := 3
+	reason := "manual attendance correction after event"
 
 	svc := roleAwareMarkServiceAt(runtime, fixture, theMorningAfter)
 
@@ -382,6 +383,7 @@ func TestMultiDay_TeacherCorrectionAfterTheEventClampsIntoTheRange(t *testing.T)
 			CaptureMethod: odsvc.CaptureMethodSearch,
 			StudentID:     &studentID,
 			Slot:          &slot,
+			ReasonNote:    &reason,
 		})
 	if err != nil {
 		t.Fatalf("[P0] a teacher correction three days after a one-day event was refused: %v.\n"+

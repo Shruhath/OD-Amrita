@@ -57,7 +57,7 @@ function renderAt(path: string) {
 
 describe('what each role is offered', () => {
   test('[P0] a teacher is offered only the screens a teacher can open', () => {
-    expect(sectionsFor('teacher').map((section) => section.label)).toEqual(['Live', 'Mark', 'Disputes'])
+    expect(sectionsFor('teacher').map((section) => section.label)).toEqual(['Live', 'Mark', 'Manage records', 'Disputes'])
   })
 
   test('[P0] a teacher is offered the marking screen at all', () => {
@@ -71,6 +71,7 @@ describe('what each role is offered', () => {
       'Events',
       'Live',
       'Mark',
+      'Manage records',
       'Disputes',
       'Teachers',
       'Students',

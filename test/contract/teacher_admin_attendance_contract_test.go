@@ -73,7 +73,7 @@ func TestTeacherAdminAttendanceContract_AttendanceSchemas(t *testing.T) {
 	record := getMap(schemas, "AttendanceRecord")
 	if record != nil {
 		if missing := missingRequired(record,
-			"record_id", "student", "event_id", "category", "slot", "od_date", "capture_method", "marked_by", "actor_role", "server_received_at",
+			"record_id", "student", "event_id", "category", "slot", "od_date", "status", "capture_method", "marked_by", "actor_role", "server_received_at",
 		); len(missing) > 0 {
 			t.Errorf("[P0] AttendanceRecord required is missing %v", missing)
 		}
@@ -90,8 +90,8 @@ func TestTeacherAdminAttendanceContract_AttendanceSchemas(t *testing.T) {
 		// days of the same slot with nothing on screen distinguishing them.
 		allowed := map[string]bool{
 			"record_id": true, "student": true, "event_id": true, "category": true,
-			"slot": true, "od_date": true, "capture_method": true, "marked_by": true,
-			"actor_role": true, "server_received_at": true,
+			"slot": true, "od_date": true, "status": true, "reason_note": true,
+			"capture_method": true, "marked_by": true, "actor_role": true, "server_received_at": true,
 		}
 		for name := range props {
 			if !allowed[name] {
@@ -147,6 +147,14 @@ var disputeSurfacePaths = map[string]bool{
 	"/api/v1/disputes/{dispute_id}/resolution": true,
 }
 
+var deliberateRecordManagementOperations = map[string]string{
+	"listPortalODRecords":       "branch-scoped teacher/admin record management",
+	"listStudentODRecordHistory": "student record history",
+	"correctODRecord":           "reasoned record correction",
+	"removeODRecord":            "reasoned soft removal",
+	"listODRecordAudit":         "per-record immutable audit trail",
+}
+
 func TestTeacherAdminAttendanceContract_NoDeferredManualManagementSurface(t *testing.T) {
 	requireTeacherAdminAttendanceATDD(t)
 
@@ -159,6 +167,9 @@ func TestTeacherAdminAttendanceContract_NoDeferredManualManagementSurface(t *tes
 		item := asMap(raw)
 		for method := range item {
 			id := getStr(getMap(item, method), "operationId")
+			if _, built := deliberateRecordManagementOperations[id]; built {
+				continue
+			}
 			for _, forbidden := range []string{"Correction", "Dispute", "Export", "ManualOverride", "DeleteAttendance"} {
 				if forbidden == "Dispute" {
 					if _, built := deliberateDisputeOperations[id]; built {

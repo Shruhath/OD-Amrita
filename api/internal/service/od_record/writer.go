@@ -57,6 +57,7 @@ func (w *SQLCWriter) InsertPresent(ctx context.Context, tx pgx.Tx, input RecordI
 		CategoryID:       dbUUID(categoryID),
 		Slot:             int32(input.Slot),
 		OdDate:           pgtype.Date{Time: input.ODDate, Valid: true},
+		ReasonNote:       dbText(input.ReasonNote),
 		CaptureMethod:    string(input.CaptureMethod),
 		ActorUserID:      dbUUID(actorUserID),
 		ActorRole:        input.ActorRole,
@@ -76,8 +77,24 @@ func (w *SQLCWriter) InsertPresent(ctx context.Context, tx pgx.Tx, input RecordI
 		Slot:             int(row.Slot),
 		ODDate:           row.OdDate.Time,
 		CaptureMethod:    CaptureMethod(row.CaptureMethod),
+		ReasonNote:       textPtr(row.ReasonNote),
 		ServerReceivedAt: row.ServerReceivedAt.Time,
 	}, nil
+}
+
+func dbText(value *string) pgtype.Text {
+	if value == nil {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: *value, Valid: true}
+}
+
+func textPtr(value pgtype.Text) *string {
+	if !value.Valid {
+		return nil
+	}
+	text := value.String
+	return &text
 }
 
 func mapPgError(err error) error {

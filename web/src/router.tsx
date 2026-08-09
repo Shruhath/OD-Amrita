@@ -11,6 +11,7 @@ import TeacherAdminMarkRoute from './routes/portal/mark/TeacherAdminMarkRoute'
 import DisputesRoute from './routes/portal/disputes/DisputesRoute'
 import StudentsRoute from './routes/portal/students/StudentsRoute'
 import TeachersRoute from './routes/portal/teachers/TeachersRoute'
+import ODRecordsRoute from './routes/portal/od-records/ODRecordsRoute'
 
 const routes = [
   { path: '/portal/events', Component: EventsRoute },
@@ -21,6 +22,7 @@ const routes = [
   // The teacher/admin live view of the day's marks.
   { path: '/portal/live', Component: LiveRoute },
   { path: '/portal/mark', Component: TeacherAdminMarkRoute },
+  { path: '/portal/od-records', Component: ODRecordsRoute },
   { path: '/portal/disputes', Component: DisputesRoute },
   { path: '/portal/teachers', Component: TeachersRoute },
   { path: '/portal/students', Component: StudentsRoute },

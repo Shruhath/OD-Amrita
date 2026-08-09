@@ -178,10 +178,12 @@ func run() error {
 		creditLedger,
 	)
 	handlerodrecord.RegisterRoutes(markAPI, markSvc)
+	handlerodrecord.RegisterRecordManagementRoutes(markAPI, svcodrecord.NewManagementService(pool, st))
 	handlerodrecord.RegisterPortalMarkRoutes(markAPI, portalMarkReads)
 	// The teacher-reachable live attendance read. Mounted on markAPI rather than
 	// the admin group; the service scopes a teacher to their own branches.
 	handlerodrecord.RegisterPortalAttendanceRoutes(markAPI, portalMarkReads)
+	handlerodrecord.RegisterPortalRecordListRoutes(markAPI, portalMarkReads)
 
 	// One student service serves the admin roster import/list and the coordinator
 	// search; the search reader is an add-on rather than a second service.

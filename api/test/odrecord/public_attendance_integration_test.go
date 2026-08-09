@@ -331,8 +331,8 @@ func seedPublicRecord(
 	t.Helper()
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO od_records
-			(id, student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role, server_received_at)
-		VALUES ($1, $2, $3, $4, $5, $8::date, 'present', 'search', $6, $7, now())`,
+			(id, student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role, reason_note, server_received_at)
+		VALUES ($1, $2, $3, $4, $5, $8::date, 'present', 'search', $6, $7, 'public attendance integration seed', now())`,
 		uuid.NewString(), studentID, eventID, categoryID, slot, actorUserID, actorRole, odDate); err != nil {
 		t.Fatalf("seed public od record (slot %d): %v", slot, err)
 	}

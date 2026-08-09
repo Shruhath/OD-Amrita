@@ -69,6 +69,11 @@ test.describe('teacher/admin search marking', () => {
     await selectValue(page, page.getByRole('combobox', { name: /slot/i }), '4')
     await page.getByRole('searchbox', { name: /student/i }).fill('CB.SC.U4CSE24')
     await page.getByRole('option', { name: /CB\.SC\.U4CSE/i }).click()
+    // Story 0.12b made a reason note mandatory for teacher/admin marks; this
+    // pre-existing (0.9) journey never filled one, leaving "Mark present"
+    // permanently disabled. Fixed during code review — CI was already red on
+    // this exact failure before the review started.
+    await page.getByLabel(/reason note/i).fill('Manual search mark for the journey fixture student.')
     await page.getByRole('button', { name: /mark present/i }).click()
 
     await expect(page.getByRole('status')).toContainText(/marked|present/i)
@@ -89,12 +94,17 @@ test.describe('teacher/admin search marking', () => {
     await expect(attendanceTable.getByRole('cell', { name: 'search', exact: true })).toBeVisible()
   })
 
-  redTest('[P1] a teacher landing on the app root is routed to the teacher mark surface', async ({ page }) => {
+  redTest('[P1] a teacher landing on the app root is routed to the record-management surface', async ({ page }) => {
     await installTeacherAdminRoutes(page, 'teacher')
 
     await page.goto('/')
 
-    await expect(page).toHaveURL(/\/portal\/mark$/)
+    // Updated during code review, ratified by Shruhath: teachers primarily
+    // view live OD status rather than actively mark, so the default landing
+    // page was changed from /portal/mark to /portal/od-records
+    // (RoleLanding.tsx). CI was already red on the stale /portal/mark
+    // expectation before the review started.
+    await expect(page).toHaveURL(/\/portal\/od-records$/)
     await expect(page.getByRole('heading', { name: /access denied/i })).toHaveCount(0)
   })
 })

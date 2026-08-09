@@ -31,6 +31,7 @@ INSERT INTO od_records (
     category_id,
     slot,
     od_date,
+    reason_note,
     capture_method,
     actor_user_id,
     actor_role,
@@ -41,12 +42,57 @@ INSERT INTO od_records (
     @category_id,
     @slot,
     @od_date,
+    @reason_note,
     @capture_method,
     @actor_user_id,
     @actor_role,
     @server_received_at
 )
-RETURNING id, student_id, event_id, category_id, slot, od_date, capture_method, server_received_at;
+RETURNING id, student_id, event_id, category_id, slot, od_date, reason_note, capture_method, server_received_at;
+
+-- name: GetODRecordByID :one
+SELECT
+    r.id, r.student_id, s.branch_id, r.event_id, r.category_id, r.slot, r.od_date,
+    r.status, r.capture_method, r.actor_user_id, r.actor_role, r.reason_note,
+    r.server_received_at
+FROM od_records r
+JOIN students s ON s.id = r.student_id
+WHERE r.id = @id;
+
+-- name: LockODRecordByID :one
+-- Mutation paths take this row lock before deriving their audit snapshot. The
+-- correction/removal and its previous-value ledger entry must describe the
+-- same version of the record even when two administrators act concurrently.
+SELECT
+    r.id, r.student_id, s.branch_id, r.event_id, r.category_id, r.slot, r.od_date,
+    r.status, r.capture_method, r.actor_user_id, r.actor_role, r.reason_note,
+    r.server_received_at
+FROM od_records r
+JOIN students s ON s.id = r.student_id
+WHERE r.id = @id
+FOR UPDATE OF r;
+
+-- name: CorrectODRecord :one
+UPDATE od_records
+SET slot = COALESCE(sqlc.narg('slot')::integer, slot),
+    category_id = COALESCE(sqlc.narg('category_id')::uuid, category_id),
+    od_date = COALESCE(sqlc.narg('od_date')::date, od_date),
+    reason_note = @reason_note,
+    actor_user_id = @actor_user_id,
+    actor_role = @actor_role
+WHERE id = @id AND status = 'present'
+RETURNING id, student_id, event_id, category_id, slot, od_date, status, capture_method,
+          actor_user_id, actor_role, reason_note, server_received_at;
+
+-- name: RemoveODRecord :one
+UPDATE od_records
+SET status = 'removed',
+    reason_note = @reason_note,
+    actor_user_id = @actor_user_id,
+    actor_role = @actor_role
+WHERE id = @id AND status = 'present'
+RETURNING id, student_id, event_id, category_id, slot, od_date, status, capture_method,
+          actor_user_id, actor_role, reason_note, server_received_at;
 
 -- name: CountMarksForCategory :one
 -- The two FR13 counters in one round trip: every coordinator's marks for this
@@ -90,6 +136,23 @@ SELECT EXISTS (
     WHERE s.id = @student_id
 )::boolean;
 
+-- name: TeacherCanManageODRecord :one
+SELECT EXISTS (
+    SELECT 1
+    FROM od_records r
+    JOIN students s ON s.id = r.student_id
+    JOIN user_branches ub ON ub.branch_id = s.branch_id AND ub.user_id = @user_id
+    WHERE r.id = @record_id
+)::boolean;
+
+-- name: TeacherCanViewStudentODHistory :one
+SELECT EXISTS (
+    SELECT 1
+    FROM students s
+    JOIN user_branches ub ON ub.branch_id = s.branch_id AND ub.user_id = @user_id
+    WHERE s.id = @student_id
+)::boolean;
+
 -- name: ListAttendanceRecords :many
 SELECT
     r.id,
@@ -105,6 +168,8 @@ SELECT
     c.created_at AS category_created_at,
     r.slot,
     r.od_date,
+    r.status,
+    r.reason_note,
     r.capture_method,
     r.actor_user_id,
     u.email AS actor_email,
@@ -117,10 +182,11 @@ JOIN branches b ON b.id = s.branch_id
 JOIN categories c ON c.id = r.category_id
 LEFT JOIN users u ON u.id = r.actor_user_id
 WHERE r.event_id = @event_id
-  AND r.status = 'present'
   AND (sqlc.narg('category_id')::uuid IS NULL OR r.category_id = sqlc.narg('category_id'))
   AND (sqlc.narg('slot')::integer IS NULL OR r.slot = sqlc.narg('slot'))
   AND (sqlc.narg('od_date')::date IS NULL OR r.od_date = sqlc.narg('od_date'))
+  AND (sqlc.narg('section')::text IS NULL OR s.section = sqlc.narg('section'))
+  AND (sqlc.narg('actor_user_id')::uuid IS NULL OR r.actor_user_id = sqlc.narg('actor_user_id'))
   AND (
       -- BRANCH SCOPE. NULL means "no scoping", which is the admin view. A
       -- teacher passes their own id and sees only students in the branches they
@@ -149,10 +215,11 @@ FROM od_records r
 -- the list sees, or a scoped teacher gets a page count for somebody else's data.
 JOIN students s ON s.id = r.student_id
 WHERE r.event_id = @event_id
-  AND r.status = 'present'
   AND (sqlc.narg('category_id')::uuid IS NULL OR r.category_id = sqlc.narg('category_id'))
   AND (sqlc.narg('slot')::integer IS NULL OR r.slot = sqlc.narg('slot'))
   AND (sqlc.narg('od_date')::date IS NULL OR r.od_date = sqlc.narg('od_date'))
+  AND (sqlc.narg('section')::text IS NULL OR s.section = sqlc.narg('section'))
+  AND (sqlc.narg('actor_user_id')::uuid IS NULL OR r.actor_user_id = sqlc.narg('actor_user_id'))
   AND (
       -- BRANCH SCOPE. NULL means "no scoping", which is the admin view. A
       -- teacher passes their own id and sees only students in the branches they
@@ -228,3 +295,34 @@ WHERE r.student_id = @student_id
   AND r.status = 'present'
 ORDER BY r.od_date DESC, r.slot ASC, r.server_received_at ASC, r.id ASC
 LIMIT @row_limit::bigint;
+
+-- name: ListODRecordsForStudent :many
+SELECT
+    r.id, r.student_id, s.roll_no, s.name AS student_name, b.code AS branch,
+    s.section, s.batch, r.event_id, e.name AS event_name, c.id AS category_id,
+    c.name AS category_name, c.created_at AS category_created_at, r.slot, r.od_date,
+    r.status, r.reason_note, r.capture_method, r.actor_user_id, u.email AS actor_email,
+    u.name AS actor_name, r.actor_role, r.server_received_at
+FROM od_records r
+JOIN students s ON s.id = r.student_id
+JOIN branches b ON b.id = s.branch_id
+JOIN events e ON e.id = r.event_id
+JOIN categories c ON c.id = r.category_id
+LEFT JOIN users u ON u.id = r.actor_user_id
+WHERE r.student_id = @student_id
+  AND (sqlc.narg('viewer_id')::uuid IS NULL OR EXISTS (
+      SELECT 1 FROM user_branches ub
+      WHERE ub.user_id = sqlc.narg('viewer_id') AND ub.branch_id = s.branch_id
+  ))
+ORDER BY r.od_date DESC, r.slot ASC, r.server_received_at DESC, r.id ASC
+LIMIT @page_size::bigint OFFSET @page_offset::bigint;
+
+-- name: CountODRecordsForStudent :one
+SELECT count(*)::bigint
+FROM od_records r
+JOIN students s ON s.id = r.student_id
+WHERE r.student_id = @student_id
+  AND (sqlc.narg('viewer_id')::uuid IS NULL OR EXISTS (
+      SELECT 1 FROM user_branches ub
+      WHERE ub.user_id = sqlc.narg('viewer_id') AND ub.branch_id = s.branch_id
+  ));

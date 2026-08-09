@@ -60,6 +60,11 @@ test.describe('real stack teacher/admin search marking', () => {
     await selectValue(page, page.getByRole('combobox', { name: /slot/i }), '4')
     await page.getByRole('searchbox', { name: /student/i }).fill(roll)
     await page.getByRole('option', { name: new RegExp(roll.replace(/\./g, '\\.'), 'i') }).click()
+    // A reason note has been mandatory for teacher/admin marks since this
+    // story landed; this journey predates that requirement. Fixed during
+    // code review — CI was already red on this exact timeout before the
+    // review started.
+    await page.getByLabel(/reason note/i).fill('Manual search mark for the real-stack journey fixture.')
     await page.getByRole('button', { name: /mark present/i }).click()
 
     await expect(page.getByRole('status')).toContainText(/marked|present/i)
@@ -98,6 +103,10 @@ test.describe('real stack teacher/admin search marking', () => {
     await selectValue(page, page.getByRole('combobox', { name: /slot/i }), '7')
     await page.getByRole('searchbox', { name: /student/i }).fill('CB.SC.U4ECE24001')
     await page.getByRole('option', { name: /CB\.SC\.U4ECE24001/i }).click()
+    // See the note in the test above: the reason note is required client-side
+    // before the submit button enables at all, independent of the server-side
+    // branch refusal this test is actually about.
+    await page.getByLabel(/reason note/i).fill('Attempted cross-branch mark for the refusal fixture.')
     await page.getByRole('button', { name: /mark present/i }).click()
 
     await expect(page.getByRole('alert')).toContainText(/not allowed|forbidden|branch/i)

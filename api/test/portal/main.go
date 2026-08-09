@@ -132,6 +132,36 @@ const (
 	multiDayStudentRoll = "CB.SC.U4CSE24011"
 )
 
+// Story 0.12b's record-management API fixtures. IDs are prefixed 120b0000
+// (the story number) to match the exact ids
+// web/tests/api/teacher-admin-record-management.spec.ts hardcodes — this
+// journey exists to satisfy that file, not the other way round. The named
+// ids below are the ones the spec references directly; the *StudentID ids
+// with no corresponding spec constant exist only to give each named record
+// its own student, so one test's mutation can never collide with another's
+// fixture the way sharing one student across scenarios would.
+const (
+	recordMgmtEventID           = "120b0000-0000-4000-8000-000000000001" // MANAGED_EVENT_ID
+	recordMgmtCSECategoryID     = "120b0000-0000-4000-8000-000000000002" // CSE_CATEGORY_ID
+	recordMgmtECECategoryID     = "120b0000-0000-4000-8000-000000000003" // ECE_CATEGORY_ID
+	recordMgmtCSEStudentID      = "120b0000-0000-4000-8000-000000000004" // CSE_STUDENT_ID
+	recordMgmtECEStudentID      = "120b0000-0000-4000-8000-000000000005" // ECE_STUDENT_ID
+	recordMgmtCoordinatorID     = "120b0000-0000-4000-8000-000000000006" // COORDINATOR_USER_ID
+	recordMgmtCorrectableID     = "120b0000-0000-4000-8000-000000000007" // CORRECTABLE_RECORD_ID
+	recordMgmtRemovableID       = "120b0000-0000-4000-8000-000000000008" // REMOVABLE_RECORD_ID
+	recordMgmtRemovedID         = "120b0000-0000-4000-8000-000000000009" // REMOVED_RECORD_ID
+	recordMgmtCrossBranchID     = "120b0000-0000-4000-8000-000000000010" // CROSS_BRANCH_RECORD_ID
+	recordMgmtDuplicateTargetID = "120b0000-0000-4000-8000-000000000011" // DUPLICATE_TARGET_RECORD_ID
+	// 000000000012 is UNKNOWN_RECORD_ID in the spec — deliberately never seeded.
+	recordMgmtCorrectableStudentID = "120b0000-0000-4000-8000-000000000013"
+	recordMgmtRemovableStudentID   = "120b0000-0000-4000-8000-000000000014"
+	recordMgmtRemovedStudentID     = "120b0000-0000-4000-8000-000000000015"
+	recordMgmtCrossBranchStudentID = "120b0000-0000-4000-8000-000000000016"
+	recordMgmtArchivedEventID      = "120b0000-0000-4000-8000-000000000017"
+	recordMgmtArchivedCategoryID   = "120b0000-0000-4000-8000-000000000018"
+	recordMgmtInRangeODDate        = "2026-08-19" // IN_RANGE_OD_DATE
+)
+
 // teacherFixtureEmail is the student-role row the teacher-profile browser
 // journeys elevate (web/tests/integration/teacher-profiles.spec.ts). Reused
 // exactly as-is on every run (no per-run suffix): D2 makes a second elevation
@@ -250,6 +280,12 @@ func main() {
 	markAPI := api.Group("")
 	markAPI.Use(rbac.RequirePrincipal(principalLoader))
 	handlerodrecord.RegisterRoutes(markAPI, markService)
+	// Mirrors cmd/api: Story 0.12b's correct/remove/audit and the record-list/
+	// history reads. A harness that omits these is a harness whose green means
+	// less than it looks — this is what left the real-Postgres ATDD scaffold for
+	// this story unable to pass no matter what the fixtures below seed.
+	handlerodrecord.RegisterRecordManagementRoutes(markAPI, svcodrecord.NewManagementService(runtimePool, st))
+	handlerodrecord.RegisterPortalRecordListRoutes(markAPI, portalMarkReads)
 	handlerodrecord.RegisterPortalMarkRoutes(markAPI, portalMarkReads)
 	// Mirrors cmd/api: the teacher-reachable live attendance read. A harness that
 	// omits a production route is a harness whose green means less than it looks.
@@ -642,6 +678,9 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 	if err := seedMultiDayJourney(ctx, tx, today); err != nil {
 		return err
 	}
+	if err := seedRecordManagementJourney(ctx, tx); err != nil {
+		return err
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit transaction: %w", err)
@@ -709,8 +748,8 @@ func seedDisputeJourney(ctx context.Context, tx pgx.Tx) error {
 	for _, slot := range []int{1, 2, 4} {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO od_records
-				(student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role, server_received_at)
-			VALUES ($1, $2, $3, $4, $5, 'present', 'search', '90000000-0000-4000-8000-000000000004', 'teacher', now())
+				(student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role, reason_note, server_received_at)
+			VALUES ($1, $2, $3, $4, $5, 'present', 'search', '90000000-0000-4000-8000-000000000004', 'teacher', 'portal dispute fixture', now())
 		`, disputeStudentID, disputeEventID, disputeCategoryID, slot, eventDate); err != nil {
 			return fmt.Errorf("seed dispute od record slot %d: %w", slot, err)
 		}
@@ -788,6 +827,201 @@ func seedMultiDayJourney(ctx context.Context, tx pgx.Tx, today time.Time) error 
 	}
 	return nil
 }
+
+// seedRecordManagementJourney seeds Story 0.12b's fixtures for
+// web/tests/api/teacher-admin-record-management.spec.ts. Every named record
+// gets its OWN student rather than sharing one across scenarios, so one
+// test's correction/removal can never collide with another's expectations —
+// the spec's own tests run sequentially against this one seeded, mutable
+// state (there is no per-test reset), so cross-scenario isolation has to come
+// from the fixture shape, not from execution order.
+func seedRecordManagementJourney(ctx context.Context, tx pgx.Tx) error {
+	inRangeDate, err := time.Parse(time.DateOnly, recordMgmtInRangeODDate)
+	if err != nil {
+		return fmt.Errorf("parse record management in-range date: %w", err)
+	}
+	rangeStart := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	rangeEnd := time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO events (id, name, event_date, end_date, status)
+		VALUES ($1, 'Browser Record Management Event', $2, $3, 'active')
+		ON CONFLICT (id) DO UPDATE
+		SET name = EXCLUDED.name, event_date = EXCLUDED.event_date, end_date = EXCLUDED.end_date,
+		    status = 'active', archived_at = NULL, archived_by_user_id = NULL
+	`, recordMgmtEventID, rangeStart, rangeEnd); err != nil {
+		return fmt.Errorf("upsert record management event: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO event_branches (event_id, branch_id)
+		VALUES ($1, '91000000-0000-4000-8000-000000000001'), ($1, '91000000-0000-4000-8000-000000000002')
+		ON CONFLICT DO NOTHING
+	`, recordMgmtEventID); err != nil {
+		return fmt.Errorf("associate record management event branches: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO categories (id, event_id, name) VALUES ($1, $3, 'CSE Exception Desk'), ($2, $3, 'ECE Exception Desk')
+		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+	`, recordMgmtCSECategoryID, recordMgmtECECategoryID, recordMgmtEventID); err != nil {
+		return fmt.Errorf("upsert record management categories: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM od_records WHERE event_id = $1`, recordMgmtEventID); err != nil {
+		return fmt.Errorf("clear record management od records: %w", err)
+	}
+
+	// A dedicated archived event/category/student for the EVENT_ARCHIVED
+	// correction case — deliberately a SEPARATE event from the active one
+	// above, since an archived event can never accept the live journey's
+	// other writes.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO events (id, name, event_date, end_date, status, archived_at, archived_by_user_id)
+		VALUES ($1, 'Browser Record Management Archived Event', $2, $2, 'archived', now(), '90000000-0000-4000-8000-000000000001')
+		ON CONFLICT (id) DO UPDATE
+		SET name = EXCLUDED.name, event_date = EXCLUDED.event_date, end_date = EXCLUDED.end_date,
+		    status = 'archived', archived_at = now(), archived_by_user_id = EXCLUDED.archived_by_user_id
+	`, recordMgmtArchivedEventID, rangeStart.AddDate(0, 0, 2)); err != nil {
+		return fmt.Errorf("upsert record management archived event: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO event_branches (event_id, branch_id)
+		VALUES ($1, '91000000-0000-4000-8000-000000000002')
+		ON CONFLICT DO NOTHING
+	`, recordMgmtArchivedEventID); err != nil {
+		return fmt.Errorf("associate record management archived event branch: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO categories (id, event_id, name) VALUES ($1, $2, 'Archived Exception Desk')
+		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+	`, recordMgmtArchivedCategoryID, recordMgmtArchivedEventID); err != nil {
+		return fmt.Errorf("upsert record management archived category: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM od_records WHERE event_id = $1`, recordMgmtArchivedEventID); err != nil {
+		return fmt.Errorf("clear record management archived event od records: %w", err)
+	}
+
+	// A dedicated coordinator user (not the shared portal-coordinator) so the
+	// actor_user_id filter test matches on an identity that belongs only to
+	// this journey.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, supabase_subject, email, name, role)
+		VALUES ($1, $2, 'recordmgmt-coordinator@amrita.edu', 'Record Management Coordinator', 'coordinator')
+		ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name, role = EXCLUDED.role
+	`, recordMgmtCoordinatorID, "recordmgmt-coordinator-"+recordMgmtCoordinatorID); err != nil {
+		return fmt.Errorf("upsert record management coordinator: %w", err)
+	}
+
+	students := []struct {
+		id, roll, branchID, section string
+	}{
+		{recordMgmtCSEStudentID, "CB.SC.U4CSE24012", "91000000-0000-4000-8000-000000000001", "A"},
+		{recordMgmtECEStudentID, "CB.SC.U4ECE24002", "91000000-0000-4000-8000-000000000002", "A"},
+		{recordMgmtCorrectableStudentID, "CB.SC.U4CSE24013", "91000000-0000-4000-8000-000000000001", "A"},
+		{recordMgmtRemovableStudentID, "CB.SC.U4CSE24014", "91000000-0000-4000-8000-000000000001", "A"},
+		{recordMgmtRemovedStudentID, "CB.SC.U4CSE24015", "91000000-0000-4000-8000-000000000001", "A"},
+		{recordMgmtCrossBranchStudentID, "CB.SC.U4ECE24003", "91000000-0000-4000-8000-000000000002", "A"},
+	}
+	for _, student := range students {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO students (id, roll_no, name, branch_id, section, batch)
+			VALUES ($1, $2, 'Browser Record Management Student', $3, $4, '2024')
+			ON CONFLICT (id) DO UPDATE
+			SET roll_no = EXCLUDED.roll_no, name = EXCLUDED.name, branch_id = EXCLUDED.branch_id,
+			    section = EXCLUDED.section, batch = EXCLUDED.batch
+		`, student.id, student.roll, student.branchID, student.section); err != nil {
+			return fmt.Errorf("upsert record management student %s: %w", student.roll, err)
+		}
+	}
+
+	adminUserID := "90000000-0000-4000-8000-000000000001"
+
+	// R1 — the exact tuple the "teacher lists" scenario filters for: slot 6,
+	// this event, IN_RANGE_OD_DATE, section A, marked by the dedicated
+	// coordinator. A coordinator capture needs no reason note.
+	if err := insertRecordMgmtRow(ctx, tx, recordMgmtEventID, recordMgmtCSEStudentID, recordMgmtCSECategoryID, 6, inRangeDate, "present", "nfc", recordMgmtCoordinatorID, "coordinator", nil); err != nil {
+		return err
+	}
+	// R2 — a REMOVED row for the same student, so the student-history read
+	// has both a present and a removed row with a real actor identity.
+	if err := insertRecordMgmtRow(ctx, tx, recordMgmtEventID, recordMgmtCSEStudentID, recordMgmtCSECategoryID, 2, inRangeDate, "removed", "search", teacherPrincipalID, "teacher", strPtr("removed for history coverage")); err != nil {
+		return err
+	}
+	// R3 — an ECE-branch present row so the admin cross-branch list has a
+	// non-CSE row to find, and the teacher's own (CSE-scoped) list never sees it.
+	if err := insertRecordMgmtRow(ctx, tx, recordMgmtEventID, recordMgmtECEStudentID, recordMgmtECECategoryID, 3, inRangeDate, "present", "search", adminUserID, "admin", strPtr("seed admin add reason")); err != nil {
+		return err
+	}
+	// CORRECTABLE_RECORD_ID — a distinct student and a distinct day from
+	// IN_RANGE_OD_DATE, so the correction test's target tuple (slot 6,
+	// IN_RANGE_OD_DATE) cannot already be occupied by this row itself.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO od_records
+			(id, student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role, reason_note, server_received_at)
+		VALUES ($1, $2, $3, $4, 4, '2026-08-12', 'present', 'search', $5, 'admin', 'seed correctable reason', now())
+	`, recordMgmtCorrectableID, recordMgmtCorrectableStudentID, recordMgmtEventID, recordMgmtCSECategoryID, adminUserID); err != nil {
+		return fmt.Errorf("seed CORRECTABLE_RECORD_ID: %w", err)
+	}
+	// DUPLICATE_TARGET_RECORD_ID — the SAME student as CORRECTABLE_RECORD_ID
+	// (the unique index is per-student), at a slot the correction test moves
+	// INTO on purpose to prove the collision is rejected.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO od_records
+			(id, student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role, reason_note, server_received_at)
+		VALUES ($1, $2, $3, $4, 10, $5, 'present', 'search', $6, 'admin', 'seed duplicate target reason', now())
+	`, recordMgmtDuplicateTargetID, recordMgmtCorrectableStudentID, recordMgmtEventID, recordMgmtCSECategoryID, inRangeDate, adminUserID); err != nil {
+		return fmt.Errorf("seed DUPLICATE_TARGET_RECORD_ID: %w", err)
+	}
+	// REMOVABLE_RECORD_ID — present, plus a matching od.created audit row so
+	// the removal test's audit read finds BOTH lifecycle entries. A raw SQL
+	// seed writes no audit row on its own, unlike a real Mark() call.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO od_records
+			(id, student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role, reason_note, server_received_at)
+		VALUES ($1, $2, $3, $4, 5, $5, 'present', 'search', $6, 'admin', 'seed removable reason', now())
+	`, recordMgmtRemovableID, recordMgmtRemovableStudentID, recordMgmtEventID, recordMgmtCSECategoryID, inRangeDate, adminUserID); err != nil {
+		return fmt.Errorf("seed REMOVABLE_RECORD_ID: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO audit_log (action, actor_account, actor_role, target_table, target_id, payload)
+		VALUES ('od.created', 'portal-admin@amrita.edu', 'admin', 'od_records', $1, '{}'::jsonb)
+	`, recordMgmtRemovableID); err != nil {
+		return fmt.Errorf("seed REMOVABLE_RECORD_ID od.created audit row: %w", err)
+	}
+	// REMOVED_RECORD_ID — already terminal, for the admin list read and the
+	// repeat-removal 409 case.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO od_records
+			(id, student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role, reason_note, server_received_at)
+		VALUES ($1, $2, $3, $4, 7, $5, 'removed', 'search', $6, 'admin', 'already removed seed reason', now())
+	`, recordMgmtRemovedID, recordMgmtRemovedStudentID, recordMgmtEventID, recordMgmtCSECategoryID, inRangeDate, adminUserID); err != nil {
+		return fmt.Errorf("seed REMOVED_RECORD_ID: %w", err)
+	}
+	// CROSS_BRANCH_RECORD_ID — ECE-branch student, present, under the
+	// ARCHIVED event: the teacher-forbidden case needs RBAC to refuse it
+	// before ever reaching the archived-event check, and the admin-archived
+	// case needs the archived check to fire once RBAC (unconditional for
+	// admin) has passed.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO od_records
+			(id, student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role, reason_note, server_received_at)
+		VALUES ($1, $2, $3, $4, 1, $5, 'present', 'search', $6, 'admin', 'seed cross-branch reason', now())
+	`, recordMgmtCrossBranchID, recordMgmtCrossBranchStudentID, recordMgmtArchivedEventID, recordMgmtArchivedCategoryID, rangeStart.AddDate(0, 0, 2), adminUserID); err != nil {
+		return fmt.Errorf("seed CROSS_BRANCH_RECORD_ID: %w", err)
+	}
+	return nil
+}
+
+func insertRecordMgmtRow(ctx context.Context, tx pgx.Tx, eventID, studentID, categoryID string, slot int, odDate time.Time, status, captureMethod, actorUserID, actorRole string, reasonNote *string) error {
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO od_records
+			(student_id, event_id, category_id, slot, od_date, status, capture_method, actor_user_id, actor_role, reason_note, server_received_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+	`, studentID, eventID, categoryID, slot, odDate, status, captureMethod, actorUserID, actorRole, reasonNote); err != nil {
+		return fmt.Errorf("seed record management row (student=%s slot=%d): %w", studentID, slot, err)
+	}
+	return nil
+}
+
+func strPtr(v string) *string { return &v }
 
 // seedPublicDashboard seeds the read-only Story 0.10 fixtures.
 //

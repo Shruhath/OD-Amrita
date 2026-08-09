@@ -33,15 +33,82 @@ func (q *Queries) AdminCanSearchMark(ctx context.Context, arg AdminCanSearchMark
 	return column_1, err
 }
 
+const correctODRecord = `-- name: CorrectODRecord :one
+UPDATE od_records
+SET slot = COALESCE($1::integer, slot),
+    category_id = COALESCE($2::uuid, category_id),
+    od_date = COALESCE($3::date, od_date),
+    reason_note = $4,
+    actor_user_id = $5,
+    actor_role = $6
+WHERE id = $7 AND status = 'present'
+RETURNING id, student_id, event_id, category_id, slot, od_date, status, capture_method,
+          actor_user_id, actor_role, reason_note, server_received_at
+`
+
+type CorrectODRecordParams struct {
+	Slot        pgtype.Int4 `json:"slot"`
+	CategoryID  pgtype.UUID `json:"category_id"`
+	OdDate      pgtype.Date `json:"od_date"`
+	ReasonNote  pgtype.Text `json:"reason_note"`
+	ActorUserID pgtype.UUID `json:"actor_user_id"`
+	ActorRole   string      `json:"actor_role"`
+	ID          pgtype.UUID `json:"id"`
+}
+
+type CorrectODRecordRow struct {
+	ID               pgtype.UUID        `json:"id"`
+	StudentID        pgtype.UUID        `json:"student_id"`
+	EventID          pgtype.UUID        `json:"event_id"`
+	CategoryID       pgtype.UUID        `json:"category_id"`
+	Slot             int32              `json:"slot"`
+	OdDate           pgtype.Date        `json:"od_date"`
+	Status           string             `json:"status"`
+	CaptureMethod    string             `json:"capture_method"`
+	ActorUserID      pgtype.UUID        `json:"actor_user_id"`
+	ActorRole        string             `json:"actor_role"`
+	ReasonNote       pgtype.Text        `json:"reason_note"`
+	ServerReceivedAt pgtype.Timestamptz `json:"server_received_at"`
+}
+
+func (q *Queries) CorrectODRecord(ctx context.Context, arg CorrectODRecordParams) (CorrectODRecordRow, error) {
+	row := q.db.QueryRow(ctx, correctODRecord,
+		arg.Slot,
+		arg.CategoryID,
+		arg.OdDate,
+		arg.ReasonNote,
+		arg.ActorUserID,
+		arg.ActorRole,
+		arg.ID,
+	)
+	var i CorrectODRecordRow
+	err := row.Scan(
+		&i.ID,
+		&i.StudentID,
+		&i.EventID,
+		&i.CategoryID,
+		&i.Slot,
+		&i.OdDate,
+		&i.Status,
+		&i.CaptureMethod,
+		&i.ActorUserID,
+		&i.ActorRole,
+		&i.ReasonNote,
+		&i.ServerReceivedAt,
+	)
+	return i, err
+}
+
 const countAttendanceRecords = `-- name: CountAttendanceRecords :one
 SELECT count(*)::bigint
 FROM od_records r
 JOIN students s ON s.id = r.student_id
 WHERE r.event_id = $1
-  AND r.status = 'present'
   AND ($2::uuid IS NULL OR r.category_id = $2)
   AND ($3::integer IS NULL OR r.slot = $3)
   AND ($4::date IS NULL OR r.od_date = $4)
+  AND ($5::text IS NULL OR s.section = $5)
+  AND ($6::uuid IS NULL OR r.actor_user_id = $6)
   AND (
       -- BRANCH SCOPE. NULL means "no scoping", which is the admin view. A
       -- teacher passes their own id and sees only students in the branches they
@@ -52,22 +119,24 @@ WHERE r.event_id = $1
       -- One query with an optional predicate rather than two, so the admin and
       -- teacher views can never drift in their ordering, their filters or their
       -- definition of "present".
-      $5::uuid IS NULL
+      $7::uuid IS NULL
       OR EXISTS (
           SELECT 1
           FROM user_branches ub
-          WHERE ub.user_id = $5
+          WHERE ub.user_id = $7
             AND ub.branch_id = s.branch_id
       )
   )
 `
 
 type CountAttendanceRecordsParams struct {
-	EventID    pgtype.UUID `json:"event_id"`
-	CategoryID pgtype.UUID `json:"category_id"`
-	Slot       pgtype.Int4 `json:"slot"`
-	OdDate     pgtype.Date `json:"od_date"`
-	ViewerID   pgtype.UUID `json:"viewer_id"`
+	EventID     pgtype.UUID `json:"event_id"`
+	CategoryID  pgtype.UUID `json:"category_id"`
+	Slot        pgtype.Int4 `json:"slot"`
+	OdDate      pgtype.Date `json:"od_date"`
+	Section     pgtype.Text `json:"section"`
+	ActorUserID pgtype.UUID `json:"actor_user_id"`
+	ViewerID    pgtype.UUID `json:"viewer_id"`
 }
 
 // Joined solely for the branch scope below. The count MUST see exactly the rows
@@ -78,6 +147,8 @@ func (q *Queries) CountAttendanceRecords(ctx context.Context, arg CountAttendanc
 		arg.CategoryID,
 		arg.Slot,
 		arg.OdDate,
+		arg.Section,
+		arg.ActorUserID,
 		arg.ViewerID,
 	)
 	var column_1 int64
@@ -130,6 +201,29 @@ func (q *Queries) CountMarksForCategory(ctx context.Context, arg CountMarksForCa
 	var i CountMarksForCategoryRow
 	err := row.Scan(&i.CategoryTotal, &i.Mine)
 	return i, err
+}
+
+const countODRecordsForStudent = `-- name: CountODRecordsForStudent :one
+SELECT count(*)::bigint
+FROM od_records r
+JOIN students s ON s.id = r.student_id
+WHERE r.student_id = $1
+  AND ($2::uuid IS NULL OR EXISTS (
+      SELECT 1 FROM user_branches ub
+      WHERE ub.user_id = $2 AND ub.branch_id = s.branch_id
+  ))
+`
+
+type CountODRecordsForStudentParams struct {
+	StudentID pgtype.UUID `json:"student_id"`
+	ViewerID  pgtype.UUID `json:"viewer_id"`
+}
+
+func (q *Queries) CountODRecordsForStudent(ctx context.Context, arg CountODRecordsForStudentParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countODRecordsForStudent, arg.StudentID, arg.ViewerID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const getMarkCategoryForEvent = `-- name: GetMarkCategoryForEvent :one
@@ -218,6 +312,53 @@ func (q *Queries) GetMarkStudentByID(ctx context.Context, studentID pgtype.UUID)
 	return i, err
 }
 
+const getODRecordByID = `-- name: GetODRecordByID :one
+SELECT
+    r.id, r.student_id, s.branch_id, r.event_id, r.category_id, r.slot, r.od_date,
+    r.status, r.capture_method, r.actor_user_id, r.actor_role, r.reason_note,
+    r.server_received_at
+FROM od_records r
+JOIN students s ON s.id = r.student_id
+WHERE r.id = $1
+`
+
+type GetODRecordByIDRow struct {
+	ID               pgtype.UUID        `json:"id"`
+	StudentID        pgtype.UUID        `json:"student_id"`
+	BranchID         pgtype.UUID        `json:"branch_id"`
+	EventID          pgtype.UUID        `json:"event_id"`
+	CategoryID       pgtype.UUID        `json:"category_id"`
+	Slot             int32              `json:"slot"`
+	OdDate           pgtype.Date        `json:"od_date"`
+	Status           string             `json:"status"`
+	CaptureMethod    string             `json:"capture_method"`
+	ActorUserID      pgtype.UUID        `json:"actor_user_id"`
+	ActorRole        string             `json:"actor_role"`
+	ReasonNote       pgtype.Text        `json:"reason_note"`
+	ServerReceivedAt pgtype.Timestamptz `json:"server_received_at"`
+}
+
+func (q *Queries) GetODRecordByID(ctx context.Context, id pgtype.UUID) (GetODRecordByIDRow, error) {
+	row := q.db.QueryRow(ctx, getODRecordByID, id)
+	var i GetODRecordByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.StudentID,
+		&i.BranchID,
+		&i.EventID,
+		&i.CategoryID,
+		&i.Slot,
+		&i.OdDate,
+		&i.Status,
+		&i.CaptureMethod,
+		&i.ActorUserID,
+		&i.ActorRole,
+		&i.ReasonNote,
+		&i.ServerReceivedAt,
+	)
+	return i, err
+}
+
 const insertODPresentRecord = `-- name: InsertODPresentRecord :one
 INSERT INTO od_records (
     student_id,
@@ -225,6 +366,7 @@ INSERT INTO od_records (
     category_id,
     slot,
     od_date,
+    reason_note,
     capture_method,
     actor_user_id,
     actor_role,
@@ -238,9 +380,10 @@ INSERT INTO od_records (
     $6,
     $7,
     $8,
-    $9
+    $9,
+    $10
 )
-RETURNING id, student_id, event_id, category_id, slot, od_date, capture_method, server_received_at
+RETURNING id, student_id, event_id, category_id, slot, od_date, reason_note, capture_method, server_received_at
 `
 
 type InsertODPresentRecordParams struct {
@@ -249,6 +392,7 @@ type InsertODPresentRecordParams struct {
 	CategoryID       pgtype.UUID        `json:"category_id"`
 	Slot             int32              `json:"slot"`
 	OdDate           pgtype.Date        `json:"od_date"`
+	ReasonNote       pgtype.Text        `json:"reason_note"`
 	CaptureMethod    string             `json:"capture_method"`
 	ActorUserID      pgtype.UUID        `json:"actor_user_id"`
 	ActorRole        string             `json:"actor_role"`
@@ -262,6 +406,7 @@ type InsertODPresentRecordRow struct {
 	CategoryID       pgtype.UUID        `json:"category_id"`
 	Slot             int32              `json:"slot"`
 	OdDate           pgtype.Date        `json:"od_date"`
+	ReasonNote       pgtype.Text        `json:"reason_note"`
 	CaptureMethod    string             `json:"capture_method"`
 	ServerReceivedAt pgtype.Timestamptz `json:"server_received_at"`
 }
@@ -275,6 +420,7 @@ func (q *Queries) InsertODPresentRecord(ctx context.Context, arg InsertODPresent
 		arg.CategoryID,
 		arg.Slot,
 		arg.OdDate,
+		arg.ReasonNote,
 		arg.CaptureMethod,
 		arg.ActorUserID,
 		arg.ActorRole,
@@ -288,6 +434,7 @@ func (q *Queries) InsertODPresentRecord(ctx context.Context, arg InsertODPresent
 		&i.CategoryID,
 		&i.Slot,
 		&i.OdDate,
+		&i.ReasonNote,
 		&i.CaptureMethod,
 		&i.ServerReceivedAt,
 	)
@@ -309,6 +456,8 @@ SELECT
     c.created_at AS category_created_at,
     r.slot,
     r.od_date,
+    r.status,
+    r.reason_note,
     r.capture_method,
     r.actor_user_id,
     u.email AS actor_email,
@@ -321,10 +470,11 @@ JOIN branches b ON b.id = s.branch_id
 JOIN categories c ON c.id = r.category_id
 LEFT JOIN users u ON u.id = r.actor_user_id
 WHERE r.event_id = $1
-  AND r.status = 'present'
   AND ($2::uuid IS NULL OR r.category_id = $2)
   AND ($3::integer IS NULL OR r.slot = $3)
   AND ($4::date IS NULL OR r.od_date = $4)
+  AND ($5::text IS NULL OR s.section = $5)
+  AND ($6::uuid IS NULL OR r.actor_user_id = $6)
   AND (
       -- BRANCH SCOPE. NULL means "no scoping", which is the admin view. A
       -- teacher passes their own id and sees only students in the branches they
@@ -335,26 +485,28 @@ WHERE r.event_id = $1
       -- One query with an optional predicate rather than two, so the admin and
       -- teacher views can never drift in their ordering, their filters or their
       -- definition of "present".
-      $5::uuid IS NULL
+      $7::uuid IS NULL
       OR EXISTS (
           SELECT 1
           FROM user_branches ub
-          WHERE ub.user_id = $5
+          WHERE ub.user_id = $7
             AND ub.branch_id = s.branch_id
       )
   )
 ORDER BY r.od_date DESC, r.slot ASC, r.server_received_at DESC, s.roll_no ASC, r.id ASC
-LIMIT $7::bigint OFFSET $6::bigint
+LIMIT $9::bigint OFFSET $8::bigint
 `
 
 type ListAttendanceRecordsParams struct {
-	EventID    pgtype.UUID `json:"event_id"`
-	CategoryID pgtype.UUID `json:"category_id"`
-	Slot       pgtype.Int4 `json:"slot"`
-	OdDate     pgtype.Date `json:"od_date"`
-	ViewerID   pgtype.UUID `json:"viewer_id"`
-	PageOffset int64       `json:"page_offset"`
-	PageSize   int64       `json:"page_size"`
+	EventID     pgtype.UUID `json:"event_id"`
+	CategoryID  pgtype.UUID `json:"category_id"`
+	Slot        pgtype.Int4 `json:"slot"`
+	OdDate      pgtype.Date `json:"od_date"`
+	Section     pgtype.Text `json:"section"`
+	ActorUserID pgtype.UUID `json:"actor_user_id"`
+	ViewerID    pgtype.UUID `json:"viewer_id"`
+	PageOffset  int64       `json:"page_offset"`
+	PageSize    int64       `json:"page_size"`
 }
 
 type ListAttendanceRecordsRow struct {
@@ -371,6 +523,8 @@ type ListAttendanceRecordsRow struct {
 	CategoryCreatedAt pgtype.Timestamptz `json:"category_created_at"`
 	Slot              int32              `json:"slot"`
 	OdDate            pgtype.Date        `json:"od_date"`
+	Status            string             `json:"status"`
+	ReasonNote        pgtype.Text        `json:"reason_note"`
 	CaptureMethod     string             `json:"capture_method"`
 	ActorUserID       pgtype.UUID        `json:"actor_user_id"`
 	ActorEmail        pgtype.Text        `json:"actor_email"`
@@ -385,6 +539,8 @@ func (q *Queries) ListAttendanceRecords(ctx context.Context, arg ListAttendanceR
 		arg.CategoryID,
 		arg.Slot,
 		arg.OdDate,
+		arg.Section,
+		arg.ActorUserID,
 		arg.ViewerID,
 		arg.PageOffset,
 		arg.PageSize,
@@ -410,6 +566,110 @@ func (q *Queries) ListAttendanceRecords(ctx context.Context, arg ListAttendanceR
 			&i.CategoryCreatedAt,
 			&i.Slot,
 			&i.OdDate,
+			&i.Status,
+			&i.ReasonNote,
+			&i.CaptureMethod,
+			&i.ActorUserID,
+			&i.ActorEmail,
+			&i.ActorName,
+			&i.ActorRole,
+			&i.ServerReceivedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listODRecordsForStudent = `-- name: ListODRecordsForStudent :many
+SELECT
+    r.id, r.student_id, s.roll_no, s.name AS student_name, b.code AS branch,
+    s.section, s.batch, r.event_id, e.name AS event_name, c.id AS category_id,
+    c.name AS category_name, c.created_at AS category_created_at, r.slot, r.od_date,
+    r.status, r.reason_note, r.capture_method, r.actor_user_id, u.email AS actor_email,
+    u.name AS actor_name, r.actor_role, r.server_received_at
+FROM od_records r
+JOIN students s ON s.id = r.student_id
+JOIN branches b ON b.id = s.branch_id
+JOIN events e ON e.id = r.event_id
+JOIN categories c ON c.id = r.category_id
+LEFT JOIN users u ON u.id = r.actor_user_id
+WHERE r.student_id = $1
+  AND ($2::uuid IS NULL OR EXISTS (
+      SELECT 1 FROM user_branches ub
+      WHERE ub.user_id = $2 AND ub.branch_id = s.branch_id
+  ))
+ORDER BY r.od_date DESC, r.slot ASC, r.server_received_at DESC, r.id ASC
+LIMIT $4::bigint OFFSET $3::bigint
+`
+
+type ListODRecordsForStudentParams struct {
+	StudentID  pgtype.UUID `json:"student_id"`
+	ViewerID   pgtype.UUID `json:"viewer_id"`
+	PageOffset int64       `json:"page_offset"`
+	PageSize   int64       `json:"page_size"`
+}
+
+type ListODRecordsForStudentRow struct {
+	ID                pgtype.UUID        `json:"id"`
+	StudentID         pgtype.UUID        `json:"student_id"`
+	RollNo            string             `json:"roll_no"`
+	StudentName       string             `json:"student_name"`
+	Branch            string             `json:"branch"`
+	Section           string             `json:"section"`
+	Batch             string             `json:"batch"`
+	EventID           pgtype.UUID        `json:"event_id"`
+	EventName         string             `json:"event_name"`
+	CategoryID        pgtype.UUID        `json:"category_id"`
+	CategoryName      string             `json:"category_name"`
+	CategoryCreatedAt pgtype.Timestamptz `json:"category_created_at"`
+	Slot              int32              `json:"slot"`
+	OdDate            pgtype.Date        `json:"od_date"`
+	Status            string             `json:"status"`
+	ReasonNote        pgtype.Text        `json:"reason_note"`
+	CaptureMethod     string             `json:"capture_method"`
+	ActorUserID       pgtype.UUID        `json:"actor_user_id"`
+	ActorEmail        pgtype.Text        `json:"actor_email"`
+	ActorName         pgtype.Text        `json:"actor_name"`
+	ActorRole         string             `json:"actor_role"`
+	ServerReceivedAt  pgtype.Timestamptz `json:"server_received_at"`
+}
+
+func (q *Queries) ListODRecordsForStudent(ctx context.Context, arg ListODRecordsForStudentParams) ([]ListODRecordsForStudentRow, error) {
+	rows, err := q.db.Query(ctx, listODRecordsForStudent,
+		arg.StudentID,
+		arg.ViewerID,
+		arg.PageOffset,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListODRecordsForStudentRow
+	for rows.Next() {
+		var i ListODRecordsForStudentRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.StudentID,
+			&i.RollNo,
+			&i.StudentName,
+			&i.Branch,
+			&i.Section,
+			&i.Batch,
+			&i.EventID,
+			&i.EventName,
+			&i.CategoryID,
+			&i.CategoryName,
+			&i.CategoryCreatedAt,
+			&i.Slot,
+			&i.OdDate,
+			&i.Status,
+			&i.ReasonNote,
 			&i.CaptureMethod,
 			&i.ActorUserID,
 			&i.ActorEmail,
@@ -535,6 +795,137 @@ func (q *Queries) ListPublicStudentODRecords(ctx context.Context, arg ListPublic
 	return items, nil
 }
 
+const lockODRecordByID = `-- name: LockODRecordByID :one
+SELECT
+    r.id, r.student_id, s.branch_id, r.event_id, r.category_id, r.slot, r.od_date,
+    r.status, r.capture_method, r.actor_user_id, r.actor_role, r.reason_note,
+    r.server_received_at
+FROM od_records r
+JOIN students s ON s.id = r.student_id
+WHERE r.id = $1
+FOR UPDATE OF r
+`
+
+type LockODRecordByIDRow struct {
+	ID               pgtype.UUID        `json:"id"`
+	StudentID        pgtype.UUID        `json:"student_id"`
+	BranchID         pgtype.UUID        `json:"branch_id"`
+	EventID          pgtype.UUID        `json:"event_id"`
+	CategoryID       pgtype.UUID        `json:"category_id"`
+	Slot             int32              `json:"slot"`
+	OdDate           pgtype.Date        `json:"od_date"`
+	Status           string             `json:"status"`
+	CaptureMethod    string             `json:"capture_method"`
+	ActorUserID      pgtype.UUID        `json:"actor_user_id"`
+	ActorRole        string             `json:"actor_role"`
+	ReasonNote       pgtype.Text        `json:"reason_note"`
+	ServerReceivedAt pgtype.Timestamptz `json:"server_received_at"`
+}
+
+// Mutation paths take this row lock before deriving their audit snapshot. The
+// correction/removal and its previous-value ledger entry must describe the
+// same version of the record even when two administrators act concurrently.
+func (q *Queries) LockODRecordByID(ctx context.Context, id pgtype.UUID) (LockODRecordByIDRow, error) {
+	row := q.db.QueryRow(ctx, lockODRecordByID, id)
+	var i LockODRecordByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.StudentID,
+		&i.BranchID,
+		&i.EventID,
+		&i.CategoryID,
+		&i.Slot,
+		&i.OdDate,
+		&i.Status,
+		&i.CaptureMethod,
+		&i.ActorUserID,
+		&i.ActorRole,
+		&i.ReasonNote,
+		&i.ServerReceivedAt,
+	)
+	return i, err
+}
+
+const removeODRecord = `-- name: RemoveODRecord :one
+UPDATE od_records
+SET status = 'removed',
+    reason_note = $1,
+    actor_user_id = $2,
+    actor_role = $3
+WHERE id = $4 AND status = 'present'
+RETURNING id, student_id, event_id, category_id, slot, od_date, status, capture_method,
+          actor_user_id, actor_role, reason_note, server_received_at
+`
+
+type RemoveODRecordParams struct {
+	ReasonNote  pgtype.Text `json:"reason_note"`
+	ActorUserID pgtype.UUID `json:"actor_user_id"`
+	ActorRole   string      `json:"actor_role"`
+	ID          pgtype.UUID `json:"id"`
+}
+
+type RemoveODRecordRow struct {
+	ID               pgtype.UUID        `json:"id"`
+	StudentID        pgtype.UUID        `json:"student_id"`
+	EventID          pgtype.UUID        `json:"event_id"`
+	CategoryID       pgtype.UUID        `json:"category_id"`
+	Slot             int32              `json:"slot"`
+	OdDate           pgtype.Date        `json:"od_date"`
+	Status           string             `json:"status"`
+	CaptureMethod    string             `json:"capture_method"`
+	ActorUserID      pgtype.UUID        `json:"actor_user_id"`
+	ActorRole        string             `json:"actor_role"`
+	ReasonNote       pgtype.Text        `json:"reason_note"`
+	ServerReceivedAt pgtype.Timestamptz `json:"server_received_at"`
+}
+
+func (q *Queries) RemoveODRecord(ctx context.Context, arg RemoveODRecordParams) (RemoveODRecordRow, error) {
+	row := q.db.QueryRow(ctx, removeODRecord,
+		arg.ReasonNote,
+		arg.ActorUserID,
+		arg.ActorRole,
+		arg.ID,
+	)
+	var i RemoveODRecordRow
+	err := row.Scan(
+		&i.ID,
+		&i.StudentID,
+		&i.EventID,
+		&i.CategoryID,
+		&i.Slot,
+		&i.OdDate,
+		&i.Status,
+		&i.CaptureMethod,
+		&i.ActorUserID,
+		&i.ActorRole,
+		&i.ReasonNote,
+		&i.ServerReceivedAt,
+	)
+	return i, err
+}
+
+const teacherCanManageODRecord = `-- name: TeacherCanManageODRecord :one
+SELECT EXISTS (
+    SELECT 1
+    FROM od_records r
+    JOIN students s ON s.id = r.student_id
+    JOIN user_branches ub ON ub.branch_id = s.branch_id AND ub.user_id = $1
+    WHERE r.id = $2
+)::boolean
+`
+
+type TeacherCanManageODRecordParams struct {
+	UserID   pgtype.UUID `json:"user_id"`
+	RecordID pgtype.UUID `json:"record_id"`
+}
+
+func (q *Queries) TeacherCanManageODRecord(ctx context.Context, arg TeacherCanManageODRecordParams) (bool, error) {
+	row := q.db.QueryRow(ctx, teacherCanManageODRecord, arg.UserID, arg.RecordID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const teacherCanSearchMark = `-- name: TeacherCanSearchMark :one
 SELECT EXISTS (
     SELECT 1
@@ -561,6 +952,27 @@ func (q *Queries) TeacherCanSearchMark(ctx context.Context, arg TeacherCanSearch
 		arg.CategoryID,
 		arg.StudentID,
 	)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const teacherCanViewStudentODHistory = `-- name: TeacherCanViewStudentODHistory :one
+SELECT EXISTS (
+    SELECT 1
+    FROM students s
+    JOIN user_branches ub ON ub.branch_id = s.branch_id AND ub.user_id = $1
+    WHERE s.id = $2
+)::boolean
+`
+
+type TeacherCanViewStudentODHistoryParams struct {
+	UserID    pgtype.UUID `json:"user_id"`
+	StudentID pgtype.UUID `json:"student_id"`
+}
+
+func (q *Queries) TeacherCanViewStudentODHistory(ctx context.Context, arg TeacherCanViewStudentODHistoryParams) (bool, error) {
+	row := q.db.QueryRow(ctx, teacherCanViewStudentODHistory, arg.UserID, arg.StudentID)
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err

@@ -98,10 +98,13 @@ async function installRecordManagementRoutes(page: import('@playwright/test').Pa
     // Existing add reads. Keep the stub narrow so unexpected calls reveal
     // integration drift instead of making an accidental screen pass.
     if (url.pathname.endsWith('/portal/mark/events')) {
-      return json(route, { data: [{ event_id: eventID, name: 'Onam Celebrations', event_date: '2026-08-09' }] })
+      return json(route, { data: [{ id: eventID, name: 'Onam Celebrations', event_date: '2026-08-09' }] })
     }
     if (url.pathname.includes('/portal/mark/events/') && url.pathname.endsWith('/categories')) {
-      return json(route, { data: [{ category_id: categoryID, name: 'Exception Desk' }] })
+      return json(route, { data: [
+        { id: categoryID, event_id: eventID, name: 'Exception Desk' },
+        { id: '94000000-0000-4000-8000-000000000099', event_id: eventID, name: 'Volunteer help' },
+      ] })
     }
     if (url.pathname.endsWith('/students/search')) {
       return json(route, { data: [{ student_id: studentID, roll_no: 'CB.SC.U4CSE24101', display_name: 'Ananya Rao' }] })
@@ -110,6 +113,7 @@ async function installRecordManagementRoutes(page: import('@playwright/test').Pa
       seen.manualAdds.push(request.postDataJSON())
       return json(route, {
         record_id: recordID,
+        student: { student_id: studentID, roll_no: 'CB.SC.U4CSE24101', display_name: 'Ananya Rao', branch: 'CSE', section: 'A', batch: '2024' },
         event_id: eventID,
         category_id: categoryID,
         slot: 6,
@@ -167,7 +171,7 @@ async function installRecordManagementRoutes(page: import('@playwright/test').Pa
 }
 
 test.describe('teacher/admin OD record management (ATDD red phase)', () => {
-  test.skip('[P0] a teacher cannot manually add a search mark without a reason note, then submits one with the note', async ({ page }) => {
+  test('[P0] a teacher cannot manually add a search mark without a reason note, then submits one with the note', async ({ page }) => {
     const { seen } = await installRecordManagementRoutes(page)
 
     await page.goto('/portal/mark')
@@ -184,9 +188,7 @@ test.describe('teacher/admin OD record management (ATDD red phase)', () => {
     const reasonNote = form.getByLabel(/reason note/i)
     await expect(reasonNote).toBeVisible()
     await reasonNote.fill('')
-    await form.getByRole('button', { name: /mark present/i }).click()
-
-    await expect(form.getByText(/reason note.*required|required.*reason note/i)).toBeVisible()
+    await expect(form.getByRole('button', { name: /mark present/i })).toBeDisabled()
     expect(seen.manualAdds).toHaveLength(0)
 
     await reasonNote.fill('ID card left at hostel')
@@ -202,7 +204,7 @@ test.describe('teacher/admin OD record management (ATDD red phase)', () => {
     expect(seen.manualAdds[0]).toMatchObject({ reason_note: 'ID card left at hostel' })
   })
 
-  test.skip('[P1] a teacher filters records, corrects a record, then removes it with auditable reasons', async ({ page }) => {
+  test('[P1] a teacher filters records, corrects a record, then removes it with auditable reasons', async ({ page }) => {
     const { seen } = await installRecordManagementRoutes(page)
 
     const initialRecords = page.waitForResponse((response) =>
@@ -259,7 +261,7 @@ test.describe('teacher/admin OD record management (ATDD red phase)', () => {
     expect(seen.recordListQueries.some((query) => query.searchParams.get('section') === 'A')).toBe(true)
   })
 
-  test.skip('[P1] a removed record is absent from the public attendance dashboard', async ({ page }) => {
+  test('[P1] a removed record is absent from the public attendance dashboard', async ({ page }) => {
     const { state } = await installRecordManagementRoutes(page)
     // The removal write is seeded at the API boundary for this focused public
     // assertion; the preceding test exercises the portal UI action itself.

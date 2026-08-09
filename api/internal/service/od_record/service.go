@@ -52,6 +52,7 @@ type MarkInput struct {
 	StudentID     *string
 	Card          *CardInput
 	Slot          *int
+	ReasonNote    *string
 }
 
 type Event struct {
@@ -91,6 +92,7 @@ type RecordInput struct {
 	CaptureMethod    CaptureMethod
 	ActorUserID      string
 	ActorRole        string
+	ReasonNote       *string
 	ServerReceivedAt time.Time
 }
 
@@ -102,6 +104,7 @@ type MarkResult struct {
 	Slot             int
 	ODDate           time.Time
 	CaptureMethod    CaptureMethod
+	ReasonNote       *string
 	ServerReceivedAt time.Time
 }
 
@@ -197,6 +200,20 @@ func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkR
 	if !validCaptureMethod(input.CaptureMethod) {
 		return MarkResult{}, validation("capture_method", "unsupported", "capture_method must be one of nfc, camera, or search.")
 	}
+	// Scoped to capture_method == search: nfc/camera marks stay note-free
+	// regardless of role (AC 2) — a teacher/admin nfc/camera request is rejected
+	// downstream by slotFor's capture-method check, not by a note requirement
+	// that was never the actual reason for the rejection.
+	if actor.Role != "coordinator" && input.CaptureMethod == CaptureMethodSearch {
+		if input.ReasonNote == nil || strings.TrimSpace(*input.ReasonNote) == "" {
+			return MarkResult{}, validation("reason_note", "required", "reason_note is required for teacher and admin marks.")
+		}
+		trimmed := strings.TrimSpace(*input.ReasonNote)
+		if len([]rune(trimmed)) > 2000 {
+			return MarkResult{}, validation("reason_note", "max_length", "reason_note must not exceed 2000 characters.")
+		}
+		input.ReasonNote = &trimmed
+	}
 	if err := validateIdentityCapturePair(input); err != nil {
 		return MarkResult{}, err
 	}
@@ -281,6 +298,7 @@ func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkR
 		CaptureMethod:    input.CaptureMethod,
 		ActorUserID:      actor.UserID,
 		ActorRole:        actor.Role,
+		ReasonNote:       input.ReasonNote,
 		ServerReceivedAt: serverReceivedAt,
 	}
 	result, err := s.writePresent(ctx, actor, record)
@@ -445,6 +463,7 @@ func (s *Service) writePresent(ctx context.Context, actor Actor, record RecordIn
 			"slot":               record.Slot,
 			"od_date":            record.ODDate.Format("2006-01-02"),
 			"capture_method":     string(record.CaptureMethod),
+			"reason_note":        record.ReasonNote,
 			"actor_user_id":      actor.UserID,
 			"actor_email":        actorAccount,
 			"actor_role":         actor.Role,

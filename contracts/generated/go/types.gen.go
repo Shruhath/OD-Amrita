@@ -37,6 +37,24 @@ func (e AttendanceRecordActorRole) Valid() bool {
 	}
 }
 
+// Defines values for AttendanceRecordStatus.
+const (
+	AttendanceRecordStatusPresent AttendanceRecordStatus = "present"
+	AttendanceRecordStatusRemoved AttendanceRecordStatus = "removed"
+)
+
+// Valid indicates whether the value is a known member of the AttendanceRecordStatus enum.
+func (e AttendanceRecordStatus) Valid() bool {
+	switch e {
+	case AttendanceRecordStatusPresent:
+		return true
+	case AttendanceRecordStatusRemoved:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AuthenticatedIdentityRole.
 const (
 	AuthenticatedIdentityRoleAdmin       AuthenticatedIdentityRole = "admin"
@@ -116,6 +134,8 @@ const (
 	ErrorCodeEVENTNOTFOUND               ErrorCode = "EVENT_NOT_FOUND"
 	ErrorCodeINTERNAL                    ErrorCode = "INTERNAL"
 	ErrorCodeINVALIDSCANID               ErrorCode = "INVALID_SCAN_ID"
+	ErrorCodeODRECORDALREADYREMOVED      ErrorCode = "OD_RECORD_ALREADY_REMOVED"
+	ErrorCodeODRECORDNOTFOUND            ErrorCode = "OD_RECORD_NOT_FOUND"
 	ErrorCodeQRLIMITREACHED              ErrorCode = "QR_LIMIT_REACHED"
 	ErrorCodeRATELIMITED                 ErrorCode = "RATE_LIMITED"
 	ErrorCodeRBACFORBIDDEN               ErrorCode = "RBAC_FORBIDDEN"
@@ -157,6 +177,10 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeINTERNAL:
 		return true
 	case ErrorCodeINVALIDSCANID:
+		return true
+	case ErrorCodeODRECORDALREADYREMOVED:
+		return true
+	case ErrorCodeODRECORDNOTFOUND:
 		return true
 	case ErrorCodeQRLIMITREACHED:
 		return true
@@ -250,6 +274,45 @@ func (e MarkAttendanceRequestCaptureMethod) Valid() bool {
 	case MarkAttendanceRequestCaptureMethodNfc:
 		return true
 	case MarkAttendanceRequestCaptureMethodSearch:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ODRecordMutationResultActorRole.
+const (
+	ODRecordMutationResultActorRoleAdmin       ODRecordMutationResultActorRole = "admin"
+	ODRecordMutationResultActorRoleCoordinator ODRecordMutationResultActorRole = "coordinator"
+	ODRecordMutationResultActorRoleTeacher     ODRecordMutationResultActorRole = "teacher"
+)
+
+// Valid indicates whether the value is a known member of the ODRecordMutationResultActorRole enum.
+func (e ODRecordMutationResultActorRole) Valid() bool {
+	switch e {
+	case ODRecordMutationResultActorRoleAdmin:
+		return true
+	case ODRecordMutationResultActorRoleCoordinator:
+		return true
+	case ODRecordMutationResultActorRoleTeacher:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ODRecordMutationResultStatus.
+const (
+	ODRecordMutationResultStatusPresent ODRecordMutationResultStatus = "present"
+	ODRecordMutationResultStatusRemoved ODRecordMutationResultStatus = "removed"
+)
+
+// Valid indicates whether the value is a known member of the ODRecordMutationResultStatus enum.
+func (e ODRecordMutationResultStatus) Valid() bool {
+	switch e {
+	case ODRecordMutationResultStatusPresent:
+		return true
+	case ODRecordMutationResultStatusRemoved:
 		return true
 	default:
 		return false
@@ -429,15 +492,20 @@ type AttendanceRecord struct {
 	MarkedBy AttendanceActor `json:"marked_by"`
 
 	// OdDate The day this OD belongs to. Without it a thirty-day event's list interleaves thirty days of the same slot with nothing on screen distinguishing them.
-	OdDate           openapi_types.Date `json:"od_date"`
-	RecordId         openapi_types.UUID `json:"record_id"`
-	ServerReceivedAt time.Time          `json:"server_received_at"`
-	Slot             int                `json:"slot"`
-	Student          MarkedStudent      `json:"student"`
+	OdDate           openapi_types.Date     `json:"od_date"`
+	ReasonNote       *string                `json:"reason_note,omitempty"`
+	RecordId         openapi_types.UUID     `json:"record_id"`
+	ServerReceivedAt time.Time              `json:"server_received_at"`
+	Slot             int                    `json:"slot"`
+	Status           AttendanceRecordStatus `json:"status"`
+	Student          MarkedStudent          `json:"student"`
 }
 
 // AttendanceRecordActorRole defines model for AttendanceRecord.ActorRole.
 type AttendanceRecordActorRole string
+
+// AttendanceRecordStatus defines model for AttendanceRecord.Status.
+type AttendanceRecordStatus string
 
 // AttendanceRecordCollection defines model for AttendanceRecordCollection.
 type AttendanceRecordCollection struct {
@@ -445,6 +513,20 @@ type AttendanceRecordCollection struct {
 	Page     int                `json:"page"`
 	PageSize int                `json:"page_size"`
 	Total    int                `json:"total"`
+}
+
+// AuditLogEntry defines model for AuditLogEntry.
+type AuditLogEntry struct {
+	Action     string                  `json:"action"`
+	ActorEmail *openapi_types.Email    `json:"actor_email"`
+	ActorRole  *string                 `json:"actor_role"`
+	OccurredAt time.Time               `json:"occurred_at"`
+	Payload    *map[string]interface{} `json:"payload"`
+}
+
+// AuditLogEntryCollection defines model for AuditLogEntryCollection.
+type AuditLogEntryCollection struct {
+	Data []AuditLogEntry `json:"data"`
 }
 
 // AuthenticatedIdentity Identity claims verified from the Supabase JWT and accepted by the backend amrita.edu domain-family gate.
@@ -702,9 +784,12 @@ type MarkAttendanceRequest struct {
 	Card          *CardTokenResolveRequest           `json:"card,omitempty"`
 	CategoryId    openapi_types.UUID                 `json:"category_id"`
 	EventId       openapi_types.UUID                 `json:"event_id"`
-	Slot          *int                               `json:"slot,omitempty"`
-	StudentId     *openapi_types.UUID                `json:"student_id,omitempty"`
-	union         json.RawMessage
+
+	// ReasonNote Required for teacher/admin manual search marks; optional for coordinator capture.
+	ReasonNote *string             `json:"reason_note,omitempty"`
+	Slot       *int                `json:"slot,omitempty"`
+	StudentId  *openapi_types.UUID `json:"student_id,omitempty"`
+	union      json.RawMessage
 }
 
 // MarkAttendanceRequestCaptureMethod defines model for MarkAttendanceRequest.CaptureMethod.
@@ -725,6 +810,8 @@ type MarkAttendanceResult struct {
 	CaptureMethod    CaptureMethod      `json:"capture_method"`
 	CategoryId       openapi_types.UUID `json:"category_id"`
 	EventId          openapi_types.UUID `json:"event_id"`
+	OdDate           openapi_types.Date `json:"od_date"`
+	ReasonNote       *string            `json:"reason_note,omitempty"`
 	RecordId         openapi_types.UUID `json:"record_id"`
 	ServerReceivedAt time.Time          `json:"server_received_at"`
 	Slot             int                `json:"slot"`
@@ -766,6 +853,37 @@ type MarkedStudent struct {
 	Section     string             `json:"section"`
 	StudentId   openapi_types.UUID `json:"student_id"`
 }
+
+// ODRecordHistoryCollection defines model for ODRecordHistoryCollection.
+type ODRecordHistoryCollection struct {
+	Data     []AttendanceRecord `json:"data"`
+	Page     int                `json:"page"`
+	PageSize int                `json:"page_size"`
+	Total    int                `json:"total"`
+}
+
+// ODRecordMutationResult defines model for ODRecordMutationResult.
+type ODRecordMutationResult struct {
+	ActorRole ODRecordMutationResultActorRole `json:"actor_role"`
+	Category  struct {
+		Id openapi_types.UUID `json:"id"`
+	} `json:"category"`
+	EventId openapi_types.UUID `json:"event_id"`
+
+	// MarkedBy Actor display snapshot for an OD record. All fields are required but nullable so records remain renderable after the referenced user row is removed through ON DELETE SET NULL.
+	MarkedBy   AttendanceActor              `json:"marked_by"`
+	OdDate     openapi_types.Date           `json:"od_date"`
+	ReasonNote *string                      `json:"reason_note"`
+	RecordId   openapi_types.UUID           `json:"record_id"`
+	Slot       int                          `json:"slot"`
+	Status     ODRecordMutationResultStatus `json:"status"`
+}
+
+// ODRecordMutationResultActorRole defines model for ODRecordMutationResult.ActorRole.
+type ODRecordMutationResultActorRole string
+
+// ODRecordMutationResultStatus defines model for ODRecordMutationResult.Status.
+type ODRecordMutationResultStatus string
 
 // PublicDisputeReceipt Public creation receipt. It proves server-side roster auto-population by returning the resolved public student display shape, but deliberately never echoes submitted_email, user ids, card material, dispute content or resolution fields.
 type PublicDisputeReceipt struct {
@@ -881,6 +999,19 @@ type PublicStudent struct {
 // PublicStudentSearchResults The unauthenticated roster search read. Unpaginated and capped server-side at 10 results; there is no caller-supplied `limit`.
 type PublicStudentSearchResults struct {
 	Data []PublicStudent `json:"data"`
+}
+
+// RecordCorrectionRequest defines model for RecordCorrectionRequest.
+type RecordCorrectionRequest struct {
+	CategoryId *openapi_types.UUID `json:"category_id,omitempty"`
+	OdDate     *openapi_types.Date `json:"od_date,omitempty"`
+	ReasonNote string              `json:"reason_note"`
+	Slot       *int                `json:"slot,omitempty"`
+}
+
+// RecordRemovalRequest defines model for RecordRemovalRequest.
+type RecordRemovalRequest struct {
+	ReasonNote string `json:"reason_note"`
 }
 
 // ResolvedCardStudent defines model for ResolvedCardStudent.
@@ -1120,6 +1251,17 @@ type GetMarkStatusParams struct {
 	CategoryId openapi_types.UUID `form:"category_id" json:"category_id"`
 }
 
+// ListPortalODRecordsParams defines parameters for ListPortalODRecords.
+type ListPortalODRecordsParams struct {
+	CategoryId  *openapi_types.UUID `form:"category_id,omitempty" json:"category_id,omitempty"`
+	Slot        *int                `form:"slot,omitempty" json:"slot,omitempty"`
+	OdDate      *openapi_types.Date `form:"od_date,omitempty" json:"od_date,omitempty"`
+	Section     *string             `form:"section,omitempty" json:"section,omitempty"`
+	ActorUserId *openapi_types.UUID `form:"actor_user_id,omitempty" json:"actor_user_id,omitempty"`
+	Page        *int                `form:"page,omitempty" json:"page,omitempty"`
+	PageSize    *int                `form:"page_size,omitempty" json:"page_size,omitempty"`
+}
+
 // ListPortalMarkEventsParams defines parameters for ListPortalMarkEvents.
 type ListPortalMarkEventsParams struct {
 	Page     *int `form:"page,omitempty" json:"page,omitempty"`
@@ -1135,6 +1277,12 @@ type ListPortalMarkEventAttendanceParams struct {
 	OdDate   *openapi_types.Date `form:"od_date,omitempty" json:"od_date,omitempty"`
 	Page     *int                `form:"page,omitempty" json:"page,omitempty"`
 	PageSize *int                `form:"page_size,omitempty" json:"page_size,omitempty"`
+}
+
+// ListStudentODRecordHistoryParams defines parameters for ListStudentODRecordHistory.
+type ListStudentODRecordHistoryParams struct {
+	Page     *int `form:"page,omitempty" json:"page,omitempty"`
+	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
 // SubmitPublicDispute400JSONResponseBody defines parameters for SubmitPublicDispute.
@@ -1186,6 +1334,12 @@ type ResolveDisputeJSONRequestBody = DisputeResolutionRequest
 
 // MarkAttendanceJSONRequestBody defines body for MarkAttendance for application/json ContentType.
 type MarkAttendanceJSONRequestBody = MarkAttendanceRequest
+
+// CorrectODRecordJSONRequestBody defines body for CorrectODRecord for application/json ContentType.
+type CorrectODRecordJSONRequestBody = RecordCorrectionRequest
+
+// RemoveODRecordJSONRequestBody defines body for RemoveODRecord for application/json ContentType.
+type RemoveODRecordJSONRequestBody = RecordRemovalRequest
 
 // SubmitPublicDisputeJSONRequestBody defines body for SubmitPublicDispute for application/json ContentType.
 type SubmitPublicDisputeJSONRequestBody = PublicDisputeRequest
@@ -1280,6 +1434,13 @@ func (t MarkAttendanceRequest) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("error marshaling 'event_id': %w", err)
 	}
 
+	if t.ReasonNote != nil {
+		object["reason_note"], err = json.Marshal(t.ReasonNote)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'reason_note': %w", err)
+		}
+	}
+
 	if t.Slot != nil {
 		object["slot"], err = json.Marshal(t.Slot)
 		if err != nil {
@@ -1333,6 +1494,13 @@ func (t *MarkAttendanceRequest) UnmarshalJSON(b []byte) error {
 		err = json.Unmarshal(raw, &t.EventId)
 		if err != nil {
 			return fmt.Errorf("error reading 'event_id': %w", err)
+		}
+	}
+
+	if raw, found := object["reason_note"]; found {
+		err = json.Unmarshal(raw, &t.ReasonNote)
+		if err != nil {
+			return fmt.Errorf("error reading 'reason_note': %w", err)
 		}
 	}
 

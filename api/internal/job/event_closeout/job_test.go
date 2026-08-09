@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/riverqueue/river"
 	closeoutsvc "github.com/Shruhath/OD-Amrita/api/internal/service/eventcloseout"
+	"github.com/riverqueue/river"
 )
 
 func TestWorkerRejectsIncompleteRuntime(t *testing.T) {

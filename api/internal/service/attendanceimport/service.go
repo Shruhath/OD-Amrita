@@ -44,16 +44,16 @@ type CreateInput struct {
 }
 
 type Import struct {
-	ID             uuid.UUID `json:"id"`
-	EventID        uuid.UUID `json:"event_id"`
-	Status         string    `json:"status"`
-	TotalRows      int       `json:"total_rows"`
-	ProcessedRows  int       `json:"processed_rows"`
-	AcceptedRows   int       `json:"accepted_rows"`
-	DuplicateRows  int       `json:"duplicate_rows"`
-	InvalidRows    int       `json:"invalid_rows"`
-	ErrorSummary   *string   `json:"error_summary,omitempty"`
-	Errors         []RowError `json:"errors,omitempty"`
+	ID            uuid.UUID  `json:"id"`
+	EventID       uuid.UUID  `json:"event_id"`
+	Status        string     `json:"status"`
+	TotalRows     int        `json:"total_rows"`
+	ProcessedRows int        `json:"processed_rows"`
+	AcceptedRows  int        `json:"accepted_rows"`
+	DuplicateRows int        `json:"duplicate_rows"`
+	InvalidRows   int        `json:"invalid_rows"`
+	ErrorSummary  *string    `json:"error_summary,omitempty"`
+	Errors        []RowError `json:"errors,omitempty"`
 }
 
 type RowError struct {
@@ -71,8 +71,8 @@ type Args struct {
 func (Args) Kind() string { return "attendance_import" }
 
 type Service struct {
-	pool  *pgxpool.Pool
-	audit *store.Store
+	pool   *pgxpool.Pool
+	audit  *store.Store
 	client *river.Client[pgx.Tx]
 }
 

@@ -19,11 +19,11 @@ var ErrRunAlreadyComplete = errors.New("reconciliation: run already complete")
 type RunStatus string
 
 const (
-	StatusQueued             RunStatus = "queued"
-	StatusRunning           RunStatus = "running"
-	StatusCompleted         RunStatus = "completed"
-	StatusCompletedIssues   RunStatus = "completed_with_issues"
-	StatusFailed            RunStatus = "failed"
+	StatusQueued          RunStatus = "queued"
+	StatusRunning         RunStatus = "running"
+	StatusCompleted       RunStatus = "completed"
+	StatusCompletedIssues RunStatus = "completed_with_issues"
+	StatusFailed          RunStatus = "failed"
 )
 
 type Summary struct {

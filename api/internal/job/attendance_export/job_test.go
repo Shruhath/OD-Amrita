@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/riverqueue/river"
 	exportsvc "github.com/Shruhath/OD-Amrita/api/internal/service/attendanceexport"
+	"github.com/riverqueue/river"
 )
 
 func TestWorkerRejectsIncompleteRuntime(t *testing.T) {

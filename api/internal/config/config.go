@@ -19,11 +19,11 @@ type TLS struct {
 	// Enabled serves TLS directly. False is only for ingress-terminated
 	// deployments where the platform enforces TLS (and must also reject, not
 	// redirect, plain HTTP).
-	Enabled    bool
+	Enabled                 bool
 	TrustedProxyTermination bool
-	MinVersion string // "1.2" (default) or "1.3"
-	CertFile   string
-	KeyFile    string
+	MinVersion              string // "1.2" (default) or "1.3"
+	CertFile                string
+	KeyFile                 string
 }
 
 // Auth holds Supabase-brokered Microsoft OAuth settings. The backend verifies
@@ -130,11 +130,11 @@ func Load() (*Config, error) {
 		DatabaseURLRuntime:   os.Getenv("DATABASE_URL_RUNTIME"),
 		PortalAllowedOrigins: parseList(os.Getenv("PORTAL_ALLOWED_ORIGINS")),
 		TLS: TLS{
-			Enabled:    tlsEnabled,
+			Enabled:                 tlsEnabled,
 			TrustedProxyTermination: trustedProxyTermination,
-			MinVersion: getenvDefault("TLS_MIN_VERSION", "1.2"),
-			CertFile:   os.Getenv("TLS_CERT_FILE"),
-			KeyFile:    os.Getenv("TLS_KEY_FILE"),
+			MinVersion:              getenvDefault("TLS_MIN_VERSION", "1.2"),
+			CertFile:                os.Getenv("TLS_CERT_FILE"),
+			KeyFile:                 os.Getenv("TLS_KEY_FILE"),
 		},
 		Auth: Auth{
 			JWKSURL: os.Getenv("AUTH_JWKS_URL"),

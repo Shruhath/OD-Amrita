@@ -30,12 +30,12 @@ type Actor struct {
 }
 
 type Export struct {
-	ID            uuid.UUID `json:"id"`
-	EventID       uuid.UUID `json:"event_id"`
-	Format        string    `json:"format"`
-	Status        string    `json:"status"`
-	RowCount      int       `json:"row_count"`
-	ErrorSummary  *string   `json:"error_summary,omitempty"`
+	ID           uuid.UUID `json:"id"`
+	EventID      uuid.UUID `json:"event_id"`
+	Format       string    `json:"format"`
+	Status       string    `json:"status"`
+	RowCount     int       `json:"row_count"`
+	ErrorSummary *string   `json:"error_summary,omitempty"`
 }
 
 type Args struct {
@@ -225,7 +225,9 @@ func (s *Service) Run(ctx context.Context, exportID uuid.UUID) error {
 	table := "attendance_exports"
 	targetID := exportID.String()
 	event := store.AuditEvent{Action: domain.ActionAttendanceExportCompleted, ActorAccount: &account, ActorRole: &actorRole, TargetTable: &table, TargetID: &targetID}
-	event.PayloadFunc = func() ([]byte, error) { return json.Marshal(map[string]any{"event_id": eventID.String(), "row_count": rowCount}) }
+	event.PayloadFunc = func() ([]byte, error) {
+		return json.Marshal(map[string]any{"event_id": eventID.String(), "row_count": rowCount})
+	}
 	return s.audit.WithAudit(ctx, event, func(ctx context.Context, tx pgx.Tx) (bool, error) {
 		_, err := tx.Exec(ctx, `UPDATE attendance_exports SET status = 'completed', row_count = $2, completed_at = now(), updated_at = now() WHERE id = $1 AND status = 'processing'`, exportID, rowCount)
 		return err == nil, err

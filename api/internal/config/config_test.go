@@ -142,14 +142,14 @@ func TestLoad_PlaintextProductionRequiresTrustedProxy(t *testing.T) {
 
 func TestLoad_PlaintextProductionAllowedBehindTrustedProxy(t *testing.T) {
 	setEnv(t, map[string]string{
-		"APP_ENV":                            "production",
-		"DATABASE_URL_RUNTIME":               "postgres://od_runtime:x@localhost:5432/od_amrita",
-		"TLS_ENABLED":                        "false",
-		"TLS_TERMINATED_BY_TRUSTED_PROXY":    "true",
-		"AUTH_JWKS_URL":                      "https://project-ref.supabase.co/auth/v1/.well-known/jwks.json",
-		"AUTH_ISSUER":                        "https://project-ref.supabase.co/auth/v1",
-		"AUTH_AUDIENCE":                      "authenticated",
-		"AUTH_ALLOWED_DOMAIN":                "amrita.edu",
+		"APP_ENV":                         "production",
+		"DATABASE_URL_RUNTIME":            "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":                     "false",
+		"TLS_TERMINATED_BY_TRUSTED_PROXY": "true",
+		"AUTH_JWKS_URL":                   "https://project-ref.supabase.co/auth/v1/.well-known/jwks.json",
+		"AUTH_ISSUER":                     "https://project-ref.supabase.co/auth/v1",
+		"AUTH_AUDIENCE":                   "authenticated",
+		"AUTH_ALLOWED_DOMAIN":             "amrita.edu",
 	})
 
 	cfg, err := Load()
@@ -219,9 +219,9 @@ func TestLoad_TLSFullyConfigured(t *testing.T) {
 // must fail fast, naming an AUTH_ variable.
 func TestLoad_AuthRequiredInProduction(t *testing.T) {
 	setEnv(t, map[string]string{
-		"APP_ENV":              "production",
-		"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",
-		"TLS_ENABLED":          "false",
+		"APP_ENV":                         "production",
+		"DATABASE_URL_RUNTIME":            "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":                     "false",
 		"TLS_TERMINATED_BY_TRUSTED_PROXY": "true",
 		// AUTH_* deliberately unset.
 	})
@@ -239,12 +239,12 @@ func TestLoad_AuthRequiredInProduction(t *testing.T) {
 // variable (parseable https URL, like the TLS/DSN checks).
 func TestLoad_AuthInvalidJWKSURL(t *testing.T) {
 	setEnv(t, map[string]string{
-		"APP_ENV":              "production",
-		"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",
-		"TLS_ENABLED":          "false",
+		"APP_ENV":                         "production",
+		"DATABASE_URL_RUNTIME":            "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":                     "false",
 		"TLS_TERMINATED_BY_TRUSTED_PROXY": "true",
-		"AUTH_JWKS_URL":        "://not a url",
-		"AUTH_ISSUER":          "https://project-ref.supabase.co/auth/v1",
+		"AUTH_JWKS_URL":                   "://not a url",
+		"AUTH_ISSUER":                     "https://project-ref.supabase.co/auth/v1",
 	})
 
 	_, err := Load()

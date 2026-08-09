@@ -87,6 +87,10 @@ func (s *Store) WithAudit(
 		evt.Payload = payload
 	}
 
+	if s == nil || s.pool == nil {
+		return fmt.Errorf("store: database pool is nil")
+	}
+
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("store: begin tx: %w", err)

@@ -1,5 +1,5 @@
-// Command api is the OD-Amrita HTTP server entrypoint (gin). One of two api/
-// entrypoints; cmd/worker runs the persistent River worker.
+// Command api is the OD-Amrita HTTP server entrypoint (gin). River runs
+// in-process and shuts down with this process.
 //
 // Transport security (NFR15): the server is deployed behind TLS 1.2+ ONLY.
 // Plain HTTP is REJECTED, not redirected — there is deliberately NO HTTP→HTTPS
@@ -33,6 +33,7 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/handler/health"
 	handlerodrecord "github.com/Shruhath/OD-Amrita/api/internal/handler/od_record"
 	handlerpublicattendance "github.com/Shruhath/OD-Amrita/api/internal/handler/publicattendance"
+	handlerscan "github.com/Shruhath/OD-Amrita/api/internal/handler/scan"
 	handlerstudent "github.com/Shruhath/OD-Amrita/api/internal/handler/student"
 	handlerteacher "github.com/Shruhath/OD-Amrita/api/internal/handler/teacher"
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
@@ -48,6 +49,7 @@ import (
 	svcodrecord "github.com/Shruhath/OD-Amrita/api/internal/service/od_record"
 	svcpublicattendance "github.com/Shruhath/OD-Amrita/api/internal/service/publicattendance"
 	"github.com/Shruhath/OD-Amrita/api/internal/service/publiccache"
+	svcscan "github.com/Shruhath/OD-Amrita/api/internal/service/scan"
 	svcstudent "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 	svcteacher "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
 	svcuser "github.com/Shruhath/OD-Amrita/api/internal/service/user"
@@ -198,6 +200,7 @@ func run() error {
 	)
 	handlerodrecord.RegisterRoutes(markAPI, markSvc)
 	handlerodrecord.RegisterRecordManagementRoutes(markAPI, svcodrecord.NewManagementService(pool, st))
+	handlerscan.RegisterRoutes(markAPI, svcscan.NewService(markSvc, pool))
 	handlerodrecord.RegisterPortalMarkRoutes(markAPI, portalMarkReads)
 	// The teacher-reachable live attendance read. Mounted on markAPI rather than
 	// the admin group; the service scopes a teacher to their own branches.

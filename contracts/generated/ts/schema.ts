@@ -158,7 +158,7 @@ export interface paths {
         put?: never;
         /**
          * Accept-and-enqueue a batch of scans (202)
-         * @description Accepts a batch of client-captured scans and enqueues them for durable, idempotent processing. Responds 202 — ACCEPTED AND ENQUEUED, not commit-confirmed. Each item is answered individually in `results`. The durable enqueue, ON CONFLICT/present-wins resolution and same-transaction audit are implemented later; this contract only freezes the shape so mobile and backend do not renegotiate it piecemeal.
+         * @description Accepts a batch of client-captured scans and enqueues them for durable, idempotent processing. Responds 202 — ACCEPTED AND ENQUEUED, not commit-confirmed. Each item is answered individually in `results`. The durable idempotency resolution and audited marking are implemented by the API; this endpoint is the web offline queue's batch transport.
          */
         post: operations["submitScans"];
         delete?: never;
@@ -1394,20 +1394,24 @@ export interface components {
             id: string;
             /** @description UUID of the event this scan belongs to. */
             event_id: string;
-            /** @description The event slot (time window) in which the scan was captured. */
-            slot: number;
+            /** @description UUID of the event category used for the attendance mark. */
+            category_id: string;
             /**
              * @description Capture method used for this scan.
              * @enum {string}
              */
-            method: "barcode" | "qr" | "nfc";
+            method: "nfc" | "camera" | "search";
             /**
              * Format: date-time
              * @description RFC3339 UTC timestamp captured on the client at scan time. Advisory only — server-authoritative time governs resolution.
              */
             client_scanned_at: string;
             /** @description Raw scanned card/roll payload (NFC card UID, or the barcode/QR code value). */
-            card_token: string;
+            card_token?: string | null;
+            /** @description Card seal version when the scan carries an NFC card payload. */
+            card_version?: string | null;
+            /** @description Student UUID when the scan was resolved by search or camera. */
+            student_id?: string | null;
         };
         /** @description Batch scan-sync request. The batch is wrapped under a `scans` array (not a bare top-level array) to leave room for future top-level fields such as `device_id`. */
         ScanBatchRequest: {

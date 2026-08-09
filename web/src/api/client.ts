@@ -64,6 +64,9 @@ export type MarkCounters = components['schemas']['MarkCounters']
 export type MarkAttendanceInput = components['schemas']['MarkAttendanceRequest']
 export type MarkAttendanceResult = components['schemas']['MarkAttendanceResult']
 export type CaptureMethod = components['schemas']['CaptureMethod']
+export type ScanBatchItem = components['schemas']['ScanItem']
+export type ScanBatchResult = components['schemas']['ScanResult']
+export type ScanBatchResponse = components['schemas']['ScanBatchResponse']
 
 export class ApiFailure extends Error {
   readonly status: number
@@ -220,6 +223,7 @@ export function createPublicApi() {
 }
 
 export type EventApi = ReturnType<typeof createEventApi>
+export type ApiClient = EventApi
 
 export function createEventApi(session: SessionPort) {
   const client = createClient<paths>({ baseUrl: apiBaseURL, fetch: createAuthorizedFetch(session) })
@@ -478,6 +482,11 @@ export function createEventApi(session: SessionPort) {
      */
     async mark(input: MarkAttendanceInput) {
       return unwrap(await client.POST('/api/v1/mark', { body: input }))
+    },
+
+    /** Sends the bounded, idempotent batch used by the offline queue. */
+    async submitScans(input: { scans: ScanBatchItem[] }) {
+      return unwrap(await client.POST('/api/v1/scans', { body: input }))
     },
 
     async disputes(page = 1, pageSize = 20, status: 'open' | 'resolved' | 'all' = 'open') {

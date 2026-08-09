@@ -3,7 +3,7 @@ import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
 export type OfflineScan = {
   id: string
   studentToken?: string
-  cardPayload?: any
+  cardPayload?: { token: string; version: string }
   eventID: string
   categoryID: string
   captureMethod: string
@@ -36,11 +36,24 @@ function getDB() {
   return dbPromise
 }
 
+function uuidv7(): string {
+  const bytes = new Uint8Array(16)
+  crypto.getRandomValues(bytes)
+  const timestamp = Date.now()
+  for (let index = 5; index >= 0; index -= 1) {
+    bytes[index] = timestamp / 2 ** (8 * (5 - index))
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x70
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = [...bytes].map((value) => value.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
 export async function enqueueScan(scan: Omit<OfflineScan, 'id' | 'scannedAt' | 'status'>): Promise<OfflineScan> {
   const db = await getDB()
   const fullScan: OfflineScan = {
     ...scan,
-    id: crypto.randomUUID(),
+    id: uuidv7(),
     scannedAt: new Date().toISOString(),
     status: 'pending',
   }
@@ -68,6 +81,8 @@ export async function markAsDeadLetter(ids: string[]): Promise<void> {
     const item = await tx.store.get(id)
     if (item) {
       item.status = 'failed_dead_letter'
+      delete item.studentToken
+      delete item.cardPayload
       await tx.store.put(item)
     }
   }

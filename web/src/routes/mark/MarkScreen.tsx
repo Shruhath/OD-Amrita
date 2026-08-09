@@ -26,9 +26,9 @@ import { registerSyncListener, flushOfflineQueue } from '../../lib/offline/sync'
  *     offline-first — this MVP has no local write, so an optimistic green would
  *     be a claim the server may then refuse. A mark the server rejected must
  *     never have shown green, not even for a frame.
- *  2. A TIMEOUT IS RED. There is no queue here. Amber "queued" is the one state
- *     this screen must never have: it tells a coordinator a student is marked
- *     when nothing will ever send it.
+ *  2. A NETWORK FAILURE IS QUEUED. The bounded batch endpoint preserves the
+ *     local UUIDv7 and the server deduplicates it. Permanent rejection is
+ *     dead-lettered and remains visible through the pending count.
  *  3. A FAILURE IS STICKY. A red state survives until the coordinator dismisses
  *     or retries it, and a later success can never quietly replace it. An
  *     unnoticed failure is the worst outcome on this screen, so "the last
@@ -572,6 +572,7 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
         a screen reader and to every test that selects the banner by role.
       */}
       <p className="mark-activity" aria-live="polite">{mark.isPending ? 'Marking…' : ''}</p>
+      {pendingCount > 0 ? <p className="mark-activity" aria-live="polite">{pendingCount} scan{pendingCount === 1 ? '' : 's'} pending sync</p> : null}
 
       <nav className="mark-modes" aria-label="Capture mode">
         {(['nfc', 'camera', 'search'] as const).map((candidate) => (

@@ -416,9 +416,8 @@ paths:
         Accepts a batch of client-captured scans and enqueues them for durable,
         idempotent processing. Responds 202 — ACCEPTED AND ENQUEUED, not
         commit-confirmed. Each item is answered individually in `results`. The
-        durable enqueue, ON CONFLICT/present-wins resolution and same-transaction
-        audit are implemented later; this contract only freezes the shape so
-        mobile and backend do not renegotiate it piecemeal.
+        durable idempotency resolution and audited marking are implemented by
+        the API; this endpoint is the web offline queue's batch transport.
       # Required even though the handler is deferred. From Story 0.10 onward,
       # OMITTING `security` is how this spec declares an endpoint public — the
       # public dashboard reads rely on exactly that — so an operation that
@@ -3825,10 +3824,9 @@ components:
       required:
         - id
         - event_id
-        - slot
         - method
         - client_scanned_at
-        - card_token
+        - category_id
       properties:
         id:
           type: string
@@ -3840,16 +3838,16 @@ components:
         event_id:
           type: string
           description: UUID of the event this scan belongs to.
-        slot:
-          type: integer
-          description: The event slot (time window) in which the scan was captured.
+        category_id:
+          type: string
+          description: UUID of the event category used for the attendance mark.
         method:
           type: string
           description: Capture method used for this scan.
           enum:
-            - barcode
-            - qr
             - nfc
+            - camera
+            - search
         client_scanned_at:
           type: string
           format: date-time
@@ -3858,9 +3856,18 @@ components:
             only — server-authoritative time governs resolution.
         card_token:
           type: string
+          nullable: true
           description: >-
             Raw scanned card/roll payload (NFC card UID, or the barcode/QR code
             value).
+        card_version:
+          type: string
+          nullable: true
+          description: Card seal version when the scan carries an NFC card payload.
+        student_id:
+          type: string
+          nullable: true
+          description: Student UUID when the scan was resolved by search or camera.
 
     ScanBatchRequest:
       type: object

@@ -375,19 +375,19 @@ func (e RevokeSessionsRequestScope) Valid() bool {
 
 // Defines values for ScanItemMethod.
 const (
-	ScanItemMethodBarcode ScanItemMethod = "barcode"
-	ScanItemMethodNfc     ScanItemMethod = "nfc"
-	ScanItemMethodQr      ScanItemMethod = "qr"
+	ScanItemMethodCamera ScanItemMethod = "camera"
+	ScanItemMethodNfc    ScanItemMethod = "nfc"
+	ScanItemMethodSearch ScanItemMethod = "search"
 )
 
 // Valid indicates whether the value is a known member of the ScanItemMethod enum.
 func (e ScanItemMethod) Valid() bool {
 	switch e {
-	case ScanItemMethodBarcode:
+	case ScanItemMethodCamera:
 		return true
 	case ScanItemMethodNfc:
 		return true
-	case ScanItemMethodQr:
+	case ScanItemMethodSearch:
 		return true
 	default:
 		return false
@@ -1054,7 +1054,13 @@ type ScanBatchResponse struct {
 // ScanItem A single client-captured scan. Wire field names are snake_case and LOCKED end-to-end (no camelCase anywhere on the wire).
 type ScanItem struct {
 	// CardToken Raw scanned card/roll payload (NFC card UID, or the barcode/QR code value).
-	CardToken string `json:"card_token"`
+	CardToken *string `json:"card_token,omitempty"`
+
+	// CardVersion Card seal version when the scan carries an NFC card payload.
+	CardVersion *string `json:"card_version,omitempty"`
+
+	// CategoryId UUID of the event category used for the attendance mark.
+	CategoryId string `json:"category_id"`
 
 	// ClientScannedAt RFC3339 UTC timestamp captured on the client at scan time. Advisory only — server-authoritative time governs resolution.
 	ClientScannedAt time.Time `json:"client_scanned_at"`
@@ -1068,8 +1074,8 @@ type ScanItem struct {
 	// Method Capture method used for this scan.
 	Method ScanItemMethod `json:"method"`
 
-	// Slot The event slot (time window) in which the scan was captured.
-	Slot int `json:"slot"`
+	// StudentId Student UUID when the scan was resolved by search or camera.
+	StudentId *string `json:"student_id,omitempty"`
 }
 
 // ScanItemMethod Capture method used for this scan.

@@ -7,6 +7,7 @@ import type { SessionPort } from '../../features/auth/session'
 import { createPortalMemoryRouter } from '../../router'
 import { server } from '../../test/server'
 import { selectByValue } from '../../test/select'
+import type { PublicDayAttendance } from '../../../tests/support/factories/public-attendance'
 import {
   publicAttendanceRoute,
   publicBoardCategoryID,
@@ -50,7 +51,7 @@ function anonymousSession(): SessionPort {
 }
 
 /** Captures the query string the board actually asked the server for. */
-function installBoard(body: unknown = publicDayAttendance(), status = 200) {
+function installBoard(body: PublicDayAttendance = publicDayAttendance(), status = 200) {
   const requested: URL[] = []
   server.use(
     http.get('*/api/v1/public/students/search', () => HttpResponse.json(publicSearchResults())),
@@ -204,7 +205,7 @@ describe('the public attendance board', () => {
   // The two look identical if the error path is missing, and one of them tells
   // a whole campus that nobody was marked.
   test('[P0] a refused read is explained and never rendered as an empty day', async () => {
-    installBoard(null, 429)
+    installBoard(publicDayAttendance(), 429)
     renderBoard()
 
     const alert = await screen.findByRole('alert')

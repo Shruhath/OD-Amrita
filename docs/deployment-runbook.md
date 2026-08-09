@@ -155,6 +155,7 @@ The local equivalent, for a network with 5432 open (keep the password out of the
 export PGPASSWORD='<new-migrator-secret>'
 export DATABASE_URL_MIGRATOR='postgresql://od_migrator@<neon-host>/<db>?sslmode=require'
 make -C api migrate-up
+make -C api river-migrate-up
 unset PGPASSWORD
 ```
 
@@ -164,9 +165,13 @@ unset PGPASSWORD
 psql "$DATABASE_URL_MIGRATOR" -c 'SELECT max(version_id) FROM goose_db_version;'
 ```
 
-Expect **18** — migrations `0001`–`0018`. A lower number, or a missing table, means the
+Expect **25** — migrations `0001`–`0025`. A lower number, or a missing table, means the
 migrations did not all apply; stop and fix that before deploying, because the API will fail at
 runtime rather than at boot.
+
+The River command applies River's pinned internal schema separately and grants `od_runtime` the
+worker DML permissions. Confirm it completed successfully before starting the API; the process
+now refuses to start a configured River client against an unavailable job schema.
 
 > **⚠️ `0016` is a one-way door once a multi-day event has been marked.**
 >
@@ -233,7 +238,7 @@ flyctl secrets set \
   PORTAL_ALLOWED_ORIGINS='<vercel-production-origin>'
 ```
 
-`APP_ENV`, `API_PORT`, `TLS_ENABLED` and `HTTP_REDIRECT_LISTENER` are **not** secrets and are
+`APP_ENV`, `API_PORT`, `TLS_ENABLED`, `TLS_TERMINATED_BY_TRUSTED_PROXY` and `HTTP_REDIRECT_LISTENER` are **not** secrets and are
 already in `fly.toml`'s `[env]` block. Do not duplicate them here.
 
 > **`PORTAL_ALLOWED_ORIGINS` must be an EXACT origin** — scheme and host only, e.g.
@@ -284,8 +289,9 @@ flyctl logs --config api/fly.toml
 
 The log line `WARNING serving PLAINTEXT HTTP on :8443 — TLS_ENABLED=false` is **expected and
 correct** here. The Fly edge holds the certificate and terminates TLS; the container serves
-plain HTTP behind it. That warning exists so an *accidental* plaintext deployment is visible —
-on Fly it is the intended arrangement.
+plain HTTP behind it. `TLS_TERMINATED_BY_TRUSTED_PROXY=true` explicitly records that boundary;
+the API refuses to boot in production if `TLS_ENABLED=false` is used without it. The warning
+exists so an *accidental* plaintext deployment is visible — on Fly it is the intended arrangement.
 
 **5. Scale to two machines** (the count cannot be expressed in `fly.toml`):
 
@@ -471,7 +477,7 @@ one says how.
 
 **Database (Neon)**
 - [x] Neon role bootstrap and both role passwords — *verified 2026-08-09: `od_migrator` applied migrations against the live database, which is only possible with the correct rotated password.*
-- [x] Migrations applied; `max(version_id)` is **17** — *verified 2026-08-09 by reading the live `goose_db_version` directly.* (This said **14** until today and was wrong: `0015`–`0017` shipped after it was written.)
+- [ ] Migrations applied; `max(version_id)` is **25**, including reconciliation, attendance-import, attendance-export, scan post-processing, and event closeout tables.
 - [ ] ⚠️ **Upgrade the Neon plan before the event.** Free gives a **6-hour** PITR window, which does not cover an event plus the days afterwards when disputes are raised (Launch = 7 days, Scale = 30 days). Record the new window in the backup runbook §2.2. **Still open — this costs money, so it is yours to do.**
 - [ ] ⚠️ **Move the project to `ap-southeast-1`** — decision **H7**. Not a nice-to-have: ~0.5 s of every query is currently the Pacific. It is a dump-and-restore of live attendance data, so it is a deliberate human step.
 

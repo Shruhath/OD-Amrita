@@ -30,6 +30,10 @@ export type ODRecordMutationResult = components['schemas']['ODRecordMutationResu
 export type AuditLogEntryCollection = components['schemas']['AuditLogEntryCollection']
 export type StudentRosterImportResult = components['schemas']['StudentRosterImportResult']
 export type StudentRosterImportError = components['schemas']['StudentRosterImportError']
+export type AttendanceImport = components['schemas']['AttendanceImport']
+export type AttendanceImportError = components['schemas']['AttendanceImportError']
+export type AttendanceExport = components['schemas']['AttendanceExport']
+export type EventCloseout = components['schemas']['EventCloseout']
 export type StudentCollection = components['schemas']['StudentCollection']
 export type ResolvedCardStudent = components['schemas']['ResolvedCardStudent']
 export type CardSeal = components['schemas']['CardSeal']
@@ -64,6 +68,9 @@ export type MarkCounters = components['schemas']['MarkCounters']
 export type MarkAttendanceInput = components['schemas']['MarkAttendanceRequest']
 export type MarkAttendanceResult = components['schemas']['MarkAttendanceResult']
 export type CaptureMethod = components['schemas']['CaptureMethod']
+export type ScanBatchItem = components['schemas']['ScanItem']
+export type ScanBatchResult = components['schemas']['ScanResult']
+export type ScanBatchResponse = components['schemas']['ScanBatchResponse']
 
 export class ApiFailure extends Error {
   readonly status: number
@@ -220,6 +227,7 @@ export function createPublicApi() {
 }
 
 export type EventApi = ReturnType<typeof createEventApi>
+export type ApiClient = EventApi
 
 export function createEventApi(session: SessionPort) {
   const client = createClient<paths>({ baseUrl: apiBaseURL, fetch: createAuthorizedFetch(session) })
@@ -313,6 +321,61 @@ export function createEventApi(session: SessionPort) {
         body: { file: file.name },
         bodySerializer: () => body,
       }))
+    },
+    async createAttendanceImport(eventID: string, file: File) {
+      const body = new FormData()
+      body.append('file', file)
+      return unwrap(await client.POST('/api/v1/admin/events/{event_id}/attendance/imports', {
+        params: { path: { event_id: eventID } },
+        body: { file: file.name },
+        bodySerializer: () => body,
+      }))
+    },
+    async attendanceImport(eventID: string, importID: string) {
+      return unwrap(await client.GET('/api/v1/admin/events/{event_id}/attendance/imports/{import_id}', {
+        params: { path: { event_id: eventID, import_id: importID } },
+      }))
+    },
+    async attendanceImportErrors(eventID: string, importID: string) {
+      return unwrap(await client.GET('/api/v1/admin/events/{event_id}/attendance/imports/{import_id}/errors', {
+        params: { path: { event_id: eventID, import_id: importID } },
+      }))
+    },
+    async createAttendanceExport(eventID: string) {
+      return unwrap(await client.POST('/api/v1/admin/events/{event_id}/attendance/exports', {
+        params: { path: { event_id: eventID } },
+      }))
+    },
+    async attendanceExport(eventID: string, exportID: string) {
+      return unwrap(await client.GET('/api/v1/admin/events/{event_id}/attendance/exports/{export_id}', {
+        params: { path: { event_id: eventID, export_id: exportID } },
+      }))
+    },
+    async downloadAttendanceExport(eventID: string, exportID: string) {
+      const response = await client.GET('/api/v1/admin/events/{event_id}/attendance/exports/{export_id}/download', {
+        params: { path: { event_id: eventID, export_id: exportID } },
+        parseAs: 'text',
+      })
+      if (response.data !== undefined) return response.data
+      throw new ApiFailure(response.response.status, errorEnvelope(response.error, response.response))
+    },
+    async createEventCloseout(eventID: string) {
+      return unwrap(await client.POST('/api/v1/admin/events/{event_id}/closeout', {
+        params: { path: { event_id: eventID } },
+      }))
+    },
+    async eventCloseout(eventID: string, closeoutID: string) {
+      return unwrap(await client.GET('/api/v1/admin/events/{event_id}/closeout/{closeout_id}', {
+        params: { path: { event_id: eventID, closeout_id: closeoutID } },
+      }))
+    },
+    async downloadEventCloseoutReport(eventID: string, closeoutID: string) {
+      const response = await client.GET('/api/v1/admin/events/{event_id}/closeout/{closeout_id}/report', {
+        params: { path: { event_id: eventID, closeout_id: closeoutID } },
+        parseAs: 'text',
+      })
+      if (response.data !== undefined) return response.data
+      throw new ApiFailure(response.response.status, errorEnvelope(response.error, response.response))
     },
     /**
      * One page of the card-populator roster.
@@ -478,6 +541,11 @@ export function createEventApi(session: SessionPort) {
      */
     async mark(input: MarkAttendanceInput) {
       return unwrap(await client.POST('/api/v1/mark', { body: input }))
+    },
+
+    /** Sends the bounded, idempotent batch used by the offline queue. */
+    async submitScans(input: { scans: ScanBatchItem[] }) {
+      return unwrap(await client.POST('/api/v1/scans', { body: input }))
     },
 
     async disputes(page = 1, pageSize = 20, status: 'open' | 'resolved' | 'all' = 'open') {

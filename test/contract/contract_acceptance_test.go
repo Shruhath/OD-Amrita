@@ -461,7 +461,7 @@ func TestAC1_ScanBatch202ResponseContract(t *testing.T) {
 }
 
 // [P0] AC1: the request is a BATCH of scan items using snake_case wire names,
-// each with id, event_id, slot, method (barcode|qr|nfc), client_scanned_at.
+// each with id, event_id, category_id, method, and client_scanned_at.
 func TestAC1_ScanBatchRequestContract(t *testing.T) {
 	root := repoRoot(t)
 	doc := loadSpec(t, root)
@@ -471,13 +471,13 @@ func TestAC1_ScanBatchRequestContract(t *testing.T) {
 	}
 
 	// A scan-item schema with the locked snake_case fields must exist.
-	item := findSchemaWithProps(doc, "id", "event_id", "slot", "method", "client_scanned_at")
+	item := findSchemaWithProps(doc, "id", "event_id", "category_id", "method", "client_scanned_at")
 	if item == nil {
-		t.Fatalf("no scan-item schema with snake_case { id, event_id, slot, method, client_scanned_at } found (JSON casing is LOCKED)")
+		t.Fatalf("no scan-item schema with snake_case { id, event_id, category_id, method, client_scanned_at } found (JSON casing is LOCKED)")
 	}
 	methodEnum := enumStrings(getMap(getMap(item, "properties"), "method"))
-	if missing := containsAll(methodEnum, []string{"barcode", "qr", "nfc"}); len(missing) > 0 {
-		t.Errorf("scan `method` enum must include barcode|qr|nfc; missing %v", missing)
+	if missing := containsAll(methodEnum, []string{"nfc", "camera", "search"}); len(missing) > 0 {
+		t.Errorf("scan `method` enum must include nfc|camera|search; missing %v", missing)
 	}
 
 	// Option B (chosen): the request wraps the batch under a `scans` array property —
@@ -498,7 +498,7 @@ func TestAC1_ScanBatchRequestContract(t *testing.T) {
 func TestAC1_ScanIdDocumentsUUIDv7(t *testing.T) {
 	root := repoRoot(t)
 	doc := loadSpec(t, root)
-	item := findSchemaWithProps(doc, "id", "event_id", "slot", "method", "client_scanned_at")
+	item := findSchemaWithProps(doc, "id", "event_id", "category_id", "method", "client_scanned_at")
 	if item == nil {
 		t.Fatalf("scan-item schema not found (see TestAC1_ScanBatchRequestContract)")
 	}

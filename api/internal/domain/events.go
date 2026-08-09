@@ -48,12 +48,18 @@ const (
 	// association from the same request as ONE audit row (Story 2.3) — mirroring
 	// event.created's single row covering the event insert and every
 	// event_branches insert.
-	ActionTeacherProfileCreated   Action = "teacher.profile_created"
-	ActionStudentRosterImported   Action = "student_roster.imported"
-	ActionCardTokenSealed         Action = "card_token.sealed"
-	ActionCoordinatorAssigned     Action = "coordinator.assigned"
-	ActionCaptureCreditCapChanged Action = "capture_credit.cap_changed"
-	ActionCaptureCreditReset      Action = "capture_credit.reset"
+	ActionTeacherProfileCreated     Action = "teacher.profile_created"
+	ActionStudentRosterImported     Action = "student_roster.imported"
+	ActionCardTokenSealed           Action = "card_token.sealed"
+	ActionCoordinatorAssigned       Action = "coordinator.assigned"
+	ActionCaptureCreditCapChanged   Action = "capture_credit.cap_changed"
+	ActionCaptureCreditReset        Action = "capture_credit.reset"
+	ActionAttendanceImportRequested Action = "attendance_import.requested"
+	ActionAttendanceImportCompleted Action = "attendance_import.completed"
+	ActionAttendanceExportRequested Action = "attendance_export.requested"
+	ActionAttendanceExportCompleted Action = "attendance_export.completed"
+	ActionEventCloseoutRequested    Action = "event_closeout.requested"
+	ActionEventCloseoutCompleted    Action = "event_closeout.completed"
 )
 
 // AllActions is the canonical registry-of-record: every declared Action, in
@@ -81,6 +87,12 @@ var AllActions = []Action{
 	ActionCoordinatorAssigned,
 	ActionCaptureCreditCapChanged,
 	ActionCaptureCreditReset,
+	ActionAttendanceImportRequested,
+	ActionAttendanceImportCompleted,
+	ActionAttendanceExportRequested,
+	ActionAttendanceExportCompleted,
+	ActionEventCloseoutRequested,
+	ActionEventCloseoutCompleted,
 }
 
 // registeredActions is the O(1) lookup set DERIVED from AllActions, so it can

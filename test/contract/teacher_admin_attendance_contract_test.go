@@ -138,6 +138,15 @@ var deliberateDisputeOperations = map[string]string{
 	"resolveDispute":      "the annotate-only resolution",
 }
 
+// Attendance exports are now an intentional asynchronous admin surface. They
+// are not manual attendance correction or deletion operations, so the legacy
+// deferred-management guard must exempt their explicit contract operations.
+var deliberateAttendanceExportOperations = map[string]bool{
+	"createAdminAttendanceExport":   true,
+	"getAdminAttendanceExport":      true,
+	"downloadAdminAttendanceExport": true,
+}
+
 // disputeSurfacePaths are the paths those operations hang on. The guard also
 // substring-matches the PATH, so the built dispute routes must be exempted by
 // path as well or they trip the token they legitimately carry.
@@ -168,6 +177,9 @@ func TestTeacherAdminAttendanceContract_NoDeferredManualManagementSurface(t *tes
 		for method := range item {
 			id := getStr(getMap(item, method), "operationId")
 			if _, built := deliberateRecordManagementOperations[id]; built {
+				continue
+			}
+			if deliberateAttendanceExportOperations[id] {
 				continue
 			}
 			for _, forbidden := range []string{"Correction", "Dispute", "Export", "ManualOverride", "DeleteAttendance"} {

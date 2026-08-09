@@ -32,7 +32,7 @@ func setEnv(t *testing.T, env map[string]string) {
 	for _, k := range []string{
 		"APP_ENV", "API_PORT",
 		"DATABASE_URL_MIGRATOR", "DATABASE_URL_RUNTIME",
-		"TLS_ENABLED", "TLS_MIN_VERSION", "TLS_CERT_FILE", "TLS_KEY_FILE",
+		"TLS_ENABLED", "TLS_TERMINATED_BY_TRUSTED_PROXY", "TLS_MIN_VERSION", "TLS_CERT_FILE", "TLS_KEY_FILE",
 		"HTTP_REDIRECT_LISTENER",
 		"AUTH_JWKS_URL", "AUTH_ISSUER", "AUTH_AUDIENCE", "AUTH_ALLOWED_DOMAIN",
 		"AUTH_BOOTSTRAP_ADMINS",
@@ -124,6 +124,43 @@ func TestLoad_TLSEnabledRequiresCertAndKey(t *testing.T) {
 	}
 }
 
+func TestLoad_PlaintextProductionRequiresTrustedProxy(t *testing.T) {
+	setEnv(t, map[string]string{
+		"APP_ENV":              "production",
+		"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":          "false",
+	})
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected production plaintext mode to require trusted proxy termination")
+	}
+	if !strings.Contains(err.Error(), "TLS_TERMINATED_BY_TRUSTED_PROXY") {
+		t.Errorf("error must name TLS_TERMINATED_BY_TRUSTED_PROXY, got: %v", err)
+	}
+}
+
+func TestLoad_PlaintextProductionAllowedBehindTrustedProxy(t *testing.T) {
+	setEnv(t, map[string]string{
+		"APP_ENV":                         "production",
+		"DATABASE_URL_RUNTIME":            "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":                     "false",
+		"TLS_TERMINATED_BY_TRUSTED_PROXY": "true",
+		"AUTH_JWKS_URL":                   "https://project-ref.supabase.co/auth/v1/.well-known/jwks.json",
+		"AUTH_ISSUER":                     "https://project-ref.supabase.co/auth/v1",
+		"AUTH_AUDIENCE":                   "authenticated",
+		"AUTH_ALLOWED_DOMAIN":             "amrita.edu",
+	})
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.TLS.Enabled || !cfg.TLS.TrustedProxyTermination {
+		t.Errorf("trusted ingress mode not honored: %+v", cfg.TLS)
+	}
+}
+
 func TestLoad_TLSFullyConfigured(t *testing.T) {
 	cert, key := writeTempCertKey(t)
 	setEnv(t, map[string]string{
@@ -182,9 +219,10 @@ func TestLoad_TLSFullyConfigured(t *testing.T) {
 // must fail fast, naming an AUTH_ variable.
 func TestLoad_AuthRequiredInProduction(t *testing.T) {
 	setEnv(t, map[string]string{
-		"APP_ENV":              "production",
-		"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",
-		"TLS_ENABLED":          "false",
+		"APP_ENV":                         "production",
+		"DATABASE_URL_RUNTIME":            "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":                     "false",
+		"TLS_TERMINATED_BY_TRUSTED_PROXY": "true",
 		// AUTH_* deliberately unset.
 	})
 
@@ -201,11 +239,12 @@ func TestLoad_AuthRequiredInProduction(t *testing.T) {
 // variable (parseable https URL, like the TLS/DSN checks).
 func TestLoad_AuthInvalidJWKSURL(t *testing.T) {
 	setEnv(t, map[string]string{
-		"APP_ENV":              "production",
-		"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",
-		"TLS_ENABLED":          "false",
-		"AUTH_JWKS_URL":        "://not a url",
-		"AUTH_ISSUER":          "https://project-ref.supabase.co/auth/v1",
+		"APP_ENV":                         "production",
+		"DATABASE_URL_RUNTIME":            "postgres://od_runtime:x@localhost:5432/od_amrita",
+		"TLS_ENABLED":                     "false",
+		"TLS_TERMINATED_BY_TRUSTED_PROXY": "true",
+		"AUTH_JWKS_URL":                   "://not a url",
+		"AUTH_ISSUER":                     "https://project-ref.supabase.co/auth/v1",
 	})
 
 	_, err := Load()

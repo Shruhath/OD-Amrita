@@ -158,7 +158,7 @@ export interface paths {
         put?: never;
         /**
          * Accept-and-enqueue a batch of scans (202)
-         * @description Accepts a batch of client-captured scans and enqueues them for durable, idempotent processing. Responds 202 — ACCEPTED AND ENQUEUED, not commit-confirmed. Each item is answered individually in `results`. The durable enqueue, ON CONFLICT/present-wins resolution and same-transaction audit are implemented later; this contract only freezes the shape so mobile and backend do not renegotiate it piecemeal.
+         * @description Accepts a batch of client-captured scans and enqueues them for durable, idempotent processing. Responds 202 — ACCEPTED AND ENQUEUED, not commit-confirmed. Each item is answered individually in `results`. The durable idempotency resolution and audited marking are implemented by the API; this endpoint is the web offline queue's batch transport.
          */
         post: operations["submitScans"];
         delete?: never;
@@ -349,6 +349,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/events/{event_id}/attendance/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Queue a CSV attendance export
+         * @description Admin-only report request. The export is generated asynchronously in bounded database chunks and can be downloaded after completion.
+         */
+        post: operations["createAdminAttendanceExport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/events/{event_id}/attendance/exports/{export_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read CSV attendance export progress */
+        get: operations["getAdminAttendanceExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/events/{event_id}/attendance/exports/{export_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download a completed CSV attendance export */
+        get: operations["downloadAdminAttendanceExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/mark/events/{event_id}/attendance": {
         parameters: {
             query?: never;
@@ -357,10 +411,64 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List attendance records the caller may review
-         * @description The teacher/admin live view of an event's marks, returning present and removed OD rows. A SIBLING of `/api/v1/admin/events/{event_id}/attendance`, never a replacement: this one is BRANCH-SCOPED for a teacher, returning only records for students in the branches they teach, which is the same rule that decides which students they may mark. A teacher who cannot mark a student has no reason to read that student's record either. An admin is unscoped here and sees exactly what the admin route returns.
+         * List present attendance records the caller may review
+         * @description The teacher/admin live view of an event's marks. A SIBLING of `/api/v1/admin/events/{event_id}/attendance`, never a replacement: this one is BRANCH-SCOPED for a teacher, returning only records for students in the branches they teach, which is the same rule that decides which students they may mark. A teacher who cannot mark a student has no reason to read that student's record either. An admin is unscoped here and sees exactly what the admin route returns.
          */
         get: operations["listPortalMarkEventAttendance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/events/{event_id}/attendance/imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Queue a bulk attendance CSV import
+         * @description Admin-only upload. The request stores the bounded CSV and returns a durable River-backed import identifier immediately. Rows are processed asynchronously and may be inspected through the status endpoint.
+         */
+        post: operations["createAdminAttendanceImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/events/{event_id}/attendance/imports/{import_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read bulk attendance import progress */
+        get: operations["getAdminAttendanceImport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/events/{event_id}/attendance/imports/{import_id}/errors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List row errors from a bulk attendance import */
+        get: operations["listAdminAttendanceImportErrors"];
         put?: never;
         post?: never;
         delete?: never;
@@ -540,6 +648,60 @@ export interface paths {
          * @description Transitions an active event to archived. Repeating the command is an idempotent read: it returns the same resource and creates no audit row.
          */
         post: operations["archiveAdminEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/events/{event_id}/closeout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Queue an archived-event closeout report
+         * @description Queues reconciliation and report generation for an archived event. The request returns before the background work completes.
+         */
+        post: operations["createAdminEventCloseout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/events/{event_id}/closeout/{closeout_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read event closeout status */
+        get: operations["getAdminEventCloseout"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/events/{event_id}/closeout/{closeout_id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download a completed event closeout report */
+        get: operations["downloadAdminEventCloseoutReport"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -941,6 +1103,49 @@ export interface components {
             field: string;
             code: string;
             message: string;
+        };
+        AttendanceImport: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            event_id: string;
+            /** @enum {string} */
+            status: "queued" | "processing" | "completed" | "completed_with_errors" | "failed";
+            total_rows: number;
+            processed_rows: number;
+            accepted_rows: number;
+            duplicate_rows: number;
+            invalid_rows: number;
+            error_summary?: string | null;
+        };
+        AttendanceImportError: {
+            row: number;
+            field: string;
+            code: string;
+            message: string;
+        };
+        AttendanceExport: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            event_id: string;
+            /** @enum {string} */
+            format: "csv";
+            /** @enum {string} */
+            status: "queued" | "processing" | "completed" | "failed";
+            row_count: number;
+            error_summary?: string | null;
+        };
+        EventCloseout: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            event_id: string;
+            /** @enum {string} */
+            status: "queued" | "processing" | "completed" | "failed";
+            /** Format: int64 */
+            total_records: number;
+            error_summary?: string | null;
         };
         /** @description The card-populator roster read. Paginated like EventCollection, and deliberately bounded to display fields only — no email or card-token material. */
         StudentCollection: {
@@ -1394,20 +1599,24 @@ export interface components {
             id: string;
             /** @description UUID of the event this scan belongs to. */
             event_id: string;
-            /** @description The event slot (time window) in which the scan was captured. */
-            slot: number;
+            /** @description UUID of the event category used for the attendance mark. */
+            category_id: string;
             /**
              * @description Capture method used for this scan.
              * @enum {string}
              */
-            method: "barcode" | "qr" | "nfc";
+            method: "nfc" | "camera" | "search";
             /**
              * Format: date-time
              * @description RFC3339 UTC timestamp captured on the client at scan time. Advisory only — server-authoritative time governs resolution.
              */
             client_scanned_at: string;
             /** @description Raw scanned card/roll payload (NFC card UID, or the barcode/QR code value). */
-            card_token: string;
+            card_token?: string | null;
+            /** @description Card seal version when the scan carries an NFC card payload. */
+            card_version?: string | null;
+            /** @description Student UUID when the scan was resolved by search or camera. */
+            student_id?: string | null;
         };
         /** @description Batch scan-sync request. The batch is wrapped under a `scans` array (not a bare top-level array) to leave room for future top-level fields such as `device_id`. */
         ScanBatchRequest: {
@@ -2647,6 +2856,182 @@ export interface operations {
             };
         };
     };
+    createAdminAttendanceExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Export accepted for asynchronous processing. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceExport"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Administrator access is required. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getAdminAttendanceExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current export state and row count. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceExport"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Administrator access is required. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Export was not found for this event. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    downloadAdminAttendanceExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Administrator access is required. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Export was not found for this event. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Export is not completed yet. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listPortalMarkEventAttendance: {
         parameters: {
             query?: {
@@ -2702,6 +3087,200 @@ export interface operations {
                 };
             };
             /** @description Event was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createAdminAttendanceImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Import accepted for asynchronous processing. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceImport"];
+                };
+            };
+            /** @description Invalid event, filename, or upload. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Administrator access is required. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event was not found or is archived. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getAdminAttendanceImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current import state and counters. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceImport"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Administrator access is required. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Import was not found for this event. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listAdminAttendanceImportErrors: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Invalid source rows, capped by the server error limit. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        errors: components["schemas"]["AttendanceImportError"][];
+                    };
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Administrator access is required. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Import was not found for this event. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -3320,6 +3899,146 @@ export interface operations {
             };
             /** @description Internal error. */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createAdminEventCloseout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Closeout accepted for asynchronous processing. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventCloseout"];
+                };
+            };
+            /** @description The event id is malformed. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Authentication is required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not an administrator. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No event exists with the supplied id. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The event is not archived. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getAdminEventCloseout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+                closeout_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current closeout status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventCloseout"];
+                };
+            };
+            /** @description Closeout not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    downloadAdminEventCloseoutReport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+                closeout_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            /** @description Report generation is not complete. */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

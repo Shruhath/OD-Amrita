@@ -8,6 +8,51 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AttendanceExport struct {
+	ID                pgtype.UUID        `json:"id"`
+	EventID           pgtype.UUID        `json:"event_id"`
+	RequestedByUserID pgtype.UUID        `json:"requested_by_user_id"`
+	Format            string             `json:"format"`
+	Status            string             `json:"status"`
+	OutputCsv         string             `json:"output_csv"`
+	RowCount          int32              `json:"row_count"`
+	ErrorSummary      pgtype.Text        `json:"error_summary"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	StartedAt         pgtype.Timestamptz `json:"started_at"`
+	CompletedAt       pgtype.Timestamptz `json:"completed_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AttendanceImport struct {
+	ID                pgtype.UUID        `json:"id"`
+	EventID           pgtype.UUID        `json:"event_id"`
+	RequestedByUserID pgtype.UUID        `json:"requested_by_user_id"`
+	SourceFilename    string             `json:"source_filename"`
+	SourceCsv         string             `json:"source_csv"`
+	Status            string             `json:"status"`
+	TotalRows         int32              `json:"total_rows"`
+	ProcessedRows     int32              `json:"processed_rows"`
+	AcceptedRows      int32              `json:"accepted_rows"`
+	DuplicateRows     int32              `json:"duplicate_rows"`
+	InvalidRows       int32              `json:"invalid_rows"`
+	ErrorSummary      pgtype.Text        `json:"error_summary"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	StartedAt         pgtype.Timestamptz `json:"started_at"`
+	CompletedAt       pgtype.Timestamptz `json:"completed_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AttendanceImportRow struct {
+	ImportID     pgtype.UUID        `json:"import_id"`
+	RowNumber    int32              `json:"row_number"`
+	Status       string             `json:"status"`
+	RecordID     pgtype.UUID        `json:"record_id"`
+	Field        pgtype.Text        `json:"field"`
+	ErrorCode    pgtype.Text        `json:"error_code"`
+	ErrorMessage pgtype.Text        `json:"error_message"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
 type AuditLog struct {
 	ID           pgtype.UUID        `json:"id"`
 	Action       string             `json:"action"`
@@ -99,6 +144,20 @@ type EventCaptureCreditUsage struct {
 	UsageDate pgtype.Date `json:"usage_date"`
 }
 
+type EventCloseout struct {
+	ID                pgtype.UUID        `json:"id"`
+	EventID           pgtype.UUID        `json:"event_id"`
+	RequestedByUserID pgtype.UUID        `json:"requested_by_user_id"`
+	Status            string             `json:"status"`
+	TotalRecords      int64              `json:"total_records"`
+	ReportCsv         string             `json:"report_csv"`
+	ErrorSummary      pgtype.Text        `json:"error_summary"`
+	StartedAt         pgtype.Timestamptz `json:"started_at"`
+	CompletedAt       pgtype.Timestamptz `json:"completed_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+}
+
 type EventCoordinatorAssignment struct {
 	ID              pgtype.UUID        `json:"id"`
 	UserID          pgtype.UUID        `json:"user_id"`
@@ -122,6 +181,56 @@ type OdRecord struct {
 	// Campus-local day the OD belongs to, never the day the row was written. Derived server-side; never accepted from a client.
 	OdDate     pgtype.Date `json:"od_date"`
 	ReasonNote pgtype.Text `json:"reason_note"`
+}
+
+type ReconciliationIssue struct {
+	ID         pgtype.UUID        `json:"id"`
+	RunID      pgtype.UUID        `json:"run_id"`
+	EventID    pgtype.UUID        `json:"event_id"`
+	IssueKey   string             `json:"issue_key"`
+	Kind       string             `json:"kind"`
+	RecordID   pgtype.UUID        `json:"record_id"`
+	Details    []byte             `json:"details"`
+	Status     string             `json:"status"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+	ResolvedAt pgtype.Timestamptz `json:"resolved_at"`
+}
+
+type ReconciliationRun struct {
+	ID                pgtype.UUID        `json:"id"`
+	EventID           pgtype.UUID        `json:"event_id"`
+	Revision          int32              `json:"revision"`
+	Status            string             `json:"status"`
+	RequestedByUserID pgtype.UUID        `json:"requested_by_user_id"`
+	StartedAt         pgtype.Timestamptz `json:"started_at"`
+	CompletedAt       pgtype.Timestamptz `json:"completed_at"`
+	ScannedRecords    int64              `json:"scanned_records"`
+	IssueCount        int64              `json:"issue_count"`
+	RepairCount       int64              `json:"repair_count"`
+	ErrorSummary      pgtype.Text        `json:"error_summary"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ScanIdempotencyKey struct {
+	ScanID      pgtype.UUID        `json:"scan_id"`
+	ActorUserID pgtype.UUID        `json:"actor_user_id"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type ScanPostProcessing struct {
+	ScanID        pgtype.UUID        `json:"scan_id"`
+	EventID       pgtype.UUID        `json:"event_id"`
+	RecordID      pgtype.UUID        `json:"record_id"`
+	Status        string             `json:"status"`
+	AuditVerified bool               `json:"audit_verified"`
+	Attempts      int32              `json:"attempts"`
+	ErrorSummary  pgtype.Text        `json:"error_summary"`
+	StartedAt     pgtype.Timestamptz `json:"started_at"`
+	CompletedAt   pgtype.Timestamptz `json:"completed_at"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Student struct {

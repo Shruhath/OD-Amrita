@@ -9,6 +9,8 @@ import { Select } from '../../components/ui/Select'
 import { useAuth } from '../../features/auth/context'
 import { createBarcodeScanner, type BarcodeScannerStatus } from '../../features/marking/barcodeScanner'
 import { CardNfcError, createWebNfcAdapter, type WebNfcStatus } from '../../features/nfc/webNfc'
+import { enqueueScan, getPendingCount } from '../../lib/offline/storage'
+import { registerSyncListener, flushOfflineQueue } from '../../lib/offline/sync'
 
 /**
  * The coordinator marking surface.
@@ -24,9 +26,9 @@ import { CardNfcError, createWebNfcAdapter, type WebNfcStatus } from '../../feat
  *     offline-first — this MVP has no local write, so an optimistic green would
  *     be a claim the server may then refuse. A mark the server rejected must
  *     never have shown green, not even for a frame.
- *  2. A TIMEOUT IS RED. There is no queue here. Amber "queued" is the one state
- *     this screen must never have: it tells a coordinator a student is marked
- *     when nothing will ever send it.
+ *  2. A NETWORK FAILURE IS QUEUED. The bounded batch endpoint preserves the
+ *     local UUIDv7 and the server deduplicates it. Permanent rejection is
+ *     dead-lettered and remains visible through the pending count.
  *  3. A FAILURE IS STICKY. A red state survives until the coordinator dismisses
  *     or retries it, and a later success can never quietly replace it. An
  *     unnoticed failure is the worst outcome on this screen, so "the last
@@ -85,6 +87,21 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
   // ---------------------------------------------------------------------
   const [failure, setFailure] = useState<string | null>(null)
   const [success, setSuccess] = useState<MarkAttendanceResult | null>(null)
+  const [pendingCount, setPendingCount] = useState<number>(0)
+
+  useEffect(() => {
+    void getPendingCount().then(setPendingCount)
+    const cleanup = registerSyncListener(api, (count) => {
+      setPendingCount((prev) => Math.max(0, prev - count))
+    })
+    // Also trigger initial sync check if online
+    if (navigator.onLine) {
+      void flushOfflineQueue(api, (count) => {
+        setPendingCount((prev) => Math.max(0, prev - count))
+      })
+    }
+    return cleanup
+  }, [api])
 
   const reportFailure = useCallback((message: string) => {
     setFailure(message)
@@ -180,7 +197,29 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
         queryKey: ['mark-status', variables.scope.eventID, variables.scope.categoryID],
       })
     },
-    onError(error, variables) {
+    async onError(error, variables) {
+      if (!navigator.onLine || (error instanceof TypeError && error.message.includes('Failed to fetch'))) {
+        try {
+          await enqueueScan({
+            eventID: variables.scope.eventID,
+            categoryID: variables.scope.categoryID,
+            captureMethod: variables.capture,
+            ...('card' in variables.identity
+              ? { cardPayload: variables.identity.card }
+              : { studentToken: variables.identity.studentID }),
+          })
+          setPendingCount((c) => c + 1)
+          setSuccess({
+            ok: true,
+            status: 'marked_present',
+            scanned_at: new Date().toISOString(),
+            student: { student_id: 'Offline Scan', roll_number: 'Queued', name: 'Saved to Device' },
+          } as any)
+          return
+        } catch {
+          // Fallthrough to regular failure reporting if storage fails
+        }
+      }
       reportFailure(markFailureMessage(error))
       if (error instanceof ApiFailure && error.body.code === 'CAPTURE_CREDIT_LIMIT_REACHED') {
         void queryClient.invalidateQueries({
@@ -533,6 +572,7 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
         a screen reader and to every test that selects the banner by role.
       */}
       <p className="mark-activity" aria-live="polite">{mark.isPending ? 'Marking…' : ''}</p>
+      {pendingCount > 0 ? <p className="mark-activity" aria-live="polite">{pendingCount} scan{pendingCount === 1 ? '' : 's'} pending sync</p> : null}
 
       <nav className="mark-modes" aria-label="Capture mode">
         {(['nfc', 'camera', 'search'] as const).map((candidate) => (

@@ -16,6 +16,72 @@ const (
 	BearerAuthScopes bearerAuthContextKey = "bearerAuth.Scopes"
 )
 
+// Defines values for AttendanceExportFormat.
+const (
+	AttendanceExportFormatCsv AttendanceExportFormat = "csv"
+)
+
+// Valid indicates whether the value is a known member of the AttendanceExportFormat enum.
+func (e AttendanceExportFormat) Valid() bool {
+	switch e {
+	case AttendanceExportFormatCsv:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AttendanceExportStatus.
+const (
+	AttendanceExportStatusCompleted  AttendanceExportStatus = "completed"
+	AttendanceExportStatusFailed     AttendanceExportStatus = "failed"
+	AttendanceExportStatusProcessing AttendanceExportStatus = "processing"
+	AttendanceExportStatusQueued     AttendanceExportStatus = "queued"
+)
+
+// Valid indicates whether the value is a known member of the AttendanceExportStatus enum.
+func (e AttendanceExportStatus) Valid() bool {
+	switch e {
+	case AttendanceExportStatusCompleted:
+		return true
+	case AttendanceExportStatusFailed:
+		return true
+	case AttendanceExportStatusProcessing:
+		return true
+	case AttendanceExportStatusQueued:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AttendanceImportStatus.
+const (
+	AttendanceImportStatusCompleted           AttendanceImportStatus = "completed"
+	AttendanceImportStatusCompletedWithErrors AttendanceImportStatus = "completed_with_errors"
+	AttendanceImportStatusFailed              AttendanceImportStatus = "failed"
+	AttendanceImportStatusProcessing          AttendanceImportStatus = "processing"
+	AttendanceImportStatusQueued              AttendanceImportStatus = "queued"
+)
+
+// Valid indicates whether the value is a known member of the AttendanceImportStatus enum.
+func (e AttendanceImportStatus) Valid() bool {
+	switch e {
+	case AttendanceImportStatusCompleted:
+		return true
+	case AttendanceImportStatusCompletedWithErrors:
+		return true
+	case AttendanceImportStatusFailed:
+		return true
+	case AttendanceImportStatusProcessing:
+		return true
+	case AttendanceImportStatusQueued:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AttendanceRecordActorRole.
 const (
 	AttendanceRecordActorRoleAdmin       AttendanceRecordActorRole = "admin"
@@ -205,6 +271,30 @@ func (e ErrorCode) Valid() bool {
 	}
 }
 
+// Defines values for EventCloseoutStatus.
+const (
+	EventCloseoutStatusCompleted  EventCloseoutStatus = "completed"
+	EventCloseoutStatusFailed     EventCloseoutStatus = "failed"
+	EventCloseoutStatusProcessing EventCloseoutStatus = "processing"
+	EventCloseoutStatusQueued     EventCloseoutStatus = "queued"
+)
+
+// Valid indicates whether the value is a known member of the EventCloseoutStatus enum.
+func (e EventCloseoutStatus) Valid() bool {
+	switch e {
+	case EventCloseoutStatusCompleted:
+		return true
+	case EventCloseoutStatusFailed:
+		return true
+	case EventCloseoutStatusProcessing:
+		return true
+	case EventCloseoutStatusQueued:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for EventStatus.
 const (
 	EventStatusActive   EventStatus = "active"
@@ -375,19 +465,19 @@ func (e RevokeSessionsRequestScope) Valid() bool {
 
 // Defines values for ScanItemMethod.
 const (
-	ScanItemMethodBarcode ScanItemMethod = "barcode"
-	ScanItemMethodNfc     ScanItemMethod = "nfc"
-	ScanItemMethodQr      ScanItemMethod = "qr"
+	ScanItemMethodCamera ScanItemMethod = "camera"
+	ScanItemMethodNfc    ScanItemMethod = "nfc"
+	ScanItemMethodSearch ScanItemMethod = "search"
 )
 
 // Valid indicates whether the value is a known member of the ScanItemMethod enum.
 func (e ScanItemMethod) Valid() bool {
 	switch e {
-	case ScanItemMethodBarcode:
+	case ScanItemMethodCamera:
 		return true
 	case ScanItemMethodNfc:
 		return true
-	case ScanItemMethodQr:
+	case ScanItemMethodSearch:
 		return true
 	default:
 		return false
@@ -477,6 +567,46 @@ type AttendanceActor struct {
 	Email  *openapi_types.Email `json:"email"`
 	Name   *string              `json:"name"`
 	UserId *openapi_types.UUID  `json:"user_id"`
+}
+
+// AttendanceExport defines model for AttendanceExport.
+type AttendanceExport struct {
+	ErrorSummary *string                `json:"error_summary,omitempty"`
+	EventId      openapi_types.UUID     `json:"event_id"`
+	Format       AttendanceExportFormat `json:"format"`
+	Id           openapi_types.UUID     `json:"id"`
+	RowCount     int                    `json:"row_count"`
+	Status       AttendanceExportStatus `json:"status"`
+}
+
+// AttendanceExportFormat defines model for AttendanceExport.Format.
+type AttendanceExportFormat string
+
+// AttendanceExportStatus defines model for AttendanceExport.Status.
+type AttendanceExportStatus string
+
+// AttendanceImport defines model for AttendanceImport.
+type AttendanceImport struct {
+	AcceptedRows  int                    `json:"accepted_rows"`
+	DuplicateRows int                    `json:"duplicate_rows"`
+	ErrorSummary  *string                `json:"error_summary,omitempty"`
+	EventId       openapi_types.UUID     `json:"event_id"`
+	Id            openapi_types.UUID     `json:"id"`
+	InvalidRows   int                    `json:"invalid_rows"`
+	ProcessedRows int                    `json:"processed_rows"`
+	Status        AttendanceImportStatus `json:"status"`
+	TotalRows     int                    `json:"total_rows"`
+}
+
+// AttendanceImportStatus defines model for AttendanceImport.Status.
+type AttendanceImportStatus string
+
+// AttendanceImportError defines model for AttendanceImportError.
+type AttendanceImportError struct {
+	Code    string `json:"code"`
+	Field   string `json:"field"`
+	Message string `json:"message"`
+	Row     int    `json:"row"`
 }
 
 // AttendanceRecord defines model for AttendanceRecord.
@@ -742,6 +872,18 @@ type Event struct {
 	Name      string             `json:"name"`
 	Status    EventStatus        `json:"status"`
 }
+
+// EventCloseout defines model for EventCloseout.
+type EventCloseout struct {
+	ErrorSummary *string             `json:"error_summary,omitempty"`
+	EventId      openapi_types.UUID  `json:"event_id"`
+	Id           openapi_types.UUID  `json:"id"`
+	Status       EventCloseoutStatus `json:"status"`
+	TotalRecords int64               `json:"total_records"`
+}
+
+// EventCloseoutStatus defines model for EventCloseout.Status.
+type EventCloseoutStatus string
 
 // EventCollection defines model for EventCollection.
 type EventCollection struct {
@@ -1054,7 +1196,13 @@ type ScanBatchResponse struct {
 // ScanItem A single client-captured scan. Wire field names are snake_case and LOCKED end-to-end (no camelCase anywhere on the wire).
 type ScanItem struct {
 	// CardToken Raw scanned card/roll payload (NFC card UID, or the barcode/QR code value).
-	CardToken string `json:"card_token"`
+	CardToken *string `json:"card_token,omitempty"`
+
+	// CardVersion Card seal version when the scan carries an NFC card payload.
+	CardVersion *string `json:"card_version,omitempty"`
+
+	// CategoryId UUID of the event category used for the attendance mark.
+	CategoryId string `json:"category_id"`
 
 	// ClientScannedAt RFC3339 UTC timestamp captured on the client at scan time. Advisory only — server-authoritative time governs resolution.
 	ClientScannedAt time.Time `json:"client_scanned_at"`
@@ -1068,8 +1216,8 @@ type ScanItem struct {
 	// Method Capture method used for this scan.
 	Method ScanItemMethod `json:"method"`
 
-	// Slot The event slot (time window) in which the scan was captured.
-	Slot int `json:"slot"`
+	// StudentId Student UUID when the scan was resolved by search or camera.
+	StudentId *string `json:"student_id,omitempty"`
 }
 
 // ScanItemMethod Capture method used for this scan.
@@ -1209,6 +1357,11 @@ type ListAdminEventAttendanceParams struct {
 	PageSize *int                `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
+// CreateAdminAttendanceImportMultipartBody defines parameters for CreateAdminAttendanceImport.
+type CreateAdminAttendanceImportMultipartBody struct {
+	File openapi_types.File `json:"file"`
+}
+
 // ListAdminStudentsParams defines parameters for ListAdminStudents.
 type ListAdminStudentsParams struct {
 	BranchId *openapi_types.UUID `form:"branch_id,omitempty" json:"branch_id,omitempty"`
@@ -1310,6 +1463,9 @@ type ResolveAdminCardTokenJSONRequestBody = CardTokenResolveRequest
 
 // CreateAdminEventJSONRequestBody defines body for CreateAdminEvent for application/json ContentType.
 type CreateAdminEventJSONRequestBody = CreateEventRequest
+
+// CreateAdminAttendanceImportMultipartRequestBody defines body for CreateAdminAttendanceImport for multipart/form-data ContentType.
+type CreateAdminAttendanceImportMultipartRequestBody CreateAdminAttendanceImportMultipartBody
 
 // UpdateAdminEventCaptureCreditConfigJSONRequestBody defines body for UpdateAdminEventCaptureCreditConfig for application/json ContentType.
 type UpdateAdminEventCaptureCreditConfigJSONRequestBody = UpdateCaptureCreditConfigRequest

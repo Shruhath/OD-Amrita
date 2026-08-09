@@ -19,10 +19,11 @@ type TLS struct {
 	// Enabled serves TLS directly. False is only for ingress-terminated
 	// deployments where the platform enforces TLS (and must also reject, not
 	// redirect, plain HTTP).
-	Enabled    bool
-	MinVersion string // "1.2" (default) or "1.3"
-	CertFile   string
-	KeyFile    string
+	Enabled                 bool
+	TrustedProxyTermination bool
+	MinVersion              string // "1.2" (default) or "1.3"
+	CertFile                string
+	KeyFile                 string
 }
 
 // Auth holds Supabase-brokered Microsoft OAuth settings. The backend verifies
@@ -104,13 +105,18 @@ type PublicRateLimit struct {
 // Load reads the environment and fails fast on a configuration the server
 // must not start with (missing runtime DSN, invalid port, a malformed boolean,
 // TLS enabled without a readable cert/key or with an unknown min version, or
-// any attempt to configure the forbidden HTTP redirect listener).
+// any attempt to configure the forbidden HTTP redirect listener, or production
+// plaintext without an explicit trusted-ingress declaration).
 func Load() (*Config, error) {
 	tlsEnabled, err := parseBoolStrict("TLS_ENABLED", true)
 	if err != nil {
 		return nil, err
 	}
 	redirectListener, err := parseBoolStrict("HTTP_REDIRECT_LISTENER", false)
+	if err != nil {
+		return nil, err
+	}
+	trustedProxyTermination, err := parseBoolStrict("TLS_TERMINATED_BY_TRUSTED_PROXY", false)
 	if err != nil {
 		return nil, err
 	}
@@ -124,10 +130,11 @@ func Load() (*Config, error) {
 		DatabaseURLRuntime:   os.Getenv("DATABASE_URL_RUNTIME"),
 		PortalAllowedOrigins: parseList(os.Getenv("PORTAL_ALLOWED_ORIGINS")),
 		TLS: TLS{
-			Enabled:    tlsEnabled,
-			MinVersion: getenvDefault("TLS_MIN_VERSION", "1.2"),
-			CertFile:   os.Getenv("TLS_CERT_FILE"),
-			KeyFile:    os.Getenv("TLS_KEY_FILE"),
+			Enabled:                 tlsEnabled,
+			TrustedProxyTermination: trustedProxyTermination,
+			MinVersion:              getenvDefault("TLS_MIN_VERSION", "1.2"),
+			CertFile:                os.Getenv("TLS_CERT_FILE"),
+			KeyFile:                 os.Getenv("TLS_KEY_FILE"),
 		},
 		Auth: Auth{
 			JWKSURL: os.Getenv("AUTH_JWKS_URL"),
@@ -152,6 +159,9 @@ func Load() (*Config, error) {
 	// a redirect listener; refuse the configuration outright.
 	if redirectListener {
 		return nil, fmt.Errorf("config: HTTP_REDIRECT_LISTENER must stay false — HTTP is rejected, not redirected (NFR15)")
+	}
+	if !cfg.TLS.Enabled && cfg.AppEnv != "development" && !cfg.TLS.TrustedProxyTermination {
+		return nil, fmt.Errorf("config: TLS_ENABLED=false requires TLS_TERMINATED_BY_TRUSTED_PROXY=true outside development")
 	}
 
 	if cfg.TLS.Enabled {

@@ -416,9 +416,8 @@ paths:
         Accepts a batch of client-captured scans and enqueues them for durable,
         idempotent processing. Responds 202 — ACCEPTED AND ENQUEUED, not
         commit-confirmed. Each item is answered individually in `results`. The
-        durable enqueue, ON CONFLICT/present-wins resolution and same-transaction
-        audit are implemented later; this contract only freezes the shape so
-        mobile and backend do not renegotiate it piecemeal.
+        durable idempotency resolution and audited marking are implemented by
+        the API; this endpoint is the web offline queue's batch transport.
       # Required even though the handler is deferred. From Story 0.10 onward,
       # OMITTING `security` is how this spec declares an endpoint public — the
       # public dashboard reads rely on exactly that — so an operation that
@@ -909,18 +908,171 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+
+
+
+  /api/v1/admin/events/{event_id}/attendance/exports:
+    post:
+      operationId: createAdminAttendanceExport
+      summary: Queue a CSV attendance export
+      description: >-
+        Admin-only report request. The export is generated asynchronously in
+        bounded database chunks and can be downloaded after completion.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "202":
+          description: Export accepted for asynchronous processing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceExport"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Administrator access is required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Event was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/events/{event_id}/attendance/exports/{export_id}:
+    get:
+      operationId: getAdminAttendanceExport
+      summary: Read CSV attendance export progress
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: export_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Current export state and row count.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceExport"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Administrator access is required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Export was not found for this event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/events/{event_id}/attendance/exports/{export_id}/download:
+    get:
+      operationId: downloadAdminAttendanceExport
+      summary: Download a completed CSV attendance export
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: export_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: CSV report.
+          content:
+            text/csv:
+              schema:
+                type: string
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Administrator access is required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Export was not found for this event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Export is not completed yet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/portal/mark/events/{event_id}/attendance:
     get:
       operationId: listPortalMarkEventAttendance
-      summary: List attendance records the caller may review
+      summary: List present attendance records the caller may review
       description: >-
-        The teacher/admin live view of an event's marks, returning present and
-        removed OD rows. A SIBLING of `/api/v1/admin/events/{event_id}/attendance`,
-        never a replacement: this one is BRANCH-SCOPED for a teacher, returning
-        only records for students in the branches they teach, which is the same
-        rule that decides which students they may mark. A teacher who cannot
-        mark a student has no reason to read that student's record either. An
-        admin is unscoped here and sees exactly what the admin route returns.
+        The teacher/admin live view of an event's marks. A SIBLING of
+        `/api/v1/admin/events/{event_id}/attendance`, never a replacement: this
+        one is BRANCH-SCOPED for a teacher, returning only records for students
+        in the branches they teach, which is the same rule that decides which
+        students they may mark. A teacher who cannot mark a student has no
+        reason to read that student's record either. An admin is unscoped here
+        and sees exactly what the admin route returns.
       security:
         - bearerAuth: []
       parameters:
@@ -989,6 +1141,180 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           description: Event was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/events/{event_id}/attendance/imports:
+    post:
+      operationId: createAdminAttendanceImport
+      summary: Queue a bulk attendance CSV import
+      description: >-
+        Admin-only upload. The request stores the bounded CSV and returns a
+        durable River-backed import identifier immediately. Rows are processed
+        asynchronously and may be inspected through the status endpoint.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "202":
+          description: Import accepted for asynchronous processing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceImport"
+        "400":
+          description: Invalid event, filename, or upload.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Administrator access is required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Event was not found or is archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/events/{event_id}/attendance/imports/{import_id}:
+    get:
+      operationId: getAdminAttendanceImport
+      summary: Read bulk attendance import progress
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: import_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Current import state and counters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceImport"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Administrator access is required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Import was not found for this event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/events/{event_id}/attendance/imports/{import_id}/errors:
+    get:
+      operationId: listAdminAttendanceImportErrors
+      summary: List row errors from a bulk attendance import
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: import_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Invalid source rows, capped by the server error limit.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errors]
+                properties:
+                  errors:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AttendanceImportError"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Administrator access is required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Import was not found for this event.
           content:
             application/json:
               schema:
@@ -1522,6 +1848,77 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/events/{event_id}/closeout:
+    post:
+      operationId: createAdminEventCloseout
+      summary: Queue an archived-event closeout report
+      description: >-
+        Queues reconciliation and report generation for an archived event. The
+        request returns before the background work completes.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "202":
+          description: Closeout accepted for asynchronous processing.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EventCloseout" }
+        "400":
+          description: The event id is malformed.
+          content: { application/json: { schema: { $ref: "#/components/schemas/ValidationError" } } }
+        "401":
+          description: Authentication is required.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "403":
+          description: Caller is not an administrator.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "404":
+          description: No event exists with the supplied id.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "409":
+          description: The event is not archived.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "500":
+          description: Internal error.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
+  /api/v1/admin/events/{event_id}/closeout/{closeout_id}:
+    get:
+      operationId: getAdminEventCloseout
+      summary: Read event closeout status
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: event_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: closeout_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Current closeout status.
+          content: { application/json: { schema: { $ref: "#/components/schemas/EventCloseout" } } }
+        "404":
+          description: Closeout not found.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
+  /api/v1/admin/events/{event_id}/closeout/{closeout_id}/report:
+    get:
+      operationId: downloadAdminEventCloseoutReport
+      summary: Download a completed event closeout report
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: event_id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: closeout_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: CSV report.
+          content: { text/csv: { schema: { type: string } } }
+        "409":
+          description: Report generation is not complete.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
 
   /api/v1/admin/events/{event_id}/categories:
     parameters:
@@ -2709,6 +3106,96 @@ components:
         message:
           type: string
 
+    AttendanceImport:
+      type: object
+      required: [id, event_id, status, total_rows, processed_rows, accepted_rows, duplicate_rows, invalid_rows]
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, processing, completed, completed_with_errors, failed]
+        total_rows:
+          type: integer
+          minimum: 0
+        processed_rows:
+          type: integer
+          minimum: 0
+        accepted_rows:
+          type: integer
+          minimum: 0
+        duplicate_rows:
+          type: integer
+          minimum: 0
+        invalid_rows:
+          type: integer
+          minimum: 0
+        error_summary:
+          type: string
+          nullable: true
+
+    AttendanceImportError:
+      type: object
+      required: [row, field, code, message]
+      properties:
+        row:
+          type: integer
+          minimum: 2
+        field:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+
+    AttendanceExport:
+      type: object
+      required: [id, event_id, format, status, row_count]
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
+        format:
+          type: string
+          enum: [csv]
+        status:
+          type: string
+          enum: [queued, processing, completed, failed]
+        row_count:
+          type: integer
+          minimum: 0
+        error_summary:
+          type: string
+          nullable: true
+
+    EventCloseout:
+      type: object
+      required: [id, event_id, status, total_records]
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, processing, completed, failed]
+        total_records:
+          type: integer
+          format: int64
+          minimum: 0
+        error_summary:
+          type: string
+          nullable: true
+
     StudentCollection:
       type: object
       description: >-
@@ -3825,10 +4312,9 @@ components:
       required:
         - id
         - event_id
-        - slot
         - method
         - client_scanned_at
-        - card_token
+        - category_id
       properties:
         id:
           type: string
@@ -3840,16 +4326,16 @@ components:
         event_id:
           type: string
           description: UUID of the event this scan belongs to.
-        slot:
-          type: integer
-          description: The event slot (time window) in which the scan was captured.
+        category_id:
+          type: string
+          description: UUID of the event category used for the attendance mark.
         method:
           type: string
           description: Capture method used for this scan.
           enum:
-            - barcode
-            - qr
             - nfc
+            - camera
+            - search
         client_scanned_at:
           type: string
           format: date-time
@@ -3858,9 +4344,18 @@ components:
             only — server-authoritative time governs resolution.
         card_token:
           type: string
+          nullable: true
           description: >-
             Raw scanned card/roll payload (NFC card UID, or the barcode/QR code
             value).
+        card_version:
+          type: string
+          nullable: true
+          description: Card seal version when the scan carries an NFC card payload.
+        student_id:
+          type: string
+          nullable: true
+          description: Student UUID when the scan was resolved by search or camera.
 
     ScanBatchRequest:
       type: object

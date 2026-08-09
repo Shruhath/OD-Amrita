@@ -1,5 +1,4 @@
-// Command api is the OD-Amrita HTTP server entrypoint (gin). One of two api/
-// entrypoints; cmd/worker runs the persistent River worker.
+// Command api is the OD-Amrita HTTP server entrypoint (gin).
 //
 // Transport security (NFR15): the server is deployed behind TLS 1.2+ ONLY.
 // Plain HTTP is REJECTED, not redirected — there is deliberately NO HTTP→HTTPS
@@ -20,31 +19,47 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/riverqueue/river"
 
 	"github.com/Shruhath/OD-Amrita/api/internal/config"
 	handleradmin "github.com/Shruhath/OD-Amrita/api/internal/handler/admin"
+	handlerattendanceexport "github.com/Shruhath/OD-Amrita/api/internal/handler/attendanceexport"
+	handlerattendanceimport "github.com/Shruhath/OD-Amrita/api/internal/handler/attendanceimport"
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
 	handlercardtoken "github.com/Shruhath/OD-Amrita/api/internal/handler/cardtoken"
 	handlerdispute "github.com/Shruhath/OD-Amrita/api/internal/handler/dispute"
 	handlerevent "github.com/Shruhath/OD-Amrita/api/internal/handler/event"
+	handlereventcloseout "github.com/Shruhath/OD-Amrita/api/internal/handler/eventcloseout"
 	"github.com/Shruhath/OD-Amrita/api/internal/handler/health"
 	handlerodrecord "github.com/Shruhath/OD-Amrita/api/internal/handler/od_record"
 	handlerpublicattendance "github.com/Shruhath/OD-Amrita/api/internal/handler/publicattendance"
+	handlerscan "github.com/Shruhath/OD-Amrita/api/internal/handler/scan"
 	handlerstudent "github.com/Shruhath/OD-Amrita/api/internal/handler/student"
 	handlerteacher "github.com/Shruhath/OD-Amrita/api/internal/handler/teacher"
+	jobattendanceexport "github.com/Shruhath/OD-Amrita/api/internal/job/attendance_export"
+	jobattendanceimport "github.com/Shruhath/OD-Amrita/api/internal/job/attendance_import"
+	"github.com/Shruhath/OD-Amrita/api/internal/job/eod_audit"
+	jobeventcloseout "github.com/Shruhath/OD-Amrita/api/internal/job/event_closeout"
+	jobscanpostprocess "github.com/Shruhath/OD-Amrita/api/internal/job/scan_postprocess"
+	"github.com/Shruhath/OD-Amrita/api/internal/jobs"
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
 	corsmw "github.com/Shruhath/OD-Amrita/api/internal/middleware/cors"
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/ratelimit"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
+	svcattendanceexport "github.com/Shruhath/OD-Amrita/api/internal/service/attendanceexport"
+	svcattendanceimport "github.com/Shruhath/OD-Amrita/api/internal/service/attendanceimport"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	svccardtoken "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
 	svcdispute "github.com/Shruhath/OD-Amrita/api/internal/service/dispute"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
+	svceventcloseout "github.com/Shruhath/OD-Amrita/api/internal/service/eventcloseout"
 	svcmarking "github.com/Shruhath/OD-Amrita/api/internal/service/marking"
 	svcodrecord "github.com/Shruhath/OD-Amrita/api/internal/service/od_record"
 	svcpublicattendance "github.com/Shruhath/OD-Amrita/api/internal/service/publicattendance"
 	"github.com/Shruhath/OD-Amrita/api/internal/service/publiccache"
+	"github.com/Shruhath/OD-Amrita/api/internal/service/reconciliation"
+	svcscan "github.com/Shruhath/OD-Amrita/api/internal/service/scan"
 	svcstudent "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 	svcteacher "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
 	svcuser "github.com/Shruhath/OD-Amrita/api/internal/service/user"
@@ -71,6 +86,29 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
+
+	reconciliationSvc := reconciliation.NewService(pool)
+	workerRegistry := jobs.NewRegistry()
+	river.AddWorker(workerRegistry.Workers(), &eodaudit.Worker{Service: reconciliationSvc})
+	// The sweep worker is registered before the client is constructed. Its
+	// periodic producer is leader-elected by River, so two Fly machines do not
+	// enqueue duplicate reconciliation revisions.
+	riverClient, err := jobs.NewClient(pool, workerRegistry, jobs.WithPeriodicJobs(eodaudit.PeriodicSweep()))
+	if err != nil {
+		return err
+	}
+	river.AddWorker(workerRegistry.Workers(), &eodaudit.SweepWorker{Service: reconciliationSvc, Client: riverClient})
+	attendanceImportSvc := svcattendanceimport.NewService(pool, riverClient)
+	river.AddWorker(workerRegistry.Workers(), &jobattendanceimport.Worker{Service: attendanceImportSvc})
+	attendanceExportSvc := svcattendanceexport.NewService(pool, riverClient)
+	river.AddWorker(workerRegistry.Workers(), &jobattendanceexport.Worker{Service: attendanceExportSvc})
+	river.AddWorker(workerRegistry.Workers(), &jobscanpostprocess.Worker{Pool: pool})
+	eventCloseoutSvc := svceventcloseout.NewService(pool, riverClient)
+	river.AddWorker(workerRegistry.Workers(), &jobeventcloseout.Worker{Service: eventCloseoutSvc})
+	if err := jobs.Start(context.Background(), riverClient); err != nil {
+		return err
+	}
+	defer jobs.Stop(context.Background(), riverClient)
 
 	if cfg.AppEnv != "development" {
 		gin.SetMode(gin.ReleaseMode)
@@ -179,6 +217,7 @@ func run() error {
 	)
 	handlerodrecord.RegisterRoutes(markAPI, markSvc)
 	handlerodrecord.RegisterRecordManagementRoutes(markAPI, svcodrecord.NewManagementService(pool, st))
+	handlerscan.RegisterRoutes(markAPI, svcscan.NewService(markSvc, pool, riverClient))
 	handlerodrecord.RegisterPortalMarkRoutes(markAPI, portalMarkReads)
 	// The teacher-reachable live attendance read. Mounted on markAPI rather than
 	// the admin group; the service scopes a teacher to their own branches.
@@ -225,6 +264,9 @@ func run() error {
 	handlerdispute.RegisterRoutes(markAPI, disputeSvc)
 
 	admin := newAdminGroup(api, principalLoader)
+	handlerattendanceimport.RegisterAdminRoutes(admin, attendanceImportSvc)
+	handlerattendanceexport.RegisterAdminRoutes(admin, attendanceExportSvc)
+	handlereventcloseout.RegisterAdminRoutes(admin, eventCloseoutSvc)
 	admin.POST("/users/:user_id/sessions/revoke", handleradmin.RevokeSessionsHandler(revSvc))
 	eventSvc := svcevent.NewService(eventReader, st, svcevent.NewSQLCWriter())
 	handlerevent.RegisterAdminRoutes(admin, eventSvc)
@@ -276,6 +318,7 @@ func run() error {
 		log.Printf("api: received %s, draining", sig)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+
 		return srv.Shutdown(ctx)
 	}
 }

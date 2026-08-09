@@ -175,6 +175,7 @@ jobs:
         working-directory: api
         run: |
           goose -dir db/migrations postgres "$DATABASE_URL_MIGRATOR" up
+          go run ./cmd/river-migrate
       - name: Integration tests — migrations, immutability, role gates, event lifecycle, tx-helper co-commit, round-trip gate
         # test/db, test/store and test/roundtrip share ONE database; -p 1 serializes
         # the package binaries so the migration round-trip test (which resets the
@@ -219,6 +220,7 @@ jobs:
             'DELETE FROM disputes; DELETE FROM od_records; DELETE FROM event_capture_credit_usage;'
           goose -dir db/migrations postgres "$DATABASE_URL_MIGRATOR" down-to 0
           goose -dir db/migrations postgres "$DATABASE_URL_MIGRATOR" up
+          go run ./cmd/river-migrate
       - name: Start api server (TLS, self-signed) for /health
         working-directory: api
         run: |

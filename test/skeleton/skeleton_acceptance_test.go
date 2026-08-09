@@ -166,11 +166,13 @@ func TestAC2_ApiModulePath(t *testing.T) {
 	requireContains(t, root, "api/go.mod", "module github.com/Shruhath/OD-Amrita/api")
 }
 
-// [P0] AC2: two entrypoints — server (cmd/api) and River worker (cmd/worker).
+// [P0] AC2: two operational entrypoints — the API server and River migration
+// command. River workers run inside cmd/api; there is intentionally no separate
+// cmd/worker binary after the worker was embedded in the API process.
 func TestAC2_TwoEntrypoints(t *testing.T) {
 	root := repoRoot(t)
 	requireFile(t, root, "api/cmd/api/main.go")
-	requireFile(t, root, "api/cmd/worker/main.go")
+	requireFile(t, root, "api/cmd/river-migrate/main.go")
 }
 
 // [P0] AC2: the layered internal/ package structure exists.

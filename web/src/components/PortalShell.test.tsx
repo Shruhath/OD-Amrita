@@ -1,10 +1,11 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test, vi } from 'vitest'
 import { Application } from '../Application'
 import type { SessionPort } from '../features/auth/session'
 import { createPortalMemoryRouter } from '../router'
+import { sectionsFor } from '../routes/access'
 import { server } from '../test/server'
 
 /**
@@ -76,5 +77,59 @@ describe('the portal chrome', () => {
     // accessible name has to say what the link DOES rather than spell "OD".
     const brand = await screen.findByRole('link', { name: /od-amrita home/i })
     expect(brand).toBeInTheDocument()
+  })
+
+  /**
+   * THE PHONE'S ONLY WAY BETWEEN SCREENS.
+   *
+   * Below 768px the section rail and the account menu are both display:none and
+   * everything they offered lives behind one toggle. A toggle that does not open
+   * therefore does not degrade the chrome — it removes navigation from the phone
+   * entirely, on the surface most likely to be used from one. The media query is
+   * not evaluated here, so these assert the mechanism rather than the breakpoint:
+   * the sheet opens, it carries the same role-filtered sections the rail does,
+   * and it closes again.
+   */
+  test('[P0] the phone toggle opens a sheet carrying the sections and the account', async () => {
+    const user = userEvent.setup()
+    installTeacher()
+    render(<Application session={sessionPort()} router={createPortalMemoryRouter(['/portal/live'])} />)
+
+    const toggle = await screen.findByRole('button', { name: /open navigation/i })
+    expect(screen.queryByRole('dialog', { name: /navigation menu/i })).toBeNull()
+
+    await user.click(toggle)
+
+    const sheet = await screen.findByRole('dialog', { name: /navigation menu/i })
+    // The same declaration the rail reads, so the sheet cannot offer a teacher a
+    // screen that answers "Access denied" — or omit the one they can use.
+    for (const section of sectionsFor('teacher')) {
+      expect(
+        within(sheet).getByRole('link', { name: section.label }),
+        `the phone sheet does not offer ${section.label}, which this role can open`,
+      ).toBeInTheDocument()
+    }
+    expect(
+      within(sheet).getByRole('button', { name: /account|sign out|portal teacher/i }),
+      'the account is unreachable on a phone: the desktop menu is hidden and the sheet does not carry it',
+    ).toBeInTheDocument()
+  })
+
+  test('[P0] Escape closes the phone sheet', async () => {
+    const user = userEvent.setup()
+    installTeacher()
+    render(<Application session={sessionPort()} router={createPortalMemoryRouter(['/portal/live'])} />)
+
+    await user.click(await screen.findByRole('button', { name: /open navigation/i }))
+    expect(await screen.findByRole('dialog', { name: /navigation menu/i })).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('dialog', { name: /navigation menu/i }),
+        'the sheet stays up after Escape, so it covers the workspace with no keyboard way out',
+      ).toBeNull()
+    })
   })
 })

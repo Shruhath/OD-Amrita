@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { motion } from 'motion/react'
 import type { Identity } from '../../api/client'
 import { ThemeToggle } from '../../components/ThemeToggle'
 import { ApiFailure, createEventApi } from '../../api/client'
@@ -111,36 +112,27 @@ export function SessionLoading() {
   return <LoadingScreen label="Checking your session" />
 }
 
-/**
- * The university lockup that heads every signed-out surface, plus the theme
- * control — these cards have no chrome of their own, so without it the toggle
- * would be unreachable for anyone who is not signed in.
- */
 function AuthBrand() {
   return (
-    <>
-      <div className="auth-toolbar">
+    <div className="relative w-full flex justify-end mb-8">
+      <div className="absolute top-0 right-0">
         <ThemeToggle />
       </div>
-      <img
-        className="auth-brand"
-        src="/brand/amrita-logo.png"
-        alt="Amrita Vishwa Vidyapeetham"
-        width={600}
-        height={155}
-      />
-    </>
+      <div className="w-full flex justify-center mt-12 mb-4">
+        <img
+          className="h-16 md:h-20 w-auto object-contain transition-all duration-300"
+          src="/brand/amrita-logo.png"
+          alt="Amrita Vishwa Vidyapeetham"
+          width={600}
+          height={155}
+        />
+      </div>
+    </div>
   )
 }
 
 /**
  * Gates a route on being signed in AND holding one of `allowedRoles`.
- *
- * The default is `['admin']` deliberately: every portal route calls this with no
- * roles at all, so the default IS their access rule. Widening it — to "any
- * signed-in user", or by dropping the check — would expose every admin screen to
- * every student in the university, which is why the marking surface passes its
- * own role rather than the default being relaxed to accommodate it.
  */
 export function SessionBoundary({
   children,
@@ -155,39 +147,88 @@ export function SessionBoundary({
   }
   if (auth.error) {
     return (
-      <main className="center-state">
-        <AuthBrand />
-        <h1>Sign in to OD-Amrita</h1>
-        <p role="alert">{auth.error}</p>
-        <button type="button" onClick={() => void auth.reload()}>Try again</button>
+      <main className="min-h-screen flex items-center justify-center p-4">
+        <motion.div 
+          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ type: "spring", damping: 25, stiffness: 300 }}
+          className="w-full max-w-md bg-surface border border-border rounded-2xl shadow-sm p-8 text-center"
+        >
+          <AuthBrand />
+          <h1 className="text-2xl font-bold mb-4 tracking-tight">Sign in to OD-Amrita</h1>
+          <div className="bg-status-error-bg text-status-error-fg p-4 rounded-xl mb-6 text-sm font-medium">
+            {auth.error}
+          </div>
+          <button 
+            type="button" 
+            onClick={() => void auth.reload()}
+            className="primary w-full py-3.5"
+          >
+            Try again
+          </button>
+        </motion.div>
       </main>
     )
   }
   if (!auth.identity) {
     return (
-      <main className="center-state sign-in">
-        <AuthBrand />
-        <p className="eyebrow">Event administration</p>
-        <h1>Sign in to OD-Amrita</h1>
-        <p>Use your university Microsoft account to continue.</p>
-        <button className="primary" type="button" onClick={() => void auth.signIn()}>
-          Sign in with Microsoft
-        </button>
-        <p className="auth-hint">
-          Use your university address — for example
-          {' '}<code>cb.sc.u4cse24124@cb.students.amrita.edu</code>.
-        </p>
+      <main className="min-h-screen flex items-center justify-center p-4">
+        <motion.div 
+          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ type: "spring", damping: 25, stiffness: 300 }}
+          className="w-full max-w-md bg-surface border border-border rounded-2xl shadow-sm p-8 flex flex-col items-center text-center"
+        >
+          <AuthBrand />
+          <p className="text-xs uppercase tracking-widest text-foreground-muted font-bold mb-2">Event administration</p>
+          <h1 className="text-2xl font-bold mb-2 tracking-tight">Sign in to OD-Amrita</h1>
+          <p className="text-foreground-muted mb-8 leading-relaxed">
+            Use your university Microsoft account to continue.
+          </p>
+          <button 
+            type="button" 
+            onClick={() => void auth.signIn()}
+            className="primary w-full py-3.5 flex items-center justify-center gap-3"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 21 21">
+              <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+              <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+              <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+              <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+            </svg>
+            Sign in with Microsoft
+          </button>
+          <p className="text-xs text-foreground-muted mt-6 max-w-xs leading-relaxed">
+            Use your university address — for example <br/>
+            <code className="bg-canvas/50 px-1 py-0.5 rounded font-mono text-[10px] mt-1 inline-block border border-border/50">cb.sc.u4cse24124@cb.students.amrita.edu</code>.
+          </p>
+        </motion.div>
       </main>
     )
   }
   if (!allowedRoles.includes(auth.identity.role)) {
     return (
-      <main className="center-state">
-        <AuthBrand />
-        <p className="eyebrow">OD-Amrita portal</p>
-        <h1>Access denied</h1>
-        <p>{deniedReason(allowedRoles)}</p>
-        <button type="button" onClick={() => void auth.signOut()}>Sign out</button>
+      <main className="min-h-screen flex items-center justify-center p-4">
+        <motion.div 
+          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ type: "spring", damping: 25, stiffness: 300 }}
+          className="w-full max-w-md bg-surface border border-border rounded-2xl shadow-sm p-8 text-center"
+        >
+          <AuthBrand />
+          <p className="text-xs uppercase tracking-widest text-foreground-muted font-bold mb-2">OD-Amrita portal</p>
+          <h1 className="text-2xl font-bold mb-4 tracking-tight">Access denied</h1>
+          <p className="text-foreground-muted mb-8 leading-relaxed">
+            {deniedReason(allowedRoles)}
+          </p>
+          <button 
+            type="button" 
+            onClick={() => void auth.signOut()}
+            className="secondary w-full py-3.5"
+          >
+            Sign out
+          </button>
+        </motion.div>
       </main>
     )
   }

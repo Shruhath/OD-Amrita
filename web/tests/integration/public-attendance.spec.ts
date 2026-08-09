@@ -60,6 +60,21 @@ const PUBLIC_STUDENT_ROLL = 'CB.SC.U4CSE24008'
 const PUBLIC_STUDENT_ID = '95000000-0000-4000-8000-000000000009'
 const PUBLIC_ARCHIVED_EVENT_NAME = 'Browser Public Archived Event'
 
+/**
+ * The roll number in the SELECTED STUDENT's own panel.
+ *
+ * Scoped, because the same roll number is now legitimately on screen twice: the
+ * day board lists this student too when they have a mark today. A page-wide
+ * text match resolves to both and fails on strict mode — which would be a test
+ * failing on the board's existence rather than on whether the selection
+ * survived, the thing it is actually about.
+ */
+function selectedStudentHeading(page: import('@playwright/test').Page) {
+  return page
+    .getByRole('region', { name: /OD records/i })
+    .getByText(new RegExp(PUBLIC_STUDENT_ROLL.replace(/\./g, '\\.'), 'i'))
+}
+
 async function openPublicDashboard(page: import('@playwright/test').Page, query = '') {
   await page.goto(`/integration.html?role=none&path=%2Fattendance${query}`)
   await expect(page.getByRole('searchbox', { name: /roll number|name|student/i })).toBeVisible()
@@ -157,11 +172,12 @@ test.describe('real stack public attendance dashboard', () => {
     await expect(slotOne).toHaveCount(1)
     await expect(slotOne).toContainText(/Browser Public Event/i)
 
-    // The seeded gap. This is PRD Journey 3 — the reason the screen renders all
-    // twelve slots instead of only the present ones.
-    const gap = page.getByRole('listitem').filter({ hasText: /slot\s*3\b/i })
-    await expect(gap).toHaveCount(1)
-    await expect(gap).toContainText(/no record/i)
+    // The seeded gap. This is PRD Journey 3, and the gap is now conveyed by the
+    // absence of a slot-3 row rather than by a row saying "No record": the
+    // student reads the slots they were credited for and sees that 3 is not one
+    // of them.
+    await expect(page.getByRole('listitem').filter({ hasText: /slot\s*3\b/i })).toHaveCount(0)
+    await expect(page.getByText(/no record/i)).toHaveCount(0)
 
     await expect(page.getByText(/pending|syncing|not yet synced|queued/i)).toHaveCount(0)
   })
@@ -180,12 +196,12 @@ test.describe('real stack public attendance dashboard', () => {
   // Depends on harness change 3 above: main.tsx must mirror location.search.
   test('[P0] the selected student survives a reload', async ({ page }) => {
     await openPublicDashboard(page, `&student=${PUBLIC_STUDENT_ID}`)
-    await expect(page.getByText(new RegExp(PUBLIC_STUDENT_ROLL.replace(/\./g, '\\.'), 'i'))).toBeVisible()
+    await expect(selectedStudentHeading(page)).toBeVisible()
 
     await page.reload()
 
     await expect(
-      page.getByText(new RegExp(PUBLIC_STUDENT_ROLL.replace(/\./g, '\\.'), 'i')),
+      selectedStudentHeading(page),
       'the student was lost across a reload — a shared link would open an empty search box',
     ).toBeVisible()
   })
@@ -195,7 +211,11 @@ test.describe('real stack public attendance dashboard', () => {
   test('[P0] an unknown student id is an explicit not-found message', async ({ page }) => {
     await openPublicDashboard(page, '&student=00000000-0000-4000-8000-000000000000')
 
-    const alert = page.getByRole('alert')
+    // Scoped to the RECORDS section. The page now also carries the day board,
+    // which has an alert of its own for a failed read — a page-wide
+    // getByRole('alert') matches whichever came first and stops meaning "the
+    // answer about this student".
+    const alert = page.getByRole('region', { name: /OD records/i }).getByRole('alert')
     await expect(alert).toContainText(/no such student|not found|check the roll/i)
     await expect(alert).not.toContainText(/no OD records/i)
   })
@@ -218,9 +238,9 @@ test.describe('real stack public attendance dashboard', () => {
     const beforeTotal = (await before.json()).total
 
     await openPublicDashboard(page, `&student=${PUBLIC_STUDENT_ID}`)
-    await expect(page.getByText(new RegExp(PUBLIC_STUDENT_ROLL.replace(/\./g, '\\.'), 'i'))).toBeVisible()
+    await expect(selectedStudentHeading(page)).toBeVisible()
     await page.reload()
-    await expect(page.getByText(new RegExp(PUBLIC_STUDENT_ROLL.replace(/\./g, '\\.'), 'i'))).toBeVisible()
+    await expect(selectedStudentHeading(page)).toBeVisible()
 
     const after = await request.get(`${portalAPI}/api/v1/admin/events/${eventID}/attendance`, {
       headers: { Authorization: 'Bearer portal-admin-token' },

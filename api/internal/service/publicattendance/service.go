@@ -29,6 +29,7 @@ import (
 
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
 
+	"github.com/Shruhath/OD-Amrita/api/internal/campus"
 	"github.com/Shruhath/OD-Amrita/api/internal/domain"
 	"github.com/Shruhath/OD-Amrita/api/internal/store/sqlc"
 )
@@ -256,5 +257,183 @@ func mapRecord(row sqlc.ListPublicStudentODRecordsRow) Record {
 		MarkedByName: markedByName,
 		MarkedByRole: row.MarkedByRole,
 		MarkedAt:     markedAt,
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The public board: one day, every marked student.
+// ---------------------------------------------------------------------------
+
+// maxDayRows caps the board's row read.
+//
+// A ceiling rather than a page parameter, for the same reason maxRecordRows is
+// one: pagination cannot be reconciled with grouping — there, by day; here, by
+// student — without splitting a group across pages.
+//
+// 5000 is roughly 400 students at every one of the 12 slots, which is far beyond
+// a single day of a single campus event. It exists so that a mistaken import or
+// a hostile day cannot turn one anonymous request into a megabyte response, not
+// because a real day is expected to approach it.
+const maxDayRows = 5000
+
+// DayFilter is what a visitor may narrow the board by. Deliberately three
+// fields: the day, and the two filters the screen offers. There is no free text
+// here and no limit — a limit the open internet controls is a limit that gets
+// set to 10,000.
+type DayFilter struct {
+	ODDate string
+	// Slot is 0 for "every slot"; CategoryID is "" for "every category".
+	Slot       int
+	CategoryID string
+}
+
+// DayMark is one slot a student was marked in.
+type DayMark struct {
+	Slot         int
+	CategoryID   string
+	CategoryName string
+	EventName    string
+}
+
+// DayStudent is one row of the board.
+//
+// NO STUDENT ID. The board is a list, and a list that hands out ids is a list
+// that can be walked into the per-student view for everyone on it in one pass.
+// A visitor who wants their own history searches for themselves, which is rate
+// limited and capped on its own terms.
+type DayStudent struct {
+	RollNo      string
+	DisplayName string
+	Marks       []DayMark
+}
+
+// DayCategory is one option for the board's category filter.
+type DayCategory struct {
+	ID   string
+	Name string
+}
+
+// DayAttendance is the whole board.
+type DayAttendance struct {
+	ODDate     string
+	Students   []DayStudent
+	Categories []DayCategory
+	// Truncated is true when the row cap bit. The screen must say so: a board
+	// that is silently short reads as "those students were not marked", which is
+	// the one statement this whole surface exists never to make by accident.
+	Truncated   bool
+	GeneratedAt time.Time
+}
+
+// Day returns one campus day's public board.
+//
+// An empty day is a SUCCESSFUL read with no students, never an error: "nobody
+// has been marked yet" and "something went wrong" must not arrive looking alike.
+func (s *Service) Day(ctx context.Context, filter DayFilter) (DayAttendance, error) {
+	odDate, err := s.parseDayFilterDate(filter.ODDate)
+	if err != nil {
+		return DayAttendance{}, err
+	}
+	day := pgtype.Date{Time: odDate, Valid: true}
+
+	params := sqlc.ListPublicDayODRecordsParams{
+		OdDate: day,
+		// One PAST the cap, so "exactly 5000 marks" and "more than the server
+		// will show" are distinguishable. Comparing len(rows) to the cap alone
+		// cannot tell them apart and would flag a complete board as truncated.
+		RowLimit: maxDayRows + 1,
+	}
+	if filter.Slot > 0 {
+		params.Slot = pgtype.Int4{Int32: int32(filter.Slot), Valid: true}
+	}
+	if trimmed := strings.TrimSpace(filter.CategoryID); trimmed != "" {
+		parsed, parseErr := uuid.Parse(trimmed)
+		if parseErr != nil {
+			return DayAttendance{}, dayValidation("category_id", "invalid_format", "category_id must be a UUID.")
+		}
+		params.CategoryID = pgtype.UUID{Bytes: parsed, Valid: true}
+	}
+
+	rows, err := s.queries.ListPublicDayODRecords(ctx, params)
+	if err != nil {
+		return DayAttendance{}, err
+	}
+	truncated := len(rows) > maxDayRows
+	if truncated {
+		rows = rows[:maxDayRows]
+	}
+
+	// From the UNFILTERED day. A category list built from the filtered rows
+	// collapses to the option already chosen, leaving no way back to the others.
+	categoryRows, err := s.queries.ListPublicDayCategories(ctx, day)
+	if err != nil {
+		return DayAttendance{}, err
+	}
+	categories := make([]DayCategory, 0, len(categoryRows))
+	for _, row := range categoryRows {
+		categories = append(categories, DayCategory{ID: uuid.UUID(row.ID.Bytes).String(), Name: row.Name})
+	}
+
+	return DayAttendance{
+		ODDate:      odDate.Format(time.DateOnly),
+		Students:    groupByStudent(rows),
+		Categories:  categories,
+		Truncated:   truncated,
+		GeneratedAt: s.now().UTC(),
+	}, nil
+}
+
+// groupByStudent folds the flat rows into one entry per student.
+//
+// The query orders by roll number, so this is a single pass over an already
+// grouped stream rather than a map — which also means the output order is the
+// query's order, and cannot drift from it.
+func groupByStudent(rows []sqlc.ListPublicDayODRecordsRow) []DayStudent {
+	students := make([]DayStudent, 0, len(rows))
+	for _, row := range rows {
+		mark := DayMark{
+			Slot:         int(row.Slot),
+			CategoryID:   uuid.UUID(row.CategoryID.Bytes).String(),
+			CategoryName: row.CategoryName,
+			EventName:    row.EventName,
+		}
+		if len(students) > 0 && students[len(students)-1].RollNo == row.RollNo {
+			students[len(students)-1].Marks = append(students[len(students)-1].Marks, mark)
+			continue
+		}
+		students = append(students, DayStudent{
+			RollNo:      row.RollNo,
+			DisplayName: row.StudentName,
+			Marks:       []DayMark{mark},
+		})
+	}
+	return students
+}
+
+// parseDayFilterDate resolves the requested day, defaulting to TODAY ON CAMPUS.
+//
+// Through campus.Date, not the server's timezone and not UTC. `od_date` is a
+// campus-local day, and Fly runs this in Singapore while the students are in
+// Kerala — a UTC "today" would flip the board to tomorrow at 05:30 IST, in the
+// middle of a morning slot. campus.Date is the one definition of that offset in
+// this codebase and reimplementing it here is exactly what that package exists
+// to prevent.
+func (s *Service) parseDayFilterDate(value string) (time.Time, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return campus.Date(s.now()), nil
+	}
+	parsed, err := time.Parse(time.DateOnly, trimmed)
+	if err != nil {
+		return time.Time{}, dayValidation("od_date", "invalid_format", "od_date must be YYYY-MM-DD.")
+	}
+	return parsed, nil
+}
+
+func dayValidation(field, code, message string) error {
+	return domain.DomainError{
+		Code:    contracts.ErrorCodeVALIDATIONFAILED,
+		Message: "Public attendance board request validation failed.",
+		Details: []contracts.ValidationErrorDetail{{Field: field, Code: code, Message: message}},
 	}
 }

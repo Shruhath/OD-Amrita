@@ -1,7 +1,8 @@
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../features/auth/context'
 import { hasPendingAuthCallback } from '../features/auth/callback'
-import { SessionBoundary, SessionLoading } from '../features/auth/AuthGate'
+import { SessionLoading } from '../features/auth/AuthGate'
+import HomeLanding from './HomeLanding'
 
 /**
  * Where each role is sent when it arrives with no particular destination.
@@ -55,11 +56,17 @@ export default function RoleLanding() {
     return <Navigate to={LANDING_BY_ROLE[auth.identity.role] ?? '/attendance'} replace />
   }
 
-  // Signed out. Render the shared sign-in surface HERE rather than navigating to
-  // a portal route and letting that route's boundary show the wall: bouncing a
-  // signed-out visitor onto `/portal/events` puts an admin URL in their history
-  // and their address bar, which then looks like where they are supposed to be.
-  // The boundary's allowed roles are never consulted on this path — there is no
-  // identity to check — so the default is left alone.
-  return <SessionBoundary>{null}</SessionBoundary>
+  // Signed out: the front door, and NO redirect.
+  //
+  // Rendered here rather than navigated to, for the same reason the sign-in card
+  // used to be: bouncing a signed-out visitor onto a portal url puts an admin
+  // address in their history and their address bar, which then looks like where
+  // they are supposed to be.
+  //
+  // It is a landing page rather than a bare sign-in card because the two things
+  // a visitor can be here for are not the same thing, and the app cannot tell
+  // which one they are until they say. Sending them anywhere by default gets it
+  // wrong for everybody else — which is what sending them to the public board
+  // did to every coordinator opening the app on their phone.
+  return <HomeLanding />
 }

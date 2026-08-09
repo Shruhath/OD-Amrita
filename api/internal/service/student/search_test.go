@@ -6,10 +6,12 @@
 //
 // Two properties matter more than the happy path:
 //
-//  1. PREFIX-ONLY matching, so `students_roll_no_idx` and
-//     `students_name_lower_idx` are actually usable. A leading-wildcard
-//     `%foo%` search cannot use either index and turns every keystroke into a
-//     sequential scan over 1,534 rows on a phone at arm's length.
+//  1. EVERY WORD MATCHES, ANYWHERE, IN ANY ORDER — and the terms are ANDed, so
+//     a longer query can only ever return fewer rows. This was prefix-only,
+//     which meant a coordinator who typed a surname was told the student did
+//     not exist. What has to stay true through the looser matching is the
+//     bounding: escaped metacharacters, a minimum length, a server-side cap,
+//     and never an empty term list (an empty `ALL(...)` matches all 1,534 rows).
 //  2. The response carries no email, token or fingerprint. `students` has no
 //     email column and card tokens are stored as fingerprints only — this
 //     keeps both facts true through a new read path.
@@ -23,8 +25,8 @@ import (
 )
 
 // searchCapture records the arguments the service hands the SQLC reader, which
-// is where the prefix/escaping/limit decisions become observable without a
-// database.
+// is where the term-splitting, escaping and limit decisions become observable
+// without a database.
 type searchCapture struct {
 	queries []SearchQuery
 	results []SearchResult
@@ -64,12 +66,20 @@ func TestSearch_RejectsShortQueryAfterTrimming(t *testing.T) {
 	}
 }
 
-// 0.6-SEARCH-001b — prefix-only, so both indexes stay usable.
-func TestSearch_MatchesByPrefixOnly(t *testing.T) {
+// 0.6-SEARCH-001b — one containment pattern PER WORD, so any word of a name
+// finds the student and word order does not matter.
+//
+// This replaced a prefix-only assertion. Prefix-only answered exactly one shape
+// of question — the first word of a name, spelled from its first letter — and
+// told a coordinator searching a surname that no such student existed. The index
+// argument that justified it did not survive contact: the query already planned
+// as a sequential scan under a non-C collation, which is what the roster
+// actually runs. See students.sql for what replaces it at scale (pg_trgm).
+func TestSearch_MatchesEveryWordAnywhere(t *testing.T) {
 	capture := &searchCapture{}
 	svc := newSearchService(capture)
 
-	if _, err := svc.Search(context.Background(), coordinatorActor(), SearchInput{Query: "cb.sc.u4cse24"}); err != nil {
+	if _, err := svc.Search(context.Background(), coordinatorActor(), SearchInput{Query: "Reddy Shruhat"}); err != nil {
 		t.Fatalf("Search = %v, want nil", err)
 	}
 	if len(capture.queries) != 1 {
@@ -77,11 +87,39 @@ func TestSearch_MatchesByPrefixOnly(t *testing.T) {
 	}
 
 	got := capture.queries[0]
-	if strings.HasPrefix(got.Pattern, "%") {
-		t.Errorf("[P0] pattern %q begins with a wildcard — a leading %% cannot use students_roll_no_idx or students_name_lower_idx", got.Pattern)
+	if want := []string{"%reddy%", "%shruhat%"}; !reflect.DeepEqual(got.Patterns, want) {
+		t.Errorf("[P0] Patterns = %v, want %v — one lowercased containment pattern per word", got.Patterns, want)
 	}
-	if !strings.HasSuffix(got.Pattern, "%") {
-		t.Errorf("[P0] pattern %q is not a prefix pattern — it should end in a single trailing %%", got.Pattern)
+	for _, pattern := range got.Patterns {
+		if !strings.HasPrefix(pattern, "%") || !strings.HasSuffix(pattern, "%") {
+			t.Errorf("[P0] pattern %q is not a containment pattern — a surname cannot match a full name without one", pattern)
+		}
+	}
+	// The head pattern is the RANKING term, not a filter: it is what keeps a
+	// word-start match above a mid-word one now that mid-word matches exist.
+	if got.HeadPattern != "% reddy shruhat%" {
+		t.Errorf("[P0] HeadPattern = %q, want %q", got.HeadPattern, "% reddy shruhat%")
+	}
+}
+
+// 0.6-SEARCH-001b2 — THE ARRAY IS NEVER EMPTY.
+//
+// `x ~~ ALL (ARRAY[]::text[])` is vacuously TRUE, so an empty pattern list does
+// not return nothing — it returns the entire roster of 1,534 real people. That
+// makes "at least one term" a security property, not a tidiness one.
+func TestSearch_NeverBuildsAnEmptyTermList(t *testing.T) {
+	for _, raw := range []string{"abc", "  abc  ", "a b c", "Reddy Shruhat", "  Reddy   Shruhat  "} {
+		t.Run(raw, func(t *testing.T) {
+			capture := &searchCapture{}
+			svc := newSearchService(capture)
+
+			if _, err := svc.Search(context.Background(), coordinatorActor(), SearchInput{Query: raw}); err != nil {
+				t.Fatalf("Search = %v, want nil", err)
+			}
+			if len(capture.queries[0].Patterns) == 0 {
+				t.Errorf("[P0] query %q produced no terms — an empty ALL(...) matches every row in the roster", raw)
+			}
+		})
 	}
 }
 
@@ -97,14 +135,17 @@ func TestSearch_EscapesLikeMetacharacters(t *testing.T) {
 			if _, err := svc.Search(context.Background(), coordinatorActor(), SearchInput{Query: raw}); err != nil {
 				t.Fatalf("Search = %v, want nil", err)
 			}
-			got := capture.queries[0].Pattern
-			body := strings.TrimSuffix(got, "%")
+			for _, got := range capture.queries[0].Patterns {
+				// The leading and trailing `%` are OURS. Everything between them
+				// came from the user and must be inert.
+				body := strings.TrimSuffix(strings.TrimPrefix(got, "%"), "%")
 
-			if strings.Contains(body, "%") && !strings.Contains(body, `\%`) {
-				t.Errorf("[P0] pattern %q carries an unescaped %% — a wildcard in user input must not become a wildcard in the query", got)
-			}
-			if strings.Contains(body, "_") && !strings.Contains(body, `\_`) {
-				t.Errorf("[P0] pattern %q carries an unescaped _ — LIKE treats it as a single-character wildcard", got)
+				if strings.Contains(body, "%") && !strings.Contains(body, `\%`) {
+					t.Errorf("[P0] pattern %q carries an unescaped %% — a wildcard in user input must not become a wildcard in the query", got)
+				}
+				if strings.Contains(body, "_") && !strings.Contains(body, `\_`) {
+					t.Errorf("[P0] pattern %q carries an unescaped _ — LIKE treats it as a single-character wildcard", got)
+				}
 			}
 		})
 	}

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Dispute, DisputeCollection } from '../../../api/client'
+import type { Dispute, DisputeCollection, DisputeResolutionRequest } from '../../../api/client'
 import { ApiFailure } from '../../../api/client'
 import { PortalShell } from '../../../components/PortalShell'
 import { useAuth } from '../../../features/auth/context'
@@ -40,8 +40,11 @@ export default function DisputesPortal() {
     })
   }
 
+  type Outcome = DisputeResolutionRequest['outcome']
+
   const resolve = useMutation({
-    mutationFn: (row: Dispute) => api.resolveDispute(row.dispute_id, { resolution_note: (notes[row.dispute_id] ?? '').trim() }),
+    mutationFn: ({ row, outcome }: { row: Dispute; outcome: Outcome }) =>
+      api.resolveDispute(row.dispute_id, { resolution_note: (notes[row.dispute_id] ?? '').trim(), outcome }),
     onSuccess(resolved) {
       setFailureFor(resolved.dispute_id, null)
       queryClient.setQueryData(queryKey, (current: DisputeCollection | undefined) => {
@@ -49,19 +52,19 @@ export default function DisputesPortal() {
         return { ...current, data: current.data.map((row) => row.dispute_id === resolved.dispute_id ? resolved : row) }
       })
     },
-    onError(cause, row) {
+    onError(cause, { row }) {
       setFailureFor(row.dispute_id, resolveFailureMessage(cause))
     },
   })
 
-  const submitResolution = (row: Dispute) => {
+  const submitResolution = (row: Dispute, outcome: Outcome) => {
     const note = (notes[row.dispute_id] ?? '').trim()
     if (note === '') {
-      setFailureFor(row.dispute_id, 'A resolution note is required before marking a dispute resolved.')
+      setFailureFor(row.dispute_id, 'A resolution note is required before recording a decision.')
       return
     }
     setFailureFor(row.dispute_id, null)
-    resolve.mutate(row)
+    resolve.mutate({ row, outcome })
   }
 
   return (
@@ -134,7 +137,16 @@ export default function DisputesPortal() {
                         <div><dt>Submitted</dt><dd>{formatDateTime(row.submitted_at)}</dd></div>
                       </dl>
 
-                      <p className="empty-note">Resolving this records the decision only. Correcting the OD record is a separate action.</p>
+                      {/*
+                        The two buttons below do DIFFERENT things to the
+                        student's attendance, so the screen says which before
+                        either is pressed rather than after.
+                      */}
+                      <p className="empty-note">
+                        Approving marks the student present for this slot straight away — the record appears on the
+                        public dashboard under the day above. Rejecting records the refusal and changes no attendance.
+                        Either way the note is kept.
+                      </p>
 
                       {row.status === 'open' ? (
                         <div className="resolution-form">
@@ -148,23 +160,45 @@ export default function DisputesPortal() {
                               setFailureFor(row.dispute_id, null)
                             }}
                           />
-                          <button
-                            className="primary"
-                            type="button"
-                            // Scoped to THIS row. One shared isPending greyed out
-                            // every "Mark resolved" button in the inbox whenever
-                            // any single resolution was in flight.
-                            disabled={resolve.isPending && resolve.variables?.dispute_id === row.dispute_id}
-                            onClick={() => submitResolution(row)}
-                          >
-                            Mark resolved
-                          </button>
+                          <div className="resolution-actions">
+                            <button
+                              className="primary"
+                              type="button"
+                              // Scoped to THIS row. One shared isPending greyed out
+                              // every button in the inbox whenever any single
+                              // resolution was in flight.
+                              disabled={resolve.isPending && resolve.variables?.row.dispute_id === row.dispute_id}
+                              onClick={() => submitResolution(row, 'approved')}
+                            >
+                              Approve and mark present
+                            </button>
+                            <button
+                              type="button"
+                              disabled={resolve.isPending && resolve.variables?.row.dispute_id === row.dispute_id}
+                              onClick={() => submitResolution(row, 'rejected')}
+                            >
+                              Reject
+                            </button>
+                          </div>
                           {failures[row.dispute_id] && (
                             <p className="notice error" role="alert">{failures[row.dispute_id]}</p>
                           )}
                         </div>
                       ) : (
-                        <p className="notice success" role="status">Resolved: {row.resolution_note}</p>
+                        // The OUTCOME leads, not the note. "Resolved" alone gave a
+                        // teacher scanning the list no way to tell a credited slot
+                        // from a refused claim.
+                        <p
+                          className={row.outcome === 'approved' ? 'notice success' : 'notice'}
+                          role="status"
+                        >
+                          {row.outcome === 'approved'
+                            ? 'Approved — the student is marked present for this slot.'
+                            : row.outcome === 'rejected'
+                              ? 'Rejected — no attendance was recorded.'
+                              : 'Resolved.'}
+                          {' '}{row.resolution_note}
+                        </p>
                       )}
                     </section>
                   )}

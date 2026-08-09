@@ -45,6 +45,7 @@ SELECT
     d.claimed_coordinator_name,
     d.student_note,
     d.status,
+    d.outcome,
     d.created_at,
     d.resolution_note,
     d.resolved_by_user_id,
@@ -83,6 +84,7 @@ SELECT
     d.claimed_coordinator_name,
     d.student_note,
     d.status,
+    d.outcome,
     d.created_at,
     d.resolution_note,
     d.resolved_by_user_id,
@@ -136,11 +138,43 @@ SELECT EXISTS (
 -- name: ResolveDispute :execrows
 UPDATE disputes
 SET status = 'resolved',
+    outcome = @outcome::text,
     resolution_note = @resolution_note,
     resolved_by_user_id = @resolved_by_user_id,
     resolved_at = @resolved_at
 WHERE id = @dispute_id
   AND status = 'open';
+
+-- name: CreateODRecordFromApprovedDispute :one
+-- Credits the disputed slot, in the transaction that resolved the dispute.
+--
+-- The record's own facts are SELECTED FROM THE DISPUTE ROW rather than passed
+-- in. That is the point: the student, event, category, day and slot are the ones
+-- the student actually disputed and a teacher actually looked at, so no caller
+-- can approve dispute A and credit slot B, and no drift is possible between what
+-- the inbox showed and what got written.
+--
+-- capture_method is 'dispute', not 'search'. Nobody searched for this student —
+-- recording it as a search would put a lie in the one table whose job is to say
+-- who marked someone and how. reason_note carries the teacher's resolution note,
+-- which od_records_manual_reason_note_ck requires for any non-coordinator actor.
+--
+-- ON CONFLICT DO NOTHING against the FR10 per-day duplicate key: if the student
+-- was already marked for that slot — a coordinator caught up, or a teacher
+-- corrected it by hand while the dispute sat open — the dispute is moot, not
+-- failed. It returns no row, and the caller resolves the dispute anyway rather
+-- than refusing an approval whose desired end state already holds.
+INSERT INTO od_records (
+    student_id, event_id, category_id, slot, od_date,
+    status, capture_method, actor_user_id, actor_role, reason_note
+)
+SELECT
+    d.student_id, d.event_id, d.category_id, d.slot, d.od_date,
+    'present', 'dispute', @actor_user_id, @actor_role::text, @reason_note::text
+FROM disputes d
+WHERE d.id = @dispute_id
+ON CONFLICT (student_id, event_id, od_date, slot) WHERE status = 'present' DO NOTHING
+RETURNING id;
 
 -- name: GetDisputeByID :one
 SELECT
@@ -156,6 +190,7 @@ SELECT
     d.claimed_coordinator_name,
     d.student_note,
     d.status,
+    d.outcome,
     d.created_at,
     d.resolution_note,
     d.resolved_by_user_id,

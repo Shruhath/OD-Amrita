@@ -129,22 +129,24 @@ func TestPublicSearch_EnforcesRuneBoundsBeforeQuerying(t *testing.T) {
 	}
 }
 
-// 0.10-SEARCH-003 — LIKE metacharacters are escaped and matching stays
-// prefix-only.
+// 0.10-SEARCH-003 — LIKE metacharacters are escaped, per word.
 //
 // Unescaped, `%` matches the entire roster — which is precisely the dump the
 // minimum-length guard exists to prevent, now reachable by anyone with a browser.
 // The backslash must be escaped first or escaping the other two is reversible.
-func TestPublicSearch_EscapesLikeMetacharactersAndStaysPrefixOnly(t *testing.T) {
+func TestPublicSearch_EscapesLikeMetacharacters(t *testing.T) {
 	for _, tc := range []struct {
 		raw  string
-		want string
+		want []string
 	}{
-		{"100%", `100\%%`},
-		{"a_b", `a\_b%`},
-		{`a\b`, `a\\b%`},
-		{`%_\`, `\%\_\\%`},
-		{"CB.SC.U4CSE24", `CB.SC.U4CSE24%`},
+		{"100%", []string{`%100\%%`}},
+		{"a_b", []string{`%a\_b%`}},
+		{`a\b`, []string{`%a\\b%`}},
+		{`%_\`, []string{`%\%\_\\%`}},
+		{"CB.SC.U4CSE24", []string{`%cb.sc.u4cse24%`}},
+		// Split on whitespace, so each word is escaped on its own — the public
+		// path gets the same "any word, any order" matching as the staff one.
+		{"Reddy Shruhat", []string{`%reddy%`, `%shruhat%`}},
 	} {
 		t.Run(tc.raw, func(t *testing.T) {
 			capture := &searchCapture{}
@@ -156,14 +158,20 @@ func TestPublicSearch_EscapesLikeMetacharactersAndStaysPrefixOnly(t *testing.T) 
 			if len(capture.queries) != 1 {
 				t.Fatalf("[P0] ran %d queries, want 1", len(capture.queries))
 			}
-			pattern := capture.queries[0].Pattern
-			if pattern != tc.want {
-				t.Errorf("[P0] pattern = %q, want %q — reuse buildSearchQuery rather than building the "+
-					"pattern again in the public path", pattern, tc.want)
+			patterns := capture.queries[0].Patterns
+			if !reflect.DeepEqual(patterns, tc.want) {
+				t.Errorf("[P0] patterns = %v, want %v — reuse buildSearchQuery rather than building the "+
+					"patterns again in the public path", patterns, tc.want)
 			}
-			if strings.HasPrefix(pattern, "%") {
-				t.Errorf("[P0] pattern %q begins with a wildcard; a leading-wildcard match cannot use "+
-					"students_roll_no_idx and turns every anonymous keystroke into a sequential scan", pattern)
+			// The escaping is the security-critical half and it is why this test
+			// exists at all: an unescaped `%` reaching the query makes a
+			// three-character anonymous request return the whole roster, which is
+			// exactly the dump the minimum-length guard is there to prevent.
+			for _, pattern := range patterns {
+				body := strings.TrimSuffix(strings.TrimPrefix(pattern, "%"), "%")
+				if strings.Contains(body, "%") && !strings.Contains(body, `\%`) {
+					t.Errorf("[P0] pattern %q carries an unescaped %%", pattern)
+				}
 			}
 		})
 	}
@@ -195,7 +203,7 @@ func TestSearch_StillRefusesAStudentRoleAfterThePublicPathExists(t *testing.T) {
 
 // 0.10-SEARCH-005 — the public read returns display fields only.
 //
-// SearchResult has no email/token/fingerprint field and SearchStudentsByPrefix
+// SearchResult has no email/token/fingerprint field and SearchStudents
 // joins no card table, so this holds structurally today. The test states the
 // invariant so that a later "convenience" widening of SearchResult fails here
 // rather than on the open internet.

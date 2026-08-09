@@ -261,11 +261,42 @@ func (r *SQLCRepository) Resolve(ctx context.Context, tx pgx.Tx, write ResolveWr
 		}
 	}
 	return q.ResolveDispute(ctx, sqlc.ResolveDisputeParams{
+		Outcome:          write.Outcome,
 		ResolutionNote:   pgtype.Text{String: write.Note, Valid: true},
 		ResolvedByUserID: uuidParam(write.Actor.UserID),
 		ResolvedAt:       pgtype.Timestamptz{Time: write.ResolvedAt, Valid: true},
 		DisputeID:        uuidParam(write.DisputeID),
 	})
+}
+
+// CreditSlot writes the od_records row for an approved dispute.
+//
+// It runs on the caller's transaction only — a nil tx is a programming error
+// rather than a pool fallback, because a credit that committed outside the
+// resolving transaction would survive a rolled-back resolution and mark a
+// student for a dispute nobody ended up approving.
+//
+// The branch check is NOT repeated here: Resolve already ran it on this same
+// transaction and its UPDATE is what gates reaching this at all.
+func (r *SQLCRepository) CreditSlot(ctx context.Context, tx pgx.Tx, write CreditWrite) (string, bool, error) {
+	if tx == nil {
+		return "", false, errors.New("dispute: CreditSlot requires the resolving transaction")
+	}
+	id, err := sqlc.New(tx).CreateODRecordFromApprovedDispute(ctx, sqlc.CreateODRecordFromApprovedDisputeParams{
+		ActorUserID: uuidParam(write.Actor.UserID),
+		ActorRole:   write.Actor.Role,
+		ReasonNote:  write.Note,
+		DisputeID:   uuidParam(write.DisputeID),
+	})
+	// No row means ON CONFLICT DO NOTHING fired: the student was already marked
+	// for that slot, so the approval's end state already holds. Moot, not failed.
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return uuid.UUID(id.Bytes).String(), true, nil
 }
 
 func uuidParam(value string) pgtype.UUID {
@@ -322,6 +353,7 @@ func recordCommon(
 	claimed pgtype.Text,
 	note pgtype.Text,
 	status string,
+	outcome pgtype.Text,
 	createdAt pgtype.Timestamptz,
 	resolution pgtype.Text,
 	resolvedBy pgtype.UUID,
@@ -344,6 +376,7 @@ func recordCommon(
 		ClaimedCoordinatorName: textPtr(claimed),
 		StudentNote:            textPtr(note),
 		Status:                 status,
+		Outcome:                textPtr(outcome),
 		SubmittedAt:            createdAt.Time,
 		ResolutionNote:         textPtr(resolution),
 		ResolvedByUserID:       uuidPtr(resolvedBy),
@@ -360,13 +393,13 @@ func recordCommon(
 }
 
 func recordFromAdmin(row sqlc.ListDisputesForAdminRow) Record {
-	return recordCommon(row.ID, row.SubmittedEmail, row.EventID, row.EventName, row.EventDate, row.CategoryID, row.CategoryName, row.OdDate, row.Slot, row.ClaimedCoordinatorName, row.StudentNote, row.Status, row.CreatedAt, row.ResolutionNote, row.ResolvedByUserID, row.ResolvedAt, row.StudentID, row.RollNo, row.StudentName, row.Branch, row.Section, row.Batch)
+	return recordCommon(row.ID, row.SubmittedEmail, row.EventID, row.EventName, row.EventDate, row.CategoryID, row.CategoryName, row.OdDate, row.Slot, row.ClaimedCoordinatorName, row.StudentNote, row.Status, row.Outcome, row.CreatedAt, row.ResolutionNote, row.ResolvedByUserID, row.ResolvedAt, row.StudentID, row.RollNo, row.StudentName, row.Branch, row.Section, row.Batch)
 }
 
 func recordFromTeacher(row sqlc.ListDisputesForTeacherRow) Record {
-	return recordCommon(row.ID, row.SubmittedEmail, row.EventID, row.EventName, row.EventDate, row.CategoryID, row.CategoryName, row.OdDate, row.Slot, row.ClaimedCoordinatorName, row.StudentNote, row.Status, row.CreatedAt, row.ResolutionNote, row.ResolvedByUserID, row.ResolvedAt, row.StudentID, row.RollNo, row.StudentName, row.Branch, row.Section, row.Batch)
+	return recordCommon(row.ID, row.SubmittedEmail, row.EventID, row.EventName, row.EventDate, row.CategoryID, row.CategoryName, row.OdDate, row.Slot, row.ClaimedCoordinatorName, row.StudentNote, row.Status, row.Outcome, row.CreatedAt, row.ResolutionNote, row.ResolvedByUserID, row.ResolvedAt, row.StudentID, row.RollNo, row.StudentName, row.Branch, row.Section, row.Batch)
 }
 
 func recordFromGet(row sqlc.GetDisputeByIDRow) Record {
-	return recordCommon(row.ID, row.SubmittedEmail, row.EventID, row.EventName, row.EventDate, row.CategoryID, row.CategoryName, row.OdDate, row.Slot, row.ClaimedCoordinatorName, row.StudentNote, row.Status, row.CreatedAt, row.ResolutionNote, row.ResolvedByUserID, row.ResolvedAt, row.StudentID, row.RollNo, row.StudentName, row.Branch, row.Section, row.Batch)
+	return recordCommon(row.ID, row.SubmittedEmail, row.EventID, row.EventName, row.EventDate, row.CategoryID, row.CategoryName, row.OdDate, row.Slot, row.ClaimedCoordinatorName, row.StudentNote, row.Status, row.Outcome, row.CreatedAt, row.ResolutionNote, row.ResolvedByUserID, row.ResolvedAt, row.StudentID, row.RollNo, row.StudentName, row.Branch, row.Section, row.Batch)
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Navigate } from 'react-router-dom'
 import type { Identity } from '../../api/client'
 import { ThemeToggle } from '../../components/ThemeToggle'
 import { ApiFailure, createEventApi } from '../../api/client'
@@ -116,7 +117,7 @@ export function SessionLoading() {
  * control — these cards have no chrome of their own, so without it the toggle
  * would be unreachable for anyone who is not signed in.
  */
-function AuthBrand() {
+export function AuthBrand() {
   return (
     <>
       <div className="auth-toolbar">
@@ -163,22 +164,24 @@ export function SessionBoundary({
       </main>
     )
   }
+  // NO SESSION — GO TO THE FRONT DOOR, don't render a sign-in card here.
+  //
+  // This used to be its own bare sign-in card, shown at whatever guarded URL the
+  // visitor happened to be on. That is where signing out left a coordinator: the
+  // account menu clears the identity but not the address bar, so they stayed on
+  // `/mark` looking at a card that offered exactly one thing — sign in again —
+  // with no way to the public board short of typing a URL. Somebody who just
+  // signed out is the LEAST likely person to want to sign straight back in.
+  //
+  // Redirecting to `/` reaches HomeLanding, which offers both of the things a
+  // signed-out visitor can actually want. Nothing is lost by leaving the guarded
+  // URL behind: the provider's redirect names the root for everybody (it cannot
+  // know a role yet — see RoleLanding), so the old card never returned anyone to
+  // the page they were on either.
+  //
+  // `replace`, so Back does not walk into the guarded route and bounce out again.
   if (!auth.identity) {
-    return (
-      <main className="center-state sign-in">
-        <AuthBrand />
-        <p className="eyebrow">Event administration</p>
-        <h1>Sign in to OD-Amrita</h1>
-        <p>Use your university Microsoft account to continue.</p>
-        <button className="primary" type="button" onClick={() => void auth.signIn()}>
-          Sign in with Microsoft
-        </button>
-        <p className="auth-hint">
-          Use your university address — for example
-          {' '}<code>cb.sc.u4cse24124@cb.students.amrita.edu</code>.
-        </p>
-      </main>
-    )
+    return <Navigate to="/" replace />
   }
   if (!allowedRoles.includes(auth.identity.role)) {
     return (

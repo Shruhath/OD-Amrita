@@ -130,6 +130,35 @@ export default function CardPopulatorPortal() {
     enabled: applied !== null,
   })
 
+  /**
+   * THE DURABLE HALF OF PROGRESS.
+   *
+   * Everything above this line lives in sessionStorage, which is exactly the
+   * problem it used to be the whole answer to: it does not survive signing out
+   * (persisted state is cleared deliberately, so a shared phone does not hand
+   * the next operator the previous one's screen) and it never crossed to a
+   * second device. An admin who wrote and verified a section, signed out, and
+   * came back was told 0 of 0 verified with every row reading "Not written".
+   *
+   * The server knows better, and it is the only thing that does — so the counts
+   * and the per-row state come from here, and the local progress is layered on
+   * top only for the states the server cannot have an opinion about (an
+   * operation in flight right now, and a failure on this device).
+   */
+  const serverStatus = useQuery({
+    queryKey: ['card-populator-status', applied],
+    queryFn: () => api.sectionCardStatus(applied as Filters),
+    enabled: applied !== null,
+  })
+
+  const serverByStudent = useMemo(() => {
+    const map = new Map<string, { issued: boolean; verifiedAt: string | null }>()
+    for (const row of serverStatus.data?.data ?? []) {
+      map.set(row.student_id, { issued: row.issued, verifiedAt: row.verified_at })
+    }
+    return map
+  }, [serverStatus.data])
+
   // Memoised so the identity is stable between renders: a fresh array on every
   // render would re-run the counts memo on each keystroke elsewhere on the page.
   const students = useMemo(() => roster.data?.data ?? [], [roster.data])
@@ -138,9 +167,33 @@ export default function CardPopulatorPortal() {
     setProgress((current) => ({ ...current, [studentID]: { ...next, updatedAt: Date.now() } }))
   }, [])
 
+  /**
+   * The state to SHOW, from both sources.
+   *
+   * Local wins while something is happening on this device — an in-flight
+   * operation, or a failure the server never saw — because that is the only
+   * place those facts exist. Otherwise the server wins, including over a stale
+   * local 'verified' from a card that has since been re-sealed.
+   *
+   * A server 'verified' is never downgraded by a local 'pending': a fresh device
+   * has no local entry at all, and treating that absence as "not written" is the
+   * whole defect.
+   */
   const statusOf = useCallback(
-    (studentID: string): CardStatus => progress[studentID]?.status ?? 'pending',
-    [progress],
+    (studentID: string): CardStatus => {
+      const local = progress[studentID]?.status
+      if (local === 'writing' || local === 'verifying' || local === 'failed') return local
+      const server = serverByStudent.get(studentID)
+      if (server?.verifiedAt) return 'verified'
+      // A local 'verified' with no server record is a verification this device
+      // did before the server tracked them, or one whose progress note did not
+      // save. Believing it is better than losing it — the operator watched it
+      // happen.
+      if (local === 'verified') return 'verified'
+      if (server?.issued) return 'written'
+      return local ?? 'pending'
+    },
+    [progress, serverByStudent],
   )
 
   // A verified card is also a written one, so `written` counts both. Reporting
@@ -218,6 +271,8 @@ export default function CardPopulatorPortal() {
       // and spreading it would put identity on the card.
       await nfc.write({ version: sealed.payload.version, token: sealed.payload.token }, controller.signal)
       setStudentProgress(student.student_id, { status: 'written' })
+      // The seal created (or refreshed) the token row, so `issued` has moved.
+      void serverStatus.refetch()
     } catch (cause) {
       failWith(student, cause, 'The card could not be written')
     } finally {
@@ -247,6 +302,10 @@ export default function CardPopulatorPortal() {
         status: 'verified',
         note: `Verified ${resolved.display_name} (${resolved.roll_no})`,
       })
+      // Re-read the durable count. The server has just recorded this
+      // verification, and the number on screen is the one the operator uses to
+      // decide whether the section is done.
+      void serverStatus.refetch()
     } catch (cause) {
       failWith(student, cause, 'The card could not be verified')
     } finally {
@@ -324,6 +383,17 @@ export default function CardPopulatorPortal() {
           <p className="populator-counts" role="status">
             {counts.written} written · {counts.verified} verified · {counts.failed} failed · {counts.total} in section
           </p>
+          {/*
+            A failed status read must SAY so. Falling back to local-only progress
+            silently is how "0 of 0 verified" looked like a true answer instead of
+            a missing one.
+          */}
+          {serverStatus.isError && (
+            <p className="notice error" role="alert">
+              {messageOf(serverStatus.error, 'Saved progress could not be loaded')} — the counts below show only
+              what this device has done in this session.
+            </p>
+          )}
 
           {students.length === 0 && !roster.isFetching ? (
             <p className="empty-note">No students match this branch, batch and section.</p>

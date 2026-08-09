@@ -69,6 +69,32 @@ func New(pool *pgxpool.Pool, opts ...Option) *Store {
 //
 // changed lets the caller signal whether the write actually changed state; it is
 // the RowsAffected()==N>0 signal for conditional writes.
+// Audit writes ONE additional audit row inside a transaction the caller already
+// opened — normally the one WithAudit is running.
+//
+// Some writes are two auditable facts rather than one. Approving a missed-slot
+// dispute is the case that forced this: the decision (dispute.resolved) and the
+// attendance record it created (od.created) are different events about different
+// tables, and collapsing them into a single row would leave an od_records row
+// with nothing in the ledger explaining where it came from.
+//
+// It applies the SAME registry gate and payload normalisation WithAudit does, so
+// a second row cannot slip in under an unregistered action, and it takes the
+// caller's tx so it co-commits or rolls back with the business write.
+func (s *Store) Audit(ctx context.Context, tx pgx.Tx, evt AuditEvent) error {
+	if !evt.Action.Registered() {
+		return fmt.Errorf("%w: %q", ErrUnregisteredAction, string(evt.Action))
+	}
+	if evt.PayloadFunc == nil {
+		payload, err := normalizeAuditPayload(evt.Payload)
+		if err != nil {
+			return err
+		}
+		evt.Payload = payload
+	}
+	return s.auditInserter(ctx, tx, evt)
+}
+
 func (s *Store) WithAudit(
 	ctx context.Context,
 	evt AuditEvent,

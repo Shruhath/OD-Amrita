@@ -34,6 +34,22 @@ import (
 
 // repoRoot returns the monorepo root. This package lives at <root>/test/contract,
 // so the root is two directories up from the package working directory.
+// MaxSlot is the highest slot the system admits, and the ONE place this module
+// states it.
+//
+// It tracks migration 0019's CHECK constraint and the slot schedule in
+// api/internal/service/od_record/schedule.go. It was two hardcoded 12s in two
+// different files until the evening slots landed, at which point both went stale
+// at once and the failure said "want 12" about a number the product had
+// deliberately changed — which reads as the change being wrong rather than the
+// expectation being old.
+//
+// This module is its own Go module and does not depend on api/, so the value
+// cannot be imported. What replaces that is the consistency check below: every
+// slot bound in the spec must agree with this constant, so a widening applied to
+// some fields and not others fails here rather than in a coordinator's hands.
+const MaxSlot = 20
+
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	root, err := filepath.Abs(filepath.Join("..", ".."))

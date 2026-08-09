@@ -23,6 +23,7 @@ import (
 
 	"github.com/Shruhath/OD-Amrita/api/internal/config"
 	handleradmin "github.com/Shruhath/OD-Amrita/api/internal/handler/admin"
+	handlerappsettings "github.com/Shruhath/OD-Amrita/api/internal/handler/appsettings"
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
 	handlercardtoken "github.com/Shruhath/OD-Amrita/api/internal/handler/cardtoken"
 	handlerdispute "github.com/Shruhath/OD-Amrita/api/internal/handler/dispute"
@@ -37,6 +38,7 @@ import (
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/ratelimit"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
+	svcappsettings "github.com/Shruhath/OD-Amrita/api/internal/service/appsettings"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	svccardtoken "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
 	svcdispute "github.com/Shruhath/OD-Amrita/api/internal/service/dispute"
@@ -107,7 +109,24 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// The BOARD's own bucket. See RegisterPublicRoutes for why it is separate
+	// from the group's: campus wifi NATs every student behind one IP, so the
+	// group limiter is shared by the whole campus, and the board is the one
+	// endpoint the whole campus opens at once.
+	publicBoardLimiter, err := ratelimit.New(ratelimit.Config{
+		PerMinute:       cfg.PublicBoardRateLimit.PerMinute,
+		Burst:           cfg.PublicBoardRateLimit.Burst,
+		TrustEdgeHeader: os.Getenv("FLY_APP_NAME") != "",
+	})
+	if err != nil {
+		return err
+	}
+
 	publicGroup := newPublicGroup(router, publicLimiter.Middleware())
+	// Same prefix, same root router, DIFFERENT bucket. gin runs a group's
+	// middleware for every route on it, so the board could not get a looser
+	// limit while sharing this group — it would simply be bounded by both.
+	publicBoardGroup := newPublicGroup(router, publicBoardLimiter.Middleware())
 
 	var verifier svcauth.TokenVerifier = svcauth.RejectingVerifier{}
 	if cfg.Auth.JWKSURL != "" && cfg.Auth.Issuer != "" {
@@ -177,8 +196,17 @@ func run() error {
 		svcmarking.NewRoleAwareMarkGuard(markingPolicy, pool),
 		creditLedger,
 	)
+	// The runtime switches. Nothing else in the graph depends on it, so it is
+	// built here and handed to the three paths that judge a slot.
+	settingsSvc := svcappsettings.NewService(pool)
+	// The extended-slots switch reaches the three paths that judge a slot: the
+	// live mark, the status countdown a coordinator watches, and corrections. If
+	// any one of them read a different ceiling, a coordinator would be shown an
+	// open slot that the mark path then refused.
+	markSvc = markSvc.WithSlotCeiling(settingsSvc)
 	handlerodrecord.RegisterRoutes(markAPI, markSvc)
-	handlerodrecord.RegisterRecordManagementRoutes(markAPI, svcodrecord.NewManagementService(pool, st))
+	handlerodrecord.RegisterRecordManagementRoutes(
+		markAPI, svcodrecord.NewManagementService(pool, st).WithSlotCeiling(settingsSvc))
 	handlerodrecord.RegisterPortalMarkRoutes(markAPI, portalMarkReads)
 	// The teacher-reachable live attendance read. Mounted on markAPI rather than
 	// the admin group; the service scopes a teacher to their own branches.
@@ -207,11 +235,12 @@ func run() error {
 	cachedRecords := publiccache.NewRecords(publicAttendanceSvc, time.Duration(cacheTTL.RecordsSeconds)*time.Second)
 	cachedEvents := publiccache.NewEvents(publicAttendanceSvc, time.Duration(cacheTTL.EventsSeconds)*time.Second)
 	cachedSearch := publiccache.NewSearch(studentSvc, time.Duration(cacheTTL.SearchSeconds)*time.Second)
+	cachedDay := publiccache.NewDay(publicAttendanceSvc, time.Duration(cacheTTL.DaySeconds)*time.Second)
 
-	// The public dashboard's two reads. The SAME student service serves the
+	// The public dashboard's reads. The SAME student service serves the
 	// anonymous search — PublicSearch is a separate, actor-less, hard-capped
 	// method on it, not a relaxation of the authenticated Search.
-	handlerpublicattendance.RegisterPublicRoutes(publicGroup, cachedSearch, cachedRecords)
+	handlerpublicattendance.RegisterPublicRoutes(publicGroup, publicBoardGroup, cachedSearch, cachedRecords, cachedDay)
 	handlerdispute.RegisterPublicRoutes(publicGroup, publicDisputeSurface{
 		submitter: disputeSvc,
 		events:    cachedEvents,
@@ -220,11 +249,14 @@ func run() error {
 		markingPolicy,
 		eventReader,
 		studentSvc,
-		svcodrecord.NewStatusService(svcodrecord.NewSQLCReader(pool), svcodrecord.NewSQLCCounter(pool), creditLedger, nil),
+		svcodrecord.NewStatusService(
+			svcodrecord.NewSQLCReader(pool), svcodrecord.NewSQLCCounter(pool), creditLedger, nil,
+		).WithSlotCeiling(settingsSvc),
 	))
 	handlerdispute.RegisterRoutes(markAPI, disputeSvc)
 
 	admin := newAdminGroup(api, principalLoader)
+	handlerappsettings.RegisterAdminRoutes(admin, settingsSvc)
 	admin.POST("/users/:user_id/sessions/revoke", handleradmin.RevokeSessionsHandler(revSvc))
 	eventSvc := svcevent.NewService(eventReader, st, svcevent.NewSQLCWriter())
 	handlerevent.RegisterAdminRoutes(admin, eventSvc)

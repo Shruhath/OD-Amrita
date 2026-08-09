@@ -64,6 +64,57 @@ func (l *SQLCLedger) Resolve(ctx context.Context, version string, fingerprint [s
 	return mapStudent(row.ID, row.RollNo, row.Name, row.Branch, row.Section, row.Batch)
 }
 
+// MarkVerified records that an admin read this card back.
+//
+// On the pool rather than a transaction: it is a progress note about a read that
+// has already happened and has already been answered, not part of any write the
+// caller is composing. Nothing else in the request depends on it.
+func (l *SQLCLedger) MarkVerified(ctx context.Context, version string, fingerprint [sha256.Size]byte, actorUserID string) error {
+	actor, err := uuid.Parse(actorUserID)
+	if err != nil {
+		return err
+	}
+	// Zero rows is not an error: the row can only be missing if the token was
+	// re-sealed between the resolve and this update, and the newer seal is the
+	// truth in that race — silently doing nothing is the correct outcome.
+	_, err = l.poolQueries.MarkStudentCardTokenVerified(ctx, sqlc.MarkStudentCardTokenVerifiedParams{
+		VerifiedByUserID: dbUUID(actor),
+		Version:          version,
+		TokenSha256:      fingerprint[:],
+	})
+	return err
+}
+
+// SectionStatus reads one section's durable progress.
+func (l *SQLCLedger) SectionStatus(ctx context.Context, version string, filter SectionFilter) ([]CardStatus, error) {
+	branch, err := uuid.Parse(filter.BranchID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := l.poolQueries.ListSectionCardStatus(ctx, sqlc.ListSectionCardStatusParams{
+		Version:  version,
+		BranchID: dbUUID(branch),
+		Batch:    filter.Batch,
+		Section:  filter.Section,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CardStatus, 0, len(rows))
+	for _, row := range rows {
+		status := CardStatus{
+			StudentID: uuid.UUID(row.StudentID.Bytes).String(),
+			Issued:    row.Issued,
+		}
+		if row.VerifiedAt.Valid {
+			at := row.VerifiedAt.Time
+			status.VerifiedAt = &at
+		}
+		out = append(out, status)
+	}
+	return out, nil
+}
+
 func dbUUID(id uuid.UUID) pgtype.UUID {
 	return pgtype.UUID{Bytes: id, Valid: true}
 }

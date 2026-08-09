@@ -124,6 +124,14 @@ type fakeRepo struct {
 	// row lock when the guarded UPDATE matched nothing.
 	lockedStatus string
 	listedAs     []Actor
+	// credits records every CreditSlot call, so a test can assert that a
+	// REJECTED resolution wrote no attendance record — the direction that
+	// silently manufactures attendance if it regresses.
+	resolvedAs []ResolveWrite
+	credits    []CreditWrite
+	creditID   string
+	creditMoot bool
+	creditErr  error
 }
 
 func (r *fakeRepo) Insert(_ context.Context, _ pgx.Tx, _ InsertWrite) (Record, error) {
@@ -161,16 +169,41 @@ func (r *fakeRepo) LockedStatus(_ context.Context, _ pgx.Tx, _ string) (string, 
 	return r.lockedStatus, true, nil
 }
 
-func (r *fakeRepo) Resolve(_ context.Context, _ pgx.Tx, _ ResolveWrite) (int64, error) {
+func (r *fakeRepo) Resolve(_ context.Context, _ pgx.Tx, write ResolveWrite) (int64, error) {
 	r.resolves++
+	r.resolvedAs = append(r.resolvedAs, write)
 	return r.rows, nil
+}
+
+func (r *fakeRepo) CreditSlot(_ context.Context, _ pgx.Tx, write CreditWrite) (string, bool, error) {
+	r.credits = append(r.credits, write)
+	if r.creditErr != nil {
+		return "", false, r.creditErr
+	}
+	if r.creditMoot {
+		return "", false, nil
+	}
+	id := r.creditID
+	if id == "" {
+		id = "11111111-1111-4111-8111-111111111111"
+	}
+	return id, true, nil
 }
 
 // fakeStore runs the write with a nil tx and records the audit event, so the
 // service's audit attribution (T13) is assertable without a database.
 type fakeStore struct {
 	events []store.AuditEvent
+	extra  []store.AuditEvent
 	calls  int
+}
+
+// Audit collects the SECOND audit row an approval writes for the attendance
+// record it created. Appending to the same slice keeps "how many audit rows did
+// this resolution produce, and which" a single assertion.
+func (s *fakeStore) Audit(_ context.Context, _ pgx.Tx, evt store.AuditEvent) error {
+	s.extra = append(s.extra, evt)
+	return nil
 }
 
 func (s *fakeStore) WithAudit(ctx context.Context, evt store.AuditEvent, write func(context.Context, pgx.Tx) (bool, error)) error {
@@ -676,7 +709,7 @@ func TestListAndResolve_RefuseCoordinatorsAndStudentsBeforeAnyQuery(t *testing.T
 					"student's submitted email and note", role, listErr)
 			}
 
-			_, resolveErr := svc.Resolve(ctx, actor, "97000000-0000-4000-8000-000000000001", "Corrected on the register.")
+			_, resolveErr := svc.Resolve(ctx, actor, "97000000-0000-4000-8000-000000000001", "Corrected on the register.", OutcomeApproved)
 			var resolveDomainErr domain.DomainError
 			if !errors.As(resolveErr, &resolveDomainErr) || resolveDomainErr.Code != contracts.ErrorCodeRBACFORBIDDEN {
 				t.Errorf("[P0] Resolve as %q returned %v, want RBAC_FORBIDDEN", role, resolveErr)
@@ -739,7 +772,7 @@ func TestResolve_RefusesAnEmptyNoteBeforeWriting(t *testing.T) {
 	for _, note := range []string{"", "   ", "\t\n", " "} {
 		svc, _, repo, audited := newTestService(t)
 
-		_, err := svc.Resolve(ctx, actor, "97000000-0000-4000-8000-000000000001", note)
+		_, err := svc.Resolve(ctx, actor, "97000000-0000-4000-8000-000000000001", note, OutcomeApproved)
 		var domainErr domain.DomainError
 		if !errors.As(err, &domainErr) || domainErr.Code != contracts.ErrorCodeVALIDATIONFAILED {
 			t.Errorf("[P0] note %q returned %v, want VALIDATION_FAILED", note, err)
@@ -768,7 +801,7 @@ func TestResolve_ZeroRowsIsDisambiguatedByARereadNotAGuess(t *testing.T) {
 	// the transaction, not from a re-read after it committed.
 	repo.lockedStatus = "resolved"
 
-	_, err := svc.Resolve(ctx, actor, repo.record.DisputeID, "Corrected on the register.")
+	_, err := svc.Resolve(ctx, actor, repo.record.DisputeID, "Corrected on the register.", OutcomeApproved)
 	var domainErr domain.DomainError
 	if !errors.As(err, &domainErr) {
 		t.Fatalf("[P0] Resolve on an already-resolved dispute returned %v, want a typed domain error", err)
@@ -782,7 +815,7 @@ func TestResolve_ZeroRowsIsDisambiguatedByARereadNotAGuess(t *testing.T) {
 	// A successful resolve co-commits exactly one dispute.resolved audit row.
 	svc, _, repo, audited := newTestService(t)
 	repo.rows = 1
-	if _, err := svc.Resolve(ctx, actor, "97000000-0000-4000-8000-000000000001", "Corrected on the register."); err != nil {
+	if _, err := svc.Resolve(ctx, actor, "97000000-0000-4000-8000-000000000001", "Corrected on the register.", OutcomeApproved); err != nil {
 		t.Fatalf("[P0] Resolve: %v", err)
 	}
 	if len(audited.events) != 1 {
@@ -800,5 +833,168 @@ func TestResolve_ZeroRowsIsDisambiguatedByARereadNotAGuess(t *testing.T) {
 	if audited.events[0].Payload == nil && audited.events[0].PayloadFunc == nil {
 		t.Errorf("[P0] the resolve audit row carries no payload; FR37/FR50 require the previous status and the " +
 			"note to be permanently recorded")
+	}
+}
+
+// THE APPROVAL WRITES THE RECORD.
+//
+// The defect this covers: resolving a dispute used to be an annotation and
+// nothing else. A teacher agreed the student had been missed, wrote a note, and
+// the student still did not appear in od_records or on the public dashboard —
+// the credit was a separate trip to another surface that nothing prompted, so in
+// practice it never happened.
+func TestResolve_ApprovalCreditsTheDisputedSlot(t *testing.T) {
+	ctx := context.Background()
+	actor := Actor{UserID: "90000000-0000-4000-8000-000000000004", Role: "teacher"}
+
+	svc, _, repo, audited := newTestService(t)
+	repo.rows = 1
+	repo.creditID = "22222222-2222-4222-8222-222222222222"
+
+	got, err := svc.Resolve(ctx, actor, "97000000-0000-4000-8000-000000000001", "Coordinator confirmed it.", OutcomeApproved)
+	if err != nil {
+		t.Fatalf("[P0] Resolve: %v", err)
+	}
+	if len(repo.credits) != 1 {
+		t.Fatalf("[P0] an approved resolution called CreditSlot %d times, want 1 — approving a dispute must "+
+			"write the attendance record, or the student stays missing from the day they disputed", len(repo.credits))
+	}
+	// The credit is keyed on the DISPUTE, not on caller-supplied facts: the
+	// student, event, day and slot are read from the row inside the query, so an
+	// approval cannot credit a slot other than the one that was disputed.
+	if repo.credits[0].DisputeID != "97000000-0000-4000-8000-000000000001" {
+		t.Errorf("[P0] credited dispute %q, want the one being resolved", repo.credits[0].DisputeID)
+	}
+	if repo.credits[0].Note != "Coordinator confirmed it." {
+		t.Errorf("[P0] reason_note = %q, want the teacher's resolution note — od_records_manual_reason_note_ck "+
+			"requires one for any non-coordinator actor", repo.credits[0].Note)
+	}
+	if got.ODRecordID == nil || *got.ODRecordID != repo.creditID {
+		t.Errorf("[P0] the response carries ODRecordID %v, want %q — the teacher's screen has to be able to say "+
+			"the slot was credited, not merely that the dispute was closed", got.ODRecordID, repo.creditID)
+	}
+
+	// TWO auditable facts, not one. An od_records row that appeared with nothing
+	// in the ledger behind it is the gap the ledger exists to close.
+	if len(audited.extra) != 1 {
+		t.Fatalf("[P0] wrote %d extra audit rows, want 1 od.created for the record the approval created", len(audited.extra))
+	}
+	if audited.extra[0].Action != domain.ActionODCreated {
+		t.Errorf("[P0] extra audit action = %q, want %q", audited.extra[0].Action, domain.ActionODCreated)
+	}
+	if audited.extra[0].TargetTable == nil || *audited.extra[0].TargetTable != "od_records" ||
+		audited.extra[0].TargetID == nil || *audited.extra[0].TargetID != repo.creditID {
+		t.Errorf("[P0] the od.created row does not point at the created record: %+v", audited.extra[0])
+	}
+}
+
+// A REJECTION MUST NOT MANUFACTURE ATTENDANCE.
+//
+// This is the direction that makes the outcome field necessary at all. Wiring
+// resolution to the record without it would credit every dispute — including the
+// ones a teacher resolves precisely BECAUSE the student was not there.
+func TestResolve_RejectionWritesNoRecord(t *testing.T) {
+	ctx := context.Background()
+	actor := Actor{UserID: "90000000-0000-4000-8000-000000000004", Role: "admin"}
+
+	svc, _, repo, audited := newTestService(t)
+	repo.rows = 1
+
+	got, err := svc.Resolve(ctx, actor, "97000000-0000-4000-8000-000000000001", "The register shows the student absent.", OutcomeRejected)
+	if err != nil {
+		t.Fatalf("[P0] Resolve: %v", err)
+	}
+	if len(repo.credits) != 0 {
+		t.Errorf("[P0] a REJECTED resolution credited the slot (%d calls). A rejection is the teacher saying the "+
+			"student was not there; crediting it manufactures attendance nobody approved", len(repo.credits))
+	}
+	if got.ODRecordID != nil {
+		t.Errorf("[P0] a rejection reported od_record_id %v, want nil", *got.ODRecordID)
+	}
+	if len(audited.extra) != 0 {
+		t.Errorf("[P0] a rejection wrote %d od.created audit rows, want 0", len(audited.extra))
+	}
+	// The decision itself is still recorded, and the outcome reaches the row.
+	if len(repo.resolvedAs) != 1 || repo.resolvedAs[0].Outcome != OutcomeRejected {
+		t.Errorf("[P0] the stored outcome was %+v, want rejected — an inbox that cannot tell an approval from a "+
+			"refusal cannot be audited", repo.resolvedAs)
+	}
+}
+
+// THE OUTCOME IS REQUIRED, and there is no default.
+//
+// An absent outcome is ambiguous in the one direction that matters: defaulting
+// to approved credits slots nobody approved, defaulting to rejected silently
+// drops the credit the teacher meant to give.
+func TestResolve_RefusesAnAbsentOrUnknownOutcome(t *testing.T) {
+	ctx := context.Background()
+	actor := Actor{UserID: "90000000-0000-4000-8000-000000000004", Role: "admin"}
+
+	for _, outcome := range []string{"", "   ", "approve", "APPROVED", "resolved", "yes", "true"} {
+		t.Run("outcome="+outcome, func(t *testing.T) {
+			svc, _, repo, _ := newTestService(t)
+			repo.rows = 1
+
+			_, err := svc.Resolve(ctx, actor, "97000000-0000-4000-8000-000000000001", "A note.", outcome)
+			var domainErr domain.DomainError
+			if !errors.As(err, &domainErr) {
+				t.Fatalf("[P0] Resolve with outcome %q returned %v, want a typed validation error", outcome, err)
+			}
+			if domainErr.Code != contracts.ErrorCodeVALIDATIONFAILED {
+				t.Errorf("[P0] code = %q, want VALIDATION_FAILED", domainErr.Code)
+			}
+			if repo.resolves != 0 {
+				t.Errorf("[P0] an unusable outcome still reached the database")
+			}
+			if len(repo.credits) != 0 {
+				t.Errorf("[P0] an unusable outcome still credited a slot")
+			}
+		})
+	}
+}
+
+// AN ALREADY-MARKED SLOT IS MOOT, NOT FAILED.
+//
+// A coordinator catching up, or a teacher fixing the record by hand while the
+// dispute sat open, must not turn the teacher's approval into an error: the end
+// state they asked for already holds. The dispute still resolves.
+func TestResolve_ApprovalOfAnAlreadyMarkedSlotStillResolves(t *testing.T) {
+	ctx := context.Background()
+	actor := Actor{UserID: "90000000-0000-4000-8000-000000000004", Role: "admin"}
+
+	svc, _, repo, audited := newTestService(t)
+	repo.rows = 1
+	repo.creditMoot = true
+
+	got, err := svc.Resolve(ctx, actor, "97000000-0000-4000-8000-000000000001", "Already marked; closing.", OutcomeApproved)
+	if err != nil {
+		t.Fatalf("[P0] an approval over an already-marked slot failed with %v; the desired end state already holds", err)
+	}
+	if got.ODRecordID != nil {
+		t.Errorf("[P0] reported od_record_id %v for a record it did not create", *got.ODRecordID)
+	}
+	if len(audited.extra) != 0 {
+		t.Errorf("[P0] wrote %d od.created audit rows for a record it did not create, want 0", len(audited.extra))
+	}
+}
+
+// A FAILED CREDIT ROLLS THE RESOLUTION BACK.
+//
+// The teacher must never be shown "resolved" over a slot that was not credited.
+// Both facts move together or neither does.
+func TestResolve_AFailedCreditFailsTheWholeResolution(t *testing.T) {
+	ctx := context.Background()
+	actor := Actor{UserID: "90000000-0000-4000-8000-000000000004", Role: "admin"}
+
+	svc, _, repo, audited := newTestService(t)
+	repo.rows = 1
+	repo.creditErr = errors.New("od_records insert refused")
+
+	if _, err := svc.Resolve(ctx, actor, "97000000-0000-4000-8000-000000000001", "A note.", OutcomeApproved); err == nil {
+		t.Fatal("[P0] Resolve succeeded although the credit failed — that reports a dispute as resolved over a " +
+			"slot that was never credited, which is the exact defect this change exists to remove")
+	}
+	if len(audited.events) != 0 {
+		t.Errorf("[P0] a failed credit still left %d dispute.resolved audit rows behind", len(audited.events))
 	}
 }

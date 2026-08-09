@@ -74,10 +74,13 @@ paths:
   /api/v1/public/students/search:
     get:
       operationId: searchPublicStudents
-      summary: Prefix-search the roster with no authentication (public dashboard)
+      summary: Search the roster with no authentication (public dashboard)
       description: >-
         Lets a student find themselves on the public attendance dashboard
-        without signing in. Matching is PREFIX-ONLY and LIKE-escaped, `q` is
+        without signing in. `q` is split on whitespace and EVERY word must
+        appear somewhere in the roll number or name, so a surname finds a full
+        name and word order does not matter; terms are ANDed, so a longer query
+        can only ever return fewer rows. Each word is LIKE-escaped and `q` is
         bounded at both ends so an empty query cannot become a roster dump, and
         the result cap is FIXED SERVER-SIDE at 10 — there is deliberately no
         `limit` parameter, because a knob the open internet controls is a knob
@@ -89,8 +92,9 @@ paths:
           in: query
           required: true
           description: >-
-            Roll-number or name prefix, trimmed before length is judged. The
-            bounds mirror the authenticated search's exported constants.
+            Words to match against the roll number and name, trimmed before
+            length is judged. The bounds mirror the authenticated search's
+            exported constants.
           schema:
             type: string
             minLength: 3
@@ -168,6 +172,84 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limited (RATE_LIMITED); carries a Retry-After header.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/public/od-records:
+    get:
+      operationId: listPublicDayODRecords
+      summary: One day's present OD records for every marked student (public board)
+      description: >-
+        The public attendance board: everybody marked on one campus day, grouped
+        by student, so a visitor sees the day's list without searching for
+        anyone. This deliberately reverses the posture of
+        `/public/students/search`, whose whole design is that an empty query
+        cannot become a roster dump — publishing the day's list is a product
+        decision taken knowingly, and the mitigations live here rather than in
+        the shape of the query.
+
+        WHAT IT MAY CARRY IS FIXED AND SMALL: roll number, display name, slot,
+        category and event name. There is no email (the students table has no
+        such column), no actor identity, no `reason_note` — a teacher's free-text
+        justification for a correction must never be public — no capture method,
+        no card token and no fingerprint. The response type is separate from the
+        authenticated attendance family precisely so a column added there cannot
+        appear here.
+
+        Only `status = 'present'` rows. A removed record must not show a student
+        as marked. The row read is capped server-side and the response says so
+        when the cap bites, because a silently truncated board reads as "these
+        students were not marked".
+      parameters:
+        - name: od_date
+          in: query
+          required: false
+          description: >-
+            The campus day to show. Defaults to today in the campus timezone,
+            which is what makes the board answer without any input at all.
+          schema:
+            type: string
+            format: date
+        - name: slot
+          in: query
+          required: false
+          description: Narrow to a single slot.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+        - name: category_id
+          in: query
+          required: false
+          description: Narrow to a single category.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: >-
+            The day's marked students, ordered by roll number. An empty list is a
+            valid answer and means nobody has been marked yet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicDayAttendance"
+        "400":
+          description: Malformed od_date, slot or category_id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
         "429":
           description: Rate limited (RATE_LIMITED); carries a Retry-After header.
           content:
@@ -343,12 +425,19 @@ paths:
   /api/v1/disputes/{dispute_id}/resolution:
     post:
       operationId: resolveDispute
-      summary: Resolve a dispute with an annotation only
+      summary: Resolve a dispute, crediting the slot when it is approved
       description: >-
-        Marks an open dispute resolved with a non-empty note and co-commits a
-        dispute.resolved audit row. This does not create, correct or delete an
-        OD record; manual record repair belongs to the later record-management
-        surface.
+        Marks an open dispute resolved with a non-empty note and a required
+        outcome, and co-commits a dispute.resolved audit row. An APPROVED
+        resolution also writes the disputed slot into od_records in the SAME
+        transaction — with capture_method `dispute`, the resolver as actor and
+        the resolution note as reason_note — and co-commits an od.created row for
+        it, so the student appears on the public dashboard immediately. A
+        REJECTED resolution records the refusal and writes no record. If the
+        student was already marked for that slot the approval is moot rather than
+        failed: the dispute resolves, no duplicate row is written, and
+        od_record_id comes back null. Nothing here corrects or deletes an
+        existing record; that remains the record-management surface.
       security:
         - bearerAuth: []
       parameters:
@@ -736,7 +825,7 @@ paths:
       parameters:
         - {name: event_id, in: path, required: true, schema: {type: string, format: uuid}}
         - {name: category_id, in: query, schema: {type: string, format: uuid}}
-        - {name: slot, in: query, schema: {type: integer, minimum: 1, maximum: 12}}
+        - {name: slot, in: query, schema: {type: integer, minimum: 1, maximum: 20}}
         - {name: od_date, in: query, schema: {type: string, format: date}}
         - {name: section, in: query, schema: {type: string, maxLength: 64}}
         - {name: actor_user_id, in: query, schema: {type: string, format: uuid}}
@@ -849,7 +938,7 @@ paths:
           schema:
             type: integer
             minimum: 1
-            maximum: 12
+            maximum: 20
         - name: od_date
           in: query
           description: >-
@@ -940,7 +1029,7 @@ paths:
           schema:
             type: integer
             minimum: 1
-            maximum: 12
+            maximum: 20
         - name: od_date
           in: query
           description: >-
@@ -1117,21 +1206,25 @@ paths:
   /api/v1/students/search:
     get:
       operationId: searchStudents
-      summary: Prefix-search the roster by roll number or name
+      summary: Search the roster by roll number or name
       description: >-
         The coordinator's fallback when a card will not tap, and the resolution
         step for the camera path (the printed barcode carries a ROLL NUMBER).
-        Matching is PREFIX-ONLY so `students_roll_no_idx` and
-        `students_name_lower_idx` stay usable, `q` is bounded at both ends so an
-        empty query cannot become a roster dump, and the result item carries no
-        email, card token or token fingerprint.
+        `q` is split on whitespace and EVERY word must appear somewhere in the
+        roll number or name, so a surname finds a full name and word order does
+        not matter; terms are ANDed, so a longer query can only ever return
+        fewer rows. Ordering is exact roll first, then word-start matches, so
+        typing a first name still puts that person at the top. Each word is
+        LIKE-escaped, `q` is bounded at both ends so an empty query cannot
+        become a roster dump, and the result item carries no email, card token
+        or token fingerprint.
       security:
         - bearerAuth: []
       parameters:
         - name: q
           in: query
           required: true
-          description: Roll-number or name prefix, trimmed before length is judged.
+          description: Words to match against the roll number and name, trimmed before length is judged.
           schema:
             type: string
             minLength: 3
@@ -1267,6 +1360,93 @@ paths:
                 $ref: "#/components/schemas/Error"
         "403":
           description: Caller is not a provisioned admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/settings/extended-slots:
+    get:
+      operationId: getExtendedSlotsSetting
+      summary: Whether the evening slots (13-20) are currently admitted
+      description: >-
+        The teaching day is slots 1-12 and ends at 18:15, so after quarter past
+        six no slot is open and nobody can be marked. This switch admits slots
+        13-20 — evening windows of forty minutes each, ending at 23:35 — so the
+        real marking flow can be rehearsed outside teaching hours.
+
+        It is a RUNTIME switch, not a deploy: the database's CHECK constraint is
+        permanently widened to 20 and this decides what the application accepts
+        within that. It defaults to OFF, which is the behaviour production has
+        always had.
+      security: [{bearerAuth: []}]
+      responses:
+        "200":
+          description: The switch as it currently stands.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExtendedSlotsSetting"
+        "401":
+          description: Missing or invalid bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Not an administrator (RBAC_FORBIDDEN).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      operationId: setExtendedSlotsSetting
+      summary: Turn the evening slots on or off
+      description: >-
+        PUT rather than POST: the switch is a single value with a name, and
+        setting it twice to the same thing must be the same as setting it once.
+        Administrator only — it changes what every coordinator's device will
+        accept.
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExtendedSlotsUpdate"
+      responses:
+        "200":
+          description: The switch as it now stands.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExtendedSlotsSetting"
+        "400":
+          description: Body missing the `enabled` field.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Missing or invalid bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Not an administrator (RBAC_FORBIDDEN).
           content:
             application/json:
               schema:
@@ -2307,6 +2487,72 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/admin/card-tokens/status:
+    get:
+      operationId: listSectionCardStatus
+      summary: Durable card-population progress for one section
+      description: >-
+        What the SERVER knows about a section's cards, so the populator's counts
+        survive a sign-out and follow the operator to another device. `issued`
+        means a token row exists — NOT that the card took the write. `verified_at`
+        is set only when an admin read the card back through the resolve endpoint
+        above and the server recognised it, and that is the only state that may
+        be reported as done. Scoped to the ACTIVE seal version: a token sealed
+        under a retired key is not the card about to be written. Carries no
+        token, fingerprint or key material.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: branch_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: batch
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 32
+        - name: section
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 32
+      responses:
+        "200":
+          description: One entry per student in the section, in roll-number order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SectionCardStatusCollection"
+        "400":
+          description: Request validation failed with typed field details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Missing, malformed, expired, or revoked token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a provisioned Admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -2803,8 +3049,12 @@ components:
 
     CaptureMethod:
       type: string
-      enum: [nfc, camera, search]
-      x-enum-varnames: [Nfc, Camera, Search]
+      # `dispute` is not a capture at all — it is how a record created by an
+      # APPROVED missed-slot dispute is distinguished from one a teacher searched
+      # for. Recording those as `search` would put a lie in the one table whose
+      # job is to say who marked a student and how.
+      enum: [nfc, camera, search, dispute]
+      x-enum-varnames: [Nfc, Camera, Search, Dispute]
 
     StudentSearchResults:
       type: object
@@ -2885,7 +3135,7 @@ components:
         slot:
           type: integer
           minimum: 1
-          maximum: 12
+          maximum: 20
         event_id:
           type: string
           format: uuid
@@ -2945,6 +3195,110 @@ components:
           description: Present records for this day, ordered by slot ascending.
           items:
             $ref: "#/components/schemas/PublicODRecord"
+
+    ExtendedSlotsSetting:
+      type: object
+      description: >-
+        The evening-slots switch. `max_slot` is included so a client never has to
+        hold its own copy of what "on" means — the ceiling is the server's to
+        decide, and a screen that hardcoded 20 would silently disagree the day
+        that changed.
+      required: [enabled, max_slot, updated_at]
+      properties:
+        enabled:
+          type: boolean
+        max_slot:
+          type: integer
+          minimum: 1
+          maximum: 20
+          description: The highest slot currently accepted — 12 when off, 20 when on.
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Null when the switch has never been written.
+
+    ExtendedSlotsUpdate:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+
+    PublicDayMark:
+      type: object
+      description: >-
+        One slot a student was marked in, on the day being shown. The board's
+        whole payload per mark: which slot, and what it was for.
+      required: [slot, category_id, category_name, event_name]
+      properties:
+        slot:
+          type: integer
+          minimum: 1
+          maximum: 20
+        category_id:
+          type: string
+          format: uuid
+        category_name:
+          type: string
+        event_name:
+          type: string
+
+    PublicDayStudent:
+      type: object
+      description: >-
+        One row of the public board. Roll number and display name and nothing
+        else that identifies a person — no student id (the per-student view is
+        reached by searching, which is rate limited on its own terms), no
+        branch, section or batch, and no email.
+      required: [roll_no, display_name, marks]
+      properties:
+        roll_no:
+          type: string
+        display_name:
+          type: string
+        marks:
+          type: array
+          description: The student's marks on this day, ordered by slot ascending.
+          items:
+            $ref: "#/components/schemas/PublicDayMark"
+
+    PublicDayAttendance:
+      type: object
+      description: >-
+        One campus day's public attendance board. Unpaginated for the same reason
+        PublicODRecordCollection is — a page parameter cannot be reconciled with
+        grouping by student without splitting a student across pages — so the
+        server caps the row read and reports whether the cap bit.
+      required: [od_date, students, categories, truncated, generated_at]
+      properties:
+        od_date:
+          type: string
+          format: date
+          description: The day these rows belong to, echoed so the client never has to assume.
+        students:
+          type: array
+          description: Marked students ordered by roll number. Empty means nobody is marked yet.
+          items:
+            $ref: "#/components/schemas/PublicDayStudent"
+        categories:
+          type: array
+          description: >-
+            Every category with a mark on this day, for the filter control. Built
+            from the UNFILTERED day on purpose: a list derived from the filtered
+            rows would shrink to the one option already chosen, and there would
+            be no way back.
+          items:
+            $ref: "#/components/schemas/PublicEventCategory"
+        truncated:
+          type: boolean
+          description: >-
+            True when the server's row cap was reached and the board is showing
+            only part of the day. The screen must say so — a silently short board
+            reads as "these students were not marked".
+        generated_at:
+          type: string
+          format: date-time
 
     PublicODRecordCollection:
       type: object
@@ -3068,7 +3422,7 @@ components:
         slot:
           type: integer
           minimum: 1
-          maximum: 12
+          maximum: 20
         claimed_coordinator_name:
           type: string
           nullable: true
@@ -3124,6 +3478,7 @@ components:
         - claimed_coordinator_name
         - student_note
         - status
+        - outcome
         - submitted_at
         - resolution_note
         - resolved_by_user_id
@@ -3158,7 +3513,7 @@ components:
         slot:
           type: integer
           minimum: 1
-          maximum: 12
+          maximum: 20
         claimed_coordinator_name:
           type: string
           nullable: true
@@ -3170,6 +3525,25 @@ components:
         status:
           type: string
           enum: [open, resolved]
+        outcome:
+          type: string
+          # REQUIRED as well as nullable, for the same reason MarkStatus.slot is:
+          # it is always present, and it is null exactly while the dispute is
+          # open. Merely optional lets the generator emit `omitempty`, and a
+          # client then cannot tell "still open" from "this server is too old to
+          # report an outcome" — which is the difference between a slot that will
+          # be credited and one that silently never was.
+          nullable: true
+          enum: [approved, rejected]
+        od_record_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            The attendance record an approved resolution created, returned only
+            on the response to that resolution. Null when the outcome was
+            rejected, when the student was already marked for the slot, and on
+            every list read.
         submitted_at:
           type: string
           format: date-time
@@ -3207,12 +3581,62 @@ components:
 
     DisputeResolutionRequest:
       type: object
-      required: [resolution_note]
+      required: [resolution_note, outcome]
       properties:
         resolution_note:
           type: string
           minLength: 1
           maxLength: 2000
+        outcome:
+          type: string
+          # REQUIRED, with no default. An absent outcome is ambiguous in the one
+          # direction that matters: defaulting to approved credits slots nobody
+          # approved, defaulting to rejected silently drops the credit the
+          # teacher meant to give.
+          enum: [approved, rejected]
+
+    SectionCardStatus:
+      type: object
+      description: >-
+        One student's card state. Deliberately carries no token, fingerprint or
+        seal version — the populator is reading PROGRESS, and card material it is
+        not about to write has no business on the wire.
+      required: [student_id, issued, verified_at]
+      properties:
+        student_id:
+          type: string
+          format: uuid
+        issued:
+          type: boolean
+          description: A token row exists. NOT proof the card took the write.
+        verified_at:
+          type: string
+          format: date-time
+          # REQUIRED as well as nullable: always present, null when the card has
+          # never been read back. Merely optional lets the generator omit the key,
+          # and a client then cannot tell "not verified" from "this server does
+          # not track verification" — the difference between a card that needs a
+          # tap and one that does not.
+          nullable: true
+
+    SectionCardStatusCollection:
+      type: object
+      required: [data, total, issued, verified]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/SectionCardStatus"
+        total:
+          type: integer
+          minimum: 0
+          description: Students in the section.
+        issued:
+          type: integer
+          minimum: 0
+        verified:
+          type: integer
+          minimum: 0
 
     MarkStatus:
       type: object
@@ -3268,7 +3692,7 @@ components:
         slot:
           type: integer
           minimum: 1
-          maximum: 12
+          maximum: 20
         started_at:
           type: string
           format: date-time
@@ -3343,7 +3767,7 @@ components:
         slot:
           type: integer
           minimum: 1.0
-          maximum: 12.0
+          maximum: 20.0
         reason_note:
           type: string
           nullable: true
@@ -3377,7 +3801,7 @@ components:
         slot:
           type: integer
           minimum: 1.0
-          maximum: 12.0
+          maximum: 20.0
         od_date:
           type: string
           format: date
@@ -3457,7 +3881,7 @@ components:
         slot:
           type: integer
           minimum: 1
-          maximum: 12
+          maximum: 20
         od_date:
           type: string
           format: date
@@ -3513,7 +3937,7 @@ components:
         slot:
           type: integer
           minimum: 1
-          maximum: 12
+          maximum: 20
         category_id:
           type: string
           format: uuid
@@ -3550,7 +3974,7 @@ components:
         slot:
           type: integer
           minimum: 1
-          maximum: 12
+          maximum: 20
         od_date:
           type: string
           format: date

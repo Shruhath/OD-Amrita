@@ -47,6 +47,93 @@ func (q *Queries) GetCardTokenStudentByID(ctx context.Context, studentID pgtype.
 	return i, err
 }
 
+const listSectionCardStatus = `-- name: ListSectionCardStatus :many
+SELECT
+    s.id AS student_id,
+    (t.id IS NOT NULL)::boolean AS issued,
+    t.verified_at
+FROM students s
+LEFT JOIN student_card_tokens t
+    ON t.student_id = s.id AND t.version = $1::text
+WHERE s.branch_id = $2
+  AND s.batch = $3::text
+  AND s.section = $4::text
+ORDER BY s.roll_no
+`
+
+type ListSectionCardStatusParams struct {
+	Version  string      `json:"version"`
+	BranchID pgtype.UUID `json:"branch_id"`
+	Batch    string      `json:"batch"`
+	Section  string      `json:"section"`
+}
+
+type ListSectionCardStatusRow struct {
+	StudentID  pgtype.UUID        `json:"student_id"`
+	Issued     bool               `json:"issued"`
+	VerifiedAt pgtype.Timestamptz `json:"verified_at"`
+}
+
+// The populator's durable progress for one branch/batch/section.
+//
+// LEFT JOIN, not INNER: a student with no token row at all is the majority state
+// when a section is opened for the first time, and they must appear as "not
+// written" rather than vanish from the count.
+//
+// Returns no token, no fingerprint and no key material — only whether a card
+// exists for this student and whether it has been read back.
+func (q *Queries) ListSectionCardStatus(ctx context.Context, arg ListSectionCardStatusParams) ([]ListSectionCardStatusRow, error) {
+	rows, err := q.db.Query(ctx, listSectionCardStatus,
+		arg.Version,
+		arg.BranchID,
+		arg.Batch,
+		arg.Section,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSectionCardStatusRow
+	for rows.Next() {
+		var i ListSectionCardStatusRow
+		if err := rows.Scan(&i.StudentID, &i.Issued, &i.VerifiedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markStudentCardTokenVerified = `-- name: MarkStudentCardTokenVerified :execrows
+UPDATE student_card_tokens
+SET verified_at = now(),
+    verified_by_user_id = $1
+WHERE version = $2
+  AND token_sha256 = $3
+`
+
+type MarkStudentCardTokenVerifiedParams struct {
+	VerifiedByUserID pgtype.UUID `json:"verified_by_user_id"`
+	Version          string      `json:"version"`
+	TokenSha256      []byte      `json:"token_sha256"`
+}
+
+// Records that an ADMIN read this card back and the server recognised it.
+//
+// Keyed on the fingerprint that was just resolved, so it can only ever mark the
+// row the read actually matched. Idempotent by nature: verifying twice simply
+// moves the timestamp.
+func (q *Queries) MarkStudentCardTokenVerified(ctx context.Context, arg MarkStudentCardTokenVerifiedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markStudentCardTokenVerified, arg.VerifiedByUserID, arg.Version, arg.TokenSha256)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const resolveStudentCardToken = `-- name: ResolveStudentCardToken :one
 SELECT
     s.id,
@@ -96,7 +183,14 @@ WITH upsert AS (
     VALUES ($1, $2, $3)
     ON CONFLICT (student_id, version) DO UPDATE
     SET token_sha256 = EXCLUDED.token_sha256,
-        updated_at = now()
+        updated_at = now(),
+        -- A CHANGED token means the card in the operator's hand now holds a
+        -- stale one, so whatever was verified before is no longer true. Re-
+        -- sealing the SAME student under the same key produces the SAME token
+        -- (it is an HMAC of the roll number), so the guard below skips the row
+        -- entirely and an ordinary re-write does not throw away a verification.
+        verified_at = NULL,
+        verified_by_user_id = NULL
     WHERE student_card_tokens.token_sha256 IS DISTINCT FROM EXCLUDED.token_sha256
     RETURNING id, (xmax = 0) AS inserted
 )

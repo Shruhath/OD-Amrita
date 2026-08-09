@@ -325,7 +325,9 @@ func main() {
 	}
 	publicGroup := router.Group("/api/v1/public")
 	publicGroup.Use(publicLimiter.Middleware())
-	handlerpublicattendance.RegisterPublicRoutes(publicGroup, studentService, publicAttendanceService)
+	// nil board limiter: the harness already runs the group limiter wide open,
+	// and a second bucket here would only make a browser journey flaky.
+	handlerpublicattendance.RegisterPublicRoutes(publicGroup, nil, studentService, publicAttendanceService, publicAttendanceService)
 	publicDisputeLimiter, err := ratelimit.New(ratelimit.Config{PerMinute: 6000, Burst: 600})
 	if err != nil {
 		log.Fatal(err)

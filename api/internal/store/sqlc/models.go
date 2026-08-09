@@ -8,6 +8,14 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+// Runtime switches an administrator may flip without a deploy. Read by the application; never by a trigger.
+type AppSetting struct {
+	Key       string             `json:"key"`
+	Value     string             `json:"value"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	UpdatedBy pgtype.UUID        `json:"updated_by"`
+}
+
 type AuditLog struct {
 	ID           pgtype.UUID        `json:"id"`
 	Action       string             `json:"action"`
@@ -61,6 +69,8 @@ type Dispute struct {
 	ResolvedByUserID       pgtype.UUID        `json:"resolved_by_user_id"`
 	ResolvedAt             pgtype.Timestamptz `json:"resolved_at"`
 	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	// approved credits the disputed slot in od_records; rejected records the refusal. NULL only while open.
+	Outcome pgtype.Text `json:"outcome"`
 }
 
 type Event struct {
@@ -142,6 +152,9 @@ type StudentCardToken struct {
 	TokenSha256 []byte             `json:"token_sha256"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	// When an admin last read this card back through the populator and the server recognised it. NULL means issued but never verified — which is NOT the same as written.
+	VerifiedAt       pgtype.Timestamptz `json:"verified_at"`
+	VerifiedByUserID pgtype.UUID        `json:"verified_by_user_id"`
 }
 
 type StudentRosterImport struct {

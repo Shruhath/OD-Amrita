@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test, vi, afterEach } from 'vitest'
@@ -109,11 +110,47 @@ describe('role landing after sign-in', () => {
     expect(await screen.findByText('Public dashboard')).toBeInTheDocument()
   })
 
-  test('[P0] a signed-out visitor is offered sign-in in place, not bounced to a portal url', async () => {
+  test('[P0] a signed-out visitor lands on the front door and is redirected NOWHERE', async () => {
+    // The friction this replaced: `/` offered a bare sign-in card, so the public
+    // board was reachable only by knowing to type its url — and anyone whose
+    // role had not been assigned yet was computed a destination they never
+    // chose and had to edit the address bar to leave.
     renderLanding(signedOut())
 
     expect(await screen.findByRole('button', { name: /sign in with microsoft/i })).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /public dashboard/i }),
+      'the front door offers no way to the public board, so a student has to know to type /attendance',
+    ).toBeInTheDocument()
+
+    // Nowhere. Not the portal, and — the regression this test is really about —
+    // not the public dashboard either.
     expect(screen.queryByText('Events workspace')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Public dashboard'),
+      'a signed-out visitor was redirected straight to the public board. A coordinator opening the app on ' +
+        'their phone then has to notice they were sent somewhere and navigate back out of it',
+    ).not.toBeInTheDocument()
+  })
+
+  test('[P0] the public dashboard is a real link, openable and shareable', async () => {
+    // A button with an onClick navigates, but cannot be opened in a new tab,
+    // shared, or reached by the browser controls a student actually uses.
+    renderLanding(signedOut())
+
+    const link = await screen.findByRole('link', { name: /public dashboard/i })
+    expect(link).toHaveAttribute('href', '/attendance')
+  })
+
+  test('[P0] signing in from the front door goes through the session port', async () => {
+    // The button must actually start the provider flow. A front page whose
+    // primary action does nothing is worse than the sign-in card it replaced.
+    const session = signedOut()
+    renderLanding(session)
+
+    await userEvent.setup().click(await screen.findByRole('button', { name: /sign in with microsoft/i }))
+
+    expect(session.signIn).toHaveBeenCalled()
   })
 
   test('[P0] the sign-in card is not flashed while the provider callback is still being exchanged', async () => {

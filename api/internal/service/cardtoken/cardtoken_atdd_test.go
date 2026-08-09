@@ -192,6 +192,21 @@ type fakeLedger struct {
 	resolveVersion string
 	resolveHash    [sha256.Size]byte
 	resolved       Student
+	// verifiedFor records every MarkVerified call, so a test can assert that a
+	// populator read-back is remembered — and that a REFUSED read is not.
+	verifiedFor []string
+	sectionFor  []SectionFilter
+	sectionRows []CardStatus
+}
+
+func (f *fakeLedger) MarkVerified(_ context.Context, version string, _ [sha256.Size]byte, actorUserID string) error {
+	f.verifiedFor = append(f.verifiedFor, version+"/"+actorUserID)
+	return nil
+}
+
+func (f *fakeLedger) SectionStatus(_ context.Context, _ string, filter SectionFilter) ([]CardStatus, error) {
+	f.sectionFor = append(f.sectionFor, filter)
+	return f.sectionRows, nil
 }
 
 func (f *fakeLedger) Upsert(_ context.Context, _ pgx.Tx, entry LedgerEntry) (bool, error) {

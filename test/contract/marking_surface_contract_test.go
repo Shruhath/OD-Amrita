@@ -7,6 +7,7 @@
 package contract
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -201,8 +202,8 @@ func TestMarkingSurfaceContract_MarkStatusShape(t *testing.T) {
 	if got := getFloat(slotNum, "minimum"); got != 1 {
 		t.Errorf("[P0] MarkSlotWindow.slot.minimum = %v, want 1 (slot 0 is not a slot)", got)
 	}
-	if got := getFloat(slotNum, "maximum"); got != 12 {
-		t.Errorf("[P0] MarkSlotWindow.slot.maximum = %v, want 12", got)
+	if got := getFloat(slotNum, "maximum"); got != MaxSlot {
+		t.Errorf("[P0] MarkSlotWindow.slot.maximum = %v, want %d", got, MaxSlot)
 	}
 
 	counters := getMap(schemas, "MarkCounters")
@@ -376,4 +377,80 @@ func structBlock(source, name string) string {
 		return ""
 	}
 	return source[start : start+end]
+}
+
+// Every `slot` bound in the spec agrees with MaxSlot.
+//
+// WHY THIS EXISTS. The ceiling appears on a dozen schemas and query parameters —
+// the mark request, the status window, the dispute, the attendance filters, the
+// public board. Widening it means editing all of them, and the failure mode of
+// missing one is silent: the API accepts a slot that one client's generated
+// types say is out of range, or a picker offers a slot another endpoint refuses.
+//
+// Two hardcoded expectations in two files could not catch that, and did not:
+// when the evening slots landed, one inline `maximum: 12` survived a
+// find-and-replace and nothing failed. This walks the whole document instead, so
+// a partial widening is a red build rather than a defect somebody meets during
+// an event.
+func TestMarkingSurfaceContract_EverySlotBoundAgreesWithTheCeiling(t *testing.T) {
+	doc := loadSpec(t, repoRoot(t))
+
+	checked := 0
+	var walk func(path string, node any)
+	walk = func(path string, node any) {
+		switch typed := node.(type) {
+		case map[string]any:
+			// TWO SHAPES carry a slot bound, and missing the second is how the
+			// first version of this test passed a deliberate mutation:
+			//
+			//   a PROPERTY   — `slot: {type: integer, maximum: N}`
+			//   a PARAMETER  — `{name: slot, in: query, schema: {...}}`
+			//
+			// In the parameter form the key is `schema` and the word "slot" is a
+			// VALUE, so a walk keyed on the property name never sees it — and the
+			// query filters are exactly where a partial widening hides.
+			if getStr(typed, "name") == "slot" {
+				if schema := resolveSchema(doc, getMap(typed, "schema")); schema != nil {
+					assertSlotBound(t, path+"(param)", schema, &checked)
+				}
+			}
+			for key, child := range typed {
+				if key == "slot" {
+					if schema := asMap(child); schema != nil && getStr(schema, "type") == "integer" {
+						assertSlotBound(t, path+".slot", schema, &checked)
+					}
+				}
+				walk(path+"."+key, child)
+			}
+		case []any:
+			for index, child := range typed {
+				walk(fmt.Sprintf("%s[%d]", path, index), child)
+			}
+		}
+	}
+	walk("spec", doc)
+
+	// Without this the walk is skippable: a spec that renamed the field, or a
+	// traversal that never recursed, would report success having checked nothing.
+	if checked < 8 {
+		t.Errorf("[P0] only %d bounded slot schemas were found; the spec carries one on the mark request, the "+
+			"status window, the dispute, the attendance filters and the public board, so a number this low "+
+			"means the walk stopped finding them rather than that they all agree", checked)
+	}
+}
+
+// assertSlotBound holds one slot schema to the ceiling.
+func assertSlotBound(t *testing.T, where string, schema map[string]any, checked *int) {
+	t.Helper()
+	if _, bounded := schema["maximum"]; !bounded {
+		return
+	}
+	*checked++
+	if got := getFloat(schema, "maximum"); got != MaxSlot {
+		t.Errorf("[P0] %s.maximum = %v, want %d — one slot bound was widened and this one was not, so a client "+
+			"generated from this spec disagrees with the API about which slots exist", where, got, MaxSlot)
+	}
+	if got := getFloat(schema, "minimum"); got != 1 {
+		t.Errorf("[P0] %s.minimum = %v, want 1 (slot 0 is not a slot)", where, got)
+	}
 }

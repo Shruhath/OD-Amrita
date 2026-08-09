@@ -35,8 +35,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Prefix-search the roster with no authentication (public dashboard)
-         * @description Lets a student find themselves on the public attendance dashboard without signing in. Matching is PREFIX-ONLY and LIKE-escaped, `q` is bounded at both ends so an empty query cannot become a roster dump, and the result cap is FIXED SERVER-SIDE at 10 — there is deliberately no `limit` parameter, because a knob the open internet controls is a knob that gets turned to 10,000. Results carry display fields only: no email (the students table has no such column), no card token and no token fingerprint. Rate limited per client.
+         * Search the roster with no authentication (public dashboard)
+         * @description Lets a student find themselves on the public attendance dashboard without signing in. `q` is split on whitespace and EVERY word must appear somewhere in the roll number or name, so a surname finds a full name and word order does not matter; terms are ANDed, so a longer query can only ever return fewer rows. Each word is LIKE-escaped and `q` is bounded at both ends so an empty query cannot become a roster dump, and the result cap is FIXED SERVER-SIDE at 10 — there is deliberately no `limit` parameter, because a knob the open internet controls is a knob that gets turned to 10,000. Results carry display fields only: no email (the students table has no such column), no card token and no token fingerprint. Rate limited per client.
          */
         get: operations["searchPublicStudents"];
         put?: never;
@@ -59,6 +59,28 @@ export interface paths {
          * @description The read that closes the loop the whole event depends on: a student checks whether they were actually marked. Records are grouped by the EVENT's date — `od_records` has no date column, and grouping by the server receipt time would file a teacher's next-morning correction under the wrong day — most recent day first, slots ascending within a day. Records on ARCHIVED events are still returned: archiving is an administrative act on the event, not a retraction of the student's attendance. The response exposes OD records only; the marker appears as a display name and a role, never a user id, an email or a contact detail.
          */
         get: operations["listPublicStudentODRecords"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/od-records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One day's present OD records for every marked student (public board)
+         * @description The public attendance board: everybody marked on one campus day, grouped by student, so a visitor sees the day's list without searching for anyone. This deliberately reverses the posture of `/public/students/search`, whose whole design is that an empty query cannot become a roster dump — publishing the day's list is a product decision taken knowingly, and the mitigations live here rather than in the shape of the query.
+         *     WHAT IT MAY CARRY IS FIXED AND SMALL: roll number, display name, slot, category and event name. There is no email (the students table has no such column), no actor identity, no `reason_note` — a teacher's free-text justification for a correction must never be public — no capture method, no card token and no fingerprint. The response type is separate from the authenticated attendance family precisely so a column added there cannot appear here.
+         *     Only `status = 'present'` rows. A removed record must not show a student as marked. The row read is capped server-side and the response says so when the cap bites, because a silently truncated board reads as "these students were not marked".
+         */
+        get: operations["listPublicDayODRecords"];
         put?: never;
         post?: never;
         delete?: never;
@@ -137,8 +159,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Resolve a dispute with an annotation only
-         * @description Marks an open dispute resolved with a non-empty note and co-commits a dispute.resolved audit row. This does not create, correct or delete an OD record; manual record repair belongs to the later record-management surface.
+         * Resolve a dispute, crediting the slot when it is approved
+         * @description Marks an open dispute resolved with a non-empty note and a required outcome, and co-commits a dispute.resolved audit row. An APPROVED resolution also writes the disputed slot into od_records in the SAME transaction — with capture_method `dispute`, the resolver as actor and the resolution note as reason_note — and co-commits an od.created row for it, so the student appears on the public dashboard immediately. A REJECTED resolution records the refusal and writes no record. If the student was already marked for that slot the approval is moot rather than failed: the dispute resolves, no duplicate row is written, and od_record_id comes back null. Nothing here corrects or deletes an existing record; that remains the record-management surface.
          */
         post: operations["resolveDispute"];
         delete?: never;
@@ -416,8 +438,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Prefix-search the roster by roll number or name
-         * @description The coordinator's fallback when a card will not tap, and the resolution step for the camera path (the printed barcode carries a ROLL NUMBER). Matching is PREFIX-ONLY so `students_roll_no_idx` and `students_name_lower_idx` stay usable, `q` is bounded at both ends so an empty query cannot become a roster dump, and the result item carries no email, card token or token fingerprint.
+         * Search the roster by roll number or name
+         * @description The coordinator's fallback when a card will not tap, and the resolution step for the camera path (the printed barcode carries a ROLL NUMBER). `q` is split on whitespace and EVERY word must appear somewhere in the roll number or name, so a surname finds a full name and word order does not matter; terms are ANDed, so a longer query can only ever return fewer rows. Ordering is exact roll first, then word-start matches, so typing a first name still puts that person at the top. Each word is LIKE-escaped, `q` is bounded at both ends so an empty query cannot become a roster dump, and the result item carries no email, card token or token fingerprint.
          */
         get: operations["searchStudents"];
         put?: never;
@@ -462,6 +484,31 @@ export interface paths {
          * @description Admin-only forced logout. Records a server-side session revocation for the target user in the local deny-list the auth middleware enforces on the NEXT request (not only at token expiry), and makes a best-effort Supabase-side revocation where a supported server-side API exists. Supabase remains the session authority; this endpoint never mints or stores tokens. The revocation is audit-logged.
          */
         post: operations["revokeUserSessions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/settings/extended-slots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether the evening slots (13-20) are currently admitted
+         * @description The teaching day is slots 1-12 and ends at 18:15, so after quarter past six no slot is open and nobody can be marked. This switch admits slots 13-20 — evening windows of forty minutes each, ending at 23:35 — so the real marking flow can be rehearsed outside teaching hours.
+         *     It is a RUNTIME switch, not a deploy: the database's CHECK constraint is permanently widened to 20 and this decides what the application accepts within that. It defaults to OFF, which is the behaviour production has always had.
+         */
+        get: operations["getExtendedSlotsSetting"];
+        /**
+         * Turn the evening slots on or off
+         * @description PUT rather than POST: the switch is a single value with a name, and setting it twice to the same thing must be the same as setting it once. Administrator only — it changes what every coordinator's device will accept.
+         */
+        put: operations["setExtendedSlotsSetting"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -770,6 +817,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/card-tokens/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Durable card-population progress for one section
+         * @description What the SERVER knows about a section's cards, so the populator's counts survive a sign-out and follow the operator to another device. `issued` means a token row exists — NOT that the card took the write. `verified_at` is set only when an admin read the card back through the resolve endpoint above and the server recognised it, and that is the only state that may be reported as done. Scoped to the ACTIVE seal version: a token sealed under a retired key is not the card about to be written. Carries no token, fingerprint or key material.
+         */
+        get: operations["listSectionCardStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -972,7 +1039,7 @@ export interface components {
             token: string;
         };
         /** @enum {string} */
-        CaptureMethod: "nfc" | "camera" | "search";
+        CaptureMethod: "nfc" | "camera" | "search" | "dispute";
         /** @description The authenticated roster search read. Deliberately unpaginated — the server caps the result count instead — and bounded to display fields only: `students` has no email column and card tokens are stored as fingerprints, so neither can appear here. */
         StudentSearchResults: {
             data: components["schemas"]["ResolvedCardStudent"][];
@@ -1026,6 +1093,51 @@ export interface components {
             od_date: string;
             /** @description Present records for this day, ordered by slot ascending. */
             records: components["schemas"]["PublicODRecord"][];
+        };
+        /** @description The evening-slots switch. `max_slot` is included so a client never has to hold its own copy of what "on" means — the ceiling is the server's to decide, and a screen that hardcoded 20 would silently disagree the day that changed. */
+        ExtendedSlotsSetting: {
+            enabled: boolean;
+            /** @description The highest slot currently accepted — 12 when off, 20 when on. */
+            max_slot: number;
+            /**
+             * Format: date-time
+             * @description Null when the switch has never been written.
+             */
+            updated_at: string | null;
+        };
+        ExtendedSlotsUpdate: {
+            enabled: boolean;
+        };
+        /** @description One slot a student was marked in, on the day being shown. The board's whole payload per mark: which slot, and what it was for. */
+        PublicDayMark: {
+            slot: number;
+            /** Format: uuid */
+            category_id: string;
+            category_name: string;
+            event_name: string;
+        };
+        /** @description One row of the public board. Roll number and display name and nothing else that identifies a person — no student id (the per-student view is reached by searching, which is rate limited on its own terms), no branch, section or batch, and no email. */
+        PublicDayStudent: {
+            roll_no: string;
+            display_name: string;
+            /** @description The student's marks on this day, ordered by slot ascending. */
+            marks: components["schemas"]["PublicDayMark"][];
+        };
+        /** @description One campus day's public attendance board. Unpaginated for the same reason PublicODRecordCollection is — a page parameter cannot be reconciled with grouping by student without splitting a student across pages — so the server caps the row read and reports whether the cap bit. */
+        PublicDayAttendance: {
+            /**
+             * Format: date
+             * @description The day these rows belong to, echoed so the client never has to assume.
+             */
+            od_date: string;
+            /** @description Marked students ordered by roll number. Empty means nobody is marked yet. */
+            students: components["schemas"]["PublicDayStudent"][];
+            /** @description Every category with a mark on this day, for the filter control. Built from the UNFILTERED day on purpose: a list derived from the filtered rows would shrink to the one option already chosen, and there would be no way back. */
+            categories: components["schemas"]["PublicEventCategory"][];
+            /** @description True when the server's row cap was reached and the board is showing only part of the day. The screen must say so — a silently short board reads as "these students were not marked". */
+            truncated: boolean;
+            /** Format: date-time */
+            generated_at: string;
         };
         /** @description A student's whole public attendance view. Deliberately unpaginated: the server caps the underlying row read instead, because a page parameter cannot be reconciled with day grouping without splitting a day across pages. */
         PublicODRecordCollection: {
@@ -1122,6 +1234,13 @@ export interface components {
             student_note: string | null;
             /** @enum {string} */
             status: "open" | "resolved";
+            /** @enum {string|null} */
+            outcome: "approved" | "rejected" | null;
+            /**
+             * Format: uuid
+             * @description The attendance record an approved resolution created, returned only on the response to that resolution. Null when the outcome was rejected, when the student was already marked for the slot, and on every list read.
+             */
+            od_record_id?: string | null;
             /** Format: date-time */
             submitted_at: string;
             resolution_note: string | null;
@@ -1138,6 +1257,24 @@ export interface components {
         };
         DisputeResolutionRequest: {
             resolution_note: string;
+            /** @enum {string} */
+            outcome: "approved" | "rejected";
+        };
+        /** @description One student's card state. Deliberately carries no token, fingerprint or seal version — the populator is reading PROGRESS, and card material it is not about to write has no business on the wire. */
+        SectionCardStatus: {
+            /** Format: uuid */
+            student_id: string;
+            /** @description A token row exists. NOT proof the card took the write. */
+            issued: boolean;
+            /** Format: date-time */
+            verified_at: string | null;
+        };
+        SectionCardStatusCollection: {
+            data: components["schemas"]["SectionCardStatus"][];
+            /** @description Students in the section. */
+            total: number;
+            issued: number;
+            verified: number;
         };
         /** @description Everything the marking screen needs that the client must not compute for itself. `slot: null` is the explicit "no slot is open" state — never slot 0 — and `server_time` shares one clock read with the slot decision. */
         MarkStatus: {
@@ -1472,7 +1609,7 @@ export interface operations {
     searchPublicStudents: {
         parameters: {
             query: {
-                /** @description Roll-number or name prefix, trimmed before length is judged. The bounds mirror the authenticated search's exported constants. */
+                /** @description Words to match against the roll number and name, trimmed before length is judged. The bounds mirror the authenticated search's exported constants. */
                 q: string;
             };
             header?: never;
@@ -1555,6 +1692,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Rate limited (RATE_LIMITED); carries a Retry-After header. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listPublicDayODRecords: {
+        parameters: {
+            query?: {
+                /** @description The campus day to show. Defaults to today in the campus timezone, which is what makes the board answer without any input at all. */
+                od_date?: string;
+                /** @description Narrow to a single slot. */
+                slot?: number;
+                /** @description Narrow to a single category. */
+                category_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The day's marked students, ordered by roll number. An empty list is a valid answer and means nobody has been marked yet. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicDayAttendance"];
+                };
+            };
+            /** @description Malformed od_date, slot or category_id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
                 };
             };
             /** @description Rate limited (RATE_LIMITED); carries a Retry-After header. */
@@ -2859,7 +3050,7 @@ export interface operations {
     searchStudents: {
         parameters: {
             query: {
-                /** @description Roll-number or name prefix, trimmed before length is judged. */
+                /** @description Words to match against the roll number and name, trimmed before length is judged. */
                 q: string;
                 /** @description Server-bounded result cap. */
                 limit?: number;
@@ -3008,6 +3199,113 @@ export interface operations {
                 };
             };
             /** @description Caller is not a provisioned admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getExtendedSlotsSetting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The switch as it currently stands. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtendedSlotsSetting"];
+                };
+            };
+            /** @description Missing or invalid bearer token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not an administrator (RBAC_FORBIDDEN). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    setExtendedSlotsSetting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtendedSlotsUpdate"];
+            };
+        };
+        responses: {
+            /** @description The switch as it now stands. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtendedSlotsSetting"];
+                };
+            };
+            /** @description Body missing the `enabled` field. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing or invalid bearer token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not an administrator (RBAC_FORBIDDEN). */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4237,6 +4535,66 @@ export interface operations {
             };
             /** @description Token was not recognized (CARD_NOT_RECOGNIZED). */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listSectionCardStatus: {
+        parameters: {
+            query: {
+                branch_id: string;
+                batch: string;
+                section: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One entry per student in the section, in roll-number order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SectionCardStatusCollection"];
+                };
+            };
+            /** @description Request validation failed with typed field details. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -81,9 +81,10 @@ func (e AuthenticatedIdentityRole) Valid() bool {
 
 // Defines values for CaptureMethod.
 const (
-	CaptureMethodCamera CaptureMethod = "camera"
-	CaptureMethodNfc    CaptureMethod = "nfc"
-	CaptureMethodSearch CaptureMethod = "search"
+	CaptureMethodCamera  CaptureMethod = "camera"
+	CaptureMethodDispute CaptureMethod = "dispute"
+	CaptureMethodNfc     CaptureMethod = "nfc"
+	CaptureMethodSearch  CaptureMethod = "search"
 )
 
 // Valid indicates whether the value is a known member of the CaptureMethod enum.
@@ -91,9 +92,29 @@ func (e CaptureMethod) Valid() bool {
 	switch e {
 	case CaptureMethodCamera:
 		return true
+	case CaptureMethodDispute:
+		return true
 	case CaptureMethodNfc:
 		return true
 	case CaptureMethodSearch:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DisputeOutcome.
+const (
+	DisputeOutcomeApproved DisputeOutcome = "approved"
+	DisputeOutcomeRejected DisputeOutcome = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the DisputeOutcome enum.
+func (e DisputeOutcome) Valid() bool {
+	switch e {
+	case DisputeOutcomeApproved:
+		return true
+	case DisputeOutcomeRejected:
 		return true
 	default:
 		return false
@@ -112,6 +133,24 @@ func (e DisputeStatus) Valid() bool {
 	case DisputeStatusOpen:
 		return true
 	case DisputeStatusResolved:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DisputeResolutionRequestOutcome.
+const (
+	DisputeResolutionRequestOutcomeApproved DisputeResolutionRequestOutcome = "approved"
+	DisputeResolutionRequestOutcomeRejected DisputeResolutionRequestOutcome = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the DisputeResolutionRequestOutcome enum.
+func (e DisputeResolutionRequestOutcome) Valid() bool {
+	switch e {
+	case DisputeResolutionRequestOutcomeApproved:
+		return true
+	case DisputeResolutionRequestOutcomeRejected:
 		return true
 	default:
 		return false
@@ -674,20 +713,24 @@ type CreateTeacherProfileRequest struct {
 
 // Dispute Authenticated teacher/admin dispute row. This shape includes submitted email and resolution fields, so no public schema may reference it.
 type Dispute struct {
-	CategoryId             openapi_types.UUID  `json:"category_id"`
-	CategoryName           string              `json:"category_name"`
-	ClaimedCoordinatorName *string             `json:"claimed_coordinator_name"`
-	DisputeId              openapi_types.UUID  `json:"dispute_id"`
-	EventDate              openapi_types.Date  `json:"event_date"`
-	EventId                openapi_types.UUID  `json:"event_id"`
-	EventName              string              `json:"event_name"`
-	OdDate                 openapi_types.Date  `json:"od_date"`
-	Reference              string              `json:"reference"`
-	ResolutionNote         *string             `json:"resolution_note"`
-	ResolvedAt             *time.Time          `json:"resolved_at"`
-	ResolvedByUserId       *openapi_types.UUID `json:"resolved_by_user_id"`
-	Slot                   int                 `json:"slot"`
-	Status                 DisputeStatus       `json:"status"`
+	CategoryId             openapi_types.UUID `json:"category_id"`
+	CategoryName           string             `json:"category_name"`
+	ClaimedCoordinatorName *string            `json:"claimed_coordinator_name"`
+	DisputeId              openapi_types.UUID `json:"dispute_id"`
+	EventDate              openapi_types.Date `json:"event_date"`
+	EventId                openapi_types.UUID `json:"event_id"`
+	EventName              string             `json:"event_name"`
+	OdDate                 openapi_types.Date `json:"od_date"`
+
+	// OdRecordId The attendance record an approved resolution created, returned only on the response to that resolution. Null when the outcome was rejected, when the student was already marked for the slot, and on every list read.
+	OdRecordId       *openapi_types.UUID `json:"od_record_id,omitempty"`
+	Outcome          *DisputeOutcome     `json:"outcome"`
+	Reference        string              `json:"reference"`
+	ResolutionNote   *string             `json:"resolution_note"`
+	ResolvedAt       *time.Time          `json:"resolved_at"`
+	ResolvedByUserId *openapi_types.UUID `json:"resolved_by_user_id"`
+	Slot             int                 `json:"slot"`
+	Status           DisputeStatus       `json:"status"`
 
 	// Student A student as the public dashboard shows them: display fields only. The `students` table has no email column and card material lives in `student_card_tokens`, which no public query joins, so this shape cannot be widened by accident — only deliberately.
 	Student        PublicStudent `json:"student"`
@@ -695,6 +738,9 @@ type Dispute struct {
 	SubmittedAt    time.Time     `json:"submitted_at"`
 	SubmittedEmail string        `json:"submitted_email"`
 }
+
+// DisputeOutcome defines model for Dispute.Outcome.
+type DisputeOutcome string
 
 // DisputeStatus defines model for Dispute.Status.
 type DisputeStatus string
@@ -709,8 +755,12 @@ type DisputeCollection struct {
 
 // DisputeResolutionRequest defines model for DisputeResolutionRequest.
 type DisputeResolutionRequest struct {
-	ResolutionNote string `json:"resolution_note"`
+	Outcome        DisputeResolutionRequestOutcome `json:"outcome"`
+	ResolutionNote string                          `json:"resolution_note"`
 }
+
+// DisputeResolutionRequestOutcome defines model for DisputeResolutionRequest.Outcome.
+type DisputeResolutionRequestOutcome string
 
 // Error Standard error envelope for all non-2xx responses. Clients branch on `code`, never on `message`.
 type Error struct {
@@ -753,6 +803,22 @@ type EventCollection struct {
 
 // EventStatus defines model for EventStatus.
 type EventStatus string
+
+// ExtendedSlotsSetting The evening-slots switch. `max_slot` is included so a client never has to hold its own copy of what "on" means — the ceiling is the server's to decide, and a screen that hardcoded 20 would silently disagree the day that changed.
+type ExtendedSlotsSetting struct {
+	Enabled bool `json:"enabled"`
+
+	// MaxSlot The highest slot currently accepted — 12 when off, 20 when on.
+	MaxSlot int `json:"max_slot"`
+
+	// UpdatedAt Null when the switch has never been written.
+	UpdatedAt *time.Time `json:"updated_at"`
+}
+
+// ExtendedSlotsUpdate defines model for ExtendedSlotsUpdate.
+type ExtendedSlotsUpdate struct {
+	Enabled bool `json:"enabled"`
+}
 
 // FallbackCreditState Server-derived camera/search fallback-credit state for the selected event and coordinator. NFC never consumes this pool.
 type FallbackCreditState struct {
@@ -884,6 +950,39 @@ type ODRecordMutationResultActorRole string
 
 // ODRecordMutationResultStatus defines model for ODRecordMutationResult.Status.
 type ODRecordMutationResultStatus string
+
+// PublicDayAttendance One campus day's public attendance board. Unpaginated for the same reason PublicODRecordCollection is — a page parameter cannot be reconciled with grouping by student without splitting a student across pages — so the server caps the row read and reports whether the cap bit.
+type PublicDayAttendance struct {
+	// Categories Every category with a mark on this day, for the filter control. Built from the UNFILTERED day on purpose: a list derived from the filtered rows would shrink to the one option already chosen, and there would be no way back.
+	Categories  []PublicEventCategory `json:"categories"`
+	GeneratedAt time.Time             `json:"generated_at"`
+
+	// OdDate The day these rows belong to, echoed so the client never has to assume.
+	OdDate openapi_types.Date `json:"od_date"`
+
+	// Students Marked students ordered by roll number. Empty means nobody is marked yet.
+	Students []PublicDayStudent `json:"students"`
+
+	// Truncated True when the server's row cap was reached and the board is showing only part of the day. The screen must say so — a silently short board reads as "these students were not marked".
+	Truncated bool `json:"truncated"`
+}
+
+// PublicDayMark One slot a student was marked in, on the day being shown. The board's whole payload per mark: which slot, and what it was for.
+type PublicDayMark struct {
+	CategoryId   openapi_types.UUID `json:"category_id"`
+	CategoryName string             `json:"category_name"`
+	EventName    string             `json:"event_name"`
+	Slot         int                `json:"slot"`
+}
+
+// PublicDayStudent One row of the public board. Roll number and display name and nothing else that identifies a person — no student id (the per-student view is reached by searching, which is rate limited on its own terms), no branch, section or batch, and no email.
+type PublicDayStudent struct {
+	DisplayName string `json:"display_name"`
+
+	// Marks The student's marks on this day, ordered by slot ascending.
+	Marks  []PublicDayMark `json:"marks"`
+	RollNo string          `json:"roll_no"`
+}
 
 // PublicDisputeReceipt Public creation receipt. It proves server-side roster auto-population by returning the resolved public student display shape, but deliberately never echoes submitted_email, user ids, card material, dispute content or resolution fields.
 type PublicDisputeReceipt struct {
@@ -1090,6 +1189,24 @@ type ScanResult struct {
 // ScanResultStatus Per-item outcome. `applied` = newly accepted/enqueued; `duplicate` = idempotency key already seen (safe no-op); `rejected` = not accepted (see `reason`).
 type ScanResultStatus string
 
+// SectionCardStatus One student's card state. Deliberately carries no token, fingerprint or seal version — the populator is reading PROGRESS, and card material it is not about to write has no business on the wire.
+type SectionCardStatus struct {
+	// Issued A token row exists. NOT proof the card took the write.
+	Issued     bool               `json:"issued"`
+	StudentId  openapi_types.UUID `json:"student_id"`
+	VerifiedAt *time.Time         `json:"verified_at"`
+}
+
+// SectionCardStatusCollection defines model for SectionCardStatusCollection.
+type SectionCardStatusCollection struct {
+	Data   []SectionCardStatus `json:"data"`
+	Issued int                 `json:"issued"`
+
+	// Total Students in the section.
+	Total    int `json:"total"`
+	Verified int `json:"verified"`
+}
+
 // SessionRevocationResult Result of recording a forced-logout revocation.
 type SessionRevocationResult struct {
 	// AlreadyRevoked True when this exact session was already revoked (an idempotent no-op; no new audit row was written).
@@ -1186,6 +1303,13 @@ type ValidationErrorDetail struct {
 
 // bearerAuthContextKey is the context key for bearerAuth security scheme
 type bearerAuthContextKey string
+
+// ListSectionCardStatusParams defines parameters for ListSectionCardStatus.
+type ListSectionCardStatusParams struct {
+	BranchId openapi_types.UUID `form:"branch_id" json:"branch_id"`
+	Batch    string             `form:"batch" json:"batch"`
+	Section  string             `form:"section" json:"section"`
+}
 
 // ListAdminEventsParams defines parameters for ListAdminEvents.
 type ListAdminEventsParams struct {
@@ -1290,15 +1414,27 @@ type SubmitPublicDispute400JSONResponseBody struct {
 	union json.RawMessage
 }
 
+// ListPublicDayODRecordsParams defines parameters for ListPublicDayODRecords.
+type ListPublicDayODRecordsParams struct {
+	// OdDate The campus day to show. Defaults to today in the campus timezone, which is what makes the board answer without any input at all.
+	OdDate *openapi_types.Date `form:"od_date,omitempty" json:"od_date,omitempty"`
+
+	// Slot Narrow to a single slot.
+	Slot *int `form:"slot,omitempty" json:"slot,omitempty"`
+
+	// CategoryId Narrow to a single category.
+	CategoryId *openapi_types.UUID `form:"category_id,omitempty" json:"category_id,omitempty"`
+}
+
 // SearchPublicStudentsParams defines parameters for SearchPublicStudents.
 type SearchPublicStudentsParams struct {
-	// Q Roll-number or name prefix, trimmed before length is judged. The bounds mirror the authenticated search's exported constants.
+	// Q Words to match against the roll number and name, trimmed before length is judged. The bounds mirror the authenticated search's exported constants.
 	Q string `form:"q" json:"q"`
 }
 
 // SearchStudentsParams defines parameters for SearchStudents.
 type SearchStudentsParams struct {
-	// Q Roll-number or name prefix, trimmed before length is judged.
+	// Q Words to match against the roll number and name, trimmed before length is judged.
 	Q string `form:"q" json:"q"`
 
 	// Limit Server-bounded result cap.
@@ -1319,6 +1455,9 @@ type CreateAdminEventCategoryJSONRequestBody = CreateCategoryRequest
 
 // CreateAdminEventCoordinatorAssignmentJSONRequestBody defines body for CreateAdminEventCoordinatorAssignment for application/json ContentType.
 type CreateAdminEventCoordinatorAssignmentJSONRequestBody = CreateCoordinatorAssignmentRequest
+
+// SetExtendedSlotsSettingJSONRequestBody defines body for SetExtendedSlotsSetting for application/json ContentType.
+type SetExtendedSlotsSettingJSONRequestBody = ExtendedSlotsUpdate
 
 // ImportAdminStudentsMultipartRequestBody defines body for ImportAdminStudents for multipart/form-data ContentType.
 type ImportAdminStudentsMultipartRequestBody ImportAdminStudentsMultipartBody

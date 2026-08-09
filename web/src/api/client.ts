@@ -48,6 +48,9 @@ export type PublicStudentSearchResults = components['schemas']['PublicStudentSea
 export type PublicEventCategory = components['schemas']['PublicEventCategory']
 export type PublicEvent = components['schemas']['PublicEvent']
 export type PublicEventCollection = components['schemas']['PublicEventCollection']
+export type PublicDayMark = components['schemas']['PublicDayMark']
+export type PublicDayStudent = components['schemas']['PublicDayStudent']
+export type PublicDayAttendance = components['schemas']['PublicDayAttendance']
 export type PublicDisputeRequest = components['schemas']['PublicDisputeRequest']
 export type PublicDisputeReceipt = components['schemas']['PublicDisputeReceipt']
 
@@ -64,6 +67,16 @@ export type MarkCounters = components['schemas']['MarkCounters']
 export type MarkAttendanceInput = components['schemas']['MarkAttendanceRequest']
 export type MarkAttendanceResult = components['schemas']['MarkAttendanceResult']
 export type CaptureMethod = components['schemas']['CaptureMethod']
+/**
+ * The capture methods a CLIENT may send.
+ *
+ * Narrower than CaptureMethod on purpose: that enum also carries `dispute`,
+ * which is how a record created by an approved missed-slot dispute is recorded.
+ * Only the server may write that one — a client able to send it could forge a
+ * record that claims a teacher approved a dispute — so the marking request keeps
+ * its own three-value enum and this type follows it rather than the wider one.
+ */
+export type MarkCaptureMethod = components['schemas']['MarkAttendanceRequest']['capture_method']
 
 export class ApiFailure extends Error {
   readonly status: number
@@ -205,6 +218,26 @@ export function createPublicApi() {
       return unwrap(await client.GET('/api/v1/public/students/{student_id}/od-records', {
         params: { path: { student_id: studentID } },
       }))
+    },
+
+    /**
+     * One campus day's public attendance board.
+     *
+     * The filters are sent to the SERVER rather than applied to the response.
+     * Narrowing in the browser would mean the whole day's roster is downloaded
+     * whatever was asked for, which on this surface is the difference between
+     * publishing one slot and publishing everything.
+     *
+     * `od_date` is omitted rather than defaulted here: the server decides what
+     * "today" means, in the campus timezone, and a device on another timezone
+     * must not get a different board from the one everybody else is looking at.
+     */
+    async publicDayAttendance(filter: { odDate?: string; slot?: number; categoryID?: string } = {}) {
+      const query: Record<string, string | number> = {}
+      if (filter.odDate) query.od_date = filter.odDate
+      if (filter.slot) query.slot = filter.slot
+      if (filter.categoryID) query.category_id = filter.categoryID
+      return unwrap(await client.GET('/api/v1/public/od-records', { params: { query } }))
     },
 
     /** Minimal public event/category options for a student with no OD records yet. */
@@ -453,6 +486,15 @@ export function createEventApi(session: SessionPort) {
       return unwrap(await client.GET('/api/v1/portal/records/{record_id}/audit', { params: { path: { record_id: recordID } } }))
     },
 
+    /** The evening-slots switch. Administrator only. */
+    async extendedSlotsSetting() {
+      return unwrap(await client.GET('/api/v1/admin/settings/extended-slots'))
+    },
+
+    async setExtendedSlots(enabled: boolean) {
+      return unwrap(await client.PUT('/api/v1/admin/settings/extended-slots', { body: { enabled } }))
+    },
+
     async adminAttendance(
       eventID: string,
       filters: { categoryID?: string; slot?: number; odDate?: string; page?: number; pageSize?: number } = {},
@@ -483,6 +525,12 @@ export function createEventApi(session: SessionPort) {
     async disputes(page = 1, pageSize = 20, status: 'open' | 'resolved' | 'all' = 'open') {
       return unwrap(await client.GET('/api/v1/disputes', {
         params: { query: { page, page_size: pageSize, status } },
+      }))
+    },
+
+    async sectionCardStatus(input: { branchID: string; batch: string; section: string }) {
+      return unwrap(await client.GET('/api/v1/admin/card-tokens/status', {
+        params: { query: { branch_id: input.branchID, batch: input.batch, section: input.section } },
       }))
     },
 

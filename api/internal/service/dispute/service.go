@@ -72,9 +72,17 @@ type Record struct {
 	StudentNote            *string
 	Status                 string
 	SubmittedAt            time.Time
-	ResolutionNote         *string
-	ResolvedByUserID       *string
-	ResolvedAt             *time.Time
+	// Outcome is nil while the dispute is open, and "approved" or "rejected"
+	// once it is resolved. It is what decides whether the slot gets credited, so
+	// it is a stored fact rather than something inferred from the note.
+	Outcome          *string
+	ResolutionNote   *string
+	ResolvedByUserID *string
+	ResolvedAt       *time.Time
+	// ODRecordID is set ONLY on the response to an approval that created the
+	// record, so the teacher's screen can say the slot was credited rather than
+	// merely that the dispute was closed. It is not a stored dispute column.
+	ODRecordID *string
 }
 
 type ListFilter struct {
@@ -105,8 +113,18 @@ type InsertWrite struct {
 type ResolveWrite struct {
 	Actor      Actor
 	DisputeID  string
+	Outcome    string
 	Note       string
 	ResolvedAt time.Time
+}
+
+// CreditWrite credits the disputed slot. It carries no student, event, day or
+// slot on purpose — those are read from the dispute row inside the query, so an
+// approval cannot credit anything other than what was disputed.
+type CreditWrite struct {
+	Actor     Actor
+	DisputeID string
+	Note      string
 }
 
 type StudentReader interface {
@@ -129,10 +147,19 @@ type Repository interface {
 	// concurrent resolver between the update and the answer.
 	LockedStatus(ctx context.Context, tx pgx.Tx, disputeID string) (string, bool, error)
 	Resolve(ctx context.Context, tx pgx.Tx, write ResolveWrite) (int64, error)
+	// CreditSlot writes the od_records row for an APPROVED dispute, inside the
+	// resolving transaction. `created` is false when the student was already
+	// marked for that slot — a moot approval, not a failed one.
+	CreditSlot(ctx context.Context, tx pgx.Tx, write CreditWrite) (recordID string, created bool, err error)
 }
 
 type AuditStore interface {
 	WithAudit(ctx context.Context, evt store.AuditEvent, write func(context.Context, pgx.Tx) (bool, error)) error
+	// Audit writes an ADDITIONAL audit row inside a transaction WithAudit already
+	// opened. Approving a dispute is two auditable facts — the decision and the
+	// attendance record it created — and an od_records row with no od.created row
+	// behind it is exactly the gap the audit ledger exists to close.
+	Audit(ctx context.Context, tx pgx.Tx, evt store.AuditEvent) error
 }
 
 type Service struct {
@@ -280,7 +307,28 @@ func (s *Service) List(ctx context.Context, actor Actor, filter ListFilter) (Col
 	return Collection{Data: rows, Total: total, Page: filter.Page, PageSize: filter.PageSize}, nil
 }
 
-func (s *Service) Resolve(ctx context.Context, actor Actor, disputeID, note string) (Record, error) {
+// Outcome values. A resolution must say which one it is: wiring resolution to
+// the record without this would credit every dispute, including the ones a
+// teacher resolves BECAUSE the student was not there.
+const (
+	OutcomeApproved = "approved"
+	OutcomeRejected = "rejected"
+)
+
+// Resolve closes an open dispute, and — when the outcome is APPROVED — credits
+// the disputed slot in od_records in the same transaction.
+//
+// WHY THE WRITE LIVES HERE. Resolution used to be an annotation and nothing
+// else: the teacher agreed the student had been missed, wrote a note, and the
+// student still did not appear in od_records or on the public dashboard.
+// Crediting the slot was a separate trip to the record-management surface that
+// nothing prompted and nothing tracked, so in practice it did not happen and the
+// student stayed missing from the day they had disputed.
+//
+// Both facts now move together or neither does: the dispute row, the od_records
+// row and both audit rows are one transaction, so a teacher can never be shown
+// "resolved" over a slot that was not credited.
+func (s *Service) Resolve(ctx context.Context, actor Actor, disputeID, note, outcome string) (Record, error) {
 	if actor.Role != "teacher" && actor.Role != "admin" {
 		return Record{}, forbidden()
 	}
@@ -308,6 +356,14 @@ func (s *Service) Resolve(ctx context.Context, actor Actor, disputeID, note stri
 	if hasControlCharacter(trimmedNote) {
 		return Record{}, validation("resolution_note", "invalid_characters", "Resolution note must not contain control characters.")
 	}
+	trimmedOutcome := strings.TrimSpace(outcome)
+	// No default. An absent outcome is ambiguous in the one direction that
+	// matters — defaulting to approved credits slots nobody approved, defaulting
+	// to rejected silently drops the credit the teacher meant to give — so it is
+	// refused and the caller has to say.
+	if trimmedOutcome != OutcomeApproved && trimmedOutcome != OutcomeRejected {
+		return Record{}, validation("outcome", "invalid_value", "Outcome must be approved or rejected.")
+	}
 
 	resolvedAt := s.now()
 	targetTable := "disputes"
@@ -319,6 +375,7 @@ func (s *Service) Resolve(ctx context.Context, actor Actor, disputeID, note stri
 	}
 	payload, _ := json.Marshal(map[string]any{
 		"previous_status": "open",
+		"outcome":         trimmedOutcome,
 		"resolution_note": trimmedNote,
 		"resolved_at":     resolvedAt.UTC().Format(time.RFC3339Nano),
 	})
@@ -336,11 +393,13 @@ func (s *Service) Resolve(ctx context.Context, actor Actor, disputeID, note stri
 		resolved     Record
 		lockedStatus string
 		lockedFound  bool
+		creditedID   string
 	)
 	err := s.audited.WithAudit(ctx, evt, func(ctx context.Context, tx pgx.Tx) (bool, error) {
 		rows, err := s.repo.Resolve(ctx, tx, ResolveWrite{
 			Actor:      actor,
 			DisputeID:  targetID,
+			Outcome:    trimmedOutcome,
 			Note:       trimmedNote,
 			ResolvedAt: resolvedAt,
 		})
@@ -356,6 +415,42 @@ func (s *Service) Resolve(ctx context.Context, actor Actor, disputeID, note stri
 				return false, err
 			}
 			return false, nil
+		}
+		// THE APPROVAL WRITES THE RECORD, here, in this transaction. Any failure
+		// below rolls the resolution back with it, so the teacher is never told a
+		// dispute was resolved over a slot that was not credited.
+		if trimmedOutcome == OutcomeApproved {
+			recordID, created, err := s.repo.CreditSlot(ctx, tx, CreditWrite{
+				Actor:     actor,
+				DisputeID: targetID,
+				Note:      trimmedNote,
+			})
+			if err != nil {
+				return false, err
+			}
+			if created {
+				creditedID = recordID
+				// The SECOND auditable fact. An od_records row that appeared with
+				// no od.created behind it is precisely the gap the ledger exists to
+				// close, and the dispute.resolved row above is about the decision,
+				// not about the attendance record the decision produced.
+				recordTable := "od_records"
+				recordPayload, _ := json.Marshal(map[string]any{
+					"source":     "dispute",
+					"dispute_id": targetID,
+					"reason":     trimmedNote,
+				})
+				if err := s.audited.Audit(ctx, tx, store.AuditEvent{
+					Action:       domain.ActionODCreated,
+					ActorAccount: &actorAccount,
+					ActorRole:    &actorRole,
+					TargetTable:  &recordTable,
+					TargetID:     &recordID,
+					Payload:      recordPayload,
+				}); err != nil {
+					return false, err
+				}
+			}
 		}
 		// Read the resolved row inside the SAME transaction that wrote it.
 		record, err := s.repo.ForResolution(ctx, tx, actor, targetID)
@@ -374,6 +469,9 @@ func (s *Service) Resolve(ctx context.Context, actor Actor, disputeID, note stri
 			return Record{}, disputeAlreadyResolved()
 		}
 		return Record{}, disputeNotFound()
+	}
+	if creditedID != "" {
+		resolved.ODRecordID = &creditedID
 	}
 	return resolved, nil
 }

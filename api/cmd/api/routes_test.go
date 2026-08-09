@@ -150,6 +150,11 @@ func (s reachingCardTokenService) Resolve(context.Context, cardtokensvc.Actor, c
 	return cardtokensvc.ResolvedStudent{}, nil
 }
 
+func (s reachingCardTokenService) SectionStatus(context.Context, cardtokensvc.Actor, cardtokensvc.SectionFilter) ([]cardtokensvc.CardStatus, error) {
+	s.reached.hits++
+	return nil, nil
+}
+
 func TestAdminGroupGuardsEveryRouteRegisterAdminRoutesMounts(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

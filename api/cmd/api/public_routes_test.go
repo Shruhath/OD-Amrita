@@ -64,6 +64,11 @@ func (s reachingPublicService) Records(_ context.Context, _ string) (publicatten
 	return publicattendance.RecordCollection{}, nil
 }
 
+func (s reachingPublicService) Day(_ context.Context, _ publicattendance.DayFilter) (publicattendance.DayAttendance, error) {
+	s.reached.hits++
+	return publicattendance.DayAttendance{ODDate: "2026-08-09"}, nil
+}
+
 // composePublicRouter builds the chain EXACTLY the way run() must: the public
 // group is created from the ROOT router, never from `api`, and carries only the
 // rate limiter.
@@ -90,7 +95,7 @@ func composePublicRouter(t *testing.T, reached *reachCounter, loader rbac.Princi
 	}
 
 	public := newPublicGroup(router, limiter.Middleware())
-	handlerpublicattendance.RegisterPublicRoutes(public, reachingPublicService{reached: reached}, reachingPublicService{reached: reached})
+	handlerpublicattendance.RegisterPublicRoutes(public, nil, reachingPublicService{reached: reached}, reachingPublicService{reached: reached}, reachingPublicService{reached: reached})
 
 	return router
 }
@@ -192,7 +197,7 @@ func TestPublicRoutesAreNotNestedUnderAnAuthenticatedGroup(t *testing.T) {
 			t.Errorf("[P0] %s %s is under /admin", route.Method, route.Path)
 		}
 		if route.Method != http.MethodGet {
-			t.Errorf("[P0] %s %s — the public surface is two READS. There is no POST anywhere in this group "+
+			t.Errorf("[P0] %s %s — this group is READS ONLY. There is no POST anywhere in it "+
 				"(T2): a write reachable without authentication is an open door, not a feature",
 				route.Method, route.Path)
 		}
@@ -201,9 +206,11 @@ func TestPublicRoutesAreNotNestedUnderAnAuthenticatedGroup(t *testing.T) {
 	// Without this the whole loop is skippable: delete the route registration
 	// and every iteration `continue`s, the body never runs, and the test reports
 	// success for a public surface that does not exist.
-	if inspected != 2 {
-		t.Errorf("[P0] inspected %d public routes, want 2 (search + od-records). A test that asserts properties "+
-			"of routes it never found passes most loudly when the feature is missing", inspected)
+	// Search, one student's od-records, and the day board.
+	if inspected != 3 {
+		t.Errorf("[P0] inspected %d public routes, want 3 (search, one student's od-records, the day board). "+
+			"A test that asserts properties of routes it never found passes most loudly when the feature is "+
+			"missing", inspected)
 	}
 }
 
@@ -238,7 +245,7 @@ func TestRateLimiterGuardsThePublicGroupOnly(t *testing.T) {
 		t.Fatalf("build limiter: %v", err)
 	}
 	public := newPublicGroup(router, limiter.Middleware())
-	handlerpublicattendance.RegisterPublicRoutes(public, reachingPublicService{reached: reached}, reachingPublicService{reached: reached})
+	handlerpublicattendance.RegisterPublicRoutes(public, nil, reachingPublicService{reached: reached}, reachingPublicService{reached: reached}, reachingPublicService{reached: reached})
 
 	send := func(path string) int {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
@@ -278,5 +285,73 @@ func TestRateLimiterGuardsThePublicGroupOnly(t *testing.T) {
 				"and throttling a coordinator mid-event is a live-event outage")
 			break
 		}
+	}
+}
+
+// BOARD-ROUTE-001 — the attendance board has its OWN rate-limit bucket, and
+// spending it does not spend the roster search's.
+//
+// WHY THIS EXISTS. The group limiter is keyed on client IP, and campus wifi NATs
+// every student behind one — so the whole campus shares a single bucket, and the
+// board is the one endpoint the whole campus opens at once. At the group's
+// default of 30/minute, roughly fifteen students with the page open exhaust it
+// and everybody else is refused.
+//
+// The fix is NOT to raise the group limit: that would loosen
+// /public/students/search by the same amount, and that endpoint is the directory
+// oracle its own design is spent closing. So the board gets a generous bucket of
+// its own — which is only true if the two buckets are actually separate, which
+// is what this asserts. The same shape the dispute write already uses, from the
+// opposite direction.
+func TestBoardHasItsOwnRateLimitBucket(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	reached := &reachCounter{}
+	router := gin.New()
+	router.Use(errormw.Handler())
+
+	// The GROUP bucket is one request wide, so a second request through it is
+	// refused. The BOARD's own bucket is wide open.
+	groupLimiter, err := ratelimit.New(ratelimit.Config{PerMinute: 1, Burst: 1, IdleTTL: time.Minute, MaxEntries: 100})
+	if err != nil {
+		t.Fatalf("build group limiter: %v", err)
+	}
+	boardLimiter, err := ratelimit.New(ratelimit.Config{PerMinute: 600, Burst: 200, IdleTTL: time.Minute, MaxEntries: 100})
+	if err != nil {
+		t.Fatalf("build board limiter: %v", err)
+	}
+
+	public := newPublicGroup(router, groupLimiter.Middleware())
+	handlerpublicattendance.RegisterPublicRoutes(
+		public,
+		newPublicGroup(router, boardLimiter.Middleware()),
+		reachingPublicService{reached: reached},
+		reachingPublicService{reached: reached},
+		reachingPublicService{reached: reached},
+	)
+
+	send := func(path string) int {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		router.ServeHTTP(recorder, request)
+		return recorder.Code
+	}
+
+	// Spend the SEARCH's budget completely.
+	if code := send("/api/v1/public/students/search?q=CB.SC"); code == http.StatusTooManyRequests {
+		t.Fatalf("[P0] the first search was already refused (%d); the group bucket is misconfigured", code)
+	}
+	if code := send("/api/v1/public/students/search?q=CB.SC"); code != http.StatusTooManyRequests {
+		t.Fatalf("[P0] the second search returned %d, want 429 — the group limiter is not guarding the search, "+
+			"so this test cannot show the buckets are separate", code)
+	}
+
+	// The board must still answer. If it shared the group's bucket — which is
+	// now empty — this is a 429, and on the day of an event that is the whole
+	// campus locked out of the one screen they were told to open.
+	if code := send("/api/v1/public/od-records"); code == http.StatusTooManyRequests {
+		t.Errorf("[P0] the board was refused after the SEARCH exhausted the group bucket. Campus wifi puts every " +
+			"student behind one IP, so a shared bucket means a handful of searches locks the whole campus out " +
+			"of the board")
 	}
 }

@@ -22,6 +22,7 @@ import (
 const (
 	publicSearchPath  = "/api/v1/public/students/search"
 	publicRecordsPath = "/api/v1/public/students/{student_id}/od-records"
+	publicBoardPath   = "/api/v1/public/od-records"
 )
 
 // publicSchemaAllowlists is the load-bearing table of this file.
@@ -47,8 +48,22 @@ var publicSchemaAllowlists = map[string][]string{
 	// Both are disclosure decisions like every other entry here — a date is the
 	// one field on this response that says when a named student was physically
 	// somewhere, and it is served to the open internet.
-	"PublicODRecord":             {"record_id", "slot", "event_id", "event_name", "event_date", "od_date", "category_id", "category_name", "marked_by_name", "marked_by_role", "marked_at"},
-	"PublicODDay":                {"od_date", "records"},
+	"PublicODRecord": {"record_id", "slot", "event_id", "event_name", "event_date", "od_date", "category_id", "category_name", "marked_by_name", "marked_by_role", "marked_at"},
+	"PublicODDay":    {"od_date", "records"},
+	// The public BOARD — one day's marked students, served without any search
+	// (the product decision of 2026-08-09).
+	//
+	// This is the widest disclosure on the public surface and the allowlist is
+	// the place it is argued for. What is NOT here matters more than what is:
+	// no student_id, because a list that hands out ids is a list that can be
+	// walked into the per-student history for everyone on it in one pass; no
+	// branch, section or batch, which would turn the board into a directory;
+	// and no marked_by, no reason_note, no capture_method and no actor of any
+	// kind, because a teacher's free-text justification for a correction must
+	// never be public.
+	"PublicDayMark":              {"slot", "category_id", "category_name", "event_name"},
+	"PublicDayStudent":           {"roll_no", "display_name", "marks"},
+	"PublicDayAttendance":        {"od_date", "students", "categories", "truncated", "generated_at"},
 	"PublicODRecordCollection":   {"student", "days", "generated_at"},
 	"PublicStudentSearchResults": {"data"},
 }
@@ -73,6 +88,7 @@ func TestPublicAttendanceContract_BothOperationsAreUnauthenticated(t *testing.T)
 	for _, tc := range []struct{ path, operationID string }{
 		{publicSearchPath, "searchPublicStudents"},
 		{publicRecordsPath, "listPublicStudentODRecords"},
+		{publicBoardPath, "listPublicDayODRecords"},
 	} {
 		op := getMap(getMap(paths, tc.path), "get")
 		if op == nil {
@@ -296,6 +312,19 @@ var deliberatelyUnauthenticated = map[string]string{
 		"(FR41-FR43); identity-verified, audited, and behind its own stricter limiter",
 	"get " + publicEventsPath: "the four-field event list a never-marked student needs to name what they " +
 		"are disputing (T7); no branches, coordinators, counts or archive metadata",
+	// THE WIDEST ENTRY ON THIS LIST, and the only one that publishes a list of
+	// people rather than answering about one. Ratified by Shruhath on
+	// 2026-08-09: the board is meant to be readable the way a notice board
+	// outside an office is, without anyone signing in or searching.
+	//
+	// It knowingly reverses the posture of the search above, whose whole design
+	// is that an empty query cannot become a roster dump. The mitigations are
+	// therefore not in the shape of the query but around it: four display
+	// fields and no student id, present rows only, the group rate limiter, a
+	// server-fixed row cap the caller cannot raise, and X-Robots-Tag so a day's
+	// roster does not become a permanent search result attached to a name.
+	"get " + publicBoardPath: "the public attendance board — one day's marked students, no sign-in and no " +
+		"search (product decision, 2026-08-09); roll, name, slot and category only",
 }
 
 // 0.10-CONTRACT-006 — the regression this story makes possible: every operation

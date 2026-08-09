@@ -13,7 +13,7 @@ import "context"
 // full roll number still lands on themselves at position one.
 const PublicSearchLimit = 10
 
-// PublicSearch prefix-matches the roster for a caller with no credential.
+// PublicSearch matches the roster for a caller with no credential.
 //
 // It takes NO actor, deliberately. There is no identity to authorize here, so
 // there is no parameter that could tempt a later change into inventing an

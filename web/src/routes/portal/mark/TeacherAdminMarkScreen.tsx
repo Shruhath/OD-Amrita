@@ -10,10 +10,31 @@ import { useAuth } from '../../../features/auth/context'
 const SEARCH_DEBOUNCE_MS = 250
 const MIN_SEARCH_RUNES = 3
 const MAX_SEARCH_RUNES = 64
-const SLOT_VALUES = Array.from({ length: 12 }, (_, index) => index + 1)
+/**
+ * The slot picker follows the SERVER's ceiling.
+ *
+ * Hardcoding 12 here while the evening-slots switch is on would leave a teacher
+ * unable to name the slot a coordinator had just marked in; hardcoding 20 while
+ * it is off would offer slots the API refuses. Both are the same defect — a
+ * screen holding its own copy of a number the server decides.
+ */
+function slotValues(maxSlot: number): number[] {
+  return Array.from({ length: maxSlot }, (_, index) => index + 1)
+}
 
 export default function TeacherAdminMarkScreen() {
-  const { api } = useAuth()
+  const { api, identity } = useAuth()
+
+  // The ceiling the SERVER is enforcing. Only an administrator may read the
+  // setting, so a teacher falls back to the teaching day — which is the value
+  // the switch defaults to and the one production runs on.
+  const slotCeiling = useQuery({
+    queryKey: ['admin', 'settings', 'extended-slots'],
+    queryFn: () => api.extendedSlotsSetting(),
+    enabled: identity?.role === 'admin',
+    staleTime: 30_000,
+  })
+  const maxSlot = slotCeiling.data?.max_slot ?? 12
   const queryClient = useQueryClient()
   // The scope survives the app being backgrounded; the student search below
   // deliberately does not, because its results are roster data.
@@ -202,7 +223,7 @@ export default function TeacherAdminMarkScreen() {
             id="teacher-mark-slot"
             value={slot}
             onChange={changeSlot}
-            options={SLOT_VALUES.map((value) => ({ value: String(value), label: String(value) }))}
+            options={slotValues(maxSlot).map((value) => ({ value: String(value), label: String(value) }))}
           />
 
           <label htmlFor="teacher-mark-student">Student</label>

@@ -164,6 +164,20 @@ type systemClock struct{}
 
 func (systemClock) Now() time.Time { return time.Now() }
 
+// SlotCeiling reports whether the evening slots (13..20) are currently
+// admitted.
+//
+// An INTERFACE declared here rather than an import of the settings service, so
+// this package keeps depending on nothing but its own contracts — and so a test
+// can state the ceiling directly instead of standing up a database.
+//
+// A nil ceiling means the standard teaching day. That is what every existing
+// construction of this service gets, so the switch cannot change behaviour
+// anywhere that has not opted in.
+type SlotCeiling interface {
+	ExtendedSlotsEnabled(ctx context.Context) (bool, error)
+}
+
 type Service struct {
 	reader       Reader
 	cardResolver CardResolver
@@ -172,6 +186,35 @@ type Service struct {
 	clock        Clock
 	scope        ScopeGuard
 	credits      CreditLedger
+	slotCeiling  SlotCeiling
+}
+
+// WithSlotCeiling opts this service into the extended-slots switch.
+//
+// A setter rather than a constructor parameter because the ceiling is optional
+// and every caller that does not pass one must keep the behaviour it has today.
+// Adding it to NewService would have made "did somebody remember to pass this?"
+// a question, and the wrong answer widens what the marking path accepts.
+func (s *Service) WithSlotCeiling(ceiling SlotCeiling) *Service {
+	s.slotCeiling = ceiling
+	return s
+}
+
+// maxSlot is the ceiling in force for this request.
+//
+// A read failure is returned, NOT defaulted: the caller is the marking path, and
+// quietly falling back to 12 during a database blip would refuse a coordinator
+// standing in slot 14 with a validation error naming a bound that is not the one
+// in force.
+func (s *Service) maxSlot(ctx context.Context) (int, error) {
+	if s.slotCeiling == nil {
+		return StandardSlotCount, nil
+	}
+	extended, err := s.slotCeiling.ExtendedSlotsEnabled(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return SlotCount(extended), nil
 }
 
 func NewService(reader Reader, cardResolver CardResolver, writer Writer, audited AuditStore, clock Clock, scope ScopeGuard, credits CreditLedger) *Service {
@@ -277,7 +320,7 @@ func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkR
 		}
 	}
 
-	slot, odDate, serverReceivedAt, err := s.slotFor(actor, input, event)
+	slot, odDate, serverReceivedAt, err := s.slotFor(ctx, actor, input, event)
 	if err != nil {
 		var de domain.DomainError
 		if errors.As(err, &de) && de.Code == contracts.ErrorCodeSLOTCLOSED {
@@ -394,15 +437,19 @@ func validateIdentityCapturePair(input MarkInput) error {
 // The day is returned alongside the slot rather than derived later because the
 // counters, the credit debit and the record write must all agree about which day
 // it is; two clock reads either side of midnight would not.
-func (s *Service) slotFor(actor Actor, input MarkInput, event Event) (int, time.Time, time.Time, error) {
+func (s *Service) slotFor(ctx context.Context, actor Actor, input MarkInput, event Event) (int, time.Time, time.Time, error) {
 	now := s.clock.Now()
 	today := CampusDate(now)
+	ceiling, ceilingErr := s.maxSlot(ctx)
+	if ceilingErr != nil {
+		return 0, today, now, ceilingErr
+	}
 	switch actor.Role {
 	case "coordinator":
 		if input.Slot != nil {
 			return 0, today, now, validation("slot", "forbidden", "coordinator marks use server-derived slot only.")
 		}
-		slot, _, ok := ActiveSlot(now, event.EventDate, event.EndDate)
+		slot, _, ok := ActiveSlot(now, event.EventDate, event.EndDate, ceiling)
 		if !ok {
 			return 0, today, now, slotClosed()
 		}
@@ -417,8 +464,9 @@ func (s *Service) slotFor(actor Actor, input MarkInput, event Event) (int, time.
 		if input.Slot == nil {
 			return 0, today, now, validation("slot", "required", "slot is required for teacher and admin search marks.")
 		}
-		if *input.Slot < 1 || *input.Slot > 12 {
-			return 0, today, now, validation("slot", "range", "slot must be between 1 and 12.")
+		if *input.Slot < 1 || *input.Slot > ceiling {
+			return 0, today, now, validation(
+				"slot", "range", fmt.Sprintf("slot must be between 1 and %d.", ceiling))
 		}
 		// The CORRECTION path: exempt from slot windows, so it legitimately runs
 		// the morning after — or days after a one-day event. Campus today would

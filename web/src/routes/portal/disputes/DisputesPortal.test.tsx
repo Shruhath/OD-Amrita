@@ -184,7 +184,7 @@ describe('portal dispute inbox', () => {
     await user.click(await screen.findByRole('button', { name: new RegExp(disputeReference, 'i') }))
 
     const detail = await screen.findByRole('region', { name: new RegExp(disputeReference, 'i') })
-    const resolve = within(detail).getByRole('button', { name: /resolve|mark resolved/i })
+    const resolve = within(detail).getByRole('button', { name: /approve/i })
 
     // Empty note: refused client-side, and nothing leaves the browser.
     await user.click(resolve)
@@ -203,17 +203,49 @@ describe('portal dispute inbox', () => {
 
     await waitFor(() => expect(installed.resolutions).toHaveLength(1))
     expect(installed.resolutions[0].disputeID).toBe(disputeID)
-    expect(installed.resolutions[0].body).toMatchObject({ resolution_note: 'Corrected on the register.' })
+    // The OUTCOME travels with the note. Without it the server cannot tell an
+    // approval from a refusal, and the choice between crediting a slot and
+    // declining to would be made by a default rather than by the teacher.
+    expect(installed.resolutions[0].body).toMatchObject({
+      resolution_note: 'Corrected on the register.',
+      outcome: 'approved',
+    })
   })
 
-  // 0.11-PORTAL-004 — the screen states plainly that resolving does NOT correct
-  // the record (AC 14, T15).
+  // Rejecting is a REAL, reachable decision, not the absence of approving.
   //
-  // This is a copy assertion because the harm is a copy harm. A teacher who
-  // believes the record was fixed will not do the thing that fixes it, and the
-  // student is left with a "resolved" dispute and the same missing slot. 0.12
-  // exists precisely because this story cannot repair the record.
-  test('[P0] the resolution UI says the record itself is not corrected', async () => {
+  // If the inbox only offered "approve", a teacher facing a claim they knew to
+  // be false would either leave it open forever or approve it to clear the list
+  // — and approving now manufactures attendance.
+  test('[P0] rejecting sends the refusal and credits nothing', async () => {
+    const user = userEvent.setup()
+    const installed = installPortalDisputeBackend()
+
+    renderDisputesPortal()
+    await screen.findByRole('heading', { name: /dispute/i })
+    await user.click(await screen.findByRole('button', { name: new RegExp(disputeReference, 'i') }))
+
+    const detail = await screen.findByRole('region', { name: new RegExp(disputeReference, 'i') })
+    await user.type(within(detail).getByRole('textbox', { name: /note|resolution/i }), 'The register shows the student absent.')
+    await user.click(within(detail).getByRole('button', { name: /^reject/i }))
+
+    await waitFor(() => expect(installed.resolutions).toHaveLength(1))
+    expect(installed.resolutions[0].body).toMatchObject({
+      resolution_note: 'The register shows the student absent.',
+      outcome: 'rejected',
+    })
+  })
+
+  // THE PANEL SAYS WHAT APPROVING DOES, BEFORE IT IS PRESSED.
+  //
+  // This assertion is INVERTED from what it used to be. While resolving was an
+  // annotation, the copy harm was a teacher believing the record had been fixed
+  // when it had not — so the panel had to say the record was untouched. Now
+  // approving writes the attendance record, and the harm runs the other way: a
+  // teacher who does not realise the button marks a student present cannot weigh
+  // the claim properly. Either way the rule is the same — the screen must not be
+  // silent about what happens to the student's attendance.
+  test('[P0] the panel says approving marks the student present', async () => {
     const user = userEvent.setup()
     installPortalDisputeBackend()
 
@@ -224,13 +256,13 @@ describe('portal dispute inbox', () => {
     const detail = await screen.findByRole('region', { name: new RegExp(disputeReference, 'i') })
     expect(
       detail.textContent ?? '',
-      'the resolution panel does not say that resolving records the decision without correcting the record. ' +
-        'Correcting it is Story 0.12 (T15/AC 14) — silence here reads as "fixed"',
-    ).toMatch(/does not (correct|change|fix)|records the decision|separate (action|step)/i)
-
-    // And it must not claim the opposite.
-    expect(detail).not.toHaveTextContent(/record (has been |was )?(corrected|fixed|updated)/i)
-    expect(detail).not.toHaveTextContent(/marked present|credited/i)
+      'the panel does not say that approving marks the student present. Silence here means a teacher cannot ' +
+        'tell that the button writes an attendance record the student will see on the public dashboard',
+    ).toMatch(/marks the student present|mark(ed)? present/i)
+    expect(
+      detail.textContent ?? '',
+      'the panel does not say that rejecting changes no attendance',
+    ).toMatch(/no attendance|changes no attendance|records the refusal/i)
   })
 
   // 0.11-PORTAL-005 — each resolution refusal is a distinct message and the row
@@ -253,7 +285,7 @@ describe('portal dispute inbox', () => {
 
     const detail = await screen.findByRole('region', { name: new RegExp(disputeReference, 'i') })
     await user.type(within(detail).getByRole('textbox', { name: /note|resolution/i }), 'Corrected on the register.')
-    await user.click(within(detail).getByRole('button', { name: /resolve|mark resolved/i }))
+    await user.click(within(detail).getByRole('button', { name: /approve/i }))
 
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(pattern)

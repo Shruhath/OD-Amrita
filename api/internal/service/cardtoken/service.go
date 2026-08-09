@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -137,6 +138,36 @@ type Reader interface {
 type Ledger interface {
 	Upsert(context.Context, pgx.Tx, LedgerEntry) (bool, error)
 	Resolve(context.Context, string, [sha256.Size]byte) (Student, error)
+	// MarkVerified records that an admin read this card back. It takes the
+	// fingerprint that was just resolved rather than a student id, so it can only
+	// mark the row the read actually matched.
+	MarkVerified(ctx context.Context, version string, fingerprint [sha256.Size]byte, actorUserID string) error
+	// SectionStatus is the populator's DURABLE progress for one section, for one
+	// seal version. The version is passed rather than held: the service owns the
+	// keyring, and a ledger configured separately is one somebody forgets to
+	// configure.
+	SectionStatus(ctx context.Context, version string, filter SectionFilter) ([]CardStatus, error)
+}
+
+// SectionFilter names one branch/batch/section — the unit the populator works
+// through, and therefore the unit its counts are about.
+type SectionFilter struct {
+	BranchID string
+	Batch    string
+	Section  string
+}
+
+// CardStatus is what the server knows about one student's card. It carries no
+// token, no fingerprint and no key material: this is a progress read, and the
+// populator has no use for card material it is not about to write.
+type CardStatus struct {
+	StudentID string
+	// Issued means a token row exists. It is NOT the same as written — a seal
+	// can be handed out and the write can still fail on the card.
+	Issued bool
+	// VerifiedAt is set only once an admin read the card back and the server
+	// recognised it. This is the one that may be reported as done.
+	VerifiedAt *time.Time
 }
 
 type AuditStore interface {
@@ -220,11 +251,56 @@ func (s *Service) Seal(ctx context.Context, actor Actor, input SealInput) (SealR
 	}, nil
 }
 
+// Resolve is the POPULATOR's read-back. Recognising the card is what "verified"
+// means, so a successful admin resolve records the fact.
+//
+// The recording is best-effort on purpose: the operator is holding a phone
+// against a card, and the answer they need — whose card is this — has already
+// been computed. Failing the read because the progress note could not be saved
+// would turn a working verification into an error and send them round again. A
+// missed write shows as "issued" and costs one extra tap; a failed read costs
+// the same tap plus the operator's confidence.
 func (s *Service) Resolve(ctx context.Context, actor Actor, input ResolveInput) (ResolvedStudent, error) {
 	if actor.Role != "admin" {
 		return ResolvedStudent{}, forbidden()
 	}
-	return s.ResolveToken(ctx, input)
+	student, err := s.ResolveToken(ctx, input)
+	if err != nil {
+		return ResolvedStudent{}, err
+	}
+	if actorID := strings.TrimSpace(actor.UserID); actorID != "" {
+		fingerprint := sha256.Sum256([]byte(strings.TrimSpace(input.Token)))
+		_ = s.ledger.MarkVerified(ctx, strings.TrimSpace(input.Version), fingerprint, actorID)
+	}
+	return student, nil
+}
+
+// SectionStatus answers "how far has this section actually got" from the
+// database rather than from the operator's browser.
+//
+// WHY IT EXISTS. The populator's progress lived only in sessionStorage. It did
+// not survive signing out — which clears persisted state deliberately, because a
+// shared phone must not hand the next operator the previous one's screen — and
+// it never crossed devices. An admin who wrote and verified a section, signed
+// out, and came back was told 0 of 0 were verified with every row reading "Not
+// written", and had no way to tell which cards were already done.
+func (s *Service) SectionStatus(ctx context.Context, actor Actor, filter SectionFilter) ([]CardStatus, error) {
+	if actor.Role != "admin" {
+		return nil, forbidden()
+	}
+	filter.BranchID = strings.TrimSpace(filter.BranchID)
+	filter.Batch = strings.TrimSpace(filter.Batch)
+	filter.Section = strings.ToUpper(strings.TrimSpace(filter.Section))
+	if filter.BranchID == "" || filter.Batch == "" || filter.Section == "" {
+		return nil, validation("branch_id", "required", "Branch, batch and section are all required.")
+	}
+	if _, err := uuid.Parse(filter.BranchID); err != nil {
+		return nil, validation("branch_id", "invalid_format", "branch_id must be a UUID.")
+	}
+	// Scoped to the ACTIVE version: a token sealed under a retired key is not
+	// the card the populator is about to write, so counting it would report a
+	// section as done that is not.
+	return s.ledger.SectionStatus(ctx, s.keyring.ActiveVersion(), filter)
 }
 
 func (s *Service) ResolveToken(ctx context.Context, input ResolveInput) (ResolvedStudent, error) {

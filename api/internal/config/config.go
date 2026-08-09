@@ -72,6 +72,15 @@ type Config struct {
 	// PublicDisputeRateLimit bounds the unauthenticated dispute POST only. It is
 	// intentionally stricter than the public read budget.
 	PublicDisputeRateLimit PublicRateLimit
+	// PublicBoardRateLimit bounds the public attendance board on its OWN bucket.
+	//
+	// Generous where the group's is strict, because the group limiter is keyed
+	// on client IP and campus wifi NATs every student behind one — so the whole
+	// campus shares one bucket, and the board is the single endpoint the whole
+	// campus opens at once. Raising the GROUP limit instead would have loosened
+	// the roster search by the same amount, and that endpoint is the directory
+	// oracle its own design is about.
+	PublicBoardRateLimit PublicRateLimit
 	// PublicCacheTTL is how long each public read may be served from memory.
 	// Defaults apply when unset, for the same reason the rate limits have them:
 	// the deployed app carries no such secret and must keep booting.
@@ -90,6 +99,11 @@ type PublicCacheTTL struct {
 	// EventsSeconds covers the event and category list, which changes only when
 	// an administrator edits it.
 	EventsSeconds int
+	// DaySeconds covers the public attendance board. It is the SAME answer for
+	// every visitor, so it is the read where collapsing a campus-wide refresh
+	// onto one query is worth the most — and a board is read as "who is out
+	// today" rather than "has my mark landed", so it tolerates a few seconds.
+	DaySeconds int
 }
 
 // PublicRateLimit is the token-bucket tuning for the public group.
@@ -178,6 +192,11 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	cfg.PublicRateLimit = publicRateLimit
+	publicBoardRateLimit, err := parsePublicBoardRateLimit()
+	if err != nil {
+		return nil, err
+	}
+	cfg.PublicBoardRateLimit = publicBoardRateLimit
 	publicDisputeRateLimit, err := parsePublicDisputeRateLimit()
 	if err != nil {
 		return nil, err
@@ -223,6 +242,26 @@ func parsePublicRateLimit() (PublicRateLimit, error) {
 	return PublicRateLimit{PerMinute: perMinute, Burst: burst}, nil
 }
 
+// parsePublicBoardRateLimit reads the board's own bucket.
+//
+// 600/minute with a burst of 200 is sized for a campus behind one NAT: roughly
+// 600 students with the page open, polling once a minute, plus room for the
+// burst when a slot ends and everybody looks at once. It is a bound against a
+// runaway client, not against a crowd — the board is one cached answer that is
+// identical for every visitor, so a flood costs a map lookup rather than a
+// query.
+func parsePublicBoardRateLimit() (PublicRateLimit, error) {
+	perMinute, err := positiveIntDefault("PUBLIC_BOARD_RATE_LIMIT_PER_MINUTE", 600)
+	if err != nil {
+		return PublicRateLimit{}, err
+	}
+	burst, err := positiveIntDefault("PUBLIC_BOARD_RATE_LIMIT_BURST", 200)
+	if err != nil {
+		return PublicRateLimit{}, err
+	}
+	return PublicRateLimit{PerMinute: perMinute, Burst: burst}, nil
+}
+
 func parsePublicDisputeRateLimit() (PublicRateLimit, error) {
 	perMinute, err := positiveIntDefault("PUBLIC_DISPUTE_RATE_LIMIT_PER_MINUTE", 5)
 	if err != nil {
@@ -257,7 +296,16 @@ func parsePublicCacheTTL() (PublicCacheTTL, error) {
 	if err != nil {
 		return PublicCacheTTL{}, err
 	}
-	return PublicCacheTTL{RecordsSeconds: records, SearchSeconds: search, EventsSeconds: events}, nil
+	day, err := nonNegativeIntDefault("PUBLIC_CACHE_DAY_TTL_SECONDS", 60)
+	if err != nil {
+		return PublicCacheTTL{}, err
+	}
+	return PublicCacheTTL{
+		RecordsSeconds: records,
+		SearchSeconds:  search,
+		EventsSeconds:  events,
+		DaySeconds:     day,
+	}, nil
 }
 
 // nonNegativeIntDefault is positiveIntDefault with zero admitted, for settings

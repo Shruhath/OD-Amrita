@@ -213,9 +213,14 @@ func TestODRecordServiceDuplicateRaceAuditAndBlockedSlot(t *testing.T) {
 }
 
 type markFixture struct {
-	eventID       string
-	categoryID    string
-	studentID     string
+	eventID    string
+	categoryID string
+	studentID  string
+	// rollNo is the student's roll number, derived per run from studentID so
+	// repeated runs against the shared database cannot collide on the unique
+	// index. Exposed because a test asserting on a LIST has to be able to find
+	// its own student in it by the thing the list is keyed on.
+	rollNo        string
 	coordinatorID string
 	adminID       string
 	cardToken     string
@@ -287,6 +292,7 @@ func seedMarkFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) mark
 	}
 	rollSuffix := strings.ToUpper(strings.ReplaceAll(fixture.studentID, "-", ""))[:8]
 	rollNo := "CB.SC.U4ODR" + rollSuffix
+	fixture.rollNo = rollNo
 	if _, err := pool.Exec(ctx, `
 			INSERT INTO students (id, roll_no, name, branch_id, section, batch)
 			VALUES ($1, $2, 'ATDD Mark Student', '91000000-0000-4000-8000-000000000001', 'A', '2024')`,

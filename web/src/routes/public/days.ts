@@ -21,6 +21,42 @@
  * which is midnight UTC and rolls back a day west of Greenwich — that would
  * offer a student a day the event never had.
  */
+export function campusToday(now: Date = new Date()): string {
+  // en-CA renders as YYYY-MM-DD, the format `od_date` uses on the wire.
+  //
+  // Asia/Kolkata, NOT the device's timezone. `od_date` is a campus-local day
+  // the server decides, so a phone left on another timezone — or simply the
+  // half hour either side of midnight IST, which is when the +05:30 offset
+  // bites — would open on a day the marks were never filed under, and the
+  // dashboard would read as empty at exactly the hour a student checks it.
+  //
+  // routes/portal/live/campusDay.ts carries the portal's copy, duplicated for
+  // the same reason enumerateDays is: the public bundle imports nothing from
+  // the authenticated portal. PublicAttendanceDays.test.tsx asserts the two
+  // agree, because "change both together" written as prose is not a mechanism.
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now)
+}
+
+/**
+ * The day the dashboard opens on, given the days a student actually has marks.
+ *
+ * TODAY WHEN TODAY HAS MARKS. That is the case the page is for — PRD Journey 3
+ * is a student checking at 10pm on the day of the event — and the day filter
+ * then walks backwards from there.
+ *
+ * OTHERWISE THE MOST RECENT DAY THAT HAS MARKS. Opening on an empty today for a
+ * student whose last OD was a week ago would render "nothing marked" as the
+ * first thing they see, and this page's one unbreakable rule is that it must
+ * never imply an absence it was not asked about. The day is on screen and
+ * selectable, so nothing is hidden — the default just starts somewhere useful.
+ */
+export function defaultDay(recordDays: readonly string[], today: string): string {
+  if (recordDays.includes(today)) return today
+  const sorted = [...recordDays].sort()
+  const past = sorted.filter((day) => day < today)
+  return past.at(-1) ?? sorted[0] ?? today
+}
+
 export function enumerateDays(start: string, end: string): string[] {
   if (!start) return []
   const [year, month, day] = start.split('-').map(Number)

@@ -175,6 +175,16 @@ async function installApi(page: Page, scenario: ApiScenario = {}): Promise<ApiMo
       return
     }
 
+    // The evening-slots switch renders at the bottom of this workspace. These
+    // journeys are about events, not about the switch, so it is answered with
+    // the quiet default — off — rather than being left to fall through to the
+    // catch-all, whose 404 renders an alert that collides with the ones these
+    // tests assert on.
+    if (url.pathname === '/api/v1/admin/settings/extended-slots') {
+      await json(route, 200, { enabled: false, max_slot: 12, updated_at: null })
+      return
+    }
+
     if (url.pathname === '/api/v1/admin/branches' && method === 'GET') {
       state.calls.branches += 1
       if (scenario.branchesGate) await scenario.branchesGate
@@ -284,8 +294,13 @@ test.describe('Admin event administration E2E journeys (ATDD red phase)', () => 
 
     await page.goto('/portal/events')
 
-    await expect(page.getByRole('heading', { name: 'Sign in to OD-Amrita' })).toBeVisible()
+    // The refusal is now a redirect to the front door rather than a sign-in card
+    // rendered under the admin URL — see SessionBoundary. What the gate is FOR is
+    // unchanged and still asserted below: no admin screen, and no admin request.
+    await expect(page).toHaveURL(/\/$/)
     await expect(page.getByRole('button', { name: 'Sign in with Microsoft' })).toBeVisible()
+    await expect(page.getByRole('link', { name: /public dashboard/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Events' })).toBeHidden()
     expect(api.calls.branches).toBe(0)
     expect(api.calls.listEvents).toBe(0)
   })

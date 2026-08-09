@@ -9,7 +9,7 @@
 // PRESCRIBED SURFACE (written here so the dev is not reverse-engineering it from
 // compiler errors):
 //
-//	func ActiveSlot(now, eventStart, eventEnd time.Time) (int, SlotWindow, bool)
+//	func ActiveSlot(now, eventStart, eventEnd time.Time, StandardSlotCount) (int, SlotWindow, bool)
 //	func CampusDate(now time.Time) time.Time
 //	func ClampToEventRange(day, eventStart, eventEnd time.Time) time.Time
 //
@@ -63,7 +63,7 @@ func TestActiveSlot_OpensOnEveryDayInsideTheRangeInclusive(t *testing.T) {
 		{"the last day of the range", campusTime(t, 2026, time.September, 8, 8, 25)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			slot, window, open := ActiveSlot(tc.now, start, end)
+			slot, window, open := ActiveSlot(tc.now, start, end, StandardSlotCount)
 			if !open {
 				t.Fatalf("[P0] no slot open on %s (%s). Containment is INCLUSIVE at both ends — an exclusive "+
 					"comparison makes day one and the final day of a festival unmarkable",
@@ -100,7 +100,7 @@ func TestActiveSlot_StaysClosedOutsideTheRange(t *testing.T) {
 		{"the day after the range ends", campusTime(t, 2026, time.September, 9, 8, 25)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if slot, _, open := ActiveSlot(tc.now, start, end); open {
+			if slot, _, open := ActiveSlot(tc.now, start, end, StandardSlotCount); open {
 				t.Errorf("[P0] slot %d reported open on %s, which is outside the event's range", slot, tc.name)
 			}
 		})
@@ -116,18 +116,18 @@ func TestActiveSlot_StaysClosedOutsideTheRange(t *testing.T) {
 func TestActiveSlot_SingleDayEventIsUnchanged(t *testing.T) {
 	day := campusMidnight(t, 2026, time.August, 3)
 
-	if _, _, open := ActiveSlot(campusTime(t, 2026, time.August, 3, 8, 25), day, day); !open {
+	if _, _, open := ActiveSlot(campusTime(t, 2026, time.August, 3, 8, 25), day, day, StandardSlotCount); !open {
 		t.Errorf("[P0] a single-day event (end_date == event_date) has no open slot during its own slot 1. " +
 			"Every pre-existing event is backfilled to this exact shape, so the migration would close the " +
 			"marking screen on the whole database")
 	}
-	if _, _, open := ActiveSlot(campusTime(t, 2026, time.August, 4, 8, 25), day, day); open {
+	if _, _, open := ActiveSlot(campusTime(t, 2026, time.August, 4, 8, 25), day, day, StandardSlotCount); open {
 		t.Errorf("[P0] a single-day event accepted the following day")
 	}
 	// And the out-of-hours behaviour is untouched: inside the range but between
 	// slots is still "no slot", which the screen renders as "nothing scheduled"
 	// rather than as an error (AC 11).
-	if _, _, open := ActiveSlot(campusTime(t, 2026, time.August, 3, 19, 0), day, day); open {
+	if _, _, open := ActiveSlot(campusTime(t, 2026, time.August, 3, 19, 0), day, day, StandardSlotCount); open {
 		t.Errorf("[P0] a slot was reported open at 19:00, after the last slot ends at 18:15")
 	}
 }

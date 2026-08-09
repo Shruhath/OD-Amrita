@@ -1,17 +1,18 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   ApiFailure,
   createPublicApi,
   type PublicDisputeReceipt,
   type PublicEvent,
   type PublicODDay,
+  type PublicODRecordCollection,
   type PublicStudent,
 } from '../../api/client'
 import { ThemeToggle } from '../../components/ThemeToggle'
 import { Select } from '../../components/ui/Select'
-import { enumerateDays } from './days'
+import { campusToday, defaultDay, enumerateDays } from './days'
 
 /**
  * The public attendance dashboard — the only screen in this app that a visitor
@@ -25,15 +26,37 @@ import { enumerateDays } from './days'
  * them as "you were not marked". They therefore get three distinct treatments,
  * and the empty state is shown only after a successful response.
  *
- * SECOND: it renders all twelve slots, not only the ones with a record. PRD
- * Journey 3 is a student opening this page at 10pm, seeing slots 1, 2 and 4, and
- * noticing that slot 3 is missing — the gap IS the information. There is
- * deliberately no third "pending/syncing" state: Epic 0 has no async path at
- * all, so an amber chip would tell a student to wait for a sync that does not
- * exist.
+ * SECOND: it shows ONE DAY AT A TIME, and within that day only the slots that
+ * were actually marked.
+ *
+ * It used to render all twelve slots for every day of a student's history, one
+ * day below the next, with a "Report a missed slot" button on each of the empty
+ * ones. A three-day festival was therefore thirty-six rows, thirty of them
+ * saying "No record" — the answer the student is looking for buried in a wall of
+ * the answer they are not. The gap is still visible, and still the point of the
+ * page: a student who was marked for slots 1, 2 and 4 reads exactly those three
+ * and sees for themselves that 3 is not among them.
+ *
+ * Reporting a missed slot moved to a single button that stays put, where the day
+ * and the slot are chosen inside the form. That is the same information the
+ * per-slot buttons carried, asked for once instead of being pre-answered twelve
+ * times per day.
+ *
+ * There is deliberately no third "pending/syncing" state: Epic 0 has no async
+ * path at all, so an amber chip would tell a student to wait for a sync that
+ * does not exist.
  */
 
 const SEARCH_DEBOUNCE_MS = 250
+/**
+ * How often the board refreshes itself while somebody is looking at it.
+ *
+ * Matched to the server's own cache lifetime. Polling faster cannot produce a
+ * newer answer — it can only re-fetch bytes the server is serving from memory —
+ * so the extra requests are pure cost, and they are multiplied by every student
+ * with the page open behind one campus NAT.
+ */
+const BOARD_POLL_MS = 60_000
 const MIN_SEARCH_RUNES = 3
 const MAX_SEARCH_RUNES = 64
 const SLOT_VALUES = Array.from({ length: 12 }, (_, index) => index + 1)
@@ -48,15 +71,6 @@ export default function PublicAttendanceScreen() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
-  // The draft carries the EVENT the visitor clicked, not only the day and slot.
-  // Deriving the event from `eventOptions[0]` picked the first event across ALL
-  // days, so a student with records on two dates who reported a slot on the
-  // second one had the form silently re-scoped to the first — including the day,
-  // which an effect rewrote to that other event's date. 0.10's own comment in
-  // this file warns that one day can hold records from several events, which is
-  // exactly why "which event am I disputing" must come from the clicked row.
-  const [disputeDraft, setDisputeDraft] = useState<DisputeDraft | null>(null)
-
   // The selected student lives in the URL rather than in component state so a
   // reload, a back button and a link shared over WhatsApp all reopen the same
   // record — which is exactly what PRD Journey 3's student does with it.
@@ -103,23 +117,30 @@ export default function PublicAttendanceScreen() {
   const selectStudent = (student: PublicStudent) => {
     setQuery('')
     setDebouncedQuery('')
-    // A draft belongs to the student it was opened for.
-    setDisputeDraft(null)
     // Replaces the whole query string rather than merging, so `student` is the
     // only key that can ever be present.
     setSearchParams({ student: student.student_id })
   }
 
-  const clearStudent = () => {
-    setDisputeDraft(null)
-    setSearchParams({})
-  }
-  const closeDispute = () => setDisputeDraft(null)
+  const clearStudent = () => setSearchParams({})
 
   return (
     <main className="public-page">
       <header className="public-header">
         <div className="public-toolbar">
+          {/*
+            THE WAY BACK. This page is reachable directly — a shared link, a
+            bookmark, a QR code — and it had no route to anywhere else. A
+            coordinator who landed here had to edit the URL to reach sign-in,
+            which is the same friction the front door was built to remove; it was
+            simply still present one screen further in.
+
+            A real <Link>, so it can be opened in a new tab and behaves like the
+            destination it is. `/` decides what to show: the front door for a
+            signed-out visitor, and their own screen for anyone already signed
+            in — which is why this says "Home" rather than "Sign in".
+          */}
+          <Link className="public-home-link" to="/">← Home</Link>
           <ThemeToggle />
         </div>
         <img
@@ -132,9 +153,22 @@ export default function PublicAttendanceScreen() {
         <p className="eyebrow">On-duty attendance</p>
         <h1>Check your OD record</h1>
         <p className="public-lede">
-          Search your roll number or name. No sign-in needed.
+          Today's on-duty list is below. Search to see your own record in full.
+        </p>
+        {/*
+          Staff arrive here too — the dashboard is the one link students share,
+          so it is the one link that gets forwarded. Naming sign-in explicitly
+          saves them working out that "Home" is where it lives.
+        */}
+        <p className="public-hint">
+          Staff marking attendance? <Link to="/">Sign in</Link>.
         </p>
       </header>
+
+      {/* The BOARD, above the search and rendered without being asked for. The
+          page's first answer is "here is who is out today", which is the
+          question almost everybody opening it has. */}
+      <DayBoard />
 
       <section className="public-search" aria-label="Find a student">
         <label className="public-field" htmlFor="public-student-search">
@@ -215,114 +249,380 @@ export default function PublicAttendanceScreen() {
             />
           )}
 
-          {records.isSuccess && (
-            <>
-              <div className="public-student">
-                <h2>{records.data.student.display_name}</h2>
-                <p className="public-student-meta">
-                  {records.data.student.roll_no} · {records.data.student.branch}-{records.data.student.section}
-                  {' · '}Batch {records.data.student.batch}
-                </p>
-                {/*
-                  role="status" is 0.10's, and it stays. It was removed while
-                  adding the dispute form so a new findByRole('status') locator
-                  would not match two elements — silently deleting a live-region
-                  announcement to make a test unambiguous. The dispute success
-                  is scoped by its own panel label instead.
-                */}
-                <p className="public-asof" role="status">
-                  As of {formatTime(records.data.generated_at)}
-                </p>
-              </div>
-
-              {records.data.days.length === 0 ? (
-                <div className="public-empty">
-                  <p>No OD records found for this student yet.</p>
-                  <button type="button" onClick={() => setDisputeDraft({ day: '', slot: 1, eventID: '', categoryID: '' })}>
-                    Report a missed slot
-                  </button>
-                </div>
-              ) : (
-                records.data.days.map((day) => (
-                  <DaySlots
-                    key={day.od_date}
-                    day={day}
-                    onReport={(draft) => setDisputeDraft(draft)}
-                  />
-                ))
-              )}
-
-              {disputeDraft && (
-                <PublicDisputeForm
-                  // Keyed on the draft, so opening the form from a DIFFERENT slot
-                  // remounts it. Without this, initialDay/initialSlot were read
-                  // once as useState seeds: a second click changed nothing on
-                  // screen and the student submitted the first slot believing it
-                  // was the second. It also resets `receipt`, which otherwise
-                  // pinned the panel to a past success with no way back.
-                  key={`${disputeDraft.eventID}:${disputeDraft.day}:${disputeDraft.slot}`}
-                  student={records.data.student}
-                  days={records.data.days}
-                  initialDay={disputeDraft.day}
-                  initialSlot={disputeDraft.slot}
-                  initialEventID={disputeDraft.eventID}
-                  initialCategoryID={disputeDraft.categoryID}
-                  onClose={closeDispute}
-                />
-              )}
-            </>
-          )}
+          {/*
+            Keyed on the student so every piece of per-student state — which day
+            is on screen, and any half-opened dispute — is discarded when the
+            visitor looks somebody else up. Resetting that by hand in each of the
+            several places a student can change is how one of them eventually
+            gets missed.
+          */}
+          {records.isSuccess && <StudentRecords key={selectedStudentID} collection={records.data} />}
         </section>
       )}
     </main>
   )
 }
 
+
 /**
- * One event day as all twelve slots.
+ * The public attendance board: one campus day, everybody marked on it.
+ *
+ * IT LOADS WITHOUT BEING ASKED. That is the whole point — a visitor opens the
+ * page and the day's list is there, with no search and no sign-in. Every other
+ * surface in this app answers about ONE student; this one publishes a list, and
+ * that is a decision taken deliberately rather than a side effect.
+ *
+ * THE FILTERS GO TO THE SERVER. Narrowing the rows in the browser would mean
+ * the whole day's roster is downloaded whatever the visitor asked for — on this
+ * surface that is the difference between publishing one slot and publishing
+ * everything — and it would also break the moment a day exceeds the server's
+ * row cap, because the browser would be filtering a truncated list without
+ * knowing it.
+ */
+function DayBoard() {
+  // PLAIN STATE, not the persisted kind the portal screens use. AC 13 holds
+  // this page to writing nothing at all to localStorage or sessionStorage
+  // beyond the theme, and a filter selection is not worth being the exception
+  // that softens that rule — it costs a visitor one tap to set again.
+  const [slot, setSlot] = useState('')
+  const [categoryID, setCategoryID] = useState('')
+
+  const board = useQuery({
+    queryKey: ['public', 'board', slot, categoryID],
+    queryFn: () => api.publicDayAttendance({
+      slot: slot === '' ? undefined : Number(slot),
+      categoryID: categoryID === '' ? undefined : categoryID,
+    }),
+    // The board is a live list during an event, and it is the same answer for
+    // everybody, so the server caches it too — this interval decides how stale
+    // a screen left open goes, not how hard the database is hit.
+    refetchInterval: (query) => (query.state.error ? false : BOARD_POLL_MS),
+    gcTime: 0,
+  })
+
+  const students = board.data?.students ?? []
+  // Memoised because the effect below depends on it: a fresh [] every render
+  // would re-run the effect on every render.
+  const categories = useMemo(() => board.data?.categories ?? [], [board.data])
+
+  // A category that has gone — the board rolls over to a new day while a tab is
+  // left open — would otherwise leave the control showing a placeholder while
+  // still narrowing the read to nothing.
+  useEffect(() => {
+    if (categoryID !== '' && board.isSuccess && !categories.some((category) => category.id === categoryID)) {
+      setCategoryID('')
+    }
+  }, [board.isSuccess, categories, categoryID, setCategoryID])
+
+  return (
+    <section className="public-board" aria-label="Today's on-duty list">
+      <div className="public-board-heading">
+        <h2>On duty today</h2>
+        {board.data && (
+          <p className="public-hint" role="status">
+            {formatDate(board.data.od_date)} · {students.length}
+            {students.length === 1 ? ' student' : ' students'}
+          </p>
+        )}
+      </div>
+
+      <div className="public-board-filters">
+        <div className="public-field">
+          <span id="public-board-slot-label">Slot</span>
+          <Select
+            id="public-board-slot"
+            aria-labelledby="public-board-slot-label"
+            value={slot}
+            onChange={setSlot}
+            options={[{ value: '', label: 'All slots' }, ...SLOT_VALUES.map((value) => ({
+              value: String(value),
+              label: `Slot ${value}`,
+            }))]}
+          />
+        </div>
+        <div className="public-field">
+          <span id="public-board-category-label">Category</span>
+          <Select
+            id="public-board-category"
+            aria-labelledby="public-board-category-label"
+            value={categoryID}
+            onChange={setCategoryID}
+            disabled={categories.length === 0}
+            options={[{ value: '', label: 'All categories' }, ...categories.map((category) => ({
+              value: category.id,
+              label: category.name,
+            }))]}
+          />
+        </div>
+      </div>
+
+      {board.isPending && <p className="public-hint" role="status">Loading today's list…</p>}
+
+      {board.isError && (
+        <RetryableAlert
+          message={boardFailureMessage(board.error)}
+          onRetry={() => void board.refetch()}
+        />
+      )}
+
+      {/*
+        The cap bit. Saying so matters more here than anywhere else on the page:
+        a board that is silently short reads as "those students were not
+        marked", which is the one statement this whole surface exists never to
+        make by accident.
+      */}
+      {board.data?.truncated && (
+        <p className="public-alert" role="alert">
+          This day has more records than can be shown at once. Filter by slot or category to narrow it down.
+        </p>
+      )}
+
+      {board.isSuccess && students.length === 0 && (
+        <p className="public-hint">
+          {slot === '' && categoryID === ''
+            ? 'Nobody has been marked on duty yet today.'
+            : 'No on-duty records match that filter today.'}
+        </p>
+      )}
+
+      {students.length > 0 && (
+        <div className="public-board-scroll">
+          <table className="public-board-table" aria-label="On-duty students today">
+            <thead>
+              <tr>
+                <th scope="col">Roll number</th>
+                <th scope="col">Name</th>
+                <th scope="col">Slots</th>
+              </tr>
+            </thead>
+            <tbody>
+              {students.map((student) => (
+                <tr key={student.roll_no}>
+                  <td className="public-board-roll">{student.roll_no}</td>
+                  <td>{student.display_name}</td>
+                  <td>
+                    {/* The slot and what it was for, together. Which category
+                        belongs to which slot is the part a student actually
+                        checks, and a separate column could not say it once a
+                        student has marks in two categories on one day. */}
+                    <ul className="public-board-slots">
+                      {student.marks.map((mark) => (
+                        <li key={`${mark.slot}:${mark.category_id}`}>
+                          <strong>{mark.slot}</strong>
+                          <span>{mark.category_name}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}
+
+/**
+ * DisputeDraft is what opening the report form carries: the day on screen, a
+ * slot, and the EVENT that day belongs to. The event and category are '' only
+ * when the selected day holds no record to derive them from — the never-marked
+ * student, and any day the student was not marked on — and the form then falls
+ * back to the public event list.
+ */
+type DisputeDraft = { day: string; slot: number; eventID: string; categoryID: string }
+
+/**
+ * One student's records, one day at a time.
+ *
+ * The day lives here rather than in the parent so that remounting on a student
+ * change resets it, and so the day filter, the day on screen and the day a
+ * report is filed against can never disagree — they are one piece of state.
+ */
+function StudentRecords({ collection }: { collection: PublicODRecordCollection }) {
+  const recordDays = useMemo(
+    () => collection.days.map((day) => day.od_date).sort(),
+    [collection.days],
+  )
+
+  // Ascending, so the filter's ◀ is older and ▶ is newer — the direction the
+  // arrows point. TODAY is unioned in even when it holds nothing: a student
+  // checking during an event must be able to land on today and see it is empty,
+  // which is a different statement from today not being offered at all.
+  const dayOptions = useMemo(
+    () => [...new Set([...recordDays, campusToday()])].sort(),
+    [recordDays],
+  )
+
+  const [selectedDay, setSelectedDay] = useState(() => defaultDay(recordDays, campusToday()))
+  const [disputeDraft, setDisputeDraft] = useState<DisputeDraft | null>(null)
+
+  // A refetch can retire the selected day — a teacher removing the only record
+  // on it, say. Falling back to the default is better than rendering a day that
+  // is no longer in the list and no longer reachable by the arrows.
+  useEffect(() => {
+    if (!dayOptions.includes(selectedDay)) setSelectedDay(defaultDay(recordDays, campusToday()))
+  }, [dayOptions, recordDays, selectedDay])
+
+  const selectedIndex = dayOptions.indexOf(selectedDay)
+  const day = collection.days.find((candidate) => candidate.od_date === selectedDay)
+
+  const openDispute = () =>
+    setDisputeDraft({
+      day: selectedDay,
+      slot: 1,
+      // The event comes from the day ON SCREEN, never from the first record in
+      // the whole history: a student with records under two events who reports
+      // against the second one must not have the form silently re-scoped to the
+      // first — including its date, which an effect would then rewrite.
+      eventID: day?.records[0]?.event_id ?? '',
+      categoryID: day?.records[0]?.category_id ?? '',
+    })
+
+  return (
+    <>
+      <div className="public-student">
+        <h2>{collection.student.display_name}</h2>
+        <p className="public-student-meta">
+          {collection.student.roll_no} · {collection.student.branch}-{collection.student.section}
+          {' · '}Batch {collection.student.batch}
+        </p>
+        {/*
+          role="status" is 0.10's, and it stays. It was removed while adding the
+          dispute form so a new findByRole('status') locator would not match two
+          elements — silently deleting a live-region announcement to make a test
+          unambiguous. The dispute success is scoped by its own panel label.
+        */}
+        <p className="public-asof" role="status">
+          As of {formatTime(collection.generated_at)}
+        </p>
+      </div>
+
+      {collection.days.length === 0 ? (
+        <div className="public-empty">
+          <p>No OD records found for this student yet.</p>
+        </div>
+      ) : (
+        <>
+          <div className="public-day-filter">
+            <button
+              type="button"
+              className="public-day-step"
+              aria-label="Previous day"
+              disabled={selectedIndex <= 0}
+              onClick={() => setSelectedDay(dayOptions[selectedIndex - 1] ?? selectedDay)}
+            >
+              ‹
+            </button>
+            {/*
+              A <span> and aria-labelledby rather than a <label> wrapping the
+              control. A combobox inside its own <label> takes its name from the
+              label's whole subtree, INCLUDING the value the trigger is
+              currently showing — so the name would read "Day Wednesday, 19
+              August 2026" and change every time the day did. Pointing at the
+              caption alone keeps the name stable, which is what a screen reader
+              announces and what anything else finding this control relies on.
+            */}
+            <div className="public-field">
+              <span id="public-day-filter-label">Day</span>
+              <Select
+                id="public-day-filter"
+                aria-labelledby="public-day-filter-label"
+                value={selectedDay}
+                onChange={setSelectedDay}
+                options={dayOptions.map((value) => ({ value, label: formatDate(value) }))}
+              />
+            </div>
+            <button
+              type="button"
+              className="public-day-step"
+              aria-label="Next day"
+              disabled={selectedIndex < 0 || selectedIndex >= dayOptions.length - 1}
+              onClick={() => setSelectedDay(dayOptions[selectedIndex + 1] ?? selectedDay)}
+            >
+              ›
+            </button>
+          </div>
+
+          <DaySlots day={day} odDate={selectedDay} />
+        </>
+      )}
+
+      {disputeDraft ? (
+        <PublicDisputeForm
+          // Keyed on the draft so a fresh report starts from a clean form rather
+          // than from the last one's state — including `receipt`, which would
+          // otherwise pin the panel to a past success with no way back.
+          key={`${disputeDraft.eventID}:${disputeDraft.day}:${disputeDraft.slot}`}
+          student={collection.student}
+          days={collection.days}
+          initialDay={disputeDraft.day}
+          initialSlot={disputeDraft.slot}
+          initialEventID={disputeDraft.eventID}
+          initialCategoryID={disputeDraft.categoryID}
+          onClose={() => setDisputeDraft(null)}
+        />
+      ) : (
+        // ONE report affordance, parked in the corner, instead of one per empty
+        // slot. Hidden while the form is open so the page never offers two ways
+        // into the same thing.
+        <button type="button" className="public-report-fab" onClick={openDispute}>
+          Report a missed slot
+        </button>
+      )}
+    </>
+  )
+}
+
+/**
+ * The marked slots of ONE day.
  *
  * The day is a <section>, never a list item: the slots are the list items, and
  * a nesting list item would make every "which slot row is this" locator match
  * the day wrapper too.
+ *
+ * ONLY THE SLOTS THAT WERE MARKED. A student reads the slots they were credited
+ * for and sees for themselves which numbers are not there; twelve rows per day,
+ * nine of them saying "No record", buried that answer rather than giving it.
  */
-/**
- * DisputeDraft is what a "Report a missed slot" click carries: the day, the slot,
- * and the EVENT the visitor was looking at. The event and category are '' only
- * for the never-marked student, who has no record to derive them from and picks
- * from the public event list instead.
- */
-type DisputeDraft = { day: string; slot: number; eventID: string; categoryID: string }
-
-function DaySlots({ day, onReport }: { day: PublicODDay; onReport(draft: DisputeDraft): void }) {
+function DaySlots({ day, odDate }: { day: PublicODDay | undefined; odDate: string }) {
   // A slot holds a LIST, not a single record. Uniqueness in the database is
   // (student_id, event_id, od_date, slot) — per event per DAY — while a day here
   // is a calendar date, so two events running on the same day can each hold a
   // mark at the same slot for the same student. Keying a Map on the slot number
-  // alone silently keeps the last one, and the mark that loses renders as "No
-  // record": the page telling a student they were not marked when they were,
-  // which is the single outcome this screen exists to avoid.
+  // alone silently keeps the last one, and the mark that loses disappears
+  // entirely: the page hiding a mark the student was given, which is the mirror
+  // image of the outcome this screen exists to avoid.
   const bySlot = new Map<number, PublicODDay['records']>()
-  for (const record of day.records) {
+  for (const record of day?.records ?? []) {
     const existing = bySlot.get(record.slot)
     if (existing) existing.push(record)
     else bySlot.set(record.slot, [record])
   }
+  const markedSlots = [...bySlot.keys()].sort((left, right) => left - right)
 
   return (
-    <section className="public-day" aria-label={`OD records for ${formatDate(day.od_date)}`}>
-      <h3>{formatDate(day.od_date)}</h3>
-      <ul className="public-slots">
-        {SLOT_VALUES.map((slot) => {
-          const records = bySlot.get(slot) ?? []
-          return (
-            <li key={slot} className={records.length > 0 ? 'public-slot is-present' : 'public-slot is-absent'}>
-              {/* The trailing colon is load-bearing, not decoration. A row's
-                  textContent concatenates its children with no separator, so
-                  without it "Slot 3" runs straight into "No record" and any
-                  "slot 3 as a whole word" match — including a screen reader
-                  pausing at the label — sees "Slot 3No". */}
-              <span className="public-slot-label">Slot {slot}:</span>
-              {records.length > 0 ? (
+    <section className="public-day" aria-label={`OD records for ${formatDate(odDate)}`}>
+      <h3>{formatDate(odDate)}</h3>
+      {markedSlots.length === 0 ? (
+        // Deliberately about THIS DAY, and deliberately not the same sentence as
+        // the student who has no records at all. "Nothing on this day" and "you
+        // are not in our records" are different answers and must not be worded
+        // as one.
+        <p className="public-hint">No OD was marked on this day.</p>
+      ) : (
+        <ul className="public-slots">
+          {markedSlots.map((slot) => {
+            const records = bySlot.get(slot) ?? []
+            return (
+              <li key={slot} className="public-slot is-present">
+                {/* The trailing colon is load-bearing, not decoration. A row's
+                    textContent concatenates its children with no separator, so
+                    without it "Slot 3" runs straight into the event name and any
+                    "slot 3 as a whole word" match — including a screen reader
+                    pausing at the label — reads them as one word. */}
+                <span className="public-slot-label">Slot {slot}:</span>
                 <span className="public-slot-detail">
                   {records.map((record) => (
                     <span className="public-slot-mark" key={record.record_id}>
@@ -335,30 +635,11 @@ function DaySlots({ day, onReport }: { day: PublicODDay; onReport(draft: Dispute
                     </span>
                   ))}
                 </span>
-              ) : (
-                <span className="public-slot-detail public-slot-empty">
-                  <span>No record</span>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => onReport({
-                      day: day.od_date,
-                      slot,
-                      // An ABSENT slot has no record of its own, so the event
-                      // comes from the other records on THIS day rather than
-                      // from the first event across the whole history.
-                      eventID: day.records[0]?.event_id ?? '',
-                      categoryID: day.records[0]?.category_id ?? '',
-                    })}
-                  >
-                    Report a missed slot
-                  </button>
-                </span>
-              )}
-            </li>
-          )
-        })}
-      </ul>
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </section>
   )
 }
@@ -413,6 +694,15 @@ function PublicDisputeForm({
   const [note, setNote] = useState('')
   const [failure, setFailure] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<PublicDisputeReceipt | null>(null)
+
+  // The button that opens this form is parked in the corner of the viewport, so
+  // the form itself can appear below the fold — a student would tap and see
+  // nothing happen. Feature-detected because jsdom has no layout and would
+  // otherwise throw where the enhancement simply does not apply.
+  const panelRef = useRef<HTMLFormElement>(null)
+  useEffect(() => {
+    panelRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+  }, [])
 
   const selectedEvent = eventOptions.find((event) => event.event_id === eventID) ?? eventOptions[0]
   const categoryOptions = useMemo(() => selectedEvent?.categories ?? [], [selectedEvent])
@@ -522,7 +812,7 @@ function PublicDisputeForm({
   }
 
   return (
-    <form className="public-dispute-panel" aria-label="Report a missed slot dispute" role="form" onSubmit={onSubmit} noValidate>
+    <form ref={panelRef} className="public-dispute-panel" aria-label="Report a missed slot dispute" role="form" onSubmit={onSubmit} noValidate>
       <div className="public-dispute-heading">
         <div>
           <h3>Report a missed slot</h3>
@@ -731,6 +1021,16 @@ function RetryableAlert({
       </div>
     </div>
   )
+}
+
+function boardFailureMessage(error: unknown): string {
+  if (error instanceof ApiFailure) {
+    if (error.status === 429) return 'Too many requests from this connection. Please wait a moment and try again.'
+    if (error.status >= 500) return "Today's list could not be loaded right now. This is our problem, not yours — please try again."
+  }
+  // Worded so it can never be read as an attendance answer. An empty board and
+  // a failed read are different statements and must not look alike.
+  return "Today's list could not be loaded. Check your connection and try again."
 }
 
 function searchFailureMessage(error: unknown): string {

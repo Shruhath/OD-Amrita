@@ -164,7 +164,7 @@ unset PGPASSWORD
 psql "$DATABASE_URL_MIGRATOR" -c 'SELECT max(version_id) FROM goose_db_version;'
 ```
 
-Expect **18** — migrations `0001`–`0018`. A lower number, or a missing table, means the
+Expect **21** — migrations `0001`–`0021`. A lower number, or a missing table, means the
 migrations did not all apply; stop and fix that before deploying, because the API will fail at
 runtime rather than at boot.
 
@@ -187,7 +187,7 @@ runtime rather than at boot.
 > usage back into the single row the pre-`0017` schema held, because `usage_date` is being
 > dropped anyway and no information survives either way.
 >
-> Take a dump immediately before applying `0015`–`0018` to a database that already holds
+> Take a dump immediately before applying `0015`–`0021` to a database that already holds
 > records.
 
 > **⚠️ `0018` is a one-way door once a record has been removed.**
@@ -196,6 +196,44 @@ runtime rather than at boot.
 > rejects the historical `removed` row, so rollback aborts atomically and the widened status
 > constraint remains in place. Do not convert removed records back to present or delete them merely
 > to make a rollback succeed; reconcile the records deliberately or restore from PITR/a dump.
+
+> **⚠️ `0019` widens the slot CHECK to 20 and its `Down` narrows it back to 12.**
+>
+> The `Up` is safe to apply ahead of the code — every slot that was legal before still is, so an
+> older binary keeps working unchanged. That is what makes it obey the schema-before-code rule in
+> §4.3 without a coordinated release.
+>
+> The `Down` aborts if any record above slot 12 exists, and that is correct: those are real
+> attendance records, and rewriting or deleting them to satisfy a constraint would destroy history.
+> Turn the evening-slots switch off first, and reconcile any rows above 12 deliberately.
+>
+> `0019` also creates `app_settings`, seeded with `extended_slots_enabled = false`. **The seeded
+> default is OFF**, so applying this migration changes no behaviour on its own.
+
+> **⚠️ `0020` widens `od_records.capture_method` to admit `dispute`, and its `Down` narrows it
+> back.**
+>
+> The `Up` is safe to apply ahead of the code, like `0019`: widening a CHECK cannot invalidate a
+> row that already exists, and every marking path in use keeps working unchanged. It also adds
+> `disputes.outcome` as a NULLable column with a `NOT VALID` state constraint, so disputes resolved
+> under the old annotate-only rule are left exactly as they are — there is no honest way to backfill
+> whether a teacher meant to credit the slot, and guessing either way fabricates a decision.
+>
+> The `Down` aborts once any record has been created by an approved dispute, and that is correct:
+> those are real attendance records. Do not rewrite them to `search` or delete them to make a
+> rollback succeed — that would falsify who marked a student and how.
+>
+> **What changes on apply:** nothing on its own. Resolving a dispute credits the slot only once the
+> API that sends an `outcome` is deployed; the column defaults to NULL and no existing row moves.
+
+> **`0021` is fully reversible.** It adds `verified_at` / `verified_by_user_id` to
+> `student_card_tokens` so the card populator's progress survives a sign-out and follows the
+> operator to another device. Its `Down` drops both columns, which discards the verification
+> history — the populator then falls back to per-device progress, which is the behaviour it had
+> before. Nothing else reads these columns.
+>
+> **What changes on apply:** nothing on its own. Both columns are NULL until an admin verifies a
+> card through the populator with the API that writes them deployed.
 
 **5. Build the runtime connection string** for the next section from the **`od_runtime`**
 password — never the migrator's. The application pool must not be able to run DDL.
@@ -364,11 +402,21 @@ fails differently and none of them fail at build time.
 
 | Setting | Where it is set | Value used | Confirmed |
 |---|---|---|---|
-| `PORTAL_ALLOWED_ORIGINS` | Fly secret (§4.2) | `https://od-amrita-web.vercel.app` | ✅ 2026-07-24 **(tunnel only)** — preflight 204 for this origin, 403 for an untrusted one; re-confirm on Fly |
+| `PORTAL_ALLOWED_ORIGINS` | Fly secret (§4.2) | `https://od-amrita-web.vercel.app,https://www.odamrita.in,https://odamrita.in` | ✅ 2026-08-09 **on Fly** — preflight returns the origin for all three, and no header at all for an untrusted one |
 | `VITE_API_BASE_URL` | Vercel env var (§5.3) | the API origin — **currently the pre-production tunnel**, see §6.3 | ✅ 2026-07-24 **(tunnel only)** — points at the tunnel, not the Fly origin yet |
-| Supabase **Redirect URLs** | Supabase console (§6.1) | `https://od-amrita-web.vercel.app/**` | ☐ |
+| Supabase **Redirect URLs** | Supabase console (§6.1) | `https://od-amrita-web.vercel.app/**` | ☐ — the two `odamrita.in` patterns are NOT added yet; see the note below |
 | Fly API origin | — | `______` (expected `https://od-amrita-api.fly.dev`) | ☐ not yet deployed |
 | Vercel production origin | — | `https://od-amrita-web.vercel.app` | ✅ 2026-07-24 (Vercel build live; the web origin is real, the API it talks to is still the tunnel) |
+
+> **The two `odamrita.in` origins are PRE-STAGED, not live.** The domain is registered but its DNS
+> is not yet pointed at Vercel, so nothing serves from it. They were added to the Fly secret ahead
+> of the cutover so that step costs no machine restart later; trusting them early is safe because
+> the domain is ours — an origin nobody else can serve from cannot be used against us.
+>
+> **Still outstanding for the cutover:** Vercel domains, the GoDaddy records, and the Supabase
+> redirect URLs. Without `https://www.odamrita.in/**` and `https://odamrita.in/**` in Supabase,
+> sign-in fails AFTER the Microsoft round-trip — which reads as the login being broken rather than
+> as a misconfiguration. CORS being ready does not make the domain usable on its own.
 
 **Vercel project settings in force** (recorded so they can be re-created): project `od-amrita-web`,
 Root Directory `web`, framework preset Vite, **Production Branch `0-event-mvp`**. The production
@@ -511,6 +559,7 @@ one says how.
 | **H4** | **TLS terminates at the Fly edge; the container runs `TLS_ENABLED=false`.** | Fly manages the `*.fly.dev` certificate; the container cannot easily obtain it. The application already supports ingress-terminated mode. The hazard is that Fly's default shape *redirects* plain HTTP, so §4.1's port-443-only service block is what keeps it **rejected** instead. |
 | **H6** | **No Redis. Caching stays in-process.** | See below — the reasoning is long enough to deserve prose. |
 | **H7** | **The Neon region is wrong and should move to `ap-southeast-1`.** | The API is in Singapore and the database is in Virginia, so every query pays ~220 ms of ocean. Recorded as a decision **not yet acted on**: it is a migration of live attendance data. See the topology warning in §1. |
+| **H8** | **The public attendance board publishes a day's marked students without a credential.** | Ratified 2026-08-09. `GET /api/v1/public/od-records` returns roll number, name, slot and category for everybody marked on a campus day, so the dashboard answers without anyone searching. It deliberately reverses the posture of `/public/students/search`, which is built so an empty query cannot become a roster dump. Mitigations, since the query shape is no longer one: no student id on the response, `status = 'present'` rows only, the public group's rate limiter, a server-fixed row cap the caller cannot raise (the response reports when it bit), a 15s in-process cache, and `X-Robots-Tag: noindex, nofollow, noarchive` so a day's roster does not become a permanent search result attached to a name. **To narrow it later:** drop `display_name` from `PublicDayStudent` for roll-numbers-only, or move the route behind the authenticated group. |
 | **H5** | **Every paid/console step is a tracked human step.** | Fly, the Neon plan upgrade and Vercel cost money; the Supabase redirect URL needs a console. §8 tracks them as unchecked boxes rather than leaving them implied. |
 
 ---

@@ -22,11 +22,69 @@ import (
 type Service interface {
 	Seal(context.Context, cardtokensvc.Actor, cardtokensvc.SealInput) (cardtokensvc.SealResult, error)
 	Resolve(context.Context, cardtokensvc.Actor, cardtokensvc.ResolveInput) (cardtokensvc.ResolvedStudent, error)
+	SectionStatus(context.Context, cardtokensvc.Actor, cardtokensvc.SectionFilter) ([]cardtokensvc.CardStatus, error)
 }
 
 func RegisterAdminRoutes(group gin.IRouter, svc Service) {
 	group.POST("/students/:student_id/card-seal", SealHandler(svc))
 	group.POST("/card-tokens/resolve", ResolveHandler(svc))
+	group.GET("/card-tokens/status", SectionStatusHandler(svc))
+}
+
+// SectionStatusHandler answers "how far has this section actually got" from the
+// database, which is what lets the populator's counts survive a sign-out.
+func SectionStatusHandler(svc Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		actor, err := actorFromContext(c)
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		if actor.Role != "admin" {
+			fail(c, forbidden())
+			return
+		}
+		statuses, err := svc.SectionStatus(c.Request.Context(), actor, cardtokensvc.SectionFilter{
+			BranchID: c.Query("branch_id"),
+			Batch:    c.Query("batch"),
+			Section:  c.Query("section"),
+		})
+		if err != nil {
+			fail(c, err)
+			return
+		}
+
+		data := make([]contracts.SectionCardStatus, 0, len(statuses))
+		issued, verified := 0, 0
+		for _, status := range statuses {
+			studentID, err := uuid.Parse(status.StudentID)
+			if err != nil {
+				fail(c, err)
+				return
+			}
+			if status.Issued {
+				issued++
+			}
+			if status.VerifiedAt != nil {
+				verified++
+			}
+			data = append(data, contracts.SectionCardStatus{
+				StudentId:  studentID,
+				Issued:     status.Issued,
+				VerifiedAt: status.VerifiedAt,
+			})
+		}
+		// The counts are the SERVER's, computed over the same rows it is
+		// returning. Letting the client add them up would let a partial page or a
+		// dropped row read as a section that still needs work — or worse, as one
+		// that does not.
+		c.JSON(http.StatusOK, contracts.SectionCardStatusCollection{
+			Data:     data,
+			Total:    len(data),
+			Issued:   issued,
+			Verified: verified,
+		})
+	}
 }
 
 func SealHandler(svc Service) gin.HandlerFunc {

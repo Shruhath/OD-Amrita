@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { NavLink } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
 import { useAuth } from '../features/auth/context'
 import { sectionsFor } from '../routes/access'
 import { AccountMenu } from './AccountMenu'
@@ -29,13 +29,20 @@ export function PortalShell({ children }: { children: ReactNode }) {
       <a className="skip-link" href="#workspace">Skip to content</a>
 
       <header className="topbar">
-        <div>
+        {/*
+          The brand is a LINK to `/`, which is the one affordance every visitor
+          already expects to find and the only way off a screen like the live
+          view that is not "sign out". `/` routes by role, so it lands a signed-in
+          operator on their own start screen and a signed-out one on the front
+          door — where signing in actually lives.
+        */}
+        <Link className="brand-home" to="/" aria-label="OD-Amrita home">
           <span className="brand-mark" aria-hidden="true">OD</span>
           <span className="brand-name">
             OD-Amrita
             <small>Amrita Vishwa Vidyapeetham</small>
           </span>
-        </div>
+        </Link>
 
         <nav className="portal-nav" aria-label="Administration sections">
           {sections.map((section) => (

@@ -3,13 +3,13 @@
 //
 // Everything these two handlers return is served to the open internet with no
 // credential, so the mapping below is written as an allowlist: each contract
-// struct is built field by field from the service's own display types, and
-// neither service type has an email, an actor id, a card token or a fingerprint
-// to leak in the first place. There is no `interface{}`/map passthrough anywhere
+// struct is built field by field from the service's own display types, and none
+// of those types has an email, an actor id, a reason note, a card token or a
+// fingerprint to leak in the first place. There is no `interface{}`/map passthrough anywhere
 // in this file for exactly that reason — a passthrough would publish whatever
 // the query happened to select.
 //
-// Both routes are READS. There is no POST in this package, and none may be
+// Every route here is a READ. There is no POST in this package, and none may be
 // added: a write reachable without authentication is an open door, not a
 // feature.
 package publicattendance
@@ -46,7 +46,12 @@ type RecordsService interface {
 	Records(ctx context.Context, studentID string) (publicattendance.RecordCollection, error)
 }
 
-// RegisterPublicRoutes mounts the two public reads.
+// DayService reads one campus day's public attendance board.
+type DayService interface {
+	Day(ctx context.Context, filter publicattendance.DayFilter) (publicattendance.DayAttendance, error)
+}
+
+// RegisterPublicRoutes mounts the public reads.
 //
 // `group` MUST be a group built from the ROOT gin router (see newPublicGroup in
 // cmd/api), never a child of the authenticated /api/v1 group. gin attaches
@@ -54,12 +59,98 @@ type RecordsService interface {
 // these on `api.Group("/public")` produces the identical URLs behind the auth
 // middleware and 401s every student. A route-composition test is what proves
 // which one happened.
-func RegisterPublicRoutes(group gin.IRouter, search PublicSearchService, records RecordsService) {
+// `boardGroup` carries the board's OWN rate-limit bucket, INSTEAD of the
+// group's — pass nil to put the board on the same group as the rest.
+//
+// It exists because the group limiter is keyed on client IP and CAMPUS WIFI NATS
+// EVERY STUDENT BEHIND ONE. The whole campus therefore shares a single bucket,
+// and the board is the one endpoint the whole campus opens at once — at the
+// group's default of 30/minute, roughly fifteen students with the page open
+// exhaust it and everybody else gets a 429.
+//
+// Raising the GROUP limit instead would have loosened the roster search by the
+// same amount, and that endpoint is the directory oracle the search's whole
+// design is about. So the board gets a generous bucket of its own and the
+// search keeps the strict one — the same shape the dispute write already uses,
+// from the opposite direction.
+//
+// The board can afford it: it is one cached answer that is identical for every
+// visitor, so a flood costs a map lookup rather than a query. It is a bound
+// against a runaway client, not against a crowd.
+func RegisterPublicRoutes(group, boardGroup gin.IRouter, search PublicSearchService, records RecordsService, day DayService) {
 	group.GET("/students/search", SearchHandler(search))
 	group.GET("/students/:student_id/od-records", RecordsHandler(records))
+	// A separate GROUP, not an extra middleware on this one. gin runs a group's
+	// middleware for every route registered on it, so adding a second limiter
+	// here would leave the board bounded by the STRICTER of the two — which is
+	// the group's, and is the whole problem. The board is registered on its own
+	// group from the same root router, so the two buckets are genuinely
+	// independent. A route-composition test asserts that rather than trusting
+	// this comment.
+	if boardGroup == nil {
+		boardGroup = group
+	}
+	boardGroup.GET("/od-records", DayHandler(day))
 }
 
-// SearchHandler answers the anonymous roster prefix search.
+// DayHandler answers the public attendance board for one campus day.
+//
+// The day, the slot and the category are the ONLY things a caller may vary.
+// There is no page, no limit and no free-text parameter: this response is a
+// roster for a day, and every knob the open internet can turn on a roster read
+// is a knob that eventually gets turned all the way.
+func DayHandler(svc DayService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		filter := publicattendance.DayFilter{
+			// Passed through as typed; the service owns the default (today on
+			// campus) and the parse, so a non-HTTP caller gets the same rules.
+			ODDate:     strings.TrimSpace(c.Query("od_date")),
+			CategoryID: strings.TrimSpace(c.Query("category_id")),
+		}
+
+		if raw := strings.TrimSpace(c.Query("slot")); raw != "" {
+			slot, err := strconv.Atoi(raw)
+			if err != nil || slot < 1 || slot > 12 {
+				fail(c, searchValidation("slot", "out_of_range", "slot must be between 1 and 12."))
+				return
+			}
+			filter.Slot = slot
+		}
+
+		board, err := svc.Day(c.Request.Context(), filter)
+		if err != nil {
+			fail(c, err)
+			return
+		}
+
+		rendered, convErr := dayAttendanceContract(board)
+		if convErr != nil {
+			fail(c, convErr)
+			return
+		}
+		// `stale-while-revalidate` is what actually keeps a campus off this
+		// endpoint. `max-age` alone only helps a student who refreshes within
+		// the window; with SWR the browser RENDERS the cached copy instantly and
+		// refreshes in the background, so a reopened tab costs no wait at all
+		// and the request that does go out is not one anybody is waiting on.
+		//
+		// max-age stays SHORT deliberately. A long one would make the board lie
+		// to a student who was just marked, and "the board says I am not marked"
+		// is indistinguishable from a real missed mark — it produces disputes
+		// for records that exist, on the one screen built to prevent exactly
+		// that. Staleness is bounded by max-age; the load is absorbed by SWR
+		// and by the server-side cache behind it.
+		c.Header("Cache-Control", "public, max-age=30, stale-while-revalidate=300")
+		// The board is a roster. Keeping it out of search indexes does not make
+		// it private — it is a public URL and that is the decision — but an
+		// indexed roster outlives the day it describes, and turns "who was out
+		// on the 9th" into a permanent search result attached to a name.
+		c.Header("X-Robots-Tag", "noindex, nofollow, noarchive")
+		c.JSON(http.StatusOK, rendered)
+	}
+}
+
+// SearchHandler answers the anonymous roster search.
 func SearchHandler(svc PublicSearchService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Bounded at the edge as well as in the service. The service owns the
@@ -138,6 +229,60 @@ func cacheFor(c *gin.Context, seconds int) {
 		return
 	}
 	c.Header("Cache-Control", "public, max-age="+strconv.Itoa(seconds))
+}
+
+// dayAttendanceContract builds the board field by field.
+//
+// An allowlist, like everything else in this file: nothing here is copied from a
+// map or a database row wholesale, so the only way a new column reaches the open
+// internet is if somebody writes the line that puts it there.
+func dayAttendanceContract(board publicattendance.DayAttendance) (contracts.PublicDayAttendance, error) {
+	odDate, err := parseDate(board.ODDate)
+	if err != nil {
+		return contracts.PublicDayAttendance{}, err
+	}
+
+	// Non-nil even when empty, for the same reason the day list is: a JSON
+	// `null` would make the client guess whether it meant "nobody marked" or
+	// "nothing loaded", and those are different answers.
+	students := make([]contracts.PublicDayStudent, 0, len(board.Students))
+	for _, student := range board.Students {
+		marks := make([]contracts.PublicDayMark, 0, len(student.Marks))
+		for _, mark := range student.Marks {
+			categoryID, parseErr := uuid.Parse(mark.CategoryID)
+			if parseErr != nil {
+				return contracts.PublicDayAttendance{}, parseErr
+			}
+			marks = append(marks, contracts.PublicDayMark{
+				Slot:         mark.Slot,
+				CategoryId:   categoryID,
+				CategoryName: mark.CategoryName,
+				EventName:    mark.EventName,
+			})
+		}
+		students = append(students, contracts.PublicDayStudent{
+			RollNo:      student.RollNo,
+			DisplayName: student.DisplayName,
+			Marks:       marks,
+		})
+	}
+
+	categories := make([]contracts.PublicEventCategory, 0, len(board.Categories))
+	for _, category := range board.Categories {
+		categoryID, parseErr := uuid.Parse(category.ID)
+		if parseErr != nil {
+			return contracts.PublicDayAttendance{}, parseErr
+		}
+		categories = append(categories, contracts.PublicEventCategory{Id: categoryID, Name: category.Name})
+	}
+
+	return contracts.PublicDayAttendance{
+		OdDate:      odDate,
+		Students:    students,
+		Categories:  categories,
+		Truncated:   board.Truncated,
+		GeneratedAt: board.GeneratedAt,
+	}, nil
 }
 
 func publicStudentContract(result svcstudent.SearchResult) (contracts.PublicStudent, error) {

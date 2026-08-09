@@ -15,6 +15,7 @@ package publiccache
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/Shruhath/OD-Amrita/api/internal/cache"
@@ -40,6 +41,11 @@ type TTLs struct {
 	Records time.Duration
 	Search  time.Duration
 	Events  time.Duration
+	// Day is the public board. It is the same answer for every visitor, so it
+	// is the read where collapsing concurrent misses matters most — and the one
+	// where a few seconds of staleness costs least, because a board is read as
+	// "who is out today", not as "has my mark landed yet".
+	Day time.Duration
 }
 
 // RecordsReader is one student's public OD records.
@@ -50,6 +56,11 @@ type RecordsReader interface {
 // EventsReader is the public event/category option list.
 type EventsReader interface {
 	PublicEvents(ctx context.Context) (publicattendance.EventCollection, error)
+}
+
+// DayReader is the public attendance board for one campus day.
+type DayReader interface {
+	Day(ctx context.Context, filter publicattendance.DayFilter) (publicattendance.DayAttendance, error)
 }
 
 // SearchReader is the actor-less roster prefix search.
@@ -88,6 +99,31 @@ func NewEvents(inner EventsReader, ttl time.Duration) *Events {
 func (e *Events) PublicEvents(ctx context.Context) (publicattendance.EventCollection, error) {
 	return e.cache.Do(ctx, "public-events", func(ctx context.Context) (publicattendance.EventCollection, error) {
 		return e.inner.PublicEvents(ctx)
+	})
+}
+
+// Day wraps the public attendance board.
+type Day struct {
+	inner DayReader
+	cache *cache.TTL[publicattendance.DayAttendance]
+}
+
+func NewDay(inner DayReader, ttl time.Duration) *Day {
+	return &Day{inner: inner, cache: cache.New[publicattendance.DayAttendance](ttl)}
+}
+
+// Day caches on the WHOLE filter, day and both narrowing fields together.
+//
+// This is the read the entire campus refreshes at once, and unlike the
+// per-student record it is the SAME answer for everybody — so it is the one
+// place the cache does real work: a thousand simultaneous openings of the board
+// collapse onto one query. Keying on only the date would serve a slot-filtered
+// board to somebody who asked for the whole day, which is worse than not caching
+// at all.
+func (d *Day) Day(ctx context.Context, filter publicattendance.DayFilter) (publicattendance.DayAttendance, error) {
+	key := filter.ODDate + "|" + strconv.Itoa(filter.Slot) + "|" + filter.CategoryID
+	return d.cache.Do(ctx, key, func(ctx context.Context) (publicattendance.DayAttendance, error) {
+		return d.inner.Day(ctx, filter)
 	})
 }
 

@@ -7,5 +7,6 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   optimizeDeps: {
     exclude: ['@phosphor-icons/react'],
+    force: true,
   },
 })

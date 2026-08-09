@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { cleanup } from '@testing-library/react'
+import { cleanup, configure } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterAll, afterEach, beforeAll, beforeEach } from 'vitest'
 import { captureCreditSummary } from '../../tests/support/factories/captureCredits'
@@ -16,6 +16,10 @@ const localStorageStub: Storage = {
 }
 Object.defineProperty(window, 'localStorage', { configurable: true, value: localStorageStub })
 Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: localStorageStub })
+
+// Radix Select hides the rest of the document while its listbox is open. Tests
+// still need to locate and click an outside control to assert dismissal.
+configure({ defaultHidden: true, asyncUtilTimeout: 10000 })
 
 // Radix Select uses pointer capture in the browser. JSDOM does not implement
 // these methods, so provide the no-op browser contract for component tests.

@@ -1,4 +1,4 @@
-// DO NOT EDIT â€” generated from contracts/openapi.yaml by `make -C contracts generate`.
+// DO NOT EDIT — generated from contracts/openapi.yaml by make -C contracts generate.
 // Edit the spec, not this file. Re-exported via @od-amrita/contracts (workspace:*).
 
 /**
@@ -341,26 +341,6 @@ export interface paths {
          * @description Admin-only event verification read. Filters are applied server-side before pagination, returns present and removed OD rows, and exposes display, actor, status, and record-reason fields needed to verify the event without revealing card tokens, fingerprints, fallback-credit internals, dispute records or resolution notes, or private student email.
          */
         get: operations["listAdminEventAttendance"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/portal/mark/events/{event_id}/attendance": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List attendance records the caller may review
-         * @description The teacher/admin live view of an event's marks, returning present and removed OD rows. A SIBLING of `/api/v1/admin/events/{event_id}/attendance`, never a replacement: this one is BRANCH-SCOPED for a teacher, returning only records for students in the branches they teach, which is the same rule that decides which students they may mark. A teacher who cannot mark a student has no reason to read that student's record either. An admin is unscoped here and sees exactly what the admin route returns.
-         */
-        get: operations["listPortalMarkEventAttendance"];
         put?: never;
         post?: never;
         delete?: never;
@@ -937,6 +917,26 @@ export interface components {
             errors: components["schemas"]["StudentRosterImportError"][];
         };
         StudentRosterImportError: {
+            row: number;
+            field: string;
+            code: string;
+            message: string;
+        };
+        AttendanceImport: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            event_id: string;
+            /** @enum {string} */
+            status: "queued" | "processing" | "completed" | "completed_with_errors" | "failed";
+            total_rows: number;
+            processed_rows: number;
+            accepted_rows: number;
+            duplicate_rows: number;
+            invalid_rows: number;
+            error_summary?: string | null;
+        };
+        AttendanceImportError: {
             row: number;
             field: string;
             code: string;
@@ -2651,80 +2651,6 @@ export interface operations {
             };
         };
     };
-    listPortalMarkEventAttendance: {
-        parameters: {
-            query?: {
-                category_id?: string;
-                slot?: number;
-                /** @description Narrow the list to one day. The live view sends today by default, which is the question this screen exists to answer. */
-                od_date?: string;
-                page?: number;
-                page_size?: number;
-            };
-            header?: never;
-            path: {
-                event_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Page of attendance rows the caller may review. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AttendanceRecordCollection"];
-                };
-            };
-            /** @description Invalid filter or pagination value. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ValidationError"];
-                };
-            };
-            /** @description Unauthenticated. */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Teacher or administrator access is required. */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Event was not found. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Internal error. */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
     listMarkableEvents: {
         parameters: {
             query?: {
@@ -4260,3 +4186,4 @@ export interface operations {
         };
     };
 }
+

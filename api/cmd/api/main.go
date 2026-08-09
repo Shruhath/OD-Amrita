@@ -23,6 +23,7 @@ import (
 
 	"github.com/Shruhath/OD-Amrita/api/internal/config"
 	handleradmin "github.com/Shruhath/OD-Amrita/api/internal/handler/admin"
+	handlerattendanceimport "github.com/Shruhath/OD-Amrita/api/internal/handler/attendanceimport"
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
 	handlercardtoken "github.com/Shruhath/OD-Amrita/api/internal/handler/cardtoken"
 	handlerdispute "github.com/Shruhath/OD-Amrita/api/internal/handler/dispute"
@@ -34,6 +35,7 @@ import (
 	handlerstudent "github.com/Shruhath/OD-Amrita/api/internal/handler/student"
 	handlerteacher "github.com/Shruhath/OD-Amrita/api/internal/handler/teacher"
 	"github.com/Shruhath/OD-Amrita/api/internal/job/eod_audit"
+	jobattendanceimport "github.com/Shruhath/OD-Amrita/api/internal/job/attendance_import"
 	"github.com/Shruhath/OD-Amrita/api/internal/jobs"
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
 	corsmw "github.com/Shruhath/OD-Amrita/api/internal/middleware/cors"
@@ -43,6 +45,7 @@ import (
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	svccardtoken "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
 	svcdispute "github.com/Shruhath/OD-Amrita/api/internal/service/dispute"
+	svcattendanceimport "github.com/Shruhath/OD-Amrita/api/internal/service/attendanceimport"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
 	svcmarking "github.com/Shruhath/OD-Amrita/api/internal/service/marking"
 	svcodrecord "github.com/Shruhath/OD-Amrita/api/internal/service/od_record"
@@ -88,6 +91,8 @@ func run() error {
 		return err
 	}
 	river.AddWorker(workerRegistry.Workers(), &eodaudit.SweepWorker{Service: reconciliationSvc, Client: riverClient})
+	attendanceImportSvc := svcattendanceimport.NewService(pool, riverClient)
+	river.AddWorker(workerRegistry.Workers(), &jobattendanceimport.Worker{Service: attendanceImportSvc})
 	if err := jobs.Start(context.Background(), riverClient); err != nil {
 		return err
 	}
@@ -247,6 +252,7 @@ func run() error {
 	handlerdispute.RegisterRoutes(markAPI, disputeSvc)
 
 	admin := newAdminGroup(api, principalLoader)
+	handlerattendanceimport.RegisterAdminRoutes(admin, attendanceImportSvc)
 	admin.POST("/users/:user_id/sessions/revoke", handleradmin.RevokeSessionsHandler(revSvc))
 	eventSvc := svcevent.NewService(eventReader, st, svcevent.NewSQLCWriter())
 	handlerevent.RegisterAdminRoutes(admin, eventSvc)

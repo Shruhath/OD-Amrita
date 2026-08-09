@@ -54,6 +54,8 @@ func TestAllActions_MatchesDeclaredConstants(t *testing.T) {
 		ActionCoordinatorAssigned:     "coordinator.assigned",
 		ActionCaptureCreditCapChanged: "capture_credit.cap_changed",
 		ActionCaptureCreditReset:      "capture_credit.reset",
+		ActionAttendanceImportRequested: "attendance_import.requested",
+		ActionAttendanceImportCompleted: "attendance_import.completed",
 	}
 
 	// (1) Each constant carries its exact architecture-mandated wire value.

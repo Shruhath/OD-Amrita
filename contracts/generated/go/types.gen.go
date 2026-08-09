@@ -1274,17 +1274,6 @@ type ListPortalMarkEventsParams struct {
 	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
-// ListPortalMarkEventAttendanceParams defines parameters for ListPortalMarkEventAttendance.
-type ListPortalMarkEventAttendanceParams struct {
-	CategoryId *openapi_types.UUID `form:"category_id,omitempty" json:"category_id,omitempty"`
-	Slot       *int                `form:"slot,omitempty" json:"slot,omitempty"`
-
-	// OdDate Narrow the list to one day. The live view sends today by default, which is the question this screen exists to answer.
-	OdDate   *openapi_types.Date `form:"od_date,omitempty" json:"od_date,omitempty"`
-	Page     *int                `form:"page,omitempty" json:"page,omitempty"`
-	PageSize *int                `form:"page_size,omitempty" json:"page_size,omitempty"`
-}
-
 // ListStudentODRecordHistoryParams defines parameters for ListStudentODRecordHistory.
 type ListStudentODRecordHistoryParams struct {
 	Page     *int `form:"page,omitempty" json:"page,omitempty"`

@@ -30,6 +30,8 @@ export type ODRecordMutationResult = components['schemas']['ODRecordMutationResu
 export type AuditLogEntryCollection = components['schemas']['AuditLogEntryCollection']
 export type StudentRosterImportResult = components['schemas']['StudentRosterImportResult']
 export type StudentRosterImportError = components['schemas']['StudentRosterImportError']
+export type AttendanceImport = components['schemas']['AttendanceImport']
+export type AttendanceImportError = components['schemas']['AttendanceImportError']
 export type StudentCollection = components['schemas']['StudentCollection']
 export type ResolvedCardStudent = components['schemas']['ResolvedCardStudent']
 export type CardSeal = components['schemas']['CardSeal']
@@ -316,6 +318,25 @@ export function createEventApi(session: SessionPort) {
       return unwrap(await client.POST('/api/v1/admin/students/import', {
         body: { file: file.name },
         bodySerializer: () => body,
+      }))
+    },
+    async createAttendanceImport(eventID: string, file: File) {
+      const body = new FormData()
+      body.append('file', file)
+      return unwrap(await client.POST('/api/v1/admin/events/{event_id}/attendance/imports', {
+        params: { path: { event_id: eventID } },
+        body: { file: file.name },
+        bodySerializer: () => body,
+      }))
+    },
+    async attendanceImport(eventID: string, importID: string) {
+      return unwrap(await client.GET('/api/v1/admin/events/{event_id}/attendance/imports/{import_id}', {
+        params: { path: { event_id: eventID, import_id: importID } },
+      }))
+    },
+    async attendanceImportErrors(eventID: string, importID: string) {
+      return unwrap(await client.GET('/api/v1/admin/events/{event_id}/attendance/imports/{import_id}/errors', {
+        params: { path: { event_id: eventID, import_id: importID } },
       }))
     },
     /**

@@ -54,6 +54,8 @@ const (
 	ActionCoordinatorAssigned     Action = "coordinator.assigned"
 	ActionCaptureCreditCapChanged Action = "capture_credit.cap_changed"
 	ActionCaptureCreditReset      Action = "capture_credit.reset"
+	ActionAttendanceImportRequested Action = "attendance_import.requested"
+	ActionAttendanceImportCompleted Action = "attendance_import.completed"
 )
 
 // AllActions is the canonical registry-of-record: every declared Action, in
@@ -81,6 +83,8 @@ var AllActions = []Action{
 	ActionCoordinatorAssigned,
 	ActionCaptureCreditCapChanged,
 	ActionCaptureCreditReset,
+	ActionAttendanceImportRequested,
+	ActionAttendanceImportCompleted,
 }
 
 // registeredActions is the O(1) lookup set DERIVED from AllActions, so it can

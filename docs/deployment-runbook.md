@@ -42,10 +42,20 @@ The current deploy is on `sin` for that reason; move it back to `bom` once Mumba
 > **`us-east-1` (Virginia)** — visible in the DSN host, `…us-east-1.aws.neon.tech`. Every query the
 > API makes therefore crosses the Pacific *and* most of a continent.
 >
-> Measured against the live deployment, 2026-08-09: a request that touches no database answers in
-> **~150 ms**; `/health`, which does nothing but ping the pool, takes **0.4–1.4 s**; the public
-> reads take **0.4–1.5 s**. The gap is one trans-Pacific round trip per query, ~220 ms, paid again
-> for each one.
+> Measured against the live deployment, 2026-08-09 (15 samples each, from Coimbatore):
+>
+> | Request | Median |
+> |---|---|
+> | A read served from the in-process cache (`/api/v1/public/events`) | **0.157 s** |
+> | `/health` — one database ping, nothing else | **0.639 s** |
+>
+> The floor is ~0.150 s, which is this network to Singapore. **So roughly half a second of every
+> uncached request is the database round trip alone**, and it is paid again for each query a
+> handler makes.
+>
+> That gap is also the clearest evidence the caching layer works: it takes a repeat public read
+> from 0.639 s to 0.157 s — the network floor — by removing the ocean from the path entirely. What
+> it cannot do is remove it from the FIRST read, or from any write.
 >
 > This is the single largest latency cost in the system, and it is larger than everything the
 > caching layer can recover — the cache removes *repeat* queries, not the first one. It also lands

@@ -3,6 +3,7 @@ import type { Identity } from '../../api/client'
 import { ThemeToggle } from '../../components/ThemeToggle'
 import { ApiFailure, createEventApi } from '../../api/client'
 import type { SessionPort } from './session'
+import { hasPendingAuthCallback } from './callback'
 import { AuthContext, useAuth, type AuthState } from './context'
 
 export function AuthProvider({ children, session }: { children: ReactNode; session: SessionPort }) {
@@ -65,6 +66,18 @@ export function AuthProvider({ children, session }: { children: ReactNode; sessi
 }
 
 /**
+ * The "we do not know yet" state, shared by every gate.
+ *
+ * One component rather than the same markup in each caller, so the whole app
+ * agrees on what waiting looks like — and so RoleLanding, which decides where to
+ * send someone, cannot render a DIFFERENT waiting state from the boundary that
+ * then receives them.
+ */
+export function SessionLoading() {
+  return <main className="center-state"><p role="status">Checking your session…</p></main>
+}
+
+/**
  * The university lockup that heads every signed-out surface, plus the theme
  * control — these cards have no chrome of their own, so without it the toggle
  * would be unreachable for anyone who is not signed in.
@@ -103,8 +116,8 @@ export function SessionBoundary({
   allowedRoles?: readonly string[]
 }) {
   const auth = useAuth()
-  if (auth.loading) {
-    return <main className="center-state"><p role="status">Checking your session…</p></main>
+  if (auth.loading || (!auth.identity && hasPendingAuthCallback())) {
+    return <SessionLoading />
   }
   if (auth.error) {
     return (

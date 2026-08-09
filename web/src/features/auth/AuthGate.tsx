@@ -5,6 +5,7 @@ import { ApiFailure, createEventApi } from '../../api/client'
 import type { SessionPort } from './session'
 import { hasPendingAuthCallback } from './callback'
 import { clearPersistedState } from '../persistence/sessionState'
+import { clearOfflineQueue } from '../../lib/offline/storage'
 import { LoadingScreen } from '../../components/ui/Spinner'
 import { AuthContext, useAuth, type AuthState } from './context'
 
@@ -38,6 +39,7 @@ export function AuthProvider({ children, session }: { children: ReactNode; sessi
     try {
       const token = await session.accessToken()
       if (!token) {
+        await clearOfflineQueue().catch(() => undefined)
         setIdentity(null)
         return
       }
@@ -87,6 +89,7 @@ export function AuthProvider({ children, session }: { children: ReactNode; sessi
     },
     async signOut() {
       await session.signOut()
+      await clearOfflineQueue().catch(() => undefined)
       // A coordinator's phone is passed around during an event, so the next
       // person to sign in must not inherit the previous one's screen — including
       // the card populator's per-student progress.

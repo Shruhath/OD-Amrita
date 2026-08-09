@@ -1,8 +1,9 @@
-import { lazy, Suspense } from 'react'
+import { lazyRoute } from '../lazyRoute'
+import { Suspense } from 'react'
 import { LoadingScreen } from '../../components/ui/Spinner'
 import { SessionBoundary } from '../../features/auth/AuthGate'
 
-const MarkScreen = lazy(() => import('./MarkScreen'))
+const MarkScreen = lazyRoute(() => import('./MarkScreen'))
 
 /**
  * The `/mark` route.

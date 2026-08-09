@@ -1,8 +1,9 @@
-import { lazy, Suspense } from 'react'
+import { lazyRoute } from '../../lazyRoute'
+import { Suspense } from 'react'
 import { SessionBoundary } from '../../../features/auth/AuthGate'
 import { LoadingScreen } from '../../../components/ui/Spinner'
 
-const TeachersPortal = lazy(() => import('./TeachersPortal'))
+const TeachersPortal = lazyRoute(() => import('./TeachersPortal'))
 
 export default function TeachersRoute() {
   return (

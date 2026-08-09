@@ -1,4 +1,5 @@
 import { createBrowserRouter, createMemoryRouter } from 'react-router-dom'
+import RouteError from './routes/RouteError'
 import MarkRoute from './routes/mark/MarkRoute'
 import PublicAttendanceRoute from './routes/public/PublicAttendanceRoute'
 import RoleLanding from './routes/RoleLanding'
@@ -36,12 +37,22 @@ const routes = [
   { path: '*', Component: RoleLanding },
 ]
 
-export const createPortalBrowserRouter = () => createBrowserRouter(routes)
+/**
+ * Every route carries the same error element.
+ *
+ * Without one, React Router renders its own developer fallback — the "Hey
+ * developer 👋" page — and that was reaching students on the public dashboard
+ * whenever a screen's code failed to download. Applied here rather than written
+ * into each entry above so a route added later cannot be the one that forgets.
+ */
+const guarded = routes.map((route) => ({ ...route, errorElement: <RouteError /> }))
+
+export const createPortalBrowserRouter = () => createBrowserRouter(guarded)
 
 // initialEntries is parameterized for the browser-integration harness, which is
 // served from a single static entry point and therefore cannot use a browser
 // router: it needs to open (and, after a reload, reopen) a deep route.
 export const createPortalMemoryRouter = (initialEntries: string[] = ['/portal/events']) =>
-  createMemoryRouter(routes, { initialEntries })
+  createMemoryRouter(guarded, { initialEntries })
 
 export type PortalRouter = ReturnType<typeof createPortalBrowserRouter>

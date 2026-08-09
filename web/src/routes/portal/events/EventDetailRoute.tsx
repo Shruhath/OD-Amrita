@@ -1,9 +1,10 @@
-import { lazy, Suspense } from 'react'
+import { lazyRoute } from '../../lazyRoute'
+import { Suspense } from 'react'
 import { useParams } from 'react-router-dom'
 import { SessionBoundary } from '../../../features/auth/AuthGate'
 import { LoadingScreen } from '../../../components/ui/Spinner'
 
-const EventDetailPortal = lazy(() => import('./EventDetailPortal'))
+const EventDetailPortal = lazyRoute(() => import('./EventDetailPortal'))
 
 export default function EventDetailRoute() {
   const { event_id: eventID = '' } = useParams()

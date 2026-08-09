@@ -251,6 +251,9 @@ func main() {
 	markAPI.Use(rbac.RequirePrincipal(principalLoader))
 	handlerodrecord.RegisterRoutes(markAPI, markService)
 	handlerodrecord.RegisterPortalMarkRoutes(markAPI, portalMarkReads)
+	// Mirrors cmd/api: the teacher-reachable live attendance read. A harness that
+	// omits a production route is a harness whose green means less than it looks.
+	handlerodrecord.RegisterPortalAttendanceRoutes(markAPI, portalMarkReads)
 	handlerdispute.RegisterRoutes(markAPI, disputeService)
 	// Shared with cmd/api, exactly like the admin routes below: a harness that
 	// mounts the marking reads on a different group than production turns a real

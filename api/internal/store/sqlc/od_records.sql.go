@@ -36,11 +36,30 @@ func (q *Queries) AdminCanSearchMark(ctx context.Context, arg AdminCanSearchMark
 const countAttendanceRecords = `-- name: CountAttendanceRecords :one
 SELECT count(*)::bigint
 FROM od_records r
+JOIN students s ON s.id = r.student_id
 WHERE r.event_id = $1
   AND r.status = 'present'
   AND ($2::uuid IS NULL OR r.category_id = $2)
   AND ($3::integer IS NULL OR r.slot = $3)
   AND ($4::date IS NULL OR r.od_date = $4)
+  AND (
+      -- BRANCH SCOPE. NULL means "no scoping", which is the admin view. A
+      -- teacher passes their own id and sees only students in the branches they
+      -- teach, matching the rule that already governs which students they may
+      -- MARK — a teacher who cannot mark a student has no reason to read that
+      -- student's record either.
+      --
+      -- One query with an optional predicate rather than two, so the admin and
+      -- teacher views can never drift in their ordering, their filters or their
+      -- definition of "present".
+      $5::uuid IS NULL
+      OR EXISTS (
+          SELECT 1
+          FROM user_branches ub
+          WHERE ub.user_id = $5
+            AND ub.branch_id = s.branch_id
+      )
+  )
 `
 
 type CountAttendanceRecordsParams struct {
@@ -48,14 +67,18 @@ type CountAttendanceRecordsParams struct {
 	CategoryID pgtype.UUID `json:"category_id"`
 	Slot       pgtype.Int4 `json:"slot"`
 	OdDate     pgtype.Date `json:"od_date"`
+	ViewerID   pgtype.UUID `json:"viewer_id"`
 }
 
+// Joined solely for the branch scope below. The count MUST see exactly the rows
+// the list sees, or a scoped teacher gets a page count for somebody else's data.
 func (q *Queries) CountAttendanceRecords(ctx context.Context, arg CountAttendanceRecordsParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countAttendanceRecords,
 		arg.EventID,
 		arg.CategoryID,
 		arg.Slot,
 		arg.OdDate,
+		arg.ViewerID,
 	)
 	var column_1 int64
 	err := row.Scan(&column_1)
@@ -302,8 +325,26 @@ WHERE r.event_id = $1
   AND ($2::uuid IS NULL OR r.category_id = $2)
   AND ($3::integer IS NULL OR r.slot = $3)
   AND ($4::date IS NULL OR r.od_date = $4)
+  AND (
+      -- BRANCH SCOPE. NULL means "no scoping", which is the admin view. A
+      -- teacher passes their own id and sees only students in the branches they
+      -- teach, matching the rule that already governs which students they may
+      -- MARK — a teacher who cannot mark a student has no reason to read that
+      -- student's record either.
+      --
+      -- One query with an optional predicate rather than two, so the admin and
+      -- teacher views can never drift in their ordering, their filters or their
+      -- definition of "present".
+      $5::uuid IS NULL
+      OR EXISTS (
+          SELECT 1
+          FROM user_branches ub
+          WHERE ub.user_id = $5
+            AND ub.branch_id = s.branch_id
+      )
+  )
 ORDER BY r.od_date DESC, r.slot ASC, r.server_received_at DESC, s.roll_no ASC, r.id ASC
-LIMIT $6::bigint OFFSET $5::bigint
+LIMIT $7::bigint OFFSET $6::bigint
 `
 
 type ListAttendanceRecordsParams struct {
@@ -311,6 +352,7 @@ type ListAttendanceRecordsParams struct {
 	CategoryID pgtype.UUID `json:"category_id"`
 	Slot       pgtype.Int4 `json:"slot"`
 	OdDate     pgtype.Date `json:"od_date"`
+	ViewerID   pgtype.UUID `json:"viewer_id"`
 	PageOffset int64       `json:"page_offset"`
 	PageSize   int64       `json:"page_size"`
 }
@@ -343,6 +385,7 @@ func (q *Queries) ListAttendanceRecords(ctx context.Context, arg ListAttendanceR
 		arg.CategoryID,
 		arg.Slot,
 		arg.OdDate,
+		arg.ViewerID,
 		arg.PageOffset,
 		arg.PageSize,
 	)

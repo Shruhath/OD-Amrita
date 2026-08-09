@@ -121,17 +121,57 @@ WHERE r.event_id = @event_id
   AND (sqlc.narg('category_id')::uuid IS NULL OR r.category_id = sqlc.narg('category_id'))
   AND (sqlc.narg('slot')::integer IS NULL OR r.slot = sqlc.narg('slot'))
   AND (sqlc.narg('od_date')::date IS NULL OR r.od_date = sqlc.narg('od_date'))
+  AND (
+      -- BRANCH SCOPE. NULL means "no scoping", which is the admin view. A
+      -- teacher passes their own id and sees only students in the branches they
+      -- teach, matching the rule that already governs which students they may
+      -- MARK — a teacher who cannot mark a student has no reason to read that
+      -- student's record either.
+      --
+      -- One query with an optional predicate rather than two, so the admin and
+      -- teacher views can never drift in their ordering, their filters or their
+      -- definition of "present".
+      sqlc.narg('viewer_id')::uuid IS NULL
+      OR EXISTS (
+          SELECT 1
+          FROM user_branches ub
+          WHERE ub.user_id = sqlc.narg('viewer_id')
+            AND ub.branch_id = s.branch_id
+      )
+  )
 ORDER BY r.od_date DESC, r.slot ASC, r.server_received_at DESC, s.roll_no ASC, r.id ASC
 LIMIT @page_size::bigint OFFSET @page_offset::bigint;
 
 -- name: CountAttendanceRecords :one
 SELECT count(*)::bigint
 FROM od_records r
+-- Joined solely for the branch scope below. The count MUST see exactly the rows
+-- the list sees, or a scoped teacher gets a page count for somebody else's data.
+JOIN students s ON s.id = r.student_id
 WHERE r.event_id = @event_id
   AND r.status = 'present'
   AND (sqlc.narg('category_id')::uuid IS NULL OR r.category_id = sqlc.narg('category_id'))
   AND (sqlc.narg('slot')::integer IS NULL OR r.slot = sqlc.narg('slot'))
-  AND (sqlc.narg('od_date')::date IS NULL OR r.od_date = sqlc.narg('od_date'));
+  AND (sqlc.narg('od_date')::date IS NULL OR r.od_date = sqlc.narg('od_date'))
+  AND (
+      -- BRANCH SCOPE. NULL means "no scoping", which is the admin view. A
+      -- teacher passes their own id and sees only students in the branches they
+      -- teach, matching the rule that already governs which students they may
+      -- MARK — a teacher who cannot mark a student has no reason to read that
+      -- student's record either.
+      --
+      -- One query with an optional predicate rather than two, so the admin and
+      -- teacher views can never drift in their ordering, their filters or their
+      -- definition of "present".
+      sqlc.narg('viewer_id')::uuid IS NULL
+      OR EXISTS (
+          SELECT 1
+          FROM user_branches ub
+          WHERE ub.user_id = sqlc.narg('viewer_id')
+            AND ub.branch_id = s.branch_id
+      )
+  )
+;
 
 -- name: ListPublicStudentODRecords :many
 -- One student's present OD records for the UNAUTHENTICATED public dashboard

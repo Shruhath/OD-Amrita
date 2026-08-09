@@ -108,9 +108,30 @@ func (s *PortalMarkReadService) Categories(ctx context.Context, actor Actor, eve
 // odDate must return every day: every caller written before the range existed
 // passes nil, and defaulting to today would silently hide the rest of a
 // festival from the surface whose whole job is to show it.
+// Attendance reads an event's present marks for review.
+//
+// SCOPED BY THE CALLER'S ROLE, not by the route that reached it. An admin sees
+// the whole event. A TEACHER sees only students in the branches they teach —
+// the same rule that already decides which students they may mark, because a
+// teacher who cannot mark a student has no reason to read that student's record
+// either. The scope is applied in the QUERY rather than by filtering rows here,
+// so the total and the page are counted over the same set: filtering after the
+// fact would page a teacher through somebody else's data and report a total
+// that does not match what they can see.
 func (s *PortalMarkReadService) Attendance(ctx context.Context, actor Actor, eventID string, categoryID *string, slot *int, odDate *string, page, pageSize int) (AttendancePage, error) {
+	if err := assertTeacherOrAdmin(actor); err != nil {
+		return AttendancePage{}, err
+	}
+
+	// The viewer id is what turns the scope on. It stays NULL for an admin,
+	// which is the unscoped read the admin route has always returned.
+	var viewer pgtype.UUID
 	if actor.Role != "admin" {
-		return AttendancePage{}, forbiddenPortal("Administrator access is required for attendance review.")
+		viewerID, parseErr := uuid.Parse(strings.TrimSpace(actor.UserID))
+		if parseErr != nil {
+			return AttendancePage{}, forbiddenPortal("Teacher principal is invalid.")
+		}
+		viewer = dbUUID(viewerID)
 	}
 
 	parsedEvent, err := uuid.Parse(strings.TrimSpace(eventID))
@@ -160,6 +181,7 @@ func (s *PortalMarkReadService) Attendance(ctx context.Context, actor Actor, eve
 		CategoryID: parsedCategory,
 		Slot:       parsedSlot,
 		OdDate:     parsedODDate,
+		ViewerID:   viewer,
 	})
 	if err != nil {
 		return AttendancePage{}, err
@@ -169,6 +191,7 @@ func (s *PortalMarkReadService) Attendance(ctx context.Context, actor Actor, eve
 		CategoryID: parsedCategory,
 		Slot:       parsedSlot,
 		OdDate:     parsedODDate,
+		ViewerID:   viewer,
 		PageOffset: int64((page - 1) * pageSize),
 		PageSize:   int64(pageSize),
 	})

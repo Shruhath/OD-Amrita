@@ -5,6 +5,7 @@ import PublicAttendanceRoute from './routes/public/PublicAttendanceRoute'
 import RoleLanding from './routes/RoleLanding'
 import CardPopulatorRoute from './routes/portal/card-populator/CardPopulatorRoute'
 import EventsRoute from './routes/portal/events/EventsRoute'
+import LiveRoute from './routes/portal/live/LiveRoute'
 import EventDetailRoute from './routes/portal/events/EventDetailRoute'
 import TeacherAdminMarkRoute from './routes/portal/mark/TeacherAdminMarkRoute'
 import DisputesRoute from './routes/portal/disputes/DisputesRoute'
@@ -17,6 +18,8 @@ const routes = [
   // credit configuration both need this route, which is why the categories live
   // here rather than in an expandable list row.
   { path: '/portal/events/:event_id', Component: EventDetailRoute },
+  // The teacher/admin live view of the day's marks.
+  { path: '/portal/live', Component: LiveRoute },
   { path: '/portal/mark', Component: TeacherAdminMarkRoute },
   { path: '/portal/disputes', Component: DisputesRoute },
   { path: '/portal/teachers', Component: TeachersRoute },

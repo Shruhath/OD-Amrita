@@ -25,9 +25,28 @@ func RegisterAdminAttendanceRoutes(group gin.IRouter, svc AttendanceService) {
 	group.GET("/events/:event_id/attendance", AttendanceHandler(svc))
 }
 
+// RegisterPortalAttendanceRoutes mounts the TEACHER-reachable sibling of the
+// route above, on the authenticated group rather than the admin one.
+//
+// A separate registration with its own actor extractor, deliberately — and it is
+// the reason the admin gate lives in the extractor rather than in the handler.
+// The two routes differ ONLY in who may reach them; the service then scopes what
+// each of them sees. Reusing the admin extractor here would 403 every teacher,
+// and widening it would open the admin route to teachers.
+func RegisterPortalAttendanceRoutes(group gin.IRouter, svc AttendanceService) {
+	group.GET("/portal/mark/events/:event_id/attendance", attendanceHandler(svc, portalAttendanceActor))
+}
+
 func AttendanceHandler(svc AttendanceService) gin.HandlerFunc {
+	return attendanceHandler(svc, adminAttendanceActor)
+}
+
+// attendanceHandler is the shared body. The actor extractor is the only seam, so
+// the two routes cannot drift in their filters, their validation or their
+// response shape — only in who is admitted.
+func attendanceHandler(svc AttendanceService, actorOf func(*gin.Context) (marking.Actor, error)) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		actor, err := adminAttendanceActor(c)
+		actor, err := actorOf(c)
 		if err != nil {
 			fail(c, err)
 			return
@@ -99,6 +118,20 @@ func AttendanceHandler(svc AttendanceService) gin.HandlerFunc {
 			Total:    pageData.Total,
 		})
 	}
+}
+
+// portalAttendanceActor admits a teacher OR an admin. What each of them then
+// SEES is decided by the service, which scopes a teacher to their own branches;
+// this only decides who gets through the door.
+func portalAttendanceActor(c *gin.Context) (marking.Actor, error) {
+	actor, err := actorFromContext(c)
+	if err != nil {
+		return marking.Actor{}, err
+	}
+	if actor.Role != "admin" && actor.Role != "teacher" {
+		return marking.Actor{}, domain.DomainError{Code: contracts.ErrorCodeRBACFORBIDDEN, Message: "Teacher or administrator access is required for attendance review."}
+	}
+	return marking.Actor{UserID: actor.UserID, Email: actor.Email, Role: actor.Role}, nil
 }
 
 func adminAttendanceActor(c *gin.Context) (marking.Actor, error) {

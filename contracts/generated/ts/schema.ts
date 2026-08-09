@@ -264,6 +264,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/mark/events/{event_id}/attendance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List present attendance records the caller may review
+         * @description The teacher/admin live view of an event's marks. A SIBLING of `/api/v1/admin/events/{event_id}/attendance`, never a replacement: this one is BRANCH-SCOPED for a teacher, returning only records for students in the branches they teach, which is the same rule that decides which students they may mark. A teacher who cannot mark a student has no reason to read that student's record either. An admin is unscoped here and sees exactly what the admin route returns.
+         */
+        get: operations["listPortalMarkEventAttendance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/events": {
         parameters: {
             query?: never;
@@ -2084,6 +2104,80 @@ export interface operations {
                 };
             };
             /** @description Administrator access is required. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listPortalMarkEventAttendance: {
+        parameters: {
+            query?: {
+                category_id?: string;
+                slot?: number;
+                /** @description Narrow the list to one day. The live view sends today by default, which is the question this screen exists to answer. */
+                od_date?: string;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of attendance rows the caller may review. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceRecordCollection"];
+                };
+            };
+            /** @description Invalid filter or pagination value. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Teacher or administrator access is required. */
             403: {
                 headers: {
                     [name: string]: unknown;

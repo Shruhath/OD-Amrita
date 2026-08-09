@@ -394,6 +394,29 @@ export function createEventApi(session: SessionPort) {
         params: { query: { event_id: eventID, category_id: categoryID } },
       }))
     },
+    /**
+     * The TEACHER-reachable live attendance read.
+     *
+     * A sibling of adminAttendance, not a replacement: this one is branch-scoped
+     * for a teacher by the server, so calling the admin route from the live
+     * screen would 403 every teacher on it.
+     */
+    async portalAttendance(
+      eventID: string,
+      filters: { categoryID?: string; slot?: number; odDate?: string; page?: number; pageSize?: number } = {},
+    ) {
+      const query: Record<string, string | number> = {
+        page: filters.page ?? 1,
+        page_size: filters.pageSize ?? 50,
+      }
+      if (filters.categoryID) query.category_id = filters.categoryID
+      if (filters.slot !== undefined) query.slot = filters.slot
+      if (filters.odDate) query.od_date = filters.odDate
+      return unwrap(await client.GET('/api/v1/portal/mark/events/{event_id}/attendance', {
+        params: { path: { event_id: eventID }, query },
+      }))
+    },
+
     async adminAttendance(
       eventID: string,
       filters: { categoryID?: string; slot?: number; odDate?: string; page?: number; pageSize?: number } = {},

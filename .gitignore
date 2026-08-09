@@ -78,3 +78,4 @@ old-od-app
 # It was committed by accident on 2026-08-09 and untracked again; docs/deployment-runbook.md
 # is the reference that belongs here.
 docs/deploy-walkthrough.md
+tmp/

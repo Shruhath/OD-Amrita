@@ -12,6 +12,7 @@ CREATE INDEX scan_idempotency_keys_created_at_idx
     ON scan_idempotency_keys (created_at);
 
 GRANT SELECT, INSERT ON scan_idempotency_keys TO od_runtime;
+REVOKE UPDATE ON scan_idempotency_keys FROM od_runtime;
 
 -- +goose Down
 

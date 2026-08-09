@@ -73,6 +73,12 @@ var runtimePrivileges = map[string][]string{
 	"attendance_exports":     {"SELECT", "INSERT", "UPDATE"},
 	"scan_post_processings":  {"SELECT", "INSERT", "UPDATE"},
 	"event_closeouts":        {"SELECT", "INSERT", "UPDATE"},
+
+	// River queue state
+	"river_job":          {"SELECT", "INSERT", "UPDATE", "DELETE"},
+	"river_leader":       {"SELECT", "INSERT", "UPDATE", "DELETE"},
+	"river_queue":        {"SELECT", "INSERT", "UPDATE", "DELETE"},
+	"river_notification": {"SELECT", "INSERT", "UPDATE", "DELETE"},
 }
 
 // gooseBookkeeping is goose's own version table. It is created by od_migrator and

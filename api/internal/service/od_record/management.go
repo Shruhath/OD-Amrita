@@ -39,9 +39,15 @@ type CorrectionInput struct {
 }
 
 type ManagementRecord struct {
-	RecordID string `json:"record_id"`
-	EventID  string `json:"event_id"`
-	Status   string `json:"status"`
+	RecordID    string
+	EventID     string
+	CategoryID  string
+	Slot        int
+	ODDate      string
+	Status      string
+	ReasonNote  *string
+	ActorUserID *string
+	ActorRole   string
 }
 
 type AuditEntry struct {
@@ -59,7 +65,7 @@ func (s *ManagementService) Audit(ctx context.Context, actor Actor, recordIDText
 	}
 	// Audit remains available after a soft removal. A removed row is precisely
 	// when its history is most useful; only correction/removal reject it.
-	if _, err := s.readManageableRecord(ctx, s.queries, actor, recordID, false); err != nil {
+	if _, err := s.readManageableRecord(ctx, s.queries, actor, recordID); err != nil {
 		return nil, err
 	}
 	rows, err := s.queries.ListAuditLogForRecord(ctx, pgtype.Text{String: recordID.String(), Valid: true})
@@ -137,9 +143,9 @@ func (s *ManagementService) Correct(ctx context.Context, actor Actor, input Corr
 			ActorUserID: dbUUID(actorID), ActorRole: actor.Role,
 		})
 		if writeErr != nil {
-			return false, mapPgError(writeErr)
+			return false, mapWriteError(mapPgError(writeErr))
 		}
-		result = ManagementRecord{RecordID: uuid.UUID(row.ID.Bytes).String(), EventID: uuid.UUID(row.EventID.Bytes).String(), Status: row.Status}
+		result = managementRecordFromCorrectRow(row)
 		return true, nil
 	})
 	if err != nil {
@@ -191,15 +197,59 @@ func (s *ManagementService) Remove(ctx context.Context, actor Actor, recordIDTex
 			ActorUserID: dbUUID(actorID), ActorRole: actor.Role,
 		})
 		if writeErr != nil {
-			return false, mapPgError(writeErr)
+			return false, mapWriteError(mapPgError(writeErr))
 		}
-		result = ManagementRecord{RecordID: uuid.UUID(row.ID.Bytes).String(), EventID: uuid.UUID(row.EventID.Bytes).String(), Status: row.Status}
+		result = managementRecordFromRemoveRow(row)
 		return true, nil
 	})
 	if err != nil {
 		return ManagementRecord{}, err
 	}
 	return result, nil
+}
+
+func managementRecordFromCorrectRow(row sqlc.CorrectODRecordRow) ManagementRecord {
+	return ManagementRecord{
+		RecordID:    uuid.UUID(row.ID.Bytes).String(),
+		EventID:     uuid.UUID(row.EventID.Bytes).String(),
+		CategoryID:  uuid.UUID(row.CategoryID.Bytes).String(),
+		Slot:        int(row.Slot),
+		ODDate:      row.OdDate.Time.Format(time.DateOnly),
+		Status:      row.Status,
+		ReasonNote:  nullableTextPtr(row.ReasonNote),
+		ActorUserID: managementActorUserID(row.ActorUserID),
+		ActorRole:   row.ActorRole,
+	}
+}
+
+func managementRecordFromRemoveRow(row sqlc.RemoveODRecordRow) ManagementRecord {
+	return ManagementRecord{
+		RecordID:    uuid.UUID(row.ID.Bytes).String(),
+		EventID:     uuid.UUID(row.EventID.Bytes).String(),
+		CategoryID:  uuid.UUID(row.CategoryID.Bytes).String(),
+		Slot:        int(row.Slot),
+		ODDate:      row.OdDate.Time.Format(time.DateOnly),
+		Status:      row.Status,
+		ReasonNote:  nullableTextPtr(row.ReasonNote),
+		ActorUserID: managementActorUserID(row.ActorUserID),
+		ActorRole:   row.ActorRole,
+	}
+}
+
+func managementActorUserID(value pgtype.UUID) *string {
+	if !value.Valid {
+		return nil
+	}
+	id := uuid.UUID(value.Bytes).String()
+	return &id
+}
+
+func nullableTextPtr(value pgtype.Text) *string {
+	if !value.Valid {
+		return nil
+	}
+	text := value.String
+	return &text
 }
 
 func managementActorAndID(actor Actor, rawID string) (uuid.UUID, error) {
@@ -213,7 +263,7 @@ func managementActorAndID(actor Actor, rawID string) (uuid.UUID, error) {
 	return recordID, nil
 }
 
-func (s *ManagementService) readManageableRecord(ctx context.Context, queries *sqlc.Queries, actor Actor, recordID uuid.UUID, requirePresent bool) (sqlc.GetODRecordByIDRow, error) {
+func (s *ManagementService) readManageableRecord(ctx context.Context, queries *sqlc.Queries, actor Actor, recordID uuid.UUID) (sqlc.GetODRecordByIDRow, error) {
 	row, err := queries.GetODRecordByID(ctx, dbUUID(recordID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return row, domain.DomainError{Code: contracts.ErrorCodeODRECORDNOTFOUND, Message: "OD record was not found."}
@@ -221,9 +271,16 @@ func (s *ManagementService) readManageableRecord(ctx context.Context, queries *s
 	if err != nil {
 		return row, err
 	}
-	return s.authorizeManagementRecord(ctx, queries, actor, recordID, row, requirePresent)
+	if authErr := assertTeacherManagesRecord(ctx, queries, actor, recordID); authErr != nil {
+		return row, authErr
+	}
+	return row, nil
 }
 
+// lockManageableRecord resolves and row-locks the target record for a write.
+// RBAC runs before the terminal-status check so a caller with no authority
+// over the record always sees a uniform RBAC_FORBIDDEN — never learning
+// whether an out-of-scope record exists or has already been removed.
 func (s *ManagementService) lockManageableRecord(ctx context.Context, queries *sqlc.Queries, actor Actor, recordID uuid.UUID) (sqlc.LockODRecordByIDRow, error) {
 	row, err := queries.LockODRecordByID(ctx, dbUUID(recordID))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -232,43 +289,34 @@ func (s *ManagementService) lockManageableRecord(ctx context.Context, queries *s
 	if err != nil {
 		return row, err
 	}
+	if authErr := assertTeacherManagesRecord(ctx, queries, actor, recordID); authErr != nil {
+		return row, authErr
+	}
 	if row.Status != "present" {
 		return row, domain.DomainError{Code: contracts.ErrorCodeODRECORDALREADYREMOVED, Message: "OD record has already been removed."}
-	}
-	if actor.Role == "teacher" {
-		userID, parseErr := uuid.Parse(strings.TrimSpace(actor.UserID))
-		if parseErr != nil {
-			return row, forbidden("Teacher principal is invalid.")
-		}
-		allowed, queryErr := queries.TeacherCanManageODRecord(ctx, sqlc.TeacherCanManageODRecordParams{UserID: dbUUID(userID), RecordID: dbUUID(recordID)})
-		if queryErr != nil {
-			return row, queryErr
-		}
-		if !allowed {
-			return row, forbidden("Teacher may manage only records in taught branches.")
-		}
 	}
 	return row, nil
 }
 
-func (s *ManagementService) authorizeManagementRecord(ctx context.Context, queries *sqlc.Queries, actor Actor, recordID uuid.UUID, row sqlc.GetODRecordByIDRow, requirePresent bool) (sqlc.GetODRecordByIDRow, error) {
-	if requirePresent && row.Status != "present" {
-		return row, domain.DomainError{Code: contracts.ErrorCodeODRECORDALREADYREMOVED, Message: "OD record has already been removed."}
+// assertTeacherManagesRecord is a no-op for admin (unconditional access, same
+// asymmetry as the rest of this codebase's RBAC checks). For a teacher it
+// confirms the record's student sits in a branch they teach.
+func assertTeacherManagesRecord(ctx context.Context, queries *sqlc.Queries, actor Actor, recordID uuid.UUID) error {
+	if actor.Role != "teacher" {
+		return nil
 	}
-	if actor.Role == "teacher" {
-		userID, parseErr := uuid.Parse(strings.TrimSpace(actor.UserID))
-		if parseErr != nil {
-			return row, forbidden("Teacher principal is invalid.")
-		}
-		allowed, queryErr := queries.TeacherCanManageODRecord(ctx, sqlc.TeacherCanManageODRecordParams{UserID: dbUUID(userID), RecordID: dbUUID(recordID)})
-		if queryErr != nil {
-			return row, queryErr
-		}
-		if !allowed {
-			return row, forbidden("Teacher may manage only records in taught branches.")
-		}
+	userID, parseErr := uuid.Parse(strings.TrimSpace(actor.UserID))
+	if parseErr != nil {
+		return forbidden("Teacher principal is invalid.")
 	}
-	return row, nil
+	allowed, queryErr := queries.TeacherCanManageODRecord(ctx, sqlc.TeacherCanManageODRecordParams{UserID: dbUUID(userID), RecordID: dbUUID(recordID)})
+	if queryErr != nil {
+		return queryErr
+	}
+	if !allowed {
+		return forbidden("Teacher may manage only records in taught branches.")
+	}
+	return nil
 }
 
 func assertActiveEventWith(ctx context.Context, queries *sqlc.Queries, eventID pgtype.UUID) error {

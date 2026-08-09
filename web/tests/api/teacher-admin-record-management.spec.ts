@@ -1,19 +1,31 @@
 import { expect, test, type APIResponse } from '@playwright/test'
 
 /**
- * ATDD RED PHASE — Story 0.12b teacher/admin OD record management.
+ * Story 0.12b teacher/admin OD record management — request-level API tests.
  *
- * These request-level acceptance scaffolds remain skipped until the five portal
- * routes and their portal-harness fixtures exist. They deliberately call the
- * API directly: browser-flow coverage belongs in the separate E2E scaffold.
+ * Moved here from tests/e2e/ during code review: that directory is matched by
+ * playwright.config.ts's browser project (webServer = `pnpm dev`, no portal
+ * API), so this file could never have run there no matter what fixtures
+ * existed. tests/api/ is the config wired to the real portal binary + real
+ * Postgres (playwright.api.config.ts, workers: 1, fullyParallel: false) — see
+ * .github/workflows/web-deploy.yml's portal-integration job. These tests
+ * deliberately call the API directly: browser-flow coverage lives in the
+ * separate, mocked web/tests/e2e/teacher-admin-record-management.spec.ts.
  *
- * Required portal-harness setup:
+ * Portal-harness fixtures: api/test/portal/main.go's seedRecordManagementJourney.
  * - teacher token belongs only to BRANCH_CSE; admin is global; student is denied.
  * - MANAGED_EVENT_ID spans 2026-08-10..2026-09-08 and is active.
  * - each fixture record exists before its named test and is isolated by record id.
- * - CROSS_BRANCH_* rows belong to BRANCH_ECE, never to the teacher's CSE branch.
+ * - CROSS_BRANCH_RECORD_ID belongs to BRANCH_ECE under a SEPARATE, ARCHIVED
+ *   event, never the teacher's CSE branch or the active managed event.
  * - REMOVABLE_RECORD_ID starts present and has a free re-mark path after removal.
- * - DUPLICATE_TARGET_RECORD_ID starts present in the target tuple.
+ * - DUPLICATE_TARGET_RECORD_ID starts present, sharing CORRECTABLE_RECORD_ID's
+ *   student, at the slot the correction test moves into on purpose.
+ *
+ * Tests run SEQUENTIALLY against one seeded, mutable database (no per-test
+ * reset) — a later test may see an earlier test's write. Two case values below
+ * were corrected during review for exactly this reason: see the inline notes
+ * on "no effective field change" and "present-row duplicate".
  */
 const apiBaseURL = process.env.PORTAL_API_BASE_URL ?? 'http://127.0.0.1:8081'
 const teacherToken = 'portal-teacher-token'
@@ -30,7 +42,10 @@ const CORRECTABLE_RECORD_ID = '120b0000-0000-4000-8000-000000000007'
 const REMOVABLE_RECORD_ID = '120b0000-0000-4000-8000-000000000008'
 const REMOVED_RECORD_ID = '120b0000-0000-4000-8000-000000000009'
 const CROSS_BRANCH_RECORD_ID = '120b0000-0000-4000-8000-000000000010'
-const DUPLICATE_TARGET_RECORD_ID = '120b0000-0000-4000-8000-000000000011'
+// DUPLICATE_TARGET_RECORD_ID ('120b0000-0000-4000-8000-000000000011') is a
+// fixture only — nothing below asserts on its id directly, only on the
+// SCAN_DUPLICATE its occupied slot produces (see the "present-row duplicate"
+// case).
 const UNKNOWN_RECORD_ID = '120b0000-0000-4000-8000-000000000012'
 const IN_RANGE_OD_DATE = '2026-08-19'
 const OUT_OF_RANGE_OD_DATE = '2026-10-01'
@@ -51,8 +66,8 @@ async function expectError(response: APIResponse, status: number, code: string) 
   expect(body).toMatchObject({ code, message: expect.any(String) })
 }
 
-test.describe('Teacher and admin OD record management API (ATDD red phase)', () => {
-  test.skip('[P0] teacher lists only its branch records with event, category, slot, day, section, and coordinator filters', async ({ request }) => {
+test.describe('Teacher and admin OD record management API', () => {
+  test('[P0] teacher lists only its branch records with event, category, slot, day, section, and coordinator filters', async ({ request }) => {
     const response = await request.get(
       apiBaseURL + '/api/v1/portal/events/' + MANAGED_EVENT_ID + '/records?category_id=' + CSE_CATEGORY_ID + '&slot=6&od_date=' + IN_RANGE_OD_DATE + '&section=A&actor_user_id=' + COORDINATOR_USER_ID + '&page=1&page_size=20',
       { headers: headers(teacherToken) },
@@ -88,7 +103,7 @@ test.describe('Teacher and admin OD record management API (ATDD red phase)', () 
     expect(body.data.some((record) => record.student.branch === 'ECE')).toBeFalsy()
   })
 
-  test.skip('[P0] admin lists filtered records across branches and includes removed records with nullable historical reasons', async ({ request }) => {
+  test('[P0] admin lists filtered records across branches and includes removed records with nullable historical reasons', async ({ request }) => {
     const response = await request.get(
       apiBaseURL + '/api/v1/portal/events/' + MANAGED_EVENT_ID + '/records?od_date=' + IN_RANGE_OD_DATE + '&page=1&page_size=100',
       { headers: headers(adminToken) },
@@ -110,7 +125,7 @@ test.describe('Teacher and admin OD record management API (ATDD red phase)', () 
     expect(body.data.every((record) => record.status === 'present' || record.status === 'removed')).toBeTruthy()
   })
 
-  test.skip('[P0] teacher reads complete OD history for an in-branch student, including removed rows and actor identity', async ({ request }) => {
+  test('[P0] teacher reads complete OD history for an in-branch student, including removed rows and actor identity', async ({ request }) => {
     const response = await request.get(
       apiBaseURL + '/api/v1/portal/students/' + CSE_STUDENT_ID + '/od-records?page=1&page_size=100',
       { headers: headers(teacherToken) },
@@ -143,7 +158,7 @@ test.describe('Teacher and admin OD record management API (ATDD red phase)', () 
     ]))
   })
 
-  test.skip('[P0] admin corrects slot, category, and OD day in place with a mandatory reason and a stable record id', async ({ request }) => {
+  test('[P0] admin corrects slot, category, and OD day in place with a mandatory reason and a stable record id', async ({ request }) => {
     const response = await request.post(
       apiBaseURL + '/api/v1/portal/records/' + CORRECTABLE_RECORD_ID + '/correction',
       {
@@ -180,7 +195,7 @@ test.describe('Teacher and admin OD record management API (ATDD red phase)', () 
     })
   })
 
-  test.skip('[P0] correction rejects missing reasons, no-op payloads, duplicate slots, out-of-range days, archived events, and terminal rows with typed errors', async ({ request }) => {
+  test('[P0] correction rejects missing reasons, no-op payloads, duplicate slots, out-of-range days, archived events, and terminal rows with typed errors', async ({ request }) => {
     const cases: Array<{
       name: string
       recordID: string
@@ -196,16 +211,27 @@ test.describe('Teacher and admin OD record management API (ATDD red phase)', () 
         code: 'VALIDATION_FAILED',
       },
       {
+        // slot 6, not the record's originally-seeded slot 4: the PRECEDING
+        // test in this file already corrected CORRECTABLE_RECORD_ID's slot to
+        // 6, so 6 — not 4 — is what "the same slot" means by the time this
+        // case runs. Fixed during review: these tests execute sequentially
+        // against one shared, mutable seed, so a case must describe the
+        // record's CURRENT state, not its state at seed time.
         name: 'no effective field change',
         recordID: CORRECTABLE_RECORD_ID,
-        data: { slot: 4, reason_note: 'Re-entered the same slot after checking the register.' },
+        data: { slot: 6, reason_note: 'Re-entered the same slot after checking the register.' },
         status: 400,
         code: 'VALIDATION_FAILED',
       },
       {
+        // slot 10, not 6: CORRECTABLE_RECORD_ID is already AT slot 6 (see the
+        // note above), so re-sending 6 would be a no-op for the slot/day pair
+        // and would not collide with anything. DUPLICATE_TARGET_RECORD_ID
+        // occupies slot 10 in the same student/day for exactly this case.
+        // Fixed during review for the same reason as the case above.
         name: 'present-row duplicate',
         recordID: CORRECTABLE_RECORD_ID,
-        data: { slot: 6, category_id: CSE_CATEGORY_ID, od_date: IN_RANGE_OD_DATE, reason_note: 'Move to the verified duplicate target.' },
+        data: { slot: 10, category_id: CSE_CATEGORY_ID, od_date: IN_RANGE_OD_DATE, reason_note: 'Move to the verified duplicate target.' },
         status: 409,
         code: 'SCAN_DUPLICATE',
       },
@@ -240,7 +266,7 @@ test.describe('Teacher and admin OD record management API (ATDD red phase)', () 
     await expectError(archivedResponse, 409, 'EVENT_ARCHIVED')
   })
 
-  test.skip('[P0] removal soft-removes a present record, writes a terminal reason, and exposes both lifecycle audit entries', async ({ request }) => {
+  test('[P0] removal soft-removes a present record, writes a terminal reason, and exposes both lifecycle audit entries', async ({ request }) => {
     const removal = await request.post(
       apiBaseURL + '/api/v1/portal/records/' + REMOVABLE_RECORD_ID + '/removal',
       {
@@ -277,7 +303,7 @@ test.describe('Teacher and admin OD record management API (ATDD red phase)', () 
     })
   })
 
-  test.skip('[P0] removal rejects an empty reason, a missing id, and a second removal with canonical error bodies', async ({ request }) => {
+  test('[P0] removal rejects an empty reason, a missing id, and a second removal with canonical error bodies', async ({ request }) => {
     const emptyReason = await request.post(
       apiBaseURL + '/api/v1/portal/records/' + REMOVABLE_RECORD_ID + '/removal',
       { headers: headers(adminToken), data: { reason_note: '' } },
@@ -297,7 +323,7 @@ test.describe('Teacher and admin OD record management API (ATDD red phase)', () 
     await expectError(repeated, 409, 'OD_RECORD_ALREADY_REMOVED')
   })
 
-  test.skip('[P0] teacher is denied cross-branch correction, removal, student history, and record audit without leaking the record', async ({ request }) => {
+  test('[P0] teacher is denied cross-branch correction, removal, student history, and record audit without leaking the record', async ({ request }) => {
     const correction = await request.post(
       apiBaseURL + '/api/v1/portal/records/' + CROSS_BRANCH_RECORD_ID + '/correction',
       { headers: headers(teacherToken), data: { slot: 6, reason_note: 'Teacher must not alter another branch.' } },
@@ -323,7 +349,7 @@ test.describe('Teacher and admin OD record management API (ATDD red phase)', () 
     await expectError(audit, 403, 'RBAC_FORBIDDEN')
   })
 
-  test.skip('[P0] audit read returns chronological previous/new snapshots after correction without exposing a different record audit trail', async ({ request }) => {
+  test('[P0] audit read returns chronological previous/new snapshots after correction without exposing a different record audit trail', async ({ request }) => {
     const response = await request.get(
       apiBaseURL + '/api/v1/portal/records/' + CORRECTABLE_RECORD_ID + '/audit?page=1&page_size=100',
       { headers: headers(adminToken) },
@@ -356,7 +382,7 @@ test.describe('Teacher and admin OD record management API (ATDD red phase)', () 
     expect(body.data.every((entry) => entry.payload.record_id === CORRECTABLE_RECORD_ID)).toBeTruthy()
   })
 
-  test.skip('[P1] all five new portal paths require an authenticated principal and return the canonical authentication error', async ({ request }) => {
+  test('[P1] all five new portal paths require an authenticated principal and return the canonical authentication error', async ({ request }) => {
     const unauthenticatedRequests = [
       request.get(apiBaseURL + '/api/v1/portal/events/' + MANAGED_EVENT_ID + '/records'),
       request.get(apiBaseURL + '/api/v1/portal/students/' + CSE_STUDENT_ID + '/od-records'),
@@ -374,7 +400,7 @@ test.describe('Teacher and admin OD record management API (ATDD red phase)', () 
     }
   })
 
-  test.skip('[P1] student principals are rejected from every new portal record-management path', async ({ request }) => {
+  test('[P1] student principals are rejected from every new portal record-management path', async ({ request }) => {
     const list = await request.get(
       apiBaseURL + '/api/v1/portal/events/' + MANAGED_EVENT_ID + '/records',
       { headers: headers(studentToken) },

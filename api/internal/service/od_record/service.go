@@ -200,13 +200,19 @@ func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkR
 	if !validCaptureMethod(input.CaptureMethod) {
 		return MarkResult{}, validation("capture_method", "unsupported", "capture_method must be one of nfc, camera, or search.")
 	}
-	if actor.Role != "coordinator" {
+	// Scoped to capture_method == search: nfc/camera marks stay note-free
+	// regardless of role (AC 2) — a teacher/admin nfc/camera request is rejected
+	// downstream by slotFor's capture-method check, not by a note requirement
+	// that was never the actual reason for the rejection.
+	if actor.Role != "coordinator" && input.CaptureMethod == CaptureMethodSearch {
 		if input.ReasonNote == nil || strings.TrimSpace(*input.ReasonNote) == "" {
 			return MarkResult{}, validation("reason_note", "required", "reason_note is required for teacher and admin marks.")
 		}
-		if len([]rune(strings.TrimSpace(*input.ReasonNote))) > 2000 {
+		trimmed := strings.TrimSpace(*input.ReasonNote)
+		if len([]rune(trimmed)) > 2000 {
 			return MarkResult{}, validation("reason_note", "max_length", "reason_note must not exceed 2000 characters.")
 		}
+		input.ReasonNote = &trimmed
 	}
 	if err := validateIdentityCapturePair(input); err != nil {
 		return MarkResult{}, err

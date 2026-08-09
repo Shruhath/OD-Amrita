@@ -912,15 +912,15 @@ paths:
   /api/v1/portal/mark/events/{event_id}/attendance:
     get:
       operationId: listPortalMarkEventAttendance
-      summary: List present attendance records the caller may review
+      summary: List attendance records the caller may review
       description: >-
-        The teacher/admin live view of an event's marks. A SIBLING of
-        `/api/v1/admin/events/{event_id}/attendance`, never a replacement: this
-        one is BRANCH-SCOPED for a teacher, returning only records for students
-        in the branches they teach, which is the same rule that decides which
-        students they may mark. A teacher who cannot mark a student has no
-        reason to read that student's record either. An admin is unscoped here
-        and sees exactly what the admin route returns.
+        The teacher/admin live view of an event's marks, returning present and
+        removed OD rows. A SIBLING of `/api/v1/admin/events/{event_id}/attendance`,
+        never a replacement: this one is BRANCH-SCOPED for a teacher, returning
+        only records for students in the branches they teach, which is the same
+        rule that decides which students they may mark. A teacher who cannot
+        mark a student has no reason to read that student's record either. An
+        admin is unscoped here and sees exactly what the admin route returns.
       security:
         - bearerAuth: []
       parameters:
@@ -3532,7 +3532,7 @@ components:
 
     ODRecordMutationResult:
       type: object
-      required: [record_id, event_id, status]
+      required: [record_id, event_id, category, slot, od_date, status, reason_note, actor_role, marked_by]
       properties:
         record_id:
           type: string
@@ -3540,9 +3540,32 @@ components:
         event_id:
           type: string
           format: uuid
+        category:
+          type: object
+          required: [id]
+          properties:
+            id:
+              type: string
+              format: uuid
+        slot:
+          type: integer
+          minimum: 1
+          maximum: 12
+        od_date:
+          type: string
+          format: date
         status:
           type: string
           enum: [present, removed]
+        reason_note:
+          type: string
+          nullable: true
+          maxLength: 2000
+        actor_role:
+          type: string
+          enum: [coordinator, teacher, admin]
+        marked_by:
+          $ref: "#/components/schemas/AttendanceActor"
 
     ODRecordHistoryCollection:
       type: object

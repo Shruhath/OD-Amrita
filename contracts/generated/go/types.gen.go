@@ -280,6 +280,27 @@ func (e MarkAttendanceRequestCaptureMethod) Valid() bool {
 	}
 }
 
+// Defines values for ODRecordMutationResultActorRole.
+const (
+	ODRecordMutationResultActorRoleAdmin       ODRecordMutationResultActorRole = "admin"
+	ODRecordMutationResultActorRoleCoordinator ODRecordMutationResultActorRole = "coordinator"
+	ODRecordMutationResultActorRoleTeacher     ODRecordMutationResultActorRole = "teacher"
+)
+
+// Valid indicates whether the value is a known member of the ODRecordMutationResultActorRole enum.
+func (e ODRecordMutationResultActorRole) Valid() bool {
+	switch e {
+	case ODRecordMutationResultActorRoleAdmin:
+		return true
+	case ODRecordMutationResultActorRoleCoordinator:
+		return true
+	case ODRecordMutationResultActorRoleTeacher:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ODRecordMutationResultStatus.
 const (
 	ODRecordMutationResultStatusPresent ODRecordMutationResultStatus = "present"
@@ -843,10 +864,23 @@ type ODRecordHistoryCollection struct {
 
 // ODRecordMutationResult defines model for ODRecordMutationResult.
 type ODRecordMutationResult struct {
-	EventId  openapi_types.UUID           `json:"event_id"`
-	RecordId openapi_types.UUID           `json:"record_id"`
-	Status   ODRecordMutationResultStatus `json:"status"`
+	ActorRole ODRecordMutationResultActorRole `json:"actor_role"`
+	Category  struct {
+		Id openapi_types.UUID `json:"id"`
+	} `json:"category"`
+	EventId openapi_types.UUID `json:"event_id"`
+
+	// MarkedBy Actor display snapshot for an OD record. All fields are required but nullable so records remain renderable after the referenced user row is removed through ON DELETE SET NULL.
+	MarkedBy   AttendanceActor              `json:"marked_by"`
+	OdDate     openapi_types.Date           `json:"od_date"`
+	ReasonNote *string                      `json:"reason_note"`
+	RecordId   openapi_types.UUID           `json:"record_id"`
+	Slot       int                          `json:"slot"`
+	Status     ODRecordMutationResultStatus `json:"status"`
 }
+
+// ODRecordMutationResultActorRole defines model for ODRecordMutationResult.ActorRole.
+type ODRecordMutationResultActorRole string
 
 // ODRecordMutationResultStatus defines model for ODRecordMutationResult.Status.
 type ODRecordMutationResultStatus string

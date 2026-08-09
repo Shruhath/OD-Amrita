@@ -357,8 +357,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List present attendance records the caller may review
-         * @description The teacher/admin live view of an event's marks. A SIBLING of `/api/v1/admin/events/{event_id}/attendance`, never a replacement: this one is BRANCH-SCOPED for a teacher, returning only records for students in the branches they teach, which is the same rule that decides which students they may mark. A teacher who cannot mark a student has no reason to read that student's record either. An admin is unscoped here and sees exactly what the admin route returns.
+         * List attendance records the caller may review
+         * @description The teacher/admin live view of an event's marks, returning present and removed OD rows. A SIBLING of `/api/v1/admin/events/{event_id}/attendance`, never a replacement: this one is BRANCH-SCOPED for a teacher, returning only records for students in the branches they teach, which is the same rule that decides which students they may mark. A teacher who cannot mark a student has no reason to read that student's record either. An admin is unscoped here and sees exactly what the admin route returns.
          */
         get: operations["listPortalMarkEventAttendance"];
         put?: never;
@@ -1269,8 +1269,19 @@ export interface components {
             record_id: string;
             /** Format: uuid */
             event_id: string;
+            category: {
+                /** Format: uuid */
+                id: string;
+            };
+            slot: number;
+            /** Format: date */
+            od_date: string;
             /** @enum {string} */
             status: "present" | "removed";
+            reason_note: string | null;
+            /** @enum {string} */
+            actor_role: "coordinator" | "teacher" | "admin";
+            marked_by: components["schemas"]["AttendanceActor"];
         };
         ODRecordHistoryCollection: {
             data: components["schemas"]["AttendanceRecord"][];

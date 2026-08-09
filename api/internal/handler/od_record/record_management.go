@@ -2,11 +2,13 @@ package odrecord
 
 import (
 	"context"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	odsvc "github.com/Shruhath/OD-Amrita/api/internal/service/od_record"
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
@@ -79,7 +81,12 @@ func CorrectionHandler(svc RecordManagementService) gin.HandlerFunc {
 			fail(c, err)
 			return
 		}
-		c.JSON(http.StatusOK, result)
+		rendered, err := managementRecordContract(result)
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, rendered)
 	}
 }
 
@@ -100,6 +107,52 @@ func RemovalHandler(svc RecordManagementService) gin.HandlerFunc {
 			fail(c, err)
 			return
 		}
-		c.JSON(http.StatusOK, result)
+		rendered, err := managementRecordContract(result)
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, rendered)
 	}
+}
+
+func managementRecordContract(record odsvc.ManagementRecord) (contracts.ODRecordMutationResult, error) {
+	recordID, err := uuid.Parse(record.RecordID)
+	if err != nil {
+		return contracts.ODRecordMutationResult{}, err
+	}
+	eventID, err := uuid.Parse(record.EventID)
+	if err != nil {
+		return contracts.ODRecordMutationResult{}, err
+	}
+	categoryID, err := uuid.Parse(record.CategoryID)
+	if err != nil {
+		return contracts.ODRecordMutationResult{}, err
+	}
+	odDate, err := time.Parse(time.DateOnly, record.ODDate)
+	if err != nil {
+		return contracts.ODRecordMutationResult{}, err
+	}
+	var userID *openapi_types.UUID
+	if record.ActorUserID != nil {
+		parsed, parseErr := uuid.Parse(*record.ActorUserID)
+		if parseErr != nil {
+			return contracts.ODRecordMutationResult{}, parseErr
+		}
+		value := openapi_types.UUID(parsed)
+		userID = &value
+	}
+	return contracts.ODRecordMutationResult{
+		RecordId: recordID,
+		EventId:  eventID,
+		Category: struct {
+			Id openapi_types.UUID `json:"id"`
+		}{Id: categoryID},
+		Slot:       record.Slot,
+		OdDate:     openapi_types.Date{Time: odDate},
+		Status:     contracts.ODRecordMutationResultStatus(record.Status),
+		ReasonNote: record.ReasonNote,
+		ActorRole:  contracts.ODRecordMutationResultActorRole(record.ActorRole),
+		MarkedBy:   contracts.AttendanceActor{UserId: userID},
+	}, nil
 }

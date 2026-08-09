@@ -240,10 +240,10 @@ test.describe('teacher/admin OD record management (ATDD red phase)', () => {
     await correction.getByRole('button', { name: /save correction|correct/i }).click()
     await corrected
 
-    expect(seen.corrections).toEqual([expect.objectContaining({
+    expect(seen.corrections).toEqual([{
       category_id: '94000000-0000-4000-8000-000000000099',
       reason_note: 'Wrong category selected at capture time',
-    })])
+    }])
 
     await row.getByRole('button', { name: /remove/i }).click()
     const removal = page.getByRole('dialog', { name: /remove record/i })

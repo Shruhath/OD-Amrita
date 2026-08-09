@@ -38,9 +38,19 @@ type SearchInput struct {
 
 // SearchQuery is the bounded, escaped question the reader actually runs.
 type SearchQuery struct {
-	// Pattern is a prefix pattern: escaped user input followed by a single
-	// trailing `%`. It never begins with a wildcard.
-	Pattern string
+	// Patterns is one containment pattern per whitespace-separated term the user
+	// typed, lowercased and escaped. ALL of them must match, so terms only ever
+	// narrow the result — "reddy shruhat" cannot return more rows than "reddy".
+	//
+	// It is NEVER empty. An empty array makes the `~~ ALL` predicate vacuously
+	// true and returns the entire roster, which is precisely the dump the
+	// minimum-length guard exists to prevent.
+	Patterns []string
+	// HeadPattern ranks word-start matches above mid-word ones, so typing a first
+	// name still puts that person first. It is matched against the haystack with
+	// a space prepended, which is what lets a match at position one count as the
+	// start of a word.
+	HeadPattern string
 	// ExactRoll is the canonical uppercase roll used to sort an exact match first.
 	ExactRoll string
 	// Limit is already clamped to 1..MaxSearchLimit.
@@ -74,11 +84,16 @@ func (s *Service) WithSearchReader(reader SearchReader) *Service {
 	return s
 }
 
-// Search prefix-matches the roster by roll number or name.
+// Search matches the roster on roll number and name, one term per word.
+//
+// Every word must appear somewhere in `roll_no || ' ' || name`, so a surname
+// finds a full name and word order does not matter — see buildSearchQuery.
 //
 // Ordering is exact-roll-first: a coordinator who types a full roll number is
-// looking at one person and must not have to scan a list for them. `id` is the
-// final tiebreaker so a repeated search cannot reorder under their finger.
+// looking at one person and must not have to scan a list for them. Word-start
+// matches come next, so typing a first name still puts that person above someone
+// who merely contains the letters. `id` is the final tiebreaker so a repeated
+// search cannot reorder under their finger.
 func (s *Service) Search(ctx context.Context, actor Actor, input SearchInput) ([]SearchResult, error) {
 	if err := assertMaySearch(actor); err != nil {
 		return nil, err
@@ -130,10 +145,29 @@ func buildSearchQuery(input SearchInput) (SearchQuery, error) {
 	if strings.IndexFunc(trimmed, isControl) >= 0 {
 		return SearchQuery{}, searchValidation("q", "invalid_characters", "Search must not contain control characters.")
 	}
+	// EVERY WORD, ANYWHERE, IN ANY ORDER — see the query's own note. Splitting on
+	// whitespace is what makes "shruhat reddy" and "reddy shruhat" the same
+	// question, and containment is what lets a surname match a full name at all.
+	//
+	// Terms are ANDed by the reader, so this cannot widen the result: each one
+	// removes rows. The empty case is impossible here (a trimmed string of three
+	// or more runes has at least one field) but is refused explicitly anyway,
+	// because the failure mode if it ever became possible is a roster dump.
+	terms := strings.Fields(trimmed)
+	if len(terms) == 0 {
+		return SearchQuery{}, searchValidation("q", "min_length", "Search needs at least 3 characters.")
+	}
+	patterns := make([]string, 0, len(terms))
+	for _, term := range terms {
+		patterns = append(patterns, "%"+escapeLikePattern(strings.ToLower(term))+"%")
+	}
 	return SearchQuery{
-		Pattern:   escapeLikePattern(trimmed) + "%",
-		ExactRoll: strings.ToUpper(trimmed),
-		Limit:     boundSearchLimit(input.Limit),
+		Patterns: patterns,
+		// Joined from the split terms rather than taken from `trimmed`, so runs of
+		// whitespace between words do not stop the ranking from matching.
+		HeadPattern: "% " + escapeLikePattern(strings.ToLower(strings.Join(terms, " "))) + "%",
+		ExactRoll:   strings.ToUpper(trimmed),
+		Limit:       boundSearchLimit(input.Limit),
 	}, nil
 }
 

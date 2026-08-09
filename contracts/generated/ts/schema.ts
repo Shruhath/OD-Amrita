@@ -35,8 +35,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Prefix-search the roster with no authentication (public dashboard)
-         * @description Lets a student find themselves on the public attendance dashboard without signing in. Matching is PREFIX-ONLY and LIKE-escaped, `q` is bounded at both ends so an empty query cannot become a roster dump, and the result cap is FIXED SERVER-SIDE at 10 — there is deliberately no `limit` parameter, because a knob the open internet controls is a knob that gets turned to 10,000. Results carry display fields only: no email (the students table has no such column), no card token and no token fingerprint. Rate limited per client.
+         * Search the roster with no authentication (public dashboard)
+         * @description Lets a student find themselves on the public attendance dashboard without signing in. `q` is split on whitespace and EVERY word must appear somewhere in the roll number or name, so a surname finds a full name and word order does not matter; terms are ANDed, so a longer query can only ever return fewer rows. Each word is LIKE-escaped and `q` is bounded at both ends so an empty query cannot become a roster dump, and the result cap is FIXED SERVER-SIDE at 10 — there is deliberately no `limit` parameter, because a knob the open internet controls is a knob that gets turned to 10,000. Results carry display fields only: no email (the students table has no such column), no card token and no token fingerprint. Rate limited per client.
          */
         get: operations["searchPublicStudents"];
         put?: never;
@@ -438,8 +438,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Prefix-search the roster by roll number or name
-         * @description The coordinator's fallback when a card will not tap, and the resolution step for the camera path (the printed barcode carries a ROLL NUMBER). Matching is PREFIX-ONLY so `students_roll_no_idx` and `students_name_lower_idx` stay usable, `q` is bounded at both ends so an empty query cannot become a roster dump, and the result item carries no email, card token or token fingerprint.
+         * Search the roster by roll number or name
+         * @description The coordinator's fallback when a card will not tap, and the resolution step for the camera path (the printed barcode carries a ROLL NUMBER). `q` is split on whitespace and EVERY word must appear somewhere in the roll number or name, so a surname finds a full name and word order does not matter; terms are ANDed, so a longer query can only ever return fewer rows. Ordering is exact roll first, then word-start matches, so typing a first name still puts that person at the top. Each word is LIKE-escaped, `q` is bounded at both ends so an empty query cannot become a roster dump, and the result item carries no email, card token or token fingerprint.
          */
         get: operations["searchStudents"];
         put?: never;
@@ -1564,7 +1564,7 @@ export interface operations {
     searchPublicStudents: {
         parameters: {
             query: {
-                /** @description Roll-number or name prefix, trimmed before length is judged. The bounds mirror the authenticated search's exported constants. */
+                /** @description Words to match against the roll number and name, trimmed before length is judged. The bounds mirror the authenticated search's exported constants. */
                 q: string;
             };
             header?: never;
@@ -3005,7 +3005,7 @@ export interface operations {
     searchStudents: {
         parameters: {
             query: {
-                /** @description Roll-number or name prefix, trimmed before length is judged. */
+                /** @description Words to match against the roll number and name, trimmed before length is judged. */
                 q: string;
                 /** @description Server-bounded result cap. */
                 limit?: number;

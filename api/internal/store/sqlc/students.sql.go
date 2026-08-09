@@ -228,7 +228,7 @@ func (q *Queries) ListStudentsForCardPopulation(ctx context.Context, arg ListStu
 	return items, nil
 }
 
-const searchStudentsByPrefix = `-- name: SearchStudentsByPrefix :many
+const searchStudents = `-- name: SearchStudents :many
 SELECT
     s.id,
     s.roll_no,
@@ -238,23 +238,28 @@ SELECT
     s.batch
 FROM students s
 JOIN branches b ON b.id = s.branch_id
-WHERE s.roll_no LIKE upper($1::text) ESCAPE '\'
-   OR lower(s.name) LIKE lower($1::text) ESCAPE '\'
+WHERE lower(s.roll_no || ' ' || s.name) ~~ ALL ($1::text[])
 ORDER BY
     (s.roll_no = $2::text) DESC,
+    -- Then whoever the query STARTS a word of, so typing a first name still
+    -- puts that person above someone who merely contains the letters mid-word.
+    -- The leading space is what makes a match at position one count as a word
+    -- start too.
+    ((' ' || lower(s.roll_no || ' ' || s.name)) LIKE $3::text ESCAPE '\') DESC,
     s.roll_no ASC,
     lower(s.name) ASC,
     s.id ASC
-LIMIT $3::bigint
+LIMIT $4::bigint
 `
 
-type SearchStudentsByPrefixParams struct {
-	Pattern     string `json:"pattern"`
-	ExactRoll   string `json:"exact_roll"`
-	ResultLimit int64  `json:"result_limit"`
+type SearchStudentsParams struct {
+	Patterns    []string `json:"patterns"`
+	ExactRoll   string   `json:"exact_roll"`
+	HeadPattern string   `json:"head_pattern"`
+	ResultLimit int64    `json:"result_limit"`
 }
 
-type SearchStudentsByPrefixRow struct {
+type SearchStudentsRow struct {
 	ID      pgtype.UUID `json:"id"`
 	RollNo  string      `json:"roll_no"`
 	Name    string      `json:"name"`
@@ -264,31 +269,49 @@ type SearchStudentsByPrefixRow struct {
 }
 
 // Authenticated roster search behind the coordinator marking surface (FR55) and
-// the resolution step for the camera path.
+// the resolution step for the camera path. Also the public dashboard's lookup,
+// through the same service.
 //
-// PREFIX-ONLY, deliberately: a leading `%foo%` wildcard turns every keystroke
-// into a full scan and can never use an index. The service escapes `%` and `_`
-// in the user's input before building the pattern, so a coordinator typing `%`
-// matches a literal `%` rather than dumping the roster.
+// EVERY TERM, ANYWHERE, IN ANY ORDER. This was prefix-only, and prefix-only is
+// wrong for the thing people actually type: a roster holds full names, and
+// somebody looking for "Shruhat Reddy" is as likely to type the surname, or the
+// two words the other way round, or the tail of a roll number. A prefix pattern
+// answers all three with "no such student", which reads as the roster being
+// incomplete rather than as the search being narrow.
 //
-// Index note: students_roll_no_idx and students_name_lower_idx are plain btrees.
-// Under a non-C database collation Postgres cannot use a plain btree for LIKE
-// prefix matching, so this may plan as a sequential scan. At the roster's real
-// size (~1.5k rows) that is sub-millisecond and does not justify a migration.
-// If the roster ever grows past tens of thousands, the fix is a migration adding
-// text_pattern_ops indexes on (roll_no) and (lower(name)) — not a looser query.
+// The haystack is `roll_no || ' ' || name` so one query covers both columns, and
+// EVERY term must appear in it — terms narrow, they never widen, so a longer
+// query can only ever return fewer rows. The service lowercases, escapes `%` and
+// `_`, and splits on whitespace before building the array, so a coordinator
+// typing `%` matches a literal `%` rather than dumping the roster.
+//
+// `~~` is LIKE's operator spelling, needed for the `ALL (array)` form; its
+// default escape character is the backslash the service already escapes with.
+// The array is NEVER empty — `x ~~ ALL (ARRAY[]::text[])` is vacuously true and
+// would return the whole roster, so buildSearchQuery refuses to produce one.
+//
+// Index note: containment matching cannot use a btree, so this plans as a
+// sequential scan — as the prefix form already did under a non-C collation. At
+// the roster's real size (~1.5k rows) that is sub-millisecond. If the roster
+// ever grows past tens of thousands, the fix is a pg_trgm GIN index on the same
+// expression, not a narrower query.
 //
 // Selects display columns only: no email lives on students, and card token
 // material is confined to student_card_tokens, which this query never joins.
-func (q *Queries) SearchStudentsByPrefix(ctx context.Context, arg SearchStudentsByPrefixParams) ([]SearchStudentsByPrefixRow, error) {
-	rows, err := q.db.Query(ctx, searchStudentsByPrefix, arg.Pattern, arg.ExactRoll, arg.ResultLimit)
+func (q *Queries) SearchStudents(ctx context.Context, arg SearchStudentsParams) ([]SearchStudentsRow, error) {
+	rows, err := q.db.Query(ctx, searchStudents,
+		arg.Patterns,
+		arg.ExactRoll,
+		arg.HeadPattern,
+		arg.ResultLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []SearchStudentsByPrefixRow
+	var items []SearchStudentsRow
 	for rows.Next() {
-		var i SearchStudentsByPrefixRow
+		var i SearchStudentsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.RollNo,

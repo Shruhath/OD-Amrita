@@ -74,10 +74,13 @@ paths:
   /api/v1/public/students/search:
     get:
       operationId: searchPublicStudents
-      summary: Prefix-search the roster with no authentication (public dashboard)
+      summary: Search the roster with no authentication (public dashboard)
       description: >-
         Lets a student find themselves on the public attendance dashboard
-        without signing in. Matching is PREFIX-ONLY and LIKE-escaped, `q` is
+        without signing in. `q` is split on whitespace and EVERY word must
+        appear somewhere in the roll number or name, so a surname finds a full
+        name and word order does not matter; terms are ANDed, so a longer query
+        can only ever return fewer rows. Each word is LIKE-escaped and `q` is
         bounded at both ends so an empty query cannot become a roster dump, and
         the result cap is FIXED SERVER-SIDE at 10 — there is deliberately no
         `limit` parameter, because a knob the open internet controls is a knob
@@ -89,8 +92,9 @@ paths:
           in: query
           required: true
           description: >-
-            Roll-number or name prefix, trimmed before length is judged. The
-            bounds mirror the authenticated search's exported constants.
+            Words to match against the roll number and name, trimmed before
+            length is judged. The bounds mirror the authenticated search's
+            exported constants.
           schema:
             type: string
             minLength: 3
@@ -1195,21 +1199,25 @@ paths:
   /api/v1/students/search:
     get:
       operationId: searchStudents
-      summary: Prefix-search the roster by roll number or name
+      summary: Search the roster by roll number or name
       description: >-
         The coordinator's fallback when a card will not tap, and the resolution
         step for the camera path (the printed barcode carries a ROLL NUMBER).
-        Matching is PREFIX-ONLY so `students_roll_no_idx` and
-        `students_name_lower_idx` stay usable, `q` is bounded at both ends so an
-        empty query cannot become a roster dump, and the result item carries no
-        email, card token or token fingerprint.
+        `q` is split on whitespace and EVERY word must appear somewhere in the
+        roll number or name, so a surname finds a full name and word order does
+        not matter; terms are ANDed, so a longer query can only ever return
+        fewer rows. Ordering is exact roll first, then word-start matches, so
+        typing a first name still puts that person at the top. Each word is
+        LIKE-escaped, `q` is bounded at both ends so an empty query cannot
+        become a roster dump, and the result item carries no email, card token
+        or token fingerprint.
       security:
         - bearerAuth: []
       parameters:
         - name: q
           in: query
           required: true
-          description: Roll-number or name prefix, trimmed before length is judged.
+          description: Words to match against the roll number and name, trimmed before length is judged.
           schema:
             type: string
             minLength: 3

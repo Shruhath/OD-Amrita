@@ -1353,13 +1353,13 @@ type ListPublicDayODRecordsParams struct {
 
 // SearchPublicStudentsParams defines parameters for SearchPublicStudents.
 type SearchPublicStudentsParams struct {
-	// Q Roll-number or name prefix, trimmed before length is judged. The bounds mirror the authenticated search's exported constants.
+	// Q Words to match against the roll number and name, trimmed before length is judged. The bounds mirror the authenticated search's exported constants.
 	Q string `form:"q" json:"q"`
 }
 
 // SearchStudentsParams defines parameters for SearchStudents.
 type SearchStudentsParams struct {
-	// Q Roll-number or name prefix, trimmed before length is judged.
+	// Q Words to match against the roll number and name, trimmed before length is judged.
 	Q string `form:"q" json:"q"`
 
 	// Limit Server-bounded result cap.

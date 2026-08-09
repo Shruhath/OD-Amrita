@@ -150,7 +150,7 @@ func DayHandler(svc DayService) gin.HandlerFunc {
 	}
 }
 
-// SearchHandler answers the anonymous roster prefix search.
+// SearchHandler answers the anonymous roster search.
 func SearchHandler(svc PublicSearchService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Bounded at the edge as well as in the service. The service owns the

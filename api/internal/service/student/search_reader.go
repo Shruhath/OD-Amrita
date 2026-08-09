@@ -10,7 +10,7 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/store/sqlc"
 )
 
-// SQLCSearchReader runs the bounded prefix search. It is a separate reader from
+// SQLCSearchReader runs the bounded roster search. It is a separate reader from
 // SQLCReader so a caller that only imports the admin roster paths cannot reach
 // the search query by accident, and so wiring the search route without wiring
 // this reader fails loudly.
@@ -23,8 +23,16 @@ func NewSQLCSearchReader(pool *pgxpool.Pool) *SQLCSearchReader {
 }
 
 func (r *SQLCSearchReader) SearchStudents(ctx context.Context, query SearchQuery) ([]SearchResult, error) {
-	rows, err := r.queries.SearchStudentsByPrefix(ctx, sqlc.SearchStudentsByPrefixParams{
-		Pattern:     query.Pattern,
+	// Refused rather than passed through: `~~ ALL` over an empty array matches
+	// every row, so an empty Patterns would turn a search into a roster dump.
+	// buildSearchQuery cannot produce one — this is the seam that stops a future
+	// caller constructing a SearchQuery by hand from doing it anyway.
+	if len(query.Patterns) == 0 {
+		return nil, errors.New("student: search query carries no terms")
+	}
+	rows, err := r.queries.SearchStudents(ctx, sqlc.SearchStudentsParams{
+		Patterns:    query.Patterns,
+		HeadPattern: query.HeadPattern,
 		ExactRoll:   query.ExactRoll,
 		ResultLimit: int64(query.Limit),
 	})

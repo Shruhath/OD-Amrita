@@ -48,8 +48,8 @@ var publicSchemaAllowlists = map[string][]string{
 	// Both are disclosure decisions like every other entry here — a date is the
 	// one field on this response that says when a named student was physically
 	// somewhere, and it is served to the open internet.
-	"PublicODRecord":             {"record_id", "slot", "event_id", "event_name", "event_date", "od_date", "category_id", "category_name", "marked_by_name", "marked_by_role", "marked_at"},
-	"PublicODDay":                {"od_date", "records"},
+	"PublicODRecord": {"record_id", "slot", "event_id", "event_name", "event_date", "od_date", "category_id", "category_name", "marked_by_name", "marked_by_role", "marked_at"},
+	"PublicODDay":    {"od_date", "records"},
 	// The public BOARD — one day's marked students, served without any search
 	// (the product decision of 2026-08-09).
 	//
@@ -61,9 +61,9 @@ var publicSchemaAllowlists = map[string][]string{
 	// and no marked_by, no reason_note, no capture_method and no actor of any
 	// kind, because a teacher's free-text justification for a correction must
 	// never be public.
-	"PublicDayMark":       {"slot", "category_id", "category_name", "event_name"},
-	"PublicDayStudent":    {"roll_no", "display_name", "marks"},
-	"PublicDayAttendance": {"od_date", "students", "categories", "truncated", "generated_at"},
+	"PublicDayMark":              {"slot", "category_id", "category_name", "event_name"},
+	"PublicDayStudent":           {"roll_no", "display_name", "marks"},
+	"PublicDayAttendance":        {"od_date", "students", "categories", "truncated", "generated_at"},
 	"PublicODRecordCollection":   {"student", "days", "generated_at"},
 	"PublicStudentSearchResults": {"data"},
 }

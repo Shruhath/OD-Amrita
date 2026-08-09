@@ -303,8 +303,8 @@ func TestDisputeContract_PublicSchemaAllowlists(t *testing.T) {
 			{"submitted_email", "maxLength", 320, "RFC-bounded address length; anything longer is not an address"},
 			{"student_note", "maxLength", 1000, "the student's own note"},
 			{"claimed_coordinator_name", "maxLength", 200, "free text a student types from memory (T6)"},
-			{"slot", "minimum", 1, "the slot table is 1..12"},
-			{"slot", "maximum", 12, "the slot table is 1..12"},
+			{"slot", "minimum", 1, "slot 0 is not a slot"},
+			{"slot", "maximum", MaxSlot, "the slot table's ceiling"},
 		} {
 			schema := resolveSchema(doc, getMap(props, tc.field))
 			if schema == nil {

@@ -52,8 +52,8 @@ func TestTeacherAdminAttendanceContract_AdminAttendanceRead(t *testing.T) {
 		if got := getFloat(schema, "minimum"); got != 1 {
 			t.Errorf("[P0] slot.minimum = %v, want 1", got)
 		}
-		if got := getFloat(schema, "maximum"); got != 12 {
-			t.Errorf("[P0] slot.maximum = %v, want 12", got)
+		if got := getFloat(schema, "maximum"); got != MaxSlot {
+			t.Errorf("[P0] slot.maximum = %v, want %d", got, MaxSlot)
 		}
 	}
 }
@@ -148,11 +148,11 @@ var disputeSurfacePaths = map[string]bool{
 }
 
 var deliberateRecordManagementOperations = map[string]string{
-	"listPortalODRecords":       "branch-scoped teacher/admin record management",
+	"listPortalODRecords":        "branch-scoped teacher/admin record management",
 	"listStudentODRecordHistory": "student record history",
-	"correctODRecord":           "reasoned record correction",
-	"removeODRecord":            "reasoned soft removal",
-	"listODRecordAudit":         "per-record immutable audit trail",
+	"correctODRecord":            "reasoned record correction",
+	"removeODRecord":             "reasoned soft removal",
+	"listODRecordAudit":          "per-record immutable audit trail",
 }
 
 func TestTeacherAdminAttendanceContract_NoDeferredManualManagementSurface(t *testing.T) {

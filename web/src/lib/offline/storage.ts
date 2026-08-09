@@ -177,6 +177,10 @@ export async function markAsDeadLetter(ids: string[]): Promise<void> {
 }
 
 export async function clearOfflineQueue(): Promise<void> {
+  if (typeof indexedDB.databases === 'function') {
+    const dbs = await indexedDB.databases()
+    if (!dbs.some((db) => db.name === DB_NAME)) return
+  }
   const db = await getDB()
   const tx = db.transaction(['scan_queue', 'crypto_keys'], 'readwrite')
   await tx.objectStore('scan_queue').clear()

@@ -176,7 +176,7 @@ export function EventAttendanceSection({
             Showing <span className="font-semibold text-foreground">{rows.length}</span> of{' '}
             <span className="font-semibold text-foreground">{total}</span> marks
           </p>
-          <div className="overflow-x-auto rounded-[10px] border border-border">
+          <div className="table-wrap overflow-x-auto rounded-[10px] border border-border">
             <table className="w-full text-left border-collapse" aria-label="Event attendance">
               <thead className="bg-canvas border-b border-border">
                 <tr>

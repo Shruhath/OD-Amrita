@@ -72,40 +72,54 @@ async function installDisputeRoutes(page: import('@playwright/test').Page, optio
   return seen
 }
 
-/** The slot-3 row — the gap in the 0.10 fixture day, PRD Journey 3 verbatim. */
-function slotThreeRow(page: import('@playwright/test').Page) {
-  return page.getByRole('listitem').filter({ hasText: /slot\s*3\b/i })
+/**
+ * Opens the report form and names SLOT 3 — the gap in the 0.10 fixture day, PRD
+ * Journey 3 verbatim.
+ *
+ * The dashboard no longer renders the slots a student was NOT marked for, so
+ * there is no slot-3 row to click. The slot is stated inside the form instead,
+ * which is also the only place it can be said for a day the student has no rows
+ * on at all. Everything these journeys assert afterwards is unchanged: what is
+ * filed must be the slot the student named.
+ */
+async function openDisputeForSlotThree(page: import('@playwright/test').Page) {
+  await page.getByRole('button', { name: /report a missed slot/i }).click()
+  const form = page.getByRole('form', { name: /report a missed slot|dispute/i })
+  await form.getByRole('combobox', { name: /slot/i }).click()
+  await page.getByRole('listbox').getByRole('option', { name: /^slot 3$/i }).click()
+  return form
 }
 
 test.describe('public dispute form', () => {
-  // 0.11-E2E-001 — the affordance is reachable from a "No record" slot, and the
-  // form is usable at phone width without the page scrolling sideways (AC 1,
-  // AC 15).
+  // 0.11-E2E-001 — the affordance is reachable, and the form is usable at phone
+  // width without the page scrolling sideways (AC 1, AC 15).
   //
   // A horizontal overflow on the one screen every student opens is the most
   // visible possible defect, and adding a form with a wide select is exactly how
-  // it appears.
-  test('[P0] opens from the no-record slot at phone width with no horizontal overflow', async ({ page }) => {
+  // it appears. The report button is now parked in the corner of the viewport,
+  // which is a new way to produce one — so the check runs with it on screen and
+  // again with the form open beneath it.
+  test('[P0] opens from the corner button at phone width with no horizontal overflow', async ({ page }) => {
     await installDisputeRoutes(page)
     await page.setViewportSize({ width: 390, height: 844 })
 
     await page.goto(`${publicAttendanceRoute}?student=${publicStudentID}`)
     await expect(page.getByText(/Onam Celebrations/i).first()).toBeVisible()
 
-    const row = slotThreeRow(page)
-    await expect(row).toHaveCount(1)
-    await expect(row).toContainText(/no record/i)
+    const overflowNow = () =>
+      page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
 
-    await row.getByRole('button', { name: /report|missed|dispute/i }).click()
+    const button = page.getByRole('button', { name: /report a missed slot/i })
+    await expect(button).toBeVisible()
+    expect(await overflowNow(), 'the corner report button pushes the page sideways').toBeLessThanOrEqual(1)
 
-    const form = page.getByRole('form', { name: /report a missed slot|dispute/i })
+    const form = await openDisputeForSlotThree(page)
     await expect(form).toBeVisible()
     await expect(form.getByRole('textbox', { name: /email/i })).toBeVisible()
+    // One way in, not two: the corner button steps aside while the form is open.
+    await expect(button).toHaveCount(0)
 
-    const overflow = await page.evaluate(
-      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-    )
-    expect(overflow, 'the page scrolls sideways once the dispute form is open').toBeLessThanOrEqual(1)
+    expect(await overflowNow(), 'the page scrolls sideways once the dispute form is open').toBeLessThanOrEqual(1)
   })
 
   // 0.11-E2E-002 — the whole submission journey, ending in NFR50's exact copy and
@@ -115,9 +129,7 @@ test.describe('public dispute form', () => {
 
     await page.goto(`${publicAttendanceRoute}?student=${publicStudentID}`)
     await expect(page.getByText(/Onam Celebrations/i).first()).toBeVisible()
-    await slotThreeRow(page).getByRole('button', { name: /report|missed|dispute/i }).click()
-
-    const form = page.getByRole('form', { name: /report a missed slot|dispute/i })
+    const form = await openDisputeForSlotThree(page)
     await form.getByRole('textbox', { name: /email/i }).fill(disputeEmail)
     await form.getByRole('button', { name: /submit|send|report/i }).click()
 
@@ -156,9 +168,7 @@ test.describe('public dispute form', () => {
 
       await page.goto(`${publicAttendanceRoute}?student=${publicStudentID}`)
       await expect(page.getByText(/Onam Celebrations/i).first()).toBeVisible()
-      await slotThreeRow(page).getByRole('button', { name: /report|missed|dispute/i }).click()
-
-      const form = page.getByRole('form', { name: /report a missed slot|dispute/i })
+      const form = await openDisputeForSlotThree(page)
       await form.getByRole('textbox', { name: /email/i }).fill(disputeEmail)
       await form.getByRole('button', { name: /submit|send|report/i }).click()
 
@@ -179,9 +189,7 @@ test.describe('public dispute form', () => {
 
     await page.goto(`${publicAttendanceRoute}?student=${publicStudentID}`)
     await expect(page.getByText(/Onam Celebrations/i).first()).toBeVisible()
-    await slotThreeRow(page).getByRole('button', { name: /report|missed|dispute/i }).click()
-
-    const form = page.getByRole('form', { name: /report a missed slot|dispute/i })
+    const form = await openDisputeForSlotThree(page)
     await form.getByRole('textbox', { name: /email/i }).fill(disputeEmail)
     await form.getByRole('button', { name: /submit|send|report/i }).click()
     await expect(
@@ -244,7 +252,8 @@ test.describe('public dispute form', () => {
     const slotOne = page.getByRole('listitem').filter({ hasText: /slot\s*1\b/i }).first()
     await expect(slotOne).toContainText(/Onam Celebrations/i)
     await expect(slotOne).toContainText(/Portal Coordinator/i)
-    await expect(slotThreeRow(page)).toContainText(/no record/i)
+    // Three marked slots and no filler rows — the day renders what it holds.
+    await expect(page.getByRole('listitem').filter({ hasText: /slot\s*\d+:/i })).toHaveCount(3)
     await expect(page.getByText(/pending|syncing|queued/i)).toHaveCount(0)
     await expect(page.getByRole('button', { name: /sign in|continue with microsoft/i })).toHaveCount(0)
   })

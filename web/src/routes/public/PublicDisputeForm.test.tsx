@@ -1,4 +1,4 @@
-import { openOptions, selectByLabel } from '../../test/select'
+import { openOptions, selectByLabel, selectByValue } from '../../test/select'
 /**
  * Red-phase component tests for Story 0.11's PUBLIC dispute form (AC 1, 2, 15,
  * 16, 17).
@@ -105,45 +105,37 @@ function renderDashboard(path = `${publicAttendanceRoute}?student=${publicStuden
 }
 
 /**
- * Opens the dispute form from the SLOT 3 row.
+ * Opens the dispute form and reports SLOT 3.
  *
- * Slot 3 is the gap in the 0.10 fixture day — PRD Journey 3 verbatim. Scoping the
- * click to that row rather than to a page-wide button is what proves the
- * affordance hangs off the ABSENT slot, which is the only place it makes sense:
- * an affordance on a present slot invites disputes about records that exist.
+ * Slot 3 is the gap in the 0.10 fixture day — PRD Journey 3 verbatim. It used to
+ * be clicked on its own "No record" row; the dashboard no longer renders the
+ * slots a student was not marked for, so the slot is now stated INSIDE the form,
+ * which is the one place it can be said for a day the student has no rows on at
+ * all. The assertions that follow are unchanged: what is filed must be the slot
+ * the student named.
  */
 async function openDisputeFormForSlotThree(user: ReturnType<typeof userEvent.setup>) {
-  const slotThree = (await screen.findAllByRole('listitem')).find((item) => /slot\s*3:/i.test(item.textContent ?? ''))
-  expect(
-    slotThree,
-    'no slot-3 row was found. The dispute affordance attaches to the ABSENT slot rows in DaySlots — 0.10 left ' +
-      'them structured for exactly this, and the trailing colon in "Slot 3:" is load-bearing for the locator',
-  ).toBeDefined()
-
-  const trigger = within(slotThree as HTMLElement).getByRole('button', { name: /report|missed|dispute/i })
-  await user.click(trigger)
-  return slotThree as HTMLElement
+  await user.click(await screen.findByRole('button', { name: /report a missed slot/i }))
+  const form = await screen.findByRole('form', { name: /report a missed slot|dispute/i })
+  await selectByValue(user, within(form).getByRole('combobox', { name: /slot/i }), '3')
+  return form
 }
 
 describe('public dispute form', () => {
-  // 0.11-WEB-001 — the affordance hangs off the "No record" slot, and the form
-  // opens with personal fields READ-ONLY from the already-loaded records response
-  // (AC 1, T4).
+  // 0.11-WEB-001 — the affordance is always reachable, and the form opens with
+  // personal fields READ-ONLY from the already-loaded records response (AC 1, T4).
   //
   // "Read-only" is asserted structurally, not by looking for a disabled-looking
   // style: a text input the visitor can retype is a form that files disputes for
   // other people, and it looks identical in a screenshot.
-  test('[P0] opens from a no-record slot with read-only personal fields sourced from the server', async () => {
+  test('[P0] opens from the report button with read-only personal fields sourced from the server', async () => {
     const user = userEvent.setup()
     installDisputeBackend()
 
     renderDashboard()
     await screen.findAllByText(/Onam Celebrations/i)
 
-    const slotThree = await openDisputeFormForSlotThree(user)
-    expect(slotThree).toHaveTextContent(/no record/i)
-
-    const form = await screen.findByRole('form', { name: /report a missed slot|dispute/i })
+    const form = await openDisputeFormForSlotThree(user)
 
     // Every personal field is present and none of them is editable.
     for (const value of [publicStudentRoll, 'Ananya Rao', 'CSE', 'A', '2024']) {
@@ -165,10 +157,10 @@ describe('public dispute form', () => {
         'type somebody else in; an editable box makes the read-only claim cosmetic',
     ).toHaveLength(0)
 
-    // The slot AND the day are pre-filled from the row that opened the form. A
-    // student re-picking either can pick the wrong one, and the row already knows
-    // both — the day matters from 0.12a onward, when one event spans thirty of
-    // them, and the column exists from creation so that day is never guessed.
+    // The slot the student named is on the form, and so is the DAY, which is
+    // pre-filled from the day the dashboard was showing. A dispute without a day
+    // is ambiguous across the thirty an event can span, and the column exists
+    // from creation precisely so the day is never guessed.
     expect(within(form).getByText(/slot\s*3\b/i)).toBeInTheDocument()
     expect(
       within(form).getByText(/28 July 2026|2026-07-28|July 28/i),
@@ -190,9 +182,7 @@ describe('public dispute form', () => {
 
     renderDashboard()
     await screen.findAllByText(/Onam Celebrations/i)
-    const form = await openDisputeFormForSlotThree(user).then(() =>
-      screen.findByRole('form', { name: /report a missed slot|dispute/i }),
-    )
+    const form = await openDisputeFormForSlotThree(user)
 
     await user.type(within(form).getByRole('textbox', { name: /email/i }), disputeEmail)
     await user.click(within(form).getByRole('button', { name: /submit|send|report/i }))
@@ -574,25 +564,23 @@ describe('public dispute form across several events', () => {
     return installed
   }
 
-  // 0.11-WEB-011 — the dispute is filed against the event and day of the row the
-  // visitor CLICKED (Task 6; the "which event am I disputing" rule 0.10's
-  // same-day slot-collision bug established).
-  test('[P0] reporting a slot on the second day files against that day, not the first', async () => {
+  // 0.11-WEB-011 — the dispute is filed against the event and day the dashboard
+  // is SHOWING (Task 6; the "which event am I disputing" rule 0.10's same-day
+  // slot-collision bug established).
+  //
+  // The fixture lists 2026-07-20 (Sports Day Relay) FIRST and 2026-07-28 (Onam)
+  // second, so `eventOptions[0]` is the relay. The dashboard opens on the later
+  // day, which means a form that derived its event from the first option — the
+  // defect 0.11's review found — files this dispute against the wrong event and,
+  // via the effect that follows the event, the wrong day.
+  test('[P0] the report is filed against the day on screen, not the first in the history', async () => {
     const user = userEvent.setup()
     const installed = installTwoEventBackend()
 
     renderDashboard()
     await screen.findAllByText(/Onam Celebrations/i)
 
-    // Slot 3 of the 2026-07-28 day. The other day (2026-07-20) belongs to a
-    // different event and is rendered first.
-    const slotThree = (await screen.findAllByRole('listitem'))
-      .filter((item) => /slot\s*3:/i.test(item.textContent ?? ''))
-      .at(-1)
-    expect(slotThree, 'no slot-3 row on the second day').toBeDefined()
-    await user.click(within(slotThree as HTMLElement).getByRole('button', { name: /report|missed/i }))
-
-    const form = await screen.findByRole('form', { name: /report a missed slot/i })
+    const form = await openDisputeFormForSlotThree(user)
     await user.type(within(form).getByRole('textbox', { name: /email/i }), disputeEmail)
     await user.click(within(form).getByRole('button', { name: /submit dispute/i }))
 
@@ -601,61 +589,54 @@ describe('public dispute form across several events', () => {
     const submission = installed.submissions[0]
     expect(
       submission.od_date,
-      'the dispute was filed against a DIFFERENT day than the row that opened it. The form derived its event ' +
-        'from eventOptions[0] — the first event across all days — and an effect then rewrote od_date to that ' +
-        "event's date, so a student reporting the second day silently reported the first",
+      'the dispute was filed against a DIFFERENT day than the one on screen. The form derived its event from ' +
+        'eventOptions[0] — the first event across all days — and an effect then rewrote od_date to that ' +
+        "event's date, so a student reporting the day they were looking at silently reported another",
     ).toBe(disputeODDate)
     expect(submission.event_id).toBe('93000000-0000-4000-8000-000000000001')
     expect(submission.slot).toBe(3)
   })
 
-  // 0.11-WEB-012 — re-opening the form for a different slot actually re-opens it.
-  test('[P0] opening the form from a second slot reports that second slot', async () => {
+  // 0.11-WEB-012 — stepping the day filter moves the report with it.
+  //
+  // The day is no longer implied by a row that was clicked; it is the day the
+  // dashboard is showing. So the control that changes the day has to change what
+  // the form opens on, or a student who navigated back to Sports Day would file
+  // their report against Onam without anything on screen saying so.
+  test('[P0] reporting after stepping back a day files against that earlier day', async () => {
     const user = userEvent.setup()
     const installed = installTwoEventBackend()
 
     renderDashboard()
     await screen.findAllByText(/Onam Celebrations/i)
 
-    const rows = await screen.findAllByRole('listitem')
-    const slotThree = rows.filter((item) => /slot\s*3:/i.test(item.textContent ?? '')).at(-1)
-    const slotFive = rows.filter((item) => /slot\s*5:/i.test(item.textContent ?? '')).at(-1)
-    expect(slotThree).toBeDefined()
-    expect(slotFive).toBeDefined()
+    await user.click(screen.getByRole('button', { name: /previous day/i }))
+    await screen.findByText(/Sports Day Relay/i)
 
-    await user.click(within(slotThree as HTMLElement).getByRole('button', { name: /report|missed/i }))
-    await screen.findByRole('form', { name: /report a missed slot/i })
-
-    // Second click, WITHOUT closing the first. The form is not remounted unless
-    // it is keyed on the draft, and initialSlot is only ever a useState seed —
-    // so this used to change nothing on screen and submit slot 3.
-    await user.click(within(slotFive as HTMLElement).getByRole('button', { name: /report|missed/i }))
-
-    const form = await screen.findByRole('form', { name: /report a missed slot/i })
+    const form = await openDisputeFormForSlotThree(user)
     await user.type(within(form).getByRole('textbox', { name: /email/i }), disputeEmail)
     await user.click(within(form).getByRole('button', { name: /submit dispute/i }))
 
     await screen.findByRole('region', { name: /dispute receipt/i })
+    const submission = installed.submissions[0]
     expect(
-      installed.submissions[0].slot,
-      'the second "Report a missed slot" click was ignored and the FIRST slot was filed. The form must be ' +
-        'keyed on the draft so a new draft remounts it',
-    ).toBe(5)
+      submission.od_date,
+      'the day filter moved but the report did not follow it. The two are one piece of state precisely so they ' +
+        'cannot disagree',
+    ).toBe('2026-07-20')
+    expect(submission.event_id).toBe(secondEventID)
+    expect(submission.slot).toBe(3)
   })
 
   // 0.11-WEB-013 — a student who missed two slots can report both.
   test('[P0] the receipt offers a way back so a second slot can be reported', async () => {
     const user = userEvent.setup()
-    installTwoEventBackend()
+    const installed = installTwoEventBackend()
 
     renderDashboard()
     await screen.findAllByText(/Onam Celebrations/i)
 
-    const slotThree = (await screen.findAllByRole('listitem'))
-      .filter((item) => /slot\s*3:/i.test(item.textContent ?? '')).at(-1)
-    await user.click(within(slotThree as HTMLElement).getByRole('button', { name: /report|missed/i }))
-
-    const form = await screen.findByRole('form', { name: /report a missed slot/i })
+    const form = await openDisputeFormForSlotThree(user)
     await user.type(within(form).getByRole('textbox', { name: /email/i }), disputeEmail)
     await user.click(within(form).getByRole('button', { name: /submit dispute/i }))
 
@@ -670,9 +651,15 @@ describe('public dispute form across several events', () => {
 
     expect(screen.queryByRole('region', { name: /dispute receipt/i })).not.toBeInTheDocument()
 
-    const slotFive = (await screen.findAllByRole('listitem'))
-      .filter((item) => /slot\s*5:/i.test(item.textContent ?? '')).at(-1)
-    await user.click(within(slotFive as HTMLElement).getByRole('button', { name: /report|missed/i }))
-    await screen.findByRole('form', { name: /report a missed slot/i })
+    // The second report is a fresh form, not the first one's leftovers: a
+    // different slot, filed as that slot.
+    await user.click(await screen.findByRole('button', { name: /report a missed slot/i }))
+    const second = await screen.findByRole('form', { name: /report a missed slot/i })
+    await selectByValue(user, within(second).getByRole('combobox', { name: /slot/i }), '5')
+    await user.type(within(second).getByRole('textbox', { name: /email/i }), disputeEmail)
+    await user.click(within(second).getByRole('button', { name: /submit dispute/i }))
+
+    await screen.findByRole('region', { name: /dispute receipt/i })
+    expect(installed.submissions.map((entry) => entry.slot)).toEqual([3, 5])
   })
 })

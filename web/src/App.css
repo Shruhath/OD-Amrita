@@ -2136,18 +2136,75 @@ tbody tr:hover {
   background: var(--surface);
 }
 
-/* Present and absent must be distinguishable WITHOUT relying on colour alone:
-   the left rule differs in weight, the absent row is dashed and dimmed, and the
-   text itself says "No record". */
-/* --ring-success, not an invented --success: the latter is defined nowhere, so
+/* Every row on screen is now a mark, so the green rule is no longer telling
+   present from absent — it says "this is a credited slot" at a glance, which is
+   what the student came to see. Colour is not carrying meaning on its own: the
+   row states the event, the category and who marked it.
+
+   --ring-success, not an invented --success: the latter is defined nowhere, so
    the hardcoded fallback always won and the rule stayed a fixed dark green on
    the dark-theme surface. --ring-success is a real token with a value in both
    themes. */
 .public-slot.is-present { border-left: 4px solid var(--ring-success); }
 
-.public-slot.is-absent {
-  border-left: 4px dashed var(--surface-border);
-  background: var(--surface-quiet);
+/* The day filter. One row: an arrow, the picker, an arrow — so the two things a
+   student does here (step back a day, jump to a day) are the same size and in
+   the same place on a phone as on a laptop. */
+.public-day-filter {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.public-day-filter .public-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.public-day-step {
+  /* 44px is the minimum comfortable touch target, and this control is used on a
+     phone at the end of an event more than anywhere else. */
+  min-width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.public-day-step:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The single report affordance, replacing one button per empty slot.
+
+   `fixed`, so it stays reachable while the student scrolls a long day; and
+   `env(safe-area-inset-*)` so it clears the iOS home indicator rather than
+   sitting under it. Its z-index is below the account menu and the install
+   prompt for the same reason the panel rule above says: those must stay
+   reachable over any screen. */
+.public-report-fab {
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 30;
+  padding: 12px 18px;
+  min-height: 44px;
+  border: 1px solid var(--surface-border);
+  border-radius: 999px;
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 14px;
+  font-weight: 620;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 22%);
+  cursor: pointer;
 }
 
 .public-slot-label {
@@ -2184,15 +2241,6 @@ tbody tr:hover {
 }
 
 .public-slot-detail strong { color: var(--foreground); }
-.public-slot-empty {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  color: var(--gray-600);
-  font-style: italic;
-}
 
 .public-dispute-panel {
   display: grid;
@@ -2765,6 +2813,7 @@ tbody tr:hover {
 .mark-scope:has(.ui-select__list),
 .mark-capture:has(.ui-select__list),
 .public-dispute-panel:has(.ui-select__list),
+.public-day-filter:has(.ui-select__list),
 .category-form:has(.ui-select__list),
 .populator-filters:has(.ui-select__list) {
   position: relative;

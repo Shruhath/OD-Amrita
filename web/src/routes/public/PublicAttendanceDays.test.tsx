@@ -1,4 +1,4 @@
-import { openedOptionValues, selectByLabel } from '../../test/select'
+import { openedOptionValues, selectByLabel, selectByValue } from '../../test/select'
 /**
  * Red-phase component tests for the public dashboard's DAY grouping and the
  * dispute form's widened day picker (AC 11, 12, 15).
@@ -17,7 +17,8 @@ import { http, HttpResponse } from 'msw'
 import { describe, expect, test, vi } from 'vitest'
 import { Application } from '../../Application'
 import { enumerateDays as portalEnumerateDays } from '../portal/events/format'
-import { enumerateDays as publicEnumerateDays } from './days'
+import { campusToday as portalCampusToday } from '../portal/live/campusDay'
+import { campusToday as publicCampusToday, enumerateDays as publicEnumerateDays } from './days'
 import type { SessionPort } from '../../features/auth/session'
 import { createPortalMemoryRouter } from '../../router'
 import { server } from '../../test/server'
@@ -89,49 +90,64 @@ function renderDashboard(collection = publicMultiDayCollection(), events = publi
 }
 
 describe('the public dashboard across a multi-day event', () => {
-  // 0.12a-WEB-005 — three days of ONE event render as THREE day groups.
+  // 0.12a-WEB-005 — the dashboard shows ONE day, and the filter reaches all of
+  // them.
   //
   // Every record in the fixture carries the same `event_date` (the festival's
-  // first day, 2026-08-10) and a different `od_date`. Grouping or keying on
-  // `event_date` collapses all three onto one heading — which reads to the
-  // student as two days of missing attendance on days they were marked.
-  test('0.12a-WEB-005 each day of a festival gets its own heading, keyed on od_date', async () => {
-    renderDashboard()
-
-    // The PUBLIC screen has its own `formatDate` (PublicAttendanceScreen.tsx:734)
-    // rendering "Wednesday, 19 August 2026" — NOT the portal's short
-    // "19 Aug 2026". Asserting the portal's format here would fail on the
-    // wording rather than on the grouping, which is the failure this suite must
-    // never report.
-    for (const heading of [dayHeading('2026-08-19'), dayHeading('2026-08-12'), dayHeading('2026-08-10')]) {
-      expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument()
-    }
-
-    // Newest first, as 0.10 established and this story must not disturb.
-    const headings = await screen.findAllByRole('heading', { name: /2026/ })
-    expect(headings.map((node) => node.textContent)).toEqual([
-      expect.stringMatching(dayHeading('2026-08-19')),
-      expect.stringMatching(dayHeading('2026-08-12')),
-      expect.stringMatching(dayHeading('2026-08-10')),
-    ])
-  })
-
-  // 0.12a-WEB-006 — the dispute affordance reports the day the student CLICKED.
-  //
-  // 0.11's review found the dispute form filing against the wrong event and day
-  // when a student had records on two dates. With thirty days on screen that is
-  // no longer an edge case: every day-scoped control must take its event and its
-  // day from the row that opened it, never from the first record in the history.
-  test('0.12a-WEB-006 reporting a missed slot on day one pre-selects day one', async () => {
+  // first day, 2026-08-10) and a different `od_date`. Keying on `event_date`
+  // collapses all three onto one heading — which reads to the student as two
+  // days of missing attendance on days they were marked. That is still what this
+  // asserts; what changed is that the three days are now reached one at a time
+  // through the filter instead of being stacked down the page.
+  test('0.12a-WEB-005 the day filter reaches every day of a festival, keyed on od_date', async () => {
     renderDashboard()
     const user = userEvent.setup()
 
-    const dayOne = (await screen.findByRole('heading', { name: dayHeading('2026-08-10') })).closest('section')
-    expect(dayOne).not.toBeNull()
+    const filter = await screen.findByRole('combobox', { name: /^day$/i })
+    // The filter offers every day the student HAS records on. Today is unioned
+    // in as well, so this is a containment check rather than an exact set: the
+    // point is that no day of the festival is unreachable.
+    const offered = await openedOptionValues(user, filter)
+    for (const day of ['2026-08-19', '2026-08-12', '2026-08-10']) {
+      expect(offered, `${day} cannot be reached from the day filter`).toContain(day)
+    }
+    await user.keyboard('{Escape}')
 
-    await user.click(within(dayOne as HTMLElement).getAllByRole('button', { name: /report|missed|dispute/i })[0])
+    // ONE day is rendered at a time — not all of them stacked. Selecting each in
+    // turn shows that day's heading and only that day's.
+    //
+    // The PUBLIC screen has its own `formatDate` rendering "Wednesday, 19 August
+    // 2026" — NOT the portal's short "19 Aug 2026". Asserting the portal's
+    // format here would fail on the wording rather than on the grouping, which
+    // is the failure this suite must never report.
+    for (const day of ['2026-08-19', '2026-08-12', '2026-08-10']) {
+      await selectByValue(user, screen.getByRole('combobox', { name: /^day$/i }), day)
+      const headings = await screen.findAllByRole('heading', { name: /2026/ })
+      expect(headings.map((node) => node.textContent)).toEqual([
+        expect.stringMatching(dayHeading(day)),
+      ])
+    }
+  })
 
-    const dayControl = await screen.findByRole('combobox', { name: /day|date/i })
+  // 0.12a-WEB-006 — the report form is filed against the day ON SCREEN.
+  //
+  // 0.11's review found the dispute form filing against the wrong event and day
+  // when a student had records on two dates. The per-slot buttons are gone, so
+  // the rule now attaches to the day filter: whichever day the student is
+  // looking at is the day — and the event — the form opens on. Taking it from
+  // the first record in the history instead is the same defect wearing a
+  // different hat.
+  test('0.12a-WEB-006 reporting from day one of the festival pre-selects day one', async () => {
+    renderDashboard()
+    const user = userEvent.setup()
+
+    await selectByValue(user, await screen.findByRole('combobox', { name: /^day$/i }), '2026-08-10')
+    await screen.findByRole('heading', { name: dayHeading('2026-08-10') })
+
+    await user.click(await screen.findByRole('button', { name: /report a missed slot/i }))
+
+    const form = await screen.findByRole('form', { name: /report a missed slot|dispute/i })
+    const dayControl = within(form).getByRole('combobox', { name: /day|date/i })
     // The chosen day is what the control DISPLAYS. Its label carries the iso
     // date alongside the long form (see PublicAttendanceScreen), so asserting on
     // it still pins the exact day rather than merely "some day in August".
@@ -153,9 +169,13 @@ describe('the public dashboard across a multi-day event', () => {
     renderDashboard()
     const user = userEvent.setup()
 
-    await user.click((await screen.findAllByRole('button', { name: /report|missed|dispute/i }))[0])
+    await user.click(await screen.findByRole('button', { name: /report a missed slot/i }))
 
-    const dayControl = await screen.findByRole('combobox', { name: /day|date/i })
+    const form = await screen.findByRole('form', { name: /report a missed slot|dispute/i })
+    // Scoped to the FORM. The dashboard now carries a day filter of its own, so
+    // a page-wide "the day control" would match whichever one the query reached
+    // first — and the two are bounded by different things on purpose.
+    const dayControl = within(form).getByRole('combobox', { name: /day|date/i })
     // The control must remain a BOUNDED PICKER. It is no longer a native
     // `<select>` — the app draws its own dropdown — so the tag name is not the
     // property worth asserting; what matters is that the day can only be chosen
@@ -182,9 +202,10 @@ describe('the public dashboard across a multi-day event', () => {
     renderDashboard(publicRecordCollection(), publicEventCollection())
     const user = userEvent.setup()
 
-    await user.click((await screen.findAllByRole('button', { name: /report|missed|dispute/i }))[0])
+    await user.click(await screen.findByRole('button', { name: /report a missed slot/i }))
 
-    const dayControl = await screen.findByRole('combobox', { name: /day|date/i })
+    const form = await screen.findByRole('form', { name: /report a missed slot|dispute/i })
+    const dayControl = within(form).getByRole('combobox', { name: /day|date/i })
     const offered = await openedOptionValues(user, dayControl)
     expect(offered).toEqual(['2026-07-28'])
   })
@@ -203,10 +224,11 @@ describe('the public dashboard across a multi-day event', () => {
     renderDashboard(publicMultiDayCollection(), publicEventCollection([multiDayPublicEvent(), publicEvent()]))
     const user = userEvent.setup()
 
-    await user.click((await screen.findAllByRole('button', { name: /report|missed|dispute/i }))[0])
+    await user.click(await screen.findByRole('button', { name: /report a missed slot/i }))
 
-    const eventControl = await screen.findByRole('combobox', { name: /event/i })
-    const dayControl = await screen.findByRole('combobox', { name: /day|date/i })
+    const form = await screen.findByRole('form', { name: /report a missed slot|dispute/i })
+    const eventControl = within(form).getByRole('combobox', { name: /event/i })
+    const dayControl = within(form).getByRole('combobox', { name: /day|date/i })
 
     // Only one dropdown is open at a time, so each list is read in turn.
     expect(await openedOptionValues(user, dayControl)).toHaveLength(multiDayDisputeDayCount)
@@ -256,6 +278,29 @@ describe('the two enumerateDays implementations agree', () => {
         `enumerateDays drifted between the public and portal bundles for ${start}..${end}`,
       ).toEqual(portalEnumerateDays(start, end))
     }
+  })
+
+  // campusToday is duplicated for the same reason and needs the same guard. The
+  // two bound different things — the portal's live screen and the public
+  // dashboard's day filter — and a divergence would put a student and the
+  // teacher who marked them on different days at the same moment.
+  test('campusToday agrees across the public and portal bundles, including across midnight IST', () => {
+    const instants = [
+      new Date('2026-08-09T00:00:00Z'), // 05:30 IST, same day
+      new Date('2026-08-09T18:29:59Z'), // 23:59:59 IST, still the 9th
+      new Date('2026-08-09T18:30:00Z'), // 00:00 IST, now the 10th
+      new Date('2026-12-31T18:30:00Z'), // a year boundary crossed by the offset
+      new Date('2026-02-28T20:00:00Z'),
+    ]
+    for (const instant of instants) {
+      expect(
+        publicCampusToday(instant),
+        `campusToday drifted between the public and portal bundles at ${instant.toISOString()}`,
+      ).toBe(portalCampusToday(instant))
+    }
+    // And it is genuinely campus-local, not the runner's timezone: 18:30Z is
+    // already tomorrow on campus.
+    expect(publicCampusToday(new Date('2026-08-09T18:30:00Z'))).toBe('2026-08-10')
   })
 
   test('a full-length event enumerates every day of the range', () => {

@@ -198,21 +198,26 @@ test.describe('real stack student disputes', () => {
 
   // 0.11-RS-004 — the whole browser journey, anonymously, writing a real row
   // (AC 1, 2, 15).
-  test('[P0] an anonymous visitor files a dispute from a no-record slot and sees the confirmation', async ({ page }) => {
+  test('[P0] an anonymous visitor files a dispute for a missed slot and sees the confirmation', async ({ page }) => {
     await openPublicDashboard(page, `&student=${DISPUTE_STUDENT_ID}`)
 
     await expect(page.getByRole('button', { name: /sign in|continue with microsoft/i })).toHaveCount(0)
 
-    // Scoped to ONE row, never searched page-wide. 0.9 lost five CI rounds to
-    // table-wide locators that matched another spec's rows.
-    const gap = page.getByRole('listitem').filter({ hasText: new RegExp(`slot\\s*${DISPUTE_SLOT}\\b`, 'i') })
-    await expect(gap).toHaveCount(1)
-    await expect(gap).toContainText(/no record/i)
+    // The slot being disputed has no row on the dashboard — that is the whole
+    // point of it — so it is named INSIDE the form. Which is also the only place
+    // it can be named for a day the student has no rows on at all.
+    await expect(
+      page.getByRole('listitem').filter({ hasText: new RegExp(`slot\\s*${DISPUTE_SLOT}\\b`, 'i') }),
+    ).toHaveCount(0)
 
-    await gap.getByRole('button', { name: /report|missed|dispute/i }).click()
+    await page.getByRole('button', { name: /report a missed slot/i }).click()
 
     const form = page.getByRole('form', { name: /report a missed slot|dispute/i })
     await expect(form).toBeVisible()
+
+    await form.getByRole('combobox', { name: /slot/i }).click()
+    await page.getByRole('listbox').locator(`[data-value="${DISPUTE_SLOT}"]`).click()
+
     // Read-only and server-sourced (AC 1).
     await expect(form).toContainText(new RegExp(DISPUTE_STUDENT_ROLL.replace(/\./g, '\\.'), 'i'))
 

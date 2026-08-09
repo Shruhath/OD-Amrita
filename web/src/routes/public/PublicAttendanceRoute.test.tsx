@@ -37,6 +37,8 @@ import {
   publicStudentID,
   publicStudentRoll,
 } from '../../../tests/support/factories/public-attendance'
+import { selectByValue } from '../../test/select'
+import { campusToday } from './days'
 
 /**
  * A signed-out visitor. refresh/signOut are wired to fail the test rather than
@@ -202,25 +204,38 @@ describe('public attendance dashboard', () => {
     expect(installed.searchQueries).toHaveLength(0)
   })
 
-  // 0.10-WEB-005 — every slot 1..12 is rendered, present slots are visually
-  // distinct from gaps, and there is NO amber pending state (AC 11, T14).
+  // 0.10-WEB-005 — ONLY the marked slots are rendered, and there is NO amber
+  // pending state (AC 11, T14).
   //
   // The fixture day is PRD Journey 3: slots 1, 2 and 4 present, slot 3 missing.
-  // Rendering only the present rows would let a student conclude they were
-  // marked for everything, which is the opposite of what this page is for.
-  test('[P0] renders slots 1..12 with an explicit no-record state and no pending state', async () => {
+  // The gap is still the information — a student reads 1, 2 and 4 and sees that
+  // 3 is not among them — but it is now conveyed by the three rows that exist
+  // rather than by nine rows saying "No record", which is what the twelve-slot
+  // grid produced for every day of a student's history at once.
+  test('[P0] renders only the marked slots, with no no-record filler and no pending state', async () => {
     installPublicBackend()
 
     renderPublicRoute(`${publicAttendanceRoute}?student=${publicStudentID}`)
 
     await screen.findAllByText(/Onam Celebrations/i)
 
-    for (const slot of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) {
-      expect(screen.getByText(new RegExp(`slot\\s*${slot}\\b`, 'i'))).toBeInTheDocument()
+    for (const slot of [1, 2, 4]) {
+      expect(
+        screen.getByText(new RegExp(`slot\\s*${slot}\\b`, 'i')),
+        `slot ${slot} was marked and is not on screen`,
+      ).toBeInTheDocument()
     }
 
-    // Slot 3 is the gap. It must say so, not merely be absent.
-    expect(screen.getAllByText(/no record/i).length).toBeGreaterThan(0)
+    // The unmarked slots are ABSENT, not rendered as filler. Slot 3 is PRD
+    // Journey 3's gap; 5..12 are the rest of the day the student was never
+    // marked for and never asked about.
+    for (const slot of [3, 5, 6, 7, 8, 9, 10, 11, 12]) {
+      expect(
+        screen.queryByText(new RegExp(`slot\\s*${slot}\\b`, 'i')),
+        `slot ${slot} holds no record and must not be rendered`,
+      ).not.toBeInTheDocument()
+    }
+    expect(screen.queryByText(/no record/i)).not.toBeInTheDocument()
 
     // Epic 0 has no async path at all — AR8/AR9 are deferred and there is no
     // queue. A "pending/syncing" state would tell a student to wait for a sync
@@ -230,6 +245,70 @@ describe('public attendance dashboard', () => {
     // The marker is a name and a role, never an email or a user id.
     expect(screen.getAllByText(/Portal Coordinator/i)).not.toHaveLength(0)
     expect(screen.queryByText(/@amrita\.edu/i)).not.toBeInTheDocument()
+  })
+
+  // 0.10-WEB-005c — the day filter is the only way more than one day is on
+  // screen, and it defaults to a day that has marks.
+  //
+  // The screen used to stack every day of a student's history down the page.
+  // With a thirty-day festival that is a wall of mostly-empty rows, so the day
+  // became a filter — which makes "which day am I looking at" a thing the page
+  // must state and a thing the student must be able to change.
+  test('[P0] shows one day at a time and steps through the rest with the arrows', async () => {
+    const user = userEvent.setup()
+    installPublicBackend({
+      records: publicRecordCollection({
+        days: [
+          publicDay({ od_date: '2026-07-28', records: [publicRecord(1, { od_date: '2026-07-28' })] }),
+          publicDay({
+            od_date: '2026-07-20',
+            records: [publicRecord(5, {
+              od_date: '2026-07-20',
+              record_id: '66000000-0000-4000-8000-000000000720',
+              event_name: 'Sports Day Relay',
+            })],
+          }),
+        ],
+      }),
+    })
+
+    renderPublicRoute(`${publicAttendanceRoute}?student=${publicStudentID}`)
+
+    // Opens on the most recent day that HAS marks. Opening on an empty today
+    // would render "nothing marked" as the first thing a student sees, and this
+    // page must never imply an absence it was not asked about.
+    await screen.findByText(/Onam Celebrations/i)
+    expect(screen.queryByText(/Sports Day Relay/i)).not.toBeInTheDocument()
+
+    // ‹ steps BACKWARDS in time, which is the direction the arrow points.
+    await user.click(screen.getByRole('button', { name: /previous day/i }))
+
+    await waitFor(() => expect(screen.getByText(/Sports Day Relay/i)).toBeInTheDocument())
+    expect(screen.queryByText(/Onam Celebrations/i)).not.toBeInTheDocument()
+
+    // And back again.
+    await user.click(screen.getByRole('button', { name: /next day/i }))
+    await waitFor(() => expect(screen.getByText(/Onam Celebrations/i)).toBeInTheDocument())
+  })
+
+  // 0.10-WEB-005d — a day with no marks says so, in words that cannot be read as
+  // "this student has no records".
+  //
+  // Today is always reachable from the filter even when it is empty, which is
+  // exactly the state a student checks during an event. Rendering that as the
+  // same sentence the never-marked student sees would answer a question nobody
+  // asked.
+  test('[P0] an empty day is worded differently from a student with no records at all', async () => {
+    const user = userEvent.setup()
+    installPublicBackend()
+
+    renderPublicRoute(`${publicAttendanceRoute}?student=${publicStudentID}`)
+    await screen.findAllByText(/Onam Celebrations/i)
+
+    await selectByValue(user, screen.getByRole('combobox', { name: /^day$/i }), campusToday())
+
+    expect(await screen.findByText(/no OD was marked on this day/i)).toBeInTheDocument()
+    expect(screen.queryByText(/no OD records found/i)).not.toBeInTheDocument()
   })
 
   // 0.10-WEB-005b — two events on the SAME DAY may each hold the same slot, and

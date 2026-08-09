@@ -116,18 +116,36 @@ test.describe('the public dashboard across a thirty-day festival', () => {
     await installPublicBackend(page)
   })
 
-  // 0.12a-E2E-001 — three days of ONE event render as three day sections.
-  test('0.12a-E2E-001 a festival shows one section per day, newest first', async ({ page }) => {
+  // 0.12a-E2E-001 — a festival's days are reached ONE AT A TIME through the
+  // filter, each keyed on its own od_date.
+  //
+  // Every record in the fixture carries the same event_date and a different
+  // od_date, so a screen that keyed on the event would show one day and call it
+  // all three. Stacking all thirty down the page was the previous answer to
+  // that; the filter is the current one, and either way no day may be lost.
+  test('0.12a-E2E-001 the day filter reaches each day of a festival', async ({ page }) => {
     await page.goto(`${portalOrigin}/attendance?student=${STUDENT_ID}`)
 
-    // The PUBLIC screen has its own formatter (PublicAttendanceScreen.tsx:734)
-    // rendering "Wednesday, 19 August 2026". The PORTAL uses the short
-    // "19 Aug 2026" from routes/portal/events/format.ts. Asserting the wrong one
-    // fails on wording rather than on the grouping.
-    const headings = page.getByRole('heading', { name: /\d{1,2} \w+ 2026/ })
-    await expect(headings).toHaveCount(3)
-    await expect(headings.nth(0)).toContainText('19 August 2026')
-    await expect(headings.nth(2)).toContainText('10 August 2026')
+    const filter = page.getByRole('combobox', { name: /^day$/i })
+    await expect(filter).toBeVisible()
+
+    // The PUBLIC screen has its own formatter rendering "Wednesday, 19 August
+    // 2026". The PORTAL uses the short "19 Aug 2026" from
+    // routes/portal/events/format.ts. Asserting the wrong one fails on wording
+    // rather than on the grouping.
+    for (const [day, heading] of [
+      ['2026-08-19', '19 August 2026'],
+      ['2026-08-12', '12 August 2026'],
+      [FESTIVAL_START, '10 August 2026'],
+    ]) {
+      await filter.click()
+      await page.getByRole('listbox').locator(`[data-value="${day}"]`).click()
+
+      // Exactly one day on screen, and it is the one that was chosen.
+      const headings = page.getByRole('heading', { name: /\d{1,2} \w+ 2026/ })
+      await expect(headings).toHaveCount(1)
+      await expect(headings.first()).toContainText(heading)
+    }
   })
 
   // 0.12a-E2E-002 — the dispute day picker spans the whole range and stays a
@@ -138,9 +156,13 @@ test.describe('the public dashboard across a thirty-day festival', () => {
   test('0.12a-E2E-002 the day picker offers thirty bounded options', async ({ page }) => {
     await page.goto(`${portalOrigin}/attendance?student=${STUDENT_ID}`)
 
-    await page.getByRole('button', { name: /report|missed|dispute/i }).first().click()
+    await page.getByRole('button', { name: /report a missed slot/i }).click()
 
-    const dayControl = page.getByRole('combobox', { name: /day|date/i })
+    // Scoped to the FORM. The dashboard carries a day filter of its own, and the
+    // two are bounded by different things on purpose — the filter by the days
+    // the student has records on, this one by the event's range.
+    const form = page.getByRole('form', { name: /report a missed slot|dispute/i })
+    const dayControl = form.getByRole('combobox', { name: /day|date/i })
     await expect(dayControl).toBeVisible()
 
     // The app draws its own dropdown, so the options exist once it is opened —
@@ -155,19 +177,26 @@ test.describe('the public dashboard across a thirty-day festival', () => {
     await expect(page.locator('input[type="date"]')).toHaveCount(0)
   })
 
-  // 0.12a-E2E-003 — the affordance reports the day the student actually clicked.
+  // 0.12a-E2E-003 — the report is filed against the day the student is LOOKING
+  // AT.
   //
   // 0.11's review found the form filing against the wrong day when a student had
-  // records on two dates. Across thirty days that stops being an edge case.
-  test('0.12a-E2E-003 reporting from the first day pre-selects the first day', async ({ page }) => {
+  // records on two dates. Across thirty days that stops being an edge case. The
+  // rule now attaches to the day filter rather than to a clicked row, but it is
+  // the same rule.
+  test('0.12a-E2E-003 reporting from the first day of the festival pre-selects that day', async ({ page }) => {
     await page.goto(`${portalOrigin}/attendance?student=${STUDENT_ID}`)
 
-    const firstDaySection = page.locator('section.public-day').filter({ hasText: '10 August 2026' })
-    await firstDaySection.getByRole('button', { name: /report|missed|dispute/i }).first().click()
+    await page.getByRole('combobox', { name: /^day$/i }).click()
+    await page.getByRole('listbox').locator(`[data-value="${FESTIVAL_START}"]`).click()
+    await expect(page.locator('section.public-day')).toContainText('10 August 2026')
+
+    await page.getByRole('button', { name: /report a missed slot/i }).click()
 
     // The chosen day is what the control DISPLAYS; its label carries the iso
     // date alongside the long form, so this still pins the exact day.
-    await expect(page.getByRole('combobox', { name: /day|date/i })).toContainText(FESTIVAL_START)
+    const form = page.getByRole('form', { name: /report a missed slot|dispute/i })
+    await expect(form.getByRole('combobox', { name: /day|date/i })).toContainText(FESTIVAL_START)
   })
 })
 

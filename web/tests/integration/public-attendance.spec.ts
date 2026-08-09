@@ -157,11 +157,12 @@ test.describe('real stack public attendance dashboard', () => {
     await expect(slotOne).toHaveCount(1)
     await expect(slotOne).toContainText(/Browser Public Event/i)
 
-    // The seeded gap. This is PRD Journey 3 — the reason the screen renders all
-    // twelve slots instead of only the present ones.
-    const gap = page.getByRole('listitem').filter({ hasText: /slot\s*3\b/i })
-    await expect(gap).toHaveCount(1)
-    await expect(gap).toContainText(/no record/i)
+    // The seeded gap. This is PRD Journey 3, and the gap is now conveyed by the
+    // absence of a slot-3 row rather than by a row saying "No record": the
+    // student reads the slots they were credited for and sees that 3 is not one
+    // of them.
+    await expect(page.getByRole('listitem').filter({ hasText: /slot\s*3\b/i })).toHaveCount(0)
+    await expect(page.getByText(/no record/i)).toHaveCount(0)
 
     await expect(page.getByText(/pending|syncing|not yet synced|queued/i)).toHaveCount(0)
   })

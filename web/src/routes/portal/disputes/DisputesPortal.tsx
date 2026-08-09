@@ -181,7 +181,8 @@ export default function DisputesPortal() {
                                 { label: 'Event', value: row.event_name },
                                 { label: 'Category', value: row.category_name },
                                 { label: 'Day', value: formatDate(row.od_date) },
-                                { label: 'Slot', value: String(row.slot) },
+                                { label: '', value: `Slot ${row.slot} ` },
+                                { label: 'Status', value: titleCase(row.status) },
                                 { label: 'Coordinator', value: row.claimed_coordinator_name ?? 'Not provided' },
                                 { label: 'Email', value: row.submitted_email },
                                 { label: 'Submitted', value: formatDateTime(row.submitted_at) },
@@ -193,6 +194,9 @@ export default function DisputesPortal() {
                                 </div>
                               ))}
                             </dl>
+                            <p className="text-sm text-foreground-muted">
+                              Resolving records the decision; it does not correct the OD record itself. Correcting the record is a separate staff action.
+                            </p>
 
                             {/* Resolution form or resolved notice */}
                             {row.status === 'open' ? (

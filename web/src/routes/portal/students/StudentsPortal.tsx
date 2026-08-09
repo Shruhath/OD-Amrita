@@ -162,8 +162,8 @@ function ImportSummary({ result }: { result: StudentRosterImportResult }) {
         {countCards.map(([field, label, icon]) => (
           <div key={field} className="bg-canvas rounded-[10px] border border-border p-4 flex flex-col items-center text-center gap-1">
             <span className="text-2xl mb-1">{icon}</span>
-            <dd className="text-3xl font-black tracking-tight">{result[field]}</dd>
             <dt className="text-xs font-semibold uppercase tracking-wider text-foreground-muted">{label}</dt>
+            <dd className="text-3xl font-black tracking-tight">{result[field]}</dd>
           </div>
         ))}
       </dl>

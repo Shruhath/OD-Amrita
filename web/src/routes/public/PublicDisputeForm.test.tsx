@@ -169,9 +169,9 @@ describe('public dispute form', () => {
     // student re-picking either can pick the wrong one, and the row already knows
     // both — the day matters from 0.12a onward, when one event spans thirty of
     // them, and the column exists from creation so that day is never guessed.
-    expect(within(form).getByText(/slot\s*3\b/i)).toBeInTheDocument()
+    expect(within(form).getByRole('combobox', { name: /slot/i })).toHaveTextContent(/slot\s*3\b/i)
     expect(
-      within(form).getByText(/28 July 2026|2026-07-28|July 28/i),
+      within(form).getByRole('combobox', { name: /day/i }),
       'the form does not show which DAY is being disputed. Under 0.12a an event spans a date range, so a ' +
         'dispute without a day is ambiguous across thirty of them (amended 2026-08-06)',
     ).toBeInTheDocument()

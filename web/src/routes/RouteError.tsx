@@ -48,7 +48,7 @@ export default function RouteError() {
           {isLoadFailure ? 'Connection problem' : 'Application error'}
         </p>
         <h1 className="text-2xl font-bold tracking-tight mb-3">
-          {isLoadFailure ? "This screen didn't finish loading" : 'Something went wrong'}
+          {isLoadFailure ? 'This screen did not finish loading' : 'Something went wrong'}
         </h1>
         <p className="text-foreground-muted leading-relaxed mb-8" role="alert">
           {isLoadFailure
@@ -74,11 +74,9 @@ export default function RouteError() {
               <span>{showDetails ? '▲' : '▼'}</span>
               {showDetails ? 'Hide' : 'Show'} technical details
             </button>
-            {showDetails && (
-              <pre className="mt-3 text-xs text-foreground-muted bg-canvas border border-border rounded-[10px] p-3 overflow-x-auto text-left whitespace-pre-wrap break-all">
-                {message}
-              </pre>
-            )}
+            <pre hidden={!showDetails} className="mt-3 text-xs text-foreground-muted bg-canvas border border-border rounded-[10px] p-3 overflow-x-auto text-left whitespace-pre-wrap break-all">
+              {message}
+            </pre>
           </div>
         )}
       </motion.div>

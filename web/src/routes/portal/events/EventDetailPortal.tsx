@@ -308,7 +308,7 @@ export default function EventDetailPortal() {
               )}
 
               {categories.isSuccess && categoryData.length === 0 && (
-                <p className="text-sm text-foreground-muted italic">No categories yet.</p>
+                <p className="text-sm text-foreground-muted italic">No categories yet</p>
               )}
 
               {categoryData.length > 0 && (
@@ -332,7 +332,7 @@ export default function EventDetailPortal() {
 
               {event.status === 'active' && (
                 <form onSubmit={submit} noValidate className="flex flex-col gap-2 mt-2 pt-4 border-t border-border">
-                  <label htmlFor="category-name" className="text-sm font-semibold">Add category</label>
+                  <label htmlFor="category-name" className="text-sm font-semibold">Category name</label>
                   <div className="flex gap-2">
                     <input
                       id="category-name"
@@ -349,7 +349,7 @@ export default function EventDetailPortal() {
                       type="submit"
                       disabled={!canSubmit}
                     >
-                      {create.isPending ? '…' : 'Add'}
+                      {create.isPending ? 'Adding category…' : 'Add category'}
                     </button>
                   </div>
                   {fieldError && <p className="text-sm font-medium text-status-error-fg" id="category-name-error">{fieldError}</p>}
@@ -357,7 +357,7 @@ export default function EventDetailPortal() {
                 </form>
               )}
               {event.status === 'archived' && (
-                <p className="text-xs text-foreground-muted italic mt-2">This event is archived. Categories are read-only.</p>
+                <p className="text-xs text-foreground-muted italic mt-2">This event is archived. Its categories are read-only.</p>
               )}
             </section>
 
@@ -413,7 +413,7 @@ export default function EventDetailPortal() {
 
               {event.status === 'active' && (
                 <form onSubmit={submitCoordinator} noValidate className="flex flex-col gap-2 mt-2 pt-4 border-t border-border">
-                  <label htmlFor="coordinator-email" className="text-sm font-semibold">Assign coordinator</label>
+                  <label htmlFor="coordinator-email" className="text-sm font-semibold">Coordinator email</label>
                   <div className="flex gap-2">
                     <input
                       id="coordinator-email"
@@ -431,7 +431,7 @@ export default function EventDetailPortal() {
                       type="submit"
                       disabled={!canSubmitCoordinator}
                     >
-                      {createCoordinator.isPending ? '…' : 'Assign'}
+                      {createCoordinator.isPending ? 'Assigning coordinator…' : 'Assign coordinator'}
                     </button>
                   </div>
                   {coordinatorFieldError && <p className="text-sm font-medium text-status-error-fg" id="coordinator-email-error">{coordinatorFieldError}</p>}
@@ -439,7 +439,12 @@ export default function EventDetailPortal() {
                 </form>
               )}
               {event.status === 'archived' && (
-                <p className="text-xs text-foreground-muted italic mt-2">This event is archived. Coordinator assignments are read-only.</p>
+                <p className="text-xs text-foreground-muted italic mt-2">This event is archived. Its coordinator assignments are read-only.</p>
+              )}
+              {event.status === 'archived' && coordinatorFormError && (
+                <p className="text-sm text-status-error-fg bg-status-error-bg p-3 rounded-[10px] border border-status-error-fg/20" role="alert">
+                  {coordinatorFormError}
+                </p>
               )}
             </section>
           </div>
@@ -466,7 +471,7 @@ export default function EventDetailPortal() {
                 <div className="flex items-center gap-4 p-4 bg-canvas rounded-[10px] border border-border">
                   <div className="text-4xl font-black tracking-tight">{credits.data.config.limit}</div>
                   <div>
-                    <p className="text-sm font-semibold">Credits per coordinator per day</p>
+                    <p className="text-sm font-semibold">Cap: {credits.data.config.limit} credits per coordinator per day</p>
                     <p className="text-xs text-foreground-muted">Resets at midnight IST</p>
                   </div>
                 </div>
@@ -487,7 +492,7 @@ export default function EventDetailPortal() {
 
                 {event.status === 'active' && (
                   <form onSubmit={submitCreditLimit} noValidate className="flex flex-col gap-2 pt-4 border-t border-border">
-                    <label htmlFor="fallback-credit-limit" className="text-sm font-semibold">Update credit cap</label>
+                    <label htmlFor="fallback-credit-limit" className="text-sm font-semibold">Fallback credit cap</label>
                     <div className="flex gap-2">
                       <input
                         id="fallback-credit-limit"
@@ -606,6 +611,7 @@ function CreditUsageRow({
             className="text-xs font-medium px-3 py-1.5 rounded-[10px] border border-border hover:bg-surface active:scale-95 transition-all disabled:opacity-50"
             disabled={resetPending}
             onClick={onReset}
+            aria-label={`Reset ${row.email}`}
           >
             Reset
           </button>

@@ -134,7 +134,10 @@ func (s *Service) Run(ctx context.Context, closeoutID uuid.UUID) error {
 		}
 		return err
 	}
-	if _, err := s.reconcile.Run(ctx, eventID, 1); err != nil {
+	// The periodic end-of-day sweep owns revision 1. Closeout deliberately uses
+	// a new revision so an operator request rechecks the final archived state
+	// rather than accepting an earlier sweep's snapshot as the report boundary.
+	if _, err := s.reconcile.Run(ctx, eventID, 2); err != nil {
 		return err
 	}
 	rows, err := s.pool.Query(ctx, `SELECT s.roll_no, s.name, c.name, r.slot, r.od_date, r.status FROM od_records r JOIN students s ON s.id = r.student_id JOIN categories c ON c.id = r.category_id WHERE r.event_id = $1 ORDER BY r.od_date ASC, r.slot ASC, s.roll_no ASC, r.id ASC`, eventID)

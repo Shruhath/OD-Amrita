@@ -658,6 +658,58 @@ minute is a *shared* budget. Raise `PUBLIC_RATE_LIMIT_PER_MINUTE` for the
 duration of a tunnelled demo, or expect the dashboard to start refusing once a
 handful of people use it at once. This does not affect the Fly deployment.
 
+### Caching the public reads
+
+The dashboard has no opening time — it is always reachable. What it has is a
+**shape of load**: the last teaching slot ends at **18:15 IST**, and the campus
+opens the page over the following hour to ask one question each, "was I marked?".
+That is a spike against a handful of endpoints, not sustained volume.
+
+Each public read is served from a bounded in-process cache. **Both halves matter,
+and the second is the one that absorbs the spike:**
+
+- a short **lifetime**, so a repeated read costs nothing; and
+- **collapsed misses** — concurrent requests for the same key share one database
+  query instead of each making their own. A lifetime alone does nothing for a
+  *cold* cache under a simultaneous burst, which is precisely what 18:15 is.
+
+Three optional variables tune it, all with working defaults, so **no secret is
+required**:
+
+| Variable | Default | Covers |
+|---|---|---|
+| `PUBLIC_CACHE_RECORDS_TTL_SECONDS` | `30` | One student's OD records |
+| `PUBLIC_CACHE_SEARCH_TTL_SECONDS` | `60` | Anonymous roster search |
+| `PUBLIC_CACHE_EVENTS_TTL_SECONDS` | `300` | Event and category list |
+
+The lifetimes differ because the reads answer differently to being stale. Events
+change only when an administrator edits one; the roster changes only on an
+import; **records are the one a student is actively watching**, so that number is
+the shortest — it is the ceiling on how long "I was just marked" can still read
+as "no OD".
+
+**Setting any of them to `0` switches that cache off** and every read goes to the
+database. That is the live escape hatch if staleness ever costs more than the
+query — a `flyctl secrets set` and a restart, not a redeploy. A present-but-
+garbage value fails at boot rather than reverting to the default, so an operator
+who *believes* they turned caching off has actually turned it off.
+
+The same three responses also carry a `Cache-Control: public` header, so a
+student's own browser reuses them without reaching the API at all. `public` is
+correct only because these routes take no credential and vary on nothing but the
+URL; it must never be copied onto an authenticated route.
+
+Two caveats, the same shape as the limiter's:
+
+**The cache is in-process**, so the two Fly machines each hold their own copy and
+a given entry may be refreshed twice. This is deliberate — see the Redis note in
+the deployment runbook — and costs one extra query per key per lifetime.
+
+**Memory is bounded, not unlimited.** The records cache is keyed on a student
+UUID taken from the path of an endpoint anyone may call, so the cache refuses to
+grow past a fixed entry ceiling and simply stops caching new keys when full,
+degrading to uncached reads rather than to an out-of-memory.
+
 ### CORS
 
 No configuration change is needed while the dashboard is served from the same

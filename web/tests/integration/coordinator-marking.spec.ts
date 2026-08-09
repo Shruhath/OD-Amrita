@@ -1,3 +1,4 @@
+import { expectSomethingSelected, selectedValue } from '../support/select'
 import { expect, test } from '@playwright/test'
 import { installFakeBarcodeScanner } from '../e2e/support/barcode'
 import { installFakeWebNfc } from '../e2e/support/web-nfc'
@@ -41,11 +42,11 @@ const MARKING_EVENT_ID = '93000000-0000-4000-8000-000000000001'
 async function selectedScope(page: import('@playwright/test').Page) {
   const eventSelect = page.getByRole('combobox', { name: /event/i })
   const categorySelect = page.getByRole('combobox', { name: /category/i })
-  await expect(eventSelect).not.toHaveValue('')
-  await expect(categorySelect).not.toHaveValue('')
+  await expectSomethingSelected(eventSelect)
+  await expectSomethingSelected(categorySelect)
   return {
-    eventID: await eventSelect.inputValue(),
-    categoryID: await categorySelect.inputValue(),
+    eventID: await selectedValue(eventSelect),
+    categoryID: await selectedValue(categorySelect),
   }
 }
 

@@ -1,3 +1,4 @@
+import { selectByValue } from '../../test/select'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
@@ -570,7 +571,7 @@ describe('the coordinator marking screen', () => {
     await waitFor(() => expect(nfc!.armed).toBe(true))
     const before = nfc!.aborts
 
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Category' }), '94000000-0000-4000-8000-000000000002')
+    await selectByValue(userEvent.setup(), screen.getByRole('combobox', { name: 'Category' }), '94000000-0000-4000-8000-000000000002')
 
     // The old session must be torn down. Left running, its token debounce would
     // silently swallow a re-tap of the same card in the NEW category.

@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CaptureMethod, CardPayload, MarkAttendanceResult, ResolvedCardStudent } from '../../api/client'
 import { ApiFailure } from '../../api/client'
+import { AccountMenu } from '../../components/AccountMenu'
 import { ThemeToggle } from '../../components/ThemeToggle'
+import { Select } from '../../components/ui/Select'
 import { useAuth } from '../../features/auth/context'
 import { createBarcodeScanner, type BarcodeScannerStatus } from '../../features/marking/barcodeScanner'
 import { CardNfcError, createWebNfcAdapter, type WebNfcStatus } from '../../features/nfc/webNfc'
@@ -397,36 +399,33 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
             first thing announced on this screen. */}
         <span className="brand-mark" aria-hidden="true">OD</span>
         <h1>Mark attendance</h1>
-        <p className="mark-who">{identity.name}</p>
         <ThemeToggle />
+        {/* This screen had no way to sign out at all — a coordinator marking on
+            a shared phone could not hand it over. The same control as the
+            portal, so the account lives in one place on every surface. */}
+        <AccountMenu />
       </header>
 
       <section className="mark-scope" aria-label="Event and category">
         <label className="mark-field">
           <span>Event</span>
-          <select
+          <Select
             value={eventID}
-            onChange={(changed) => setEventID(changed.target.value)}
+            onChange={setEventID}
             disabled={eventOptions.length === 0}
-          >
-            {eventOptions.length === 0 && <option value="">No markable events</option>}
-            {eventOptions.map((event) => (
-              <option key={event.id} value={event.id}>{event.name}</option>
-            ))}
-          </select>
+            placeholder="No markable events"
+            options={eventOptions.map((event) => ({ value: event.id, label: event.name }))}
+          />
         </label>
         <label className="mark-field">
           <span>Category</span>
-          <select
+          <Select
             value={categoryID}
-            onChange={(changed) => setCategoryID(changed.target.value)}
+            onChange={setCategoryID}
             disabled={categoryOptions.length === 0}
-          >
-            {categoryOptions.length === 0 && <option value="">No categories</option>}
-            {categoryOptions.map((category) => (
-              <option key={category.id} value={category.id}>{category.name}</option>
-            ))}
-          </select>
+            placeholder="No categories"
+            options={categoryOptions.map((category) => ({ value: category.id, label: category.name }))}
+          />
         </label>
       </section>
 

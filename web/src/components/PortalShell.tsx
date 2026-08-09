@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
-import { useAuth } from '../features/auth/context'
+import { AccountMenu } from './AccountMenu'
 import { AppFooter } from './AppFooter'
 import { ThemeToggle } from './ThemeToggle'
 
@@ -22,8 +22,6 @@ const sections = [
  * route, so the active section can no longer drift out of sync either.
  */
 export function PortalShell({ children }: { children: ReactNode }) {
-  const { identity, signOut } = useAuth()
-
   return (
     <div className="portal-shell">
       <a className="skip-link" href="#workspace">Skip to content</a>
@@ -44,9 +42,8 @@ export function PortalShell({ children }: { children: ReactNode }) {
         </nav>
 
         <div className="account-actions">
-          <span>{identity?.name ?? identity?.email}</span>
           <ThemeToggle />
-          <button className="text-button" type="button" onClick={() => void signOut()}>Sign out</button>
+          <AccountMenu />
         </div>
       </header>
 

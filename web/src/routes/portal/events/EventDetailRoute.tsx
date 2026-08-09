@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { useParams } from 'react-router-dom'
 import { SessionBoundary } from '../../../features/auth/AuthGate'
+import { LoadingScreen } from '../../../components/ui/Spinner'
 
 const EventDetailPortal = lazy(() => import('./EventDetailPortal'))
 
@@ -9,7 +10,7 @@ export default function EventDetailRoute() {
 
   return (
     <SessionBoundary>
-      <Suspense fallback={<main className="center-state"><p role="status">Loading event…</p></main>}>
+      <Suspense fallback={<LoadingScreen label="Loading event" />}>
         {/* Keyed by the event id so navigating from one event to another
             REMOUNTS the portal. React Router reuses a component instance when
             only the param changes, which would carry the previous event's

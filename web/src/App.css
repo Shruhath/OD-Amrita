@@ -224,13 +224,6 @@
   font-size: 14px;
 }
 
-.account-actions > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 22ch;
-}
-
 /* --------------------------------------------------------------- workspace */
 
 /* Plain block flow — see the structural rule at the top of the file. The
@@ -449,16 +442,6 @@ button:disabled {
 .text-button:hover:not(:disabled) {
   background: var(--crimson-50);
   border-color: transparent;
-}
-
-/* Sign-out lives in the frosted topbar, not on a panel. */
-.account-actions .text-button {
-  color: var(--gray-700);
-}
-
-.account-actions .text-button:hover:not(:disabled) {
-  background: var(--tint-medium);
-  color: var(--foreground);
 }
 
 /* ------------------------------------------------------- brand on dark */
@@ -1348,15 +1331,19 @@ tbody tr:hover {
   font-size: 13px;
 }
 
+/* Underlined at rest, not only on hover. It is the one interactive thing in the
+   footer and it dials a phone — a link that only looks like a link once the
+   pointer is on it is invisible on the touch screens this is mostly read from,
+   where there is no hover at all. */
 .app-footer__credit a {
-  color: var(--foreground);
+  color: var(--crimson);
   font-weight: 700;
-  text-decoration: none;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .app-footer__credit a:hover {
-  color: var(--crimson);
-  text-decoration: underline;
+  color: var(--foreground);
 }
 
 /* ----------------------------------------------------------------- utility */
@@ -1427,17 +1414,6 @@ tbody tr:hover {
 .mark-header .theme-toggle:hover:not(:disabled) {
   background: var(--on-backdrop-fill-hover);
   color: var(--on-backdrop);
-}
-
-.mark-who {
-  margin: 0;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--on-backdrop-muted);
-  font-size: 13px;
-  font-weight: 600;
 }
 
 /* Shared panel treatment for the marking groups. */
@@ -1839,9 +1815,6 @@ tbody tr:hover {
     background: var(--control-bg);
   }
 
-  /* The address is the least useful thing in a 360px-wide bar. */
-  .account-actions > span { display: none; }
-
   .brand-name small { display: none; }
 
   .workspace { padding-bottom: 56px; }
@@ -1931,15 +1904,6 @@ tbody tr:hover {
   .populator-actions { min-width: 0; }
   .summary-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
   .summary-grid dd { font-size: 23px; }
-}
-
-/* The theme toggle costs the marking header ~44px, which is enough to wrap
-   "Mark attendance" onto two lines on a 390px phone. The account name goes
-   instead — exactly what the portal topbar does with the address at the same
-   width. The coordinator knows who they are; they need the title and the
-   control. */
-@media (max-width: 440px) {
-  .mark-who { display: none; }
 }
 
 /* At the narrowest supported width four meters across become unreadable, so
@@ -2420,4 +2384,360 @@ tbody tr:hover {
   /* At the narrowest supported width the fixed label column costs more than it
      buys, so the slot label sits above its detail instead. */
   .public-slot { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}
+
+/* ---------------------------------------------------------- install prompt */
+
+/* Fixed to the bottom rather than in the flow: it appears after first paint,
+   when the browser decides to offer an install, and inserting a block into the
+   layout at that moment would shift whatever the visitor was already reading. */
+.install-prompt {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(520px, calc(100% - 32px));
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--chrome);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: 1px solid var(--chrome-border);
+  box-shadow: 0 8px 30px rgb(0 0 0 / 18%);
+  color: var(--foreground);
+}
+
+.install-prompt__icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  flex-shrink: 0;
+}
+
+.install-prompt__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.install-prompt__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.install-prompt__text {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--gray-500);
+}
+
+.install-prompt__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.install-prompt__actions button {
+  font-size: 13px;
+  padding: 7px 12px;
+}
+
+/* Under about 380px the icon and two buttons stop fitting on one line and the
+   text is what gets squeezed to nothing, so the actions wrap below instead. */
+@media (max-width: 380px) {
+  .install-prompt {
+    flex-wrap: wrap;
+  }
+
+  .install-prompt__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+.app-footer__install {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--gray-500);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.app-footer__install:hover {
+  color: var(--crimson);
+}
+
+/* ------------------------------------------------------------ account menu */
+
+.account-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.account-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--chrome-border);
+  border-radius: 999px;
+  background: var(--control-bg);
+  cursor: pointer;
+}
+
+.account-menu__trigger:hover {
+  border-color: var(--crimson);
+}
+
+/* The focus ring has to be outside the circle: an inset one on a round control
+   is clipped by the border radius and all but disappears. */
+.account-menu__trigger:focus-visible {
+  outline: 2px solid var(--crimson);
+  outline-offset: 2px;
+}
+
+.account-menu__avatar {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: var(--crimson);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  /* Two uppercase initials at 12px are never wider than the circle, but a name
+     that produced something unexpected must not push it out of shape. */
+  overflow: hidden;
+}
+
+.account-menu__panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 70;
+  min-width: 220px;
+  max-width: min(300px, calc(100vw - 24px));
+  padding: 10px;
+  border: 1px solid var(--chrome-border);
+  border-radius: 12px;
+  background: var(--chrome);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: 0 10px 34px rgb(0 0 0 / 20%);
+}
+
+/* A roll-number address is long. It wraps rather than being clipped, because
+   the only reason this panel exists is to show it in full. */
+.account-menu__email {
+  margin: 0 0 8px;
+  padding: 0 4px;
+  color: var(--gray-600);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.account-menu__item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.account-menu__item:hover {
+  background: var(--tint-medium);
+  color: var(--crimson);
+}
+
+/* On the marking screen the header sits on the backdrop rather than on a panel,
+   so the trigger takes the on-backdrop palette like the theme toggle beside it. */
+.mark-header .account-menu__trigger {
+  background: var(--on-backdrop-fill);
+  border-color: transparent;
+}
+
+.mark-header .account-menu__trigger:hover {
+  background: var(--on-backdrop-fill-hover);
+}
+
+/* ------------------------------------------------------------- ui: select */
+
+/* The replacement for `<select>`. The native control draws its list with the
+   operating system — no CSS reaches inside it, it ignores the dark theme, and on
+   a phone it becomes a full-screen system sheet. This is that list, in the
+   page. */
+.ui-select {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.ui-select__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-md, 10px);
+  background: var(--control-bg);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-select__trigger:hover:not(:disabled) {
+  border-color: var(--crimson);
+}
+
+.ui-select__trigger:focus-visible {
+  outline: 2px solid var(--crimson);
+  outline-offset: 1px;
+}
+
+.ui-select__trigger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* A long category or event name must shorten rather than push the arrow out of
+   the control. */
+.ui-select__value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-select__arrow {
+  flex-shrink: 0;
+  width: 0;
+  height: 0;
+  border-left: 4.5px solid transparent;
+  border-right: 4.5px solid transparent;
+  border-top: 5px solid currentColor;
+  opacity: 0.6;
+}
+
+.ui-select__list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 80;
+  max-height: 260px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--radius-md, 10px);
+  background: var(--chrome);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: 0 12px 32px rgb(0 0 0 / 22%);
+}
+
+.ui-select__option {
+  padding: 8px 10px;
+  border-radius: 7px;
+  color: var(--foreground);
+  font-size: 14px;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+/* One highlight, driven by the keyboard AND the pointer, so arrowing and
+   hovering cannot disagree about which row is current. */
+.ui-select__option.is-active {
+  background: var(--tint-medium);
+}
+
+.ui-select__option.is-selected {
+  font-weight: 700;
+  color: var(--crimson);
+}
+
+.ui-select__option.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* On the marking screen the fields sit on the backdrop rather than a panel. */
+.mark-field .ui-select__trigger {
+  background: var(--control-bg);
+}
+
+/* ------------------------------------------------------------- ui: spinner */
+
+.spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.spinner__ring {
+  display: block;
+  border-radius: 50%;
+  /* A ring with one coloured quarter: the gap is what makes the rotation
+     visible. A fully coloured circle would spin without appearing to. */
+  border: 3px solid var(--tint-medium);
+  border-top-color: var(--crimson);
+  animation: spinner-rotate 720ms linear infinite;
+}
+
+.spinner--medium .spinner__ring {
+  width: 34px;
+  height: 34px;
+}
+
+.spinner--small .spinner__ring {
+  width: 18px;
+  height: 18px;
+  border-width: 2px;
+}
+
+@keyframes spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Motion sensitivity: a continuous rotation is exactly the pattern that
+   triggers it. The ring still has to say "working", so it pulses in place
+   instead of stopping dead — a frozen spinner reads as a hung page, which is
+   the misunderstanding this control exists to prevent. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner__ring {
+    animation: spinner-pulse 1.4s ease-in-out infinite;
+  }
+
+  @keyframes spinner-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.4;
+    }
+  }
 }

@@ -1,3 +1,4 @@
+import { expectSomethingSelected } from '../support/select'
 import { expect, test } from '@playwright/test'
 
 /**
@@ -194,8 +195,8 @@ test.describe('the multi-day event, end to end', () => {
 
     const eventSelect = page.getByRole('combobox', { name: /event/i })
     const categorySelect = page.getByRole('combobox', { name: /category/i })
-    await expect(eventSelect).not.toHaveValue('')
-    await expect(categorySelect).not.toHaveValue('')
+    await expectSomethingSelected(eventSelect)
+    await expectSomethingSelected(categorySelect)
 
     // The screen reached a coherent SLOT state rather than an error. Both
     // branches are accepted because this runs at whatever time CI runs: inside a

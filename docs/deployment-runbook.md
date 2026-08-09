@@ -36,6 +36,28 @@ student. `bom` (Mumbai, ~15 ms) is the nearest region and the preferred home. Wh
 capacity in `bom`, `sin` (Singapore, ~40–60 ms) is the accepted fallback — the next-nearest region.
 The current deploy is on `sin` for that reason; move it back to `bom` once Mumbai capacity returns.
 
+> ### ⚠️ The database is on the other side of the planet from the API
+>
+> `fly.toml` puts the API in **`sin` (Singapore)** for the reason above. The Neon project is in
+> **`us-east-1` (Virginia)** — visible in the DSN host, `…us-east-1.aws.neon.tech`. Every query the
+> API makes therefore crosses the Pacific *and* most of a continent.
+>
+> Measured against the live deployment, 2026-08-09: a request that touches no database answers in
+> **~150 ms**; `/health`, which does nothing but ping the pool, takes **0.4–1.4 s**; the public
+> reads take **0.4–1.5 s**. The gap is one trans-Pacific round trip per query, ~220 ms, paid again
+> for each one.
+>
+> This is the single largest latency cost in the system, and it is larger than everything the
+> caching layer can recover — the cache removes *repeat* queries, not the first one. It also lands
+> hardest exactly where the runbook says latency is felt directly: the synchronous mark path, where
+> a coordinator is standing in front of a student.
+>
+> **Fixing it means moving the database, not the API** — the API belongs near campus. Neon cannot
+> relocate a project between regions, so this is: create a project in `ap-southeast-1`, dump,
+> restore, re-create the two roles, repoint `DATABASE_URL_RUNTIME` and `DATABASE_URL_MIGRATOR`.
+> **That is a migration of live attendance data and a deliberate human decision — it has not been
+> done.** Do it before the event, not during.
+
 **Why the web surface must be HTTPS.** Web NFC (`NDEFReader`) and the camera (`getUserMedia`)
 are only available to a **secure context**. A non-HTTPS origin does not merely warn — the APIs
 are absent, and the card-writing and scanning surfaces cannot work at all. Vercel provides the
@@ -421,4 +443,71 @@ is why these are tracked here rather than assumed.
 | **H2** | **Vercel, separate origin, Git integration.** | Matches the decoupled-frontend architecture and reuses the already-built CORS middleware instead of adding single-origin embedding to the Go binary. Instant HTTPS gives the secure context NFC and the camera require. No Actions deploy job — Vercel already builds on push. |
 | **H3** | **Neon stays the application database.** | Moving to another Postgres would be lateral: it removes no work, solves no hosting problem, and would mean redoing the dual roles, the audit trigger and the privilege defaults on a different pooler. |
 | **H4** | **TLS terminates at the Fly edge; the container runs `TLS_ENABLED=false`.** | Fly manages the `*.fly.dev` certificate; the container cannot easily obtain it. The application already supports ingress-terminated mode. The hazard is that Fly's default shape *redirects* plain HTTP, so §4.1's port-443-only service block is what keeps it **rejected** instead. |
+| **H6** | **No Redis. Caching stays in-process.** | See below — the reasoning is long enough to deserve prose. |
+| **H7** | **The Neon region is wrong and should move to `ap-southeast-1`.** | The API is in Singapore and the database is in Virginia, so every query pays ~220 ms of ocean. Recorded as a decision **not yet acted on**: it is a migration of live attendance data. See the topology warning in §1. |
 | **H5** | **Every paid/console step is a tracked human step.** | Fly, the Neon plan upgrade and Vercel cost money; the Supabase redirect URL needs a console. §8 tracks them as unchecked boxes rather than leaving them implied. |
+
+---
+
+## 10. Should this use Redis? (H6)
+
+**No — not for this event, and the reason is not "too much work".** Redis is a good answer to
+problems this deployment does not have, and it would not touch the one it does.
+
+### What Redis would genuinely buy
+
+**One shared cache instead of two.** The public read cache is in-process, so the two Fly machines
+each hold their own copy and each pays its own first miss. Redis would make that one miss instead
+of two.
+
+**Exact rate limiting.** This is the strongest argument, and it is a real gap: the limiter is also
+in-process, so the effective per-client ceiling is roughly **double** the configured number. A
+shared counter would make the configured value the true value.
+
+**Cache that survives a restart.** Today a deploy empties both caches and the next requests refill
+them.
+
+### What it would cost
+
+**Another hop, and possibly another ocean.** A cache read that is currently a memory lookup —
+call it a microsecond — becomes a network call. In-region (Upstash or Fly Redis in `sin`) that is
+1–5 ms, which is fine. Provisioned carelessly in the wrong region, it repeats the mistake H7 is
+about, and a *slow* cache is worse than no cache.
+
+**Another thing that can be down**, on an unauthenticated public path, during the one hour of the
+year that matters. Doing this properly means a fallback path for "Redis is unreachable" and a test
+that the fallback works — which is more code than the entire cache it would be replacing.
+
+**A credential, a config surface, a bill, and something else to watch** on event day.
+
+### Why the trade does not pay here
+
+The arithmetic is unkind to Redis. Two machines × one miss per key per lifetime is **two** database
+queries where Redis would make one. Saving one query per key per lifetime is not worth a new
+network dependency on the public path.
+
+And the shared-cache benefit is aimed at the wrong target. **The expensive thing here is not the
+number of cache misses — it is what a miss costs**, and that is ~220 ms of trans-Pacific latency
+(H7). Redis would shave a duplicate 220 ms while leaving the other one in place. **Moving the
+database to `ap-southeast-1` removes it from every query, cached or not.** That is the same
+engineering effort aimed at roughly a hundred times the benefit, which is why H7 is the
+recommendation and H6 is a decline.
+
+The rate-limit gap has a one-line mitigation that costs nothing: **configure half the number you
+actually want**, and note it where the value is set. That is a worse mechanism than a shared
+counter, and it is an entirely adequate one for a single event on two machines.
+
+### When to revisit this
+
+Reopen H6 when any of these becomes true — none of them is true today:
+
+- The API runs **more than about four machines**, so the duplicated-miss factor stops being 2.
+- Rate limiting must be **exact** — for example if it ever guards something billable, or a real
+  abuse incident happens rather than a hypothetical one.
+- Caches must **survive deploys** because they have become load-bearing rather than an optimisation.
+- Something genuinely **shared and mutable across machines** appears — a job queue, a distributed
+  lock, live presence. That is a Redis-shaped problem. Caching, here, is not.
+
+**Do H7 first.** If the database still cannot keep up once it is in the same region as the API,
+that is new information and this decision deserves rereading. Adding Redis before then would be
+optimising the second-largest cost while the largest one is still in place.

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { MarkAttendanceResult, ResolvedCardStudent } from '../../../api/client'
 import { ApiFailure } from '../../../api/client'
 import { PortalShell } from '../../../components/PortalShell'
+import { Select } from '../../../components/ui/Select'
 import { useAuth } from '../../../features/auth/context'
 
 const SEARCH_DEBOUNCE_MS = 250
@@ -167,19 +168,29 @@ export default function TeacherAdminMarkScreen() {
 
         <form className="category-form" onSubmit={submit} noValidate>
           <label htmlFor="teacher-mark-event">Event</label>
-          <select id="teacher-mark-event" value={eventID} onChange={(event) => changeEvent(event.target.value)}>
-            {eventOptions.map((event) => <option value={event.id} key={event.id}>{event.name}</option>)}
-          </select>
+          <Select
+            id="teacher-mark-event"
+            value={eventID}
+            onChange={changeEvent}
+            options={eventOptions.map((event) => ({ value: event.id, label: event.name }))}
+          />
 
           <label htmlFor="teacher-mark-category">Category</label>
-          <select id="teacher-mark-category" value={categoryID} onChange={(event) => changeCategory(event.target.value)} disabled={categoryOptions.length === 0}>
-            {categoryOptions.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}
-          </select>
+          <Select
+            id="teacher-mark-category"
+            value={categoryID}
+            onChange={changeCategory}
+            disabled={categoryOptions.length === 0}
+            options={categoryOptions.map((category) => ({ value: category.id, label: category.name }))}
+          />
 
           <label htmlFor="teacher-mark-slot">Slot</label>
-          <select id="teacher-mark-slot" value={slot} onChange={(event) => changeSlot(event.target.value)}>
-            {SLOT_VALUES.map((value) => <option key={value} value={value}>{value}</option>)}
-          </select>
+          <Select
+            id="teacher-mark-slot"
+            value={slot}
+            onChange={changeSlot}
+            options={SLOT_VALUES.map((value) => ({ value: String(value), label: String(value) }))}
+          />
 
           <label htmlFor="teacher-mark-student">Student</label>
           <input

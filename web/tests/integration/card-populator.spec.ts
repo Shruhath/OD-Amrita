@@ -1,3 +1,4 @@
+import { selectLabel } from '../support/select'
 import { expect, test } from '@playwright/test'
 import { installFakeWebNfc, nfcWrites } from '../e2e/support/web-nfc'
 
@@ -15,7 +16,7 @@ async function openPopulator(page: import('@playwright/test').Page) {
   // The option is the branch CODE alone — the full name was dropped from
   // every branch display, so selecting by the old "CODE — Name" label matches
   // nothing.
-  await page.getByLabel('Branch', { exact: true }).selectOption({ label: seededSection.branch })
+  await selectLabel(page, page.getByLabel('Branch', { exact: true }), seededSection.branch)
   await page.getByLabel('Batch', { exact: true }).fill(seededSection.batch)
   await page.getByLabel('Section', { exact: true }).fill(seededSection.section)
   await page.getByRole('button', { name: 'Load roster' }).click()
@@ -61,7 +62,7 @@ test('[P0] filters the roster server-side rather than in the browser', async ({ 
   await page.goto('/integration.html?path=%2Fportal%2Fcard-populator')
   await expect(page.getByRole('heading', { name: 'Card populator' })).toBeVisible()
 
-  await page.getByLabel('Branch', { exact: true }).selectOption({ label: 'CSE' })
+  await selectLabel(page, page.getByLabel('Branch', { exact: true }), 'CSE')
   await page.getByLabel('Batch', { exact: true }).fill('2024')
   await page.getByLabel('Section', { exact: true }).fill('B')
   await page.getByRole('button', { name: 'Load roster' }).click()

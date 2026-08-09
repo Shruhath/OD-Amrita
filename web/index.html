@@ -8,6 +8,13 @@
          areas; the safe-area insets in App.css keep content clear of them. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#b50246" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- iOS reads none of the manifest. These three are what give a home-screen
+         install there a title bar rather than Safari's chrome, and the app's own
+         name rather than the document title. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="OD-Amrita" />
     <meta name="description" content="On-duty event administration for Amrita Vishwa Vidyapeetham." />
     <title>OD-Amrita</title>
     <!--

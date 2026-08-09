@@ -1,3 +1,4 @@
+import { selectValue } from '../support/select'
 import { expect, test, type Page, type Request } from '@playwright/test'
 import {
   cardPayload,
@@ -42,7 +43,7 @@ async function mockPopulatorApi(page: Page, role: 'admin' | 'student' = 'admin')
 
 async function loadSection(page: Page) {
   await expect(page.getByRole('heading', { name: 'Card populator' })).toBeVisible()
-  await page.getByLabel('Branch', { exact: true }).selectOption(cardPopulatorBranch.id)
+  await selectValue(page, page.getByLabel('Branch', { exact: true }), cardPopulatorBranch.id)
   await page.getByLabel('Batch', { exact: true }).fill('2024')
   // Exact: the nav landmark is labelled "Administration sections", which a
   // substring match on "Section" also resolves to.

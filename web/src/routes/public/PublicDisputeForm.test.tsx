@@ -1,3 +1,4 @@
+import { openOptions, selectByLabel } from '../../test/select'
 /**
  * Red-phase component tests for Story 0.11's PUBLIC dispute form (AC 1, 2, 15,
  * 16, 17).
@@ -444,12 +445,16 @@ describe('public dispute form', () => {
     // one (T8) — a student notices a missing slot after the event, which is
     // usually after it has been archived.
     const eventField = within(form).getByRole('combobox', { name: /event/i })
-    expect(within(eventField).getByRole('option', { name: /Onam Celebrations/i })).toBeInTheDocument()
+    const eventList = await openOptions(user, eventField)
+    expect(within(eventList).getByRole('option', { name: /Onam Celebrations/i })).toBeInTheDocument()
     expect(
-      within(eventField).getByRole('option', { name: /Sports Day Relay/i }),
+      within(eventList).getByRole('option', { name: /Sports Day Relay/i }),
       'the archived event is missing from the picker. Archiving is an administrative act, not a retraction, and ' +
         'a dispute is filed precisely after the fact (T8)',
     ).toBeInTheDocument()
+    // Close it again so the day control below can open — only one list is open
+    // at a time, exactly as a visitor experiences it.
+    await user.keyboard('{Escape}')
 
     // THE DAY MUST BE A BOUNDED CHOICE, NOT A HIDDEN DERIVATION.
     //
@@ -471,7 +476,10 @@ describe('public dispute form', () => {
         'derive it from (plan §7 + Step 7), so the day must come from the event range — a value derived ' +
         'invisibly from event_date works today and breaks the moment 0.12a widens the event',
     ).toBeInTheDocument()
-    expect(within(dayField).getByRole('option', { name: /2026-07-28|28 July|July 28/i })).toBeInTheDocument()
+    expect(
+      within(await openOptions(user, dayField)).getByRole('option', { name: /2026-07-28|28 July|July 28/i }),
+    ).toBeInTheDocument()
+    await user.keyboard('{Escape}')
 
     expect(installed.authorizationHeaders.length).toBeGreaterThan(0)
   })
@@ -510,16 +518,14 @@ describe('public dispute form', () => {
     // Selecting the OTHER (archived, differently-dated) event must move the day
     // options with it. A day list that does not track the event is a form that
     // submits a date the event never covered.
-    await user.selectOptions(
-      within(form).getByRole('combobox', { name: /event/i }),
-      within(within(form).getByRole('combobox', { name: /event/i })).getByRole('option', { name: /Sports Day Relay/i }),
-    )
+    await selectByLabel(user, within(form).getByRole('combobox', { name: /event/i }), /Sports Day Relay/i)
     const dayField = within(form).getByRole('combobox', { name: /day|date/i })
+    const dayList = await openOptions(user, dayField)
     expect(
-      within(dayField).getByRole('option', { name: /2026-07-20|20 July|July 20/i }),
+      within(dayList).getByRole('option', { name: /2026-07-20|20 July|July 20/i }),
       'changing the event did not change the day options; the day must be scoped to the selected event',
     ).toBeInTheDocument()
-    expect(within(dayField).queryByRole('option', { name: /2026-07-28|28 July|July 28/i })).not.toBeInTheDocument()
+    expect(within(dayList).queryByRole('option', { name: /2026-07-28|28 July|July 28/i })).not.toBeInTheDocument()
   })
 })
 

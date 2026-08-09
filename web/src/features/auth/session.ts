@@ -26,7 +26,12 @@ export const browserSession: SessionPort = {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'azure',
       options: {
-        redirectTo: new URL('/portal/events', window.location.origin).toString(),
+        // The ROOT, not a portal screen. `/portal/*` is admin-gated, so sending
+        // everyone there means a coordinator finishes signing in and is told
+        // "Access denied" by the very screen the redirect chose for them. The
+        // root renders RoleLanding, which is the one place that knows a role and
+        // can route on it — see routes/RoleLanding.tsx.
+        redirectTo: new URL('/', window.location.origin).toString(),
         scopes: 'openid email profile',
       },
     })

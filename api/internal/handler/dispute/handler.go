@@ -178,6 +178,11 @@ func PublicEventsHandler(svc PublicService) gin.HandlerFunc {
 				Categories: categories,
 			})
 		}
+		// The longest of the three public lifetimes: this list changes only when
+		// an administrator edits an event or a category, and it is fetched by
+		// every visitor who opens the dispute form. `public` is safe because the
+		// route takes no credential and the response varies on nothing.
+		c.Header("Cache-Control", "public, max-age=300")
 		c.JSON(http.StatusOK, contracts.PublicEventCollection{Data: data})
 	}
 }

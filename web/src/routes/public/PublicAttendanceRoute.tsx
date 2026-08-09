@@ -1,4 +1,5 @@
 import { Component, lazy, Suspense, type ReactNode } from 'react'
+import { LoadingScreen } from '../../components/ui/Spinner'
 
 const PublicAttendanceScreen = lazy(() => import('./PublicAttendanceScreen'))
 
@@ -51,7 +52,7 @@ class ChunkBoundary extends Component<{ children: ReactNode }, { failed: boolean
 export default function PublicAttendanceRoute() {
   return (
     <ChunkBoundary>
-      <Suspense fallback={<main className="center-state"><p role="status">Loading attendance…</p></main>}>
+      <Suspense fallback={<LoadingScreen label="Loading attendance" />}>
         <PublicAttendanceScreen />
       </Suspense>
     </ChunkBoundary>

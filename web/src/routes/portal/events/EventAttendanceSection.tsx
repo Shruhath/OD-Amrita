@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { CategoryRecord, AttendanceRecordCollection } from '../../../api/client'
+import { Select } from '../../../components/ui/Select'
 import { useAuth } from '../../../features/auth/context'
 import { enumerateDays, formatDate, messageOf } from './format'
 
@@ -67,28 +68,41 @@ export function EventAttendanceSection({
 
       <div className="category-form" style={{ marginBottom: 18 }}>
         <label htmlFor="attendance-category">Category</label>
-        <select id="attendance-category" value={categoryID} onChange={(event) => setCategoryID(event.target.value)}>
-          <option value="">All categories</option>
-          {categories.map((category) => (
-            <option key={category.id} value={category.id}>{category.name}</option>
-          ))}
-        </select>
+        <Select
+          id="attendance-category"
+          value={categoryID}
+          onChange={setCategoryID}
+          options={[
+            { value: '', label: 'All categories' },
+            ...categories.map((category) => ({ value: category.id, label: category.name })),
+          ]}
+        />
 
         {dayOptions.length > 1 && (
           <>
             <label htmlFor="attendance-day">Day</label>
-            <select id="attendance-day" value={odDate} onChange={(event) => setODDate(event.target.value)}>
-              <option value="">All days</option>
-              {dayOptions.map((value) => <option key={value} value={value}>{formatDate(value)}</option>)}
-            </select>
+            <Select
+              id="attendance-day"
+              value={odDate}
+              onChange={setODDate}
+              options={[
+                { value: '', label: 'All days' },
+                ...dayOptions.map((value) => ({ value, label: formatDate(value) })),
+              ]}
+            />
           </>
         )}
 
         <label htmlFor="attendance-slot">Slot</label>
-        <select id="attendance-slot" value={slot} onChange={(event) => setSlot(event.target.value)}>
-          <option value="">All slots</option>
-          {SLOT_VALUES.map((value) => <option key={value} value={value}>{value}</option>)}
-        </select>
+        <Select
+          id="attendance-slot"
+          value={slot}
+          onChange={setSlot}
+          options={[
+            { value: '', label: 'All slots' },
+            ...SLOT_VALUES.map((value) => ({ value: String(value), label: String(value) })),
+          ]}
+        />
 
         <div className="pagination" aria-label="Attendance pagination">
           <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1 || attendance.isPending}>Prev</button>

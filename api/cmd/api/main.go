@@ -44,6 +44,7 @@ import (
 	svcmarking "github.com/Shruhath/OD-Amrita/api/internal/service/marking"
 	svcodrecord "github.com/Shruhath/OD-Amrita/api/internal/service/od_record"
 	svcpublicattendance "github.com/Shruhath/OD-Amrita/api/internal/service/publicattendance"
+	"github.com/Shruhath/OD-Amrita/api/internal/service/publiccache"
 	svcstudent "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 	svcteacher "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
 	svcuser "github.com/Shruhath/OD-Amrita/api/internal/service/user"
@@ -186,13 +187,29 @@ func run() error {
 	publicAttendanceSvc := svcpublicattendance.NewSQLCService(pool)
 	disputeRepo := svcdispute.NewSQLCRepository(pool)
 	disputeSvc := svcdispute.NewService(disputeRepo, disputeRepo, st, cfg.Auth.AllowedDomain)
+	// The public reads are wrapped in the bounded in-process cache. The wrapping
+	// happens HERE rather than inside the services so the services stay plain
+	// database reads — the "a public read never writes" invariant is still
+	// provable by reading one package — and so nothing on the authenticated
+	// surface can pick up a cache by accident.
+	//
+	// The spike this exists for is the hour after the last teaching slot ends at
+	// 18:15 IST, when the campus opens the dashboard at once. What absorbs it is
+	// less the lifetimes than the collapsing of concurrent misses onto one query
+	// per key; the lifetimes decide how stale a record may read, which is why the
+	// records TTL is the shortest and is separately tunable.
+	cacheTTL := cfg.PublicCacheTTL
+	cachedRecords := publiccache.NewRecords(publicAttendanceSvc, time.Duration(cacheTTL.RecordsSeconds)*time.Second)
+	cachedEvents := publiccache.NewEvents(publicAttendanceSvc, time.Duration(cacheTTL.EventsSeconds)*time.Second)
+	cachedSearch := publiccache.NewSearch(studentSvc, time.Duration(cacheTTL.SearchSeconds)*time.Second)
+
 	// The public dashboard's two reads. The SAME student service serves the
 	// anonymous search — PublicSearch is a separate, actor-less, hard-capped
 	// method on it, not a relaxation of the authenticated Search.
-	handlerpublicattendance.RegisterPublicRoutes(publicGroup, studentSvc, publicAttendanceSvc)
+	handlerpublicattendance.RegisterPublicRoutes(publicGroup, cachedSearch, cachedRecords)
 	handlerdispute.RegisterPublicRoutes(publicGroup, publicDisputeSurface{
 		submitter: disputeSvc,
-		events:    publicAttendanceSvc,
+		events:    cachedEvents,
 	}, publicDisputeLimiter.Middleware())
 	handlerodrecord.RegisterMarkingReadRoutes(markAPI, svcmarking.NewReadService(
 		markingPolicy,

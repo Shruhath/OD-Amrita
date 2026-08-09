@@ -17,6 +17,7 @@ package publicattendance
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -86,6 +87,10 @@ func SearchHandler(svc PublicSearchService) gin.HandlerFunc {
 			}
 			data = append(data, rendered)
 		}
+		// The roster changes only on an import, so a minute in the browser's own
+		// cache costs nothing and keeps the type-ahead retries of a whole campus
+		// off the API entirely.
+		cacheFor(c, 60)
 		c.JSON(http.StatusOK, contracts.PublicStudentSearchResults{Data: data})
 	}
 }
@@ -113,8 +118,26 @@ func RecordsHandler(svc RecordsService) gin.HandlerFunc {
 			fail(c, convErr)
 			return
 		}
+		// Short on purpose, and shorter than the roster: this is the response a
+		// student refreshes to find out whether a mark has landed, so it is the
+		// one where staleness is felt as "the app is wrong".
+		cacheFor(c, 30)
 		c.JSON(http.StatusOK, rendered)
 	}
+}
+
+// cacheFor lets the browser reuse a public response for a few seconds.
+//
+// `public` is correct here and would NOT be on any authenticated route: these
+// two endpoints take no credential, the URL already contains the only thing that
+// varies the answer, and nothing in the body is private to a session. It is at
+// the handler rather than as blanket middleware so that a route added to this
+// group later gets no caching until someone decides what its lifetime should be.
+func cacheFor(c *gin.Context, seconds int) {
+	if seconds <= 0 {
+		return
+	}
+	c.Header("Cache-Control", "public, max-age="+strconv.Itoa(seconds))
 }
 
 func publicStudentContract(result svcstudent.SearchResult) (contracts.PublicStudent, error) {

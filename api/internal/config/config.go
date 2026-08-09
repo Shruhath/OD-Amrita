@@ -72,6 +72,24 @@ type Config struct {
 	// PublicDisputeRateLimit bounds the unauthenticated dispute POST only. It is
 	// intentionally stricter than the public read budget.
 	PublicDisputeRateLimit PublicRateLimit
+	// PublicCacheTTL is how long each public read may be served from memory.
+	// Defaults apply when unset, for the same reason the rate limits have them:
+	// the deployed app carries no such secret and must keep booting.
+	PublicCacheTTL PublicCacheTTL
+}
+
+// PublicCacheTTL is the lifetime of each cached public read, in seconds on the
+// wire. Zero switches that cache off, which is the live escape hatch if a stale
+// record ever matters more than a database read.
+type PublicCacheTTL struct {
+	// RecordsSeconds is the one a student is actively watching: it bounds how
+	// long "I was just marked" can still read as "no OD". Shortest by far.
+	RecordsSeconds int
+	// SearchSeconds covers the roster, which changes only on an import.
+	SearchSeconds int
+	// EventsSeconds covers the event and category list, which changes only when
+	// an administrator edits it.
+	EventsSeconds int
 }
 
 // PublicRateLimit is the token-bucket tuning for the public group.
@@ -165,6 +183,11 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	cfg.PublicDisputeRateLimit = publicDisputeRateLimit
+	publicCacheTTL, err := parsePublicCacheTTL()
+	if err != nil {
+		return nil, err
+	}
+	cfg.PublicCacheTTL = publicCacheTTL
 	if err := validateAuth(cfg.Auth, cfg.AppEnv); err != nil {
 		return nil, err
 	}
@@ -210,6 +233,50 @@ func parsePublicDisputeRateLimit() (PublicRateLimit, error) {
 		return PublicRateLimit{}, err
 	}
 	return PublicRateLimit{PerMinute: perMinute, Burst: burst}, nil
+}
+
+// parsePublicCacheTTL reads the public read-cache lifetimes.
+//
+// Unset yields the defaults, for the same reason the rate limits have them: the
+// deployed app carries no such secret and must keep booting. Unlike those, ZERO
+// is a legal value here and means "do not cache this read" — the switch an
+// operator reaches for on the day if a stale record turns out to matter more
+// than a database round trip. A set-but-garbage value still fails loudly: a typo
+// that silently fell back to a default would leave someone believing they had
+// turned caching off when they had not.
+func parsePublicCacheTTL() (PublicCacheTTL, error) {
+	records, err := nonNegativeIntDefault("PUBLIC_CACHE_RECORDS_TTL_SECONDS", 30)
+	if err != nil {
+		return PublicCacheTTL{}, err
+	}
+	search, err := nonNegativeIntDefault("PUBLIC_CACHE_SEARCH_TTL_SECONDS", 60)
+	if err != nil {
+		return PublicCacheTTL{}, err
+	}
+	events, err := nonNegativeIntDefault("PUBLIC_CACHE_EVENTS_TTL_SECONDS", 300)
+	if err != nil {
+		return PublicCacheTTL{}, err
+	}
+	return PublicCacheTTL{RecordsSeconds: records, SearchSeconds: search, EventsSeconds: events}, nil
+}
+
+// nonNegativeIntDefault is positiveIntDefault with zero admitted, for settings
+// where zero means "off" rather than "misconfigured".
+func nonNegativeIntDefault(key string, def int) (int, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return def, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 {
+		return 0, fmt.Errorf("config: %s must be a non-negative integer, got %q", key, raw)
+	}
+	// An hour is far beyond any legitimate value for these and is much more
+	// likely to be milliseconds pasted into a seconds field.
+	if value > 3_600 {
+		return 0, fmt.Errorf("config: %s must be at most 3600 seconds, got %q", key, raw)
+	}
+	return value, nil
 }
 
 // positiveIntDefault returns def when the variable is absent or blank, and

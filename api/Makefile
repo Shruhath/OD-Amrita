@@ -51,7 +51,7 @@ DATABASE_URL_RUNTIME  ?= postgres://od_runtime:runtime_dev_only_change_me@$(DB_H
 # same way api-ci runs them.
 INTEGRATION_PKGS := ./test/db/... ./test/store/... ./test/event/... ./test/roundtrip/... ./test/teacher/... ./test/student/... ./test/cardtoken/... ./test/odrecord/...
 
-.PHONY: build test lint sqlc sqlc-check migrate-up migrate-down run-api run-worker \
+.PHONY: build test lint sqlc sqlc-check migrate-up migrate-down run-api \
         db-up db-down db-reset db-psql db-studio db-studio-down test-integration
 
 build: ## Compile all packages
@@ -188,6 +188,3 @@ test-integration: ## Run the real-Postgres suites exactly as api-ci does (needs 
 
 run-api: ## Run the HTTP server entrypoint
 	go run ./cmd/api
-
-run-worker: ## Run the persistent River worker entrypoint
-	go run ./cmd/worker

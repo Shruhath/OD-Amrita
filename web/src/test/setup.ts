@@ -17,6 +17,15 @@ const localStorageStub: Storage = {
 Object.defineProperty(window, 'localStorage', { configurable: true, value: localStorageStub })
 Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: localStorageStub })
 
+// Radix Select uses pointer capture in the browser. JSDOM does not implement
+// these methods, so provide the no-op browser contract for component tests.
+if (typeof HTMLElement !== 'undefined') {
+  HTMLElement.prototype.hasPointerCapture ??= () => false
+  HTMLElement.prototype.setPointerCapture ??= () => undefined
+  HTMLElement.prototype.releasePointerCapture ??= () => undefined
+  HTMLElement.prototype.scrollIntoView ??= () => undefined
+}
+
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
 
 beforeEach(() => {

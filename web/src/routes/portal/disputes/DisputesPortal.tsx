@@ -243,7 +243,7 @@ export default function DisputesPortal() {
                                 )}
                                 <div className="resolution-actions flex flex-wrap gap-3">
                                   <button
-                                    className="primary bg-foreground text-canvas px-5 py-2.5 rounded-[10px] font-semibold text-sm active:scale-95 transition-all disabled:opacity-50"
+                                    className="primary bg-primary text-primary-foreground px-5 py-2.5 rounded-[10px] font-semibold text-sm active:scale-95 transition-all disabled:opacity-50"
                                     type="button"
                                     // Scoped to THIS row. One shared isPending greyed out
                                     // every button in the inbox whenever any single

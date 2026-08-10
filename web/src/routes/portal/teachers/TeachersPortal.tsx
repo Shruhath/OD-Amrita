@@ -346,7 +346,7 @@ function CreateDialog({ branches, onClose, onCreated }: { branches: Branch[]; on
                 Cancel
               </button>
               <button
-                className="flex-1 bg-foreground text-canvas px-4 py-2.5 rounded-[10px] font-semibold active:scale-95 transition-all disabled:opacity-50"
+                className="flex-1 bg-primary text-primary-foreground px-4 py-2.5 rounded-[10px] font-semibold active:scale-95 transition-all disabled:opacity-50"
                 type="submit"
                 disabled={!canSubmit}
               >

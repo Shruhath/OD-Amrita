@@ -411,7 +411,7 @@ export default function ODRecordsPortal() {
             type="button"
             onClick={() => setHistoryID(studentID.trim())}
             disabled={studentID.trim() === ''}
-            className="inline-flex min-h-11 items-center justify-center gap-2 bg-foreground text-canvas px-4 py-2 rounded-[10px] text-sm font-semibold active:scale-95 transition-all disabled:opacity-50 whitespace-nowrap sm:w-auto"
+            className="inline-flex min-h-11 items-center justify-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-[10px] text-sm font-semibold active:scale-95 transition-all disabled:opacity-50 whitespace-nowrap sm:w-auto"
           >
             <MagnifyingGlass size={16} aria-hidden="true" /> View history
           </button>

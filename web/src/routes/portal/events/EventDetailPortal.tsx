@@ -352,7 +352,7 @@ export default function EventDetailPortal() {
                       placeholder="e.g. Day 1 Morning"
                     />
                     <button
-                      className="bg-foreground text-canvas px-4 py-2 rounded-[10px] text-sm font-semibold active:scale-95 transition-all disabled:opacity-50"
+                      className="bg-primary text-primary-foreground px-4 py-2 rounded-[10px] text-sm font-semibold active:scale-95 transition-all disabled:opacity-50"
                       type="submit"
                       disabled={!canSubmit}
                     >
@@ -434,7 +434,7 @@ export default function EventDetailPortal() {
                       placeholder="name@amrita.edu"
                     />
                     <button
-                      className="bg-foreground text-canvas px-4 py-2 rounded-[10px] text-sm font-semibold active:scale-95 transition-all disabled:opacity-50"
+                      className="bg-primary text-primary-foreground px-4 py-2 rounded-[10px] text-sm font-semibold active:scale-95 transition-all disabled:opacity-50"
                       type="submit"
                       disabled={!canSubmitCoordinator}
                     >
@@ -512,7 +512,7 @@ export default function EventDetailPortal() {
                         className={`w-28 bg-canvas border focus:ring-1 rounded-[10px] px-3 py-2 text-sm outline-none transition-all ${creditFieldError ? 'border-status-error-fg focus:border-status-error-fg focus:ring-status-error-fg' : 'border-border focus:border-foreground focus:ring-foreground'}`}
                       />
                       <button
-                        className="bg-foreground text-canvas px-4 py-2 rounded-[10px] text-sm font-semibold active:scale-95 transition-all disabled:opacity-50"
+                        className="bg-primary text-primary-foreground px-4 py-2 rounded-[10px] text-sm font-semibold active:scale-95 transition-all disabled:opacity-50"
                         type="submit"
                         disabled={updateCreditConfig.isPending}
                       >
@@ -570,7 +570,7 @@ export default function EventDetailPortal() {
                 </button>
                 <button
                   type="button"
-                  className="flex-1 bg-foreground text-canvas px-4 py-2.5 rounded-[10px] font-semibold active:scale-95 transition-all disabled:opacity-50"
+                  className="flex-1 bg-primary text-primary-foreground px-4 py-2.5 rounded-[10px] font-semibold active:scale-95 transition-all disabled:opacity-50"
                   disabled={resetCredits.isPending}
                   onClick={() => resetCredits.mutate(resetCandidate.user_id)}
                 >

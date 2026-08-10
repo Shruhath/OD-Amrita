@@ -378,7 +378,6 @@ button {
   padding: 10px 18px;
   border: 1px solid var(--gray-300);
   border-radius: var(--radius-md);
-  color: var(--foreground);
   font-size: 15px;
   font-weight: 650;
   line-height: 1.2;
@@ -407,6 +406,31 @@ button {
 */
 button:not(:where([class*='bg-'])) {
   background: var(--control-bg);
+}
+
+/*
+  THE INK STANDS ASIDE TOO — and it is the half that actually went invisible.
+  `bg-foreground text-canvas` is how the redesign draws a solid button, and the
+  element rule was overriding `text-canvas` while leaving `bg-foreground` alone,
+  so "New event" and "Assign coordinator" painted rgb(23,23,23) text on an
+  rgb(23,23,23) fill: 1:1, a button-shaped hole.
+
+  The colour utilities are listed rather than matched by prefix, because
+  `[class*='text-']` also catches `text-sm`, `text-xs` and `text-center` — a
+  button would then be excluded from the default ink for having said something
+  about its font size. The app-wide contrast sweep is what keeps this list
+  honest: a new colour utility that is not named here shows up as a failing
+  screen rather than as a button nobody can read.
+*/
+button:not(:where(
+  [class*='text-canvas'],
+  [class*='text-white'],
+  [class*='text-primary'],
+  [class*='text-foreground'],
+  [class*='text-status'],
+  [class*='text-accent']
+)) {
+  color: var(--foreground);
 }
 
 button:not(:where([class*='border-'])) {

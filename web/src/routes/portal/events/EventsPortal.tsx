@@ -65,7 +65,7 @@ export default function EventsPortal() {
         </div>
         <button 
           ref={openerRef}
-          className="bg-foreground text-canvas px-6 py-3 rounded-xl font-medium active:scale-95 transition-transform disabled:opacity-50 disabled:active:scale-100" 
+          className="bg-primary text-primary-foreground px-6 py-3 rounded-xl font-medium active:scale-95 transition-transform disabled:opacity-50 disabled:active:scale-100" 
           type="button" 
           disabled={!canCreate} 
           onClick={() => setCreating(true)}
@@ -409,7 +409,7 @@ function CreateDialog({ branches, onClose, onCreated }: { branches: Branch[]; on
           </button>
           <button 
             type="submit" 
-            className="bg-foreground text-canvas px-6 py-2.5 rounded-xl font-medium active:scale-95 transition-transform disabled:opacity-50 disabled:active:scale-100" 
+            className="bg-primary text-primary-foreground px-6 py-2.5 rounded-xl font-medium active:scale-95 transition-transform disabled:opacity-50 disabled:active:scale-100" 
             disabled={!canSubmit}
           >
             {create.isPending ? 'Creating…' : 'Create event'}

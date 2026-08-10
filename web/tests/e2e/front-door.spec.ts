@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { fulfilPreflight, installPortalSession, json, portalOrigin } from './support/portal-session'
+import { AA_CONTRAST, labelContrast } from './support/contrast'
 import { publicEmptyDayAttendance, publicSearchResults } from '../support/factories/public-attendance'
 
 /**
@@ -88,38 +89,12 @@ test.describe('the front door', () => {
       const signIn = page.getByRole('button', { name: /sign in with microsoft/i })
       await expect(signIn).toBeVisible()
 
-      const contrast = await signIn.evaluate((node) => {
-        // The nearest ancestor that actually paints, so a transparent button is
-        // measured against what shows through it rather than against nothing.
-        const paintedBackground = (element: Element | null): string => {
-          for (let current = element; current !== null; current = current.parentElement) {
-            const value = getComputedStyle(current).backgroundColor
-            if (value !== 'transparent' && !/^rgba\(.*,\s*0\)$/.test(value)) return value
-          }
-          return 'rgb(255, 255, 255)'
-        }
-        const parse = (value: string): [number, number, number] => {
-          const [red = 0, green = 0, blue = 0] = value.match(/[\d.]+/g)?.map(Number) ?? []
-          return [red, green, blue]
-        }
-        const luminance = (rgb: [number, number, number]) => {
-          const [red, green, blue] = rgb.map((channel) => {
-            const ratio = channel / 255
-            return ratio <= 0.03928 ? ratio / 12.92 : ((ratio + 0.055) / 1.055) ** 2.4
-          })
-          return 0.2126 * red + 0.7152 * green + 0.0722 * blue
-        }
-        const own = getComputedStyle(node)
-        const foreground = luminance(parse(own.color))
-        const background = luminance(parse(paintedBackground(node)))
-        const [lighter, darker] = foreground > background ? [foreground, background] : [background, foreground]
-        return (lighter + 0.05) / (darker + 0.05)
-      })
+      const contrast = await labelContrast(signIn)
 
       expect(
         contrast,
         `the sign-in button's label is unreadable against its own background in the ${theme} theme`,
-      ).toBeGreaterThanOrEqual(4.5)
+      ).toBeGreaterThanOrEqual(AA_CONTRAST)
     })
   }
 

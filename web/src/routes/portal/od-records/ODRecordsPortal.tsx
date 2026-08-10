@@ -18,6 +18,7 @@ import { MagnifyingGlass } from '@phosphor-icons/react/dist/icons/MagnifyingGlas
 import { NotePencil } from '@phosphor-icons/react/dist/icons/NotePencil'
 import { Trash } from '@phosphor-icons/react/dist/icons/Trash'
 import { Button } from '../../../components/ui/button'
+import { AttendanceExportDialog } from './AttendanceExportDialog'
 
 const slots = Array.from({ length: 12 }, (_, index) => index + 1)
 const pageSize = 50
@@ -156,9 +157,22 @@ export default function ODRecordsPortal() {
             <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">OD Records</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-foreground-muted sm:text-base">Find attendance records, make a precise correction, or review the audit trail without losing context.</p>
           </div>
-          <div className="flex items-center gap-2 text-sm font-semibold text-foreground-muted">
-            <span className="grid h-9 w-9 place-items-center rounded-xl bg-accent text-primary"><Funnel size={18} weight="duotone" aria-hidden="true" /></span>
-            {eventID ? 'Event selected' : 'Choose an event to begin'}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground-muted">
+              <span className="grid h-9 w-9 place-items-center rounded-xl bg-accent text-primary"><Funnel size={18} weight="duotone" aria-hidden="true" /></span>
+              {eventID ? 'Event selected' : 'Choose an event to begin'}
+            </div>
+            {/*
+              The export lives HERE, on the one records screen both an admin and
+              a teacher can open, rather than on the admin event page — the
+              records list is already branch-scoped per role, so the same control
+              gives each of them exactly the students they are allowed to read.
+            */}
+            <AttendanceExportDialog
+              eventID={eventID}
+              eventName={eventOptions.find((event) => event.id === eventID)?.name ?? ''}
+              defaultDate={odDate || undefined}
+            />
           </div>
         </div>
       </header>

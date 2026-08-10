@@ -378,7 +378,6 @@ button {
   padding: 10px 18px;
   border: 1px solid var(--gray-300);
   border-radius: var(--radius-md);
-  background: var(--control-bg);
   color: var(--foreground);
   font-size: 15px;
   font-weight: 650;
@@ -387,8 +386,29 @@ button {
   transition: background-color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, transform 0.1s ease;
 }
 
-button:hover:not(:disabled) {
+/*
+  THE ELEMENT DEFAULT STANDS ASIDE FOR A BUTTON THAT NAMES ITS OWN FILL.
+
+  This file is not inside a cascade layer and the utilities are, and unlayered
+  CSS beats layered CSS no matter how specific the layered rule is — so
+  `button { background }` above was quietly winning against `bg-primary` on
+  every button drawn by the shared component, which is why the one primary
+  action in a dialog rendered as the same grey as Cancel beside it. Buttons that
+  do not name a fill are untouched and keep the default.
+*/
+button:not([class*='bg-']) {
+  background: var(--control-bg);
+}
+
+button:not([class*='border-']) {
+  border-color: var(--gray-300);
+}
+
+button:hover:not(:disabled):not([class*='bg-']) {
   background: var(--gray-50);
+}
+
+button:hover:not(:disabled):not([class*='border-']) {
   border-color: var(--gray-400);
 }
 

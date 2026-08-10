@@ -65,6 +65,64 @@ test.describe('the front door', () => {
 
   // FRONT-E2E-002 — the public dashboard is one click away, and it is a real
   // navigation to a real URL.
+  /**
+   * THE SIGN-IN BUTTON IS ACTUALLY READABLE, in both themes.
+   *
+   * This is a contrast assertion rather than a colour one on purpose. The button
+   * lost its fill to a one-character CSS mistake — a `:not()` written without
+   * `:where()`, which raised an element rule above the class that paints it —
+   * and what reached the screen was white text on white in the light theme and
+   * black on black in the dark one, on the primary action of the first screen
+   * anybody opens. Nothing else in the suite noticed: the button was present,
+   * named, focusable and clickable throughout.
+   *
+   * Naming the expected colour would only pin today's palette. WCAG AA for
+   * ordinary text is 4.5:1, and that is the property that was actually broken.
+   */
+  for (const theme of ['light', 'dark'] as const) {
+    test(`[P0] the sign-in button is legible against its own fill (${theme})`, async ({ page }) => {
+      await installFrontDoor(page)
+      await page.addInitScript((value) => localStorage.setItem('od-amrita-theme', value), theme)
+      await page.goto('/')
+
+      const signIn = page.getByRole('button', { name: /sign in with microsoft/i })
+      await expect(signIn).toBeVisible()
+
+      const contrast = await signIn.evaluate((node) => {
+        // The nearest ancestor that actually paints, so a transparent button is
+        // measured against what shows through it rather than against nothing.
+        const paintedBackground = (element: Element | null): string => {
+          for (let current = element; current !== null; current = current.parentElement) {
+            const value = getComputedStyle(current).backgroundColor
+            if (value !== 'transparent' && !/^rgba\(.*,\s*0\)$/.test(value)) return value
+          }
+          return 'rgb(255, 255, 255)'
+        }
+        const parse = (value: string): [number, number, number] => {
+          const [red = 0, green = 0, blue = 0] = value.match(/[\d.]+/g)?.map(Number) ?? []
+          return [red, green, blue]
+        }
+        const luminance = (rgb: [number, number, number]) => {
+          const [red, green, blue] = rgb.map((channel) => {
+            const ratio = channel / 255
+            return ratio <= 0.03928 ? ratio / 12.92 : ((ratio + 0.055) / 1.055) ** 2.4
+          })
+          return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+        }
+        const own = getComputedStyle(node)
+        const foreground = luminance(parse(own.color))
+        const background = luminance(parse(paintedBackground(node)))
+        const [lighter, darker] = foreground > background ? [foreground, background] : [background, foreground]
+        return (lighter + 0.05) / (darker + 0.05)
+      })
+
+      expect(
+        contrast,
+        `the sign-in button's label is unreadable against its own background in the ${theme} theme`,
+      ).toBeGreaterThanOrEqual(4.5)
+    })
+  }
+
   test('[P0] the public dashboard choice lands on /attendance', async ({ page }) => {
     await installFrontDoor(page)
 

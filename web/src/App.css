@@ -391,24 +391,33 @@ button {
 
   This file is not inside a cascade layer and the utilities are, and unlayered
   CSS beats layered CSS no matter how specific the layered rule is — so
-  `button { background }` above was quietly winning against `bg-primary` on
-  every button drawn by the shared component, which is why the one primary
-  action in a dialog rendered as the same grey as Cancel beside it. Buttons that
-  do not name a fill are untouched and keep the default.
+  `button { background }` was quietly winning against `bg-primary` on every
+  button drawn by the shared component, which is why the one primary action in a
+  dialog rendered as the same grey as Cancel beside it.
+
+  `:where()` IS LOAD-BEARING, and leaving it out broke the front door. `:not()`
+  normally takes the specificity of its argument, so `button:not([class*='bg-'])`
+  scores (0,1,1) — which outranks `.primary` (0,1,0), and every legacy primary
+  button in the app went from cobalt to the flat control fill: pure white in the
+  light theme, pure black in the dark one, on the sign-in button of the first
+  screen anybody opens. `:where()` contributes nothing to specificity, so this
+  scores (0,0,1) exactly like the bare element selector it replaces. The
+  exclusion still does its job — it is the SELECTOR not matching that lets the
+  layered utility through, not the specificity.
 */
-button:not([class*='bg-']) {
+button:not(:where([class*='bg-'])) {
   background: var(--control-bg);
 }
 
-button:not([class*='border-']) {
+button:not(:where([class*='border-'])) {
   border-color: var(--gray-300);
 }
 
-button:hover:not(:disabled):not([class*='bg-']) {
+button:hover:not(:disabled):not(:where([class*='bg-'])) {
   background: var(--gray-50);
 }
 
-button:hover:not(:disabled):not([class*='border-']) {
+button:hover:not(:disabled):not(:where([class*='border-'])) {
   border-color: var(--gray-400);
 }
 

@@ -133,6 +133,23 @@ describe('role landing after sign-in', () => {
     ).not.toBeInTheDocument()
   })
 
+  test('[P0] the front door carries exactly ONE theme control', async () => {
+    // It carried two, drawn on top of each other in the top-right corner of the
+    // first screen anybody sees. AuthBrand supplies the control for every
+    // signed-out surface — this page, the session-error card, access denied —
+    // and the page had pinned a second one of its own beside it.
+    //
+    // Counted rather than merely found, because "a theme toggle is present"
+    // stays true the whole time there are two of them.
+    renderLanding(signedOut())
+
+    await screen.findByRole('button', { name: /sign in with microsoft/i })
+    expect(
+      screen.getAllByRole('button', { name: /theme|dark mode|light mode/i }),
+      'the front door draws the theme control more than once',
+    ).toHaveLength(1)
+  })
+
   test('[P0] the public dashboard is a real link, openable and shareable', async () => {
     // A button with an onClick navigates, but cannot be opened in a new tab,
     // shared, or reached by the browser controls a student actually uses.

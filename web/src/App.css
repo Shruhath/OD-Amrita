@@ -2202,12 +2202,6 @@ tbody tr:hover {
   gap: 4px;
 }
 
-.home-toolbar {
-  position: absolute;
-  top: max(16px, env(safe-area-inset-top));
-  right: max(16px, env(safe-area-inset-right));
-}
-
 .home-lede {
   max-width: 46ch;
   margin: 4px auto 0;

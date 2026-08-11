@@ -100,9 +100,15 @@ export default function CardPopulatorPortal() {
     null,
     (raw) => (raw === null ? null : asStringRecord(['branchID', 'batch', 'section'])(raw)),
   )
+  useEffect(() => {
+    if (applied !== null && (!draft.branchID || !draft.batch || !draft.section)) {
+      setDraft(applied)
+    }
+  }, [applied, draft.batch, draft.branchID, draft.section, setDraft])
   const [progress, setProgress] = useState<Record<string, CardProgress>>(readStoredProgress)
   const [activeStudentID, setActiveStudentID] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
+  const [nfcPermissionReady, setNfcPermissionReady] = useState(false)
 
   // One in-flight card operation at a time. The controller cancels a stuck read
   // when the operator moves on, so a tap meant for the previous student cannot
@@ -127,7 +133,7 @@ export default function CardPopulatorPortal() {
   const roster = useQuery({
     queryKey: ['card-populator-students', applied],
     queryFn: () => loadCompleteRoster(api, applied as Filters),
-    enabled: applied !== null,
+    enabled: applied !== null && nfcPermissionReady,
   })
 
   /**
@@ -148,7 +154,7 @@ export default function CardPopulatorPortal() {
   const serverStatus = useQuery({
     queryKey: ['card-populator-status', applied],
     queryFn: () => api.sectionCardStatus(applied as Filters),
-    enabled: applied !== null,
+    enabled: applied !== null && nfcPermissionReady,
   })
 
   const serverByStudent = useMemo(() => {
@@ -217,7 +223,7 @@ export default function CardPopulatorPortal() {
     return { written, verified, failed, total: roster.data?.total ?? students.length }
   }, [roster.data?.total, students, statusOf])
 
-  const loadRoster = (event: FormEvent) => {
+  const loadRoster = async (event: FormEvent) => {
     event.preventDefault()
     setFormError(null)
     const next = {
@@ -229,6 +235,16 @@ export default function CardPopulatorPortal() {
       setFormError('Choose a branch, batch and section before loading the roster.')
       return
     }
+    setDraft(next)
+    try {
+      await nfc.ensurePermission()
+    } catch (cause) {
+      setNfcStatus(nfc.status())
+      setNfcPermissionReady(false)
+      setFormError(messageOf(cause, 'NFC permission is required before loading the card roster.'))
+      return
+    }
+    setNfcPermissionReady(true)
     abortRef.current?.abort()
     setApplied(next)
   }
@@ -376,7 +392,7 @@ export default function CardPopulatorPortal() {
         )}
       </section>
 
-      {applied !== null && !roster.isError && (
+      {applied !== null && nfcPermissionReady && !roster.isError && (
         <section className="detail-section populator-roster">
           <h2>Section progress</h2>
           {/* aria-live so the operator hears progress without watching the counts. */}

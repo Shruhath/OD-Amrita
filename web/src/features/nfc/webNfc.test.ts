@@ -15,6 +15,7 @@ function fakeReaderFactory() {
     writes: [] as { records: RecordInit[] }[],
     writeError: undefined as Error | undefined,
     scanError: undefined as Error | undefined,
+    abortedScanSignals: 0,
     scanCalls: 0,
     listeners: { reading: [] as ReadingListener[], readingerror: [] as (() => void)[] },
     removed: 0,
@@ -25,9 +26,12 @@ function fakeReaderFactory() {
       if (state.writeError) throw state.writeError
       state.writes.push(message)
     }
-    async scan() {
+    async scan(options?: { signal?: AbortSignal }) {
       state.scanCalls += 1
       if (state.scanError) throw state.scanError
+      options?.signal?.addEventListener('abort', () => {
+        state.abortedScanSignals += 1
+      })
     }
     addEventListener(type: 'reading' | 'readingerror', listener: never) {
       if (type === 'reading') state.listeners.reading.push(listener as unknown as ReadingListener)
@@ -83,6 +87,17 @@ describe('Web NFC adapter for card population', () => {
     expect(createWebNfcAdapter(windowRef).status()).toBe('available')
   })
 
+  test('[P0] prompts for NFC permission without reading or writing card data', async () => {
+    const { state, windowRef } = fakeReaderFactory()
+
+    await createWebNfcAdapter(windowRef).ensurePermission()
+
+    expect(state.scanCalls).toBe(1)
+    expect(state.abortedScanSignals).toBe(1)
+    expect(state.writes).toHaveLength(0)
+    expect(state.listeners.reading).toHaveLength(0)
+  })
+
   test('[P0] writes exactly the server payload as one MIME NDEF record', async () => {
     const { state, windowRef } = fakeReaderFactory()
     const payload = cardPayload()
@@ -136,6 +151,17 @@ describe('Web NFC adapter for card population', () => {
     state.writeError = denied
 
     await expect(createWebNfcAdapter(windowRef).write(cardPayload())).rejects.toMatchObject({
+      kind: 'permission-denied',
+    })
+  })
+
+  test('[P0] maps a refused NFC scan permission to a distinct failure', async () => {
+    const { state, windowRef } = fakeReaderFactory()
+    const denied = new Error('denied')
+    denied.name = 'NotAllowedError'
+    state.scanError = denied
+
+    await expect(createWebNfcAdapter(windowRef).ensurePermission()).rejects.toMatchObject({
       kind: 'permission-denied',
     })
   })

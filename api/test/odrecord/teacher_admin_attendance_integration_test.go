@@ -254,7 +254,10 @@ func TestAdminAttendanceIntegration_NullActorStillRendersRecord(t *testing.T) {
 	}
 
 	// user_branches.user_id is ON DELETE RESTRICT (0008_teacher_branches.sql), so
-	// the branch association must go first or the user delete itself fails.
+	// the associations must go first or the user delete itself fails.
+	if _, err := migrator.Exec(ctx, `DELETE FROM user_category_assignments WHERE user_id = $1`, teacherID); err != nil {
+		t.Fatalf("clear teacher category association: %v", err)
+	}
 	if _, err := migrator.Exec(ctx, `DELETE FROM user_branches WHERE user_id = $1`, teacherID); err != nil {
 		t.Fatalf("clear teacher branch association: %v", err)
 	}

@@ -668,6 +668,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/events/{event_id}/coordinators/{user_id}/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace one coordinator's category access for an event
+         * @description Replaces the coordinator's assigned categories for this event only. The coordinator must already be assigned to the event; the request cannot create a new coordinator assignment.
+         */
+        put: operations["updateAdminEventCoordinatorCategoryAccess"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/events/{event_id}/capture-credits": {
         parameters: {
             query?: never;
@@ -754,6 +777,28 @@ export interface paths {
          * @description Teacher-profile creation ELEVATES an existing, already-provisioned `users` row (someone who has signed in at least once) — it does not pre-provision an identity that has never logged in. Role elevation and every branch association from one request co-commit as exactly one audit row.
          */
         post: operations["createAdminTeacherProfile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/teachers/{user_id}/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace one teacher's category access
+         * @description Replaces the categories an existing teacher may see and export. Branch access and the teacher role are unchanged.
+         */
+        put: operations["updateAdminTeacherCategoryAccess"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -961,6 +1006,9 @@ export interface components {
         };
         UpdateCategoryVisibilityRequest: {
             visible_on_public_dashboard: boolean;
+        };
+        UpdateCategoryAccessRequest: {
+            category_ids: string[];
         };
         /** @description Event-wide fallback-credit cap for camera/search marks. */
         CaptureCreditConfig: {
@@ -4024,6 +4072,87 @@ export interface operations {
             };
         };
     };
+    updateAdminEventCoordinatorCategoryAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCategoryAccessRequest"];
+            };
+        };
+        responses: {
+            /** @description Coordinator assignment with refreshed category access. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoordinatorAssignment"];
+                };
+            };
+            /** @description Malformed ids or request validation failed. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event or coordinator assignment was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event is archived. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listAdminEventCaptureCredits: {
         parameters: {
             query?: never;
@@ -4376,6 +4505,77 @@ export interface operations {
             };
             /** @description The user already has a non-student role (ROLE_ALREADY_ASSIGNED). */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateAdminTeacherCategoryAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCategoryAccessRequest"];
+            };
+        };
+        responses: {
+            /** @description Teacher profile with refreshed category access. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeacherProfile"];
+                };
+            };
+            /** @description Malformed user id or request validation failed. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Teacher was not found. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

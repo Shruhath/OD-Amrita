@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Branch, CategoryRecord, CreateTeacherProfileInput, TeacherProfile, ValidationError } from '../../../api/client'
+import type { Branch, CategoryRecord, CreateTeacherProfileInput, TeacherProfile, UpdateCategoryAccessInput, ValidationError } from '../../../api/client'
 import { BranchChip } from '../../../components/BranchChip'
 import { PortalShell } from '../../../components/PortalShell'
 import { ApiFailure } from '../../../api/client'
@@ -33,6 +33,7 @@ export default function TeachersPortal() {
   const { api } = useAuth()
   const queryClient = useQueryClient()
   const [creating, setCreating] = useState(false)
+  const [editingTeacher, setEditingTeacher] = useState<TeacherProfile | null>(null)
   const [page, setPage] = useState(1)
 
   const branches = useQuery({ queryKey: branchKey, queryFn: api.branches })
@@ -145,7 +146,7 @@ export default function TeachersPortal() {
                 <caption className="sr-only">Every teacher profile, ordered by email</caption>
                 <thead className="bg-canvas border-b border-border">
                   <tr>
-                    {['Email', 'Name', 'Branches', 'Categories'].map((col) => (
+                    {['Email', 'Name', 'Branches', 'Categories', 'Actions'].map((col) => (
                       <th key={col} className="py-3 px-4 text-xs font-semibold uppercase tracking-wider text-foreground-muted whitespace-nowrap">
                         {col}
                       </th>
@@ -170,6 +171,9 @@ export default function TeachersPortal() {
                             </span>
                           ))}
                         </div>
+                      </td>
+                      <td className="py-4 px-4">
+                        <Button variant="outline" size="sm" onClick={() => setEditingTeacher(teacher)}>Edit</Button>
                       </td>
                     </tr>
                   ))}
@@ -202,6 +206,9 @@ export default function TeachersPortal() {
                     ))}
                   </div>
                 </div>
+                <div className="mt-4 border-t border-border pt-3">
+                  <Button variant="outline" size="sm" onClick={() => setEditingTeacher(teacher)}>Edit category access</Button>
+                </div>
               </article>
             ))}
           </div>
@@ -232,8 +239,167 @@ export default function TeachersPortal() {
             }}
           />
         )}
+        {editingTeacher && (
+          <EditCategoryAccessDialog
+            categories={categoryData}
+            teacher={editingTeacher}
+            onClose={() => setEditingTeacher(null)}
+            onSaved={() => {
+              void queryClient.invalidateQueries({ queryKey: teacherKeyRoot })
+              setEditingTeacher(null)
+            }}
+          />
+        )}
       </AnimatePresence>
     </PortalShell>
+  )
+}
+
+function EditCategoryAccessDialog({
+  categories,
+  teacher,
+  onClose,
+  onSaved,
+}: {
+  categories: CategoryRecord[]
+  teacher: TeacherProfile
+  onClose(): void
+  onSaved(teacher: TeacherProfile): void
+}) {
+  const { api } = useAuth()
+  const [selectedCategories, setSelectedCategories] = useState<string[]>(teacher.categories.map((category) => category.id))
+  const [fieldError, setFieldError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+  const update = useMutation({
+    mutationFn: (input: UpdateCategoryAccessInput) => api.updateTeacherCategoryAccess(teacher.user_id, input),
+    onSuccess: onSaved,
+  })
+  const canSubmit = selectedCategories.length > 0 && !update.isPending
+  const toggleCategory = (id: string) => {
+    setSelectedCategories((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
+    setFieldError(null)
+    setFormError(null)
+  }
+  const submit = (event: FormEvent) => {
+    event.preventDefault()
+    if (selectedCategories.length === 0) {
+      setFieldError('Select at least one category')
+      setFormError(null)
+      return
+    }
+    update.mutate({ category_ids: selectedCategories }, {
+      onError(cause) {
+        setFormError(messageOf(cause, 'The teacher category access could not be saved'))
+        if (cause instanceof ApiFailure && cause.body.code === 'VALIDATION_FAILED' && 'details' in cause.body && Array.isArray(cause.body.details)) {
+          const detail = (cause.body as ValidationError).details.find((item) => item.field.replace(/\[\d+\]$/, '') === 'category_ids')
+          if (detail) setFieldError(detail.message)
+        }
+      },
+    })
+  }
+
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const node = dialogRef.current
+    if (!node) return
+    const focusable = () => Array.from(node.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled])'))
+    focusable()[0]?.focus()
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); onClose(); return }
+      if (event.key !== 'Tab') return
+      const items = focusable()
+      if (items.length === 0) return
+      const current = items.indexOf(document.activeElement as HTMLElement)
+      const next = event.shiftKey ? (current <= 0 ? items.length - 1 : current - 1) : (current >= items.length - 1 ? 0 : current + 1)
+      event.preventDefault()
+      items[next]?.focus()
+    }
+    document.addEventListener('keydown', keydown)
+    return () => document.removeEventListener('keydown', keydown)
+  }, [onClose])
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-foreground/20 backdrop-blur-sm"
+    >
+      <motion.div
+        ref={dialogRef}
+        initial={{ opacity: 0, y: 20, scale: 0.95 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 20, scale: 0.95 }}
+        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+        className="max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-surface shadow-[0_24px_80px_rgb(0_0_0/0.24)]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="edit-teacher-access-dialog-title"
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-border bg-canvas/50 px-5 py-5 sm:px-6">
+          <div className="min-w-0">
+            <h2 id="edit-teacher-access-dialog-title" className="text-xl font-bold tracking-tight">Edit category access</h2>
+            <p className="mt-1 break-words text-sm text-foreground-muted">{teacher.email}</p>
+          </div>
+          <button type="button" onClick={onClose} disabled={update.isPending} aria-label="Close dialog" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-border text-foreground-muted hover:bg-surface-muted hover:text-foreground">
+            <X size={17} aria-hidden="true" />
+          </button>
+        </div>
+        <div className="p-5 sm:p-6">
+          <form onSubmit={submit} noValidate className="flex flex-col gap-5">
+            <fieldset aria-describedby={fieldError ? 'edit-teacher-category-error' : undefined} className="flex flex-col gap-2">
+              <legend className="text-xs font-semibold uppercase tracking-wider text-foreground-muted mb-1">Categories</legend>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {categories.map((category) => (
+                  <label
+                    key={category.id}
+                    title={category.name}
+                    className={`relative flex min-h-10 items-center rounded-[10px] border px-3 py-2 text-sm transition-all active:scale-95 ${
+                      selectedCategories.includes(category.id)
+                        ? 'bg-foreground text-canvas border-foreground font-bold'
+                        : 'bg-canvas text-foreground border-border hover:bg-surface font-medium'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+                      checked={selectedCategories.includes(category.id)}
+                      onChange={() => toggleCategory(category.id)}
+                    />
+                    <span className="pointer-events-none truncate">{category.name}</span>
+                  </label>
+                ))}
+              </div>
+              {fieldError && <p className="text-sm font-medium text-status-error-fg" id="edit-teacher-category-error">{fieldError}</p>}
+            </fieldset>
+
+            {formError && (
+              <div className="p-4 bg-status-error-bg rounded-[10px] border border-status-error-fg/20" role="alert">
+                <p className="text-sm font-semibold text-status-error-fg">{formError}</p>
+              </div>
+            )}
+
+            <div className="flex flex-col-reverse sm:flex-row gap-3 pt-4 border-t border-border">
+              <button
+                type="button"
+                disabled={update.isPending}
+                onClick={onClose}
+                className="flex-1 border border-border bg-canvas hover:bg-surface text-foreground px-4 py-2.5 rounded-[10px] font-medium active:scale-95 transition-all disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                className="flex-1 bg-primary text-primary-foreground px-4 py-2.5 rounded-[10px] font-semibold active:scale-95 transition-all disabled:opacity-50"
+                type="submit"
+                disabled={!canSubmit}
+              >
+                {update.isPending ? 'Saving…' : 'Save access'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </motion.div>
+    </motion.div>
   )
 }
 

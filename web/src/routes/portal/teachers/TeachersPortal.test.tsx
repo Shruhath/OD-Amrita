@@ -98,6 +98,21 @@ function renderTeachersPortal({
       serverTeachers = orderTeachers([created, ...serverTeachers])
       return HttpResponse.json(created, { status: 201 })
     }),
+    http.put('*/api/v1/admin/teachers/:userID/categories', async ({ params, request }) => {
+      adminRequest('update-categories')
+      const input = (await request.json()) as { category_ids: string[] }
+      const userID = String(params.userID)
+      const found = serverTeachers.find((teacher) => teacher.user_id === userID)
+      if (!found) {
+        return HttpResponse.json({ code: 'USER_NOT_FOUND', message: 'No user has signed in with this email yet.' }, { status: 404 })
+      }
+      const updated = {
+        ...found,
+        categories: testTeacherCategories.filter((category) => input.category_ids.includes(category.id)),
+      }
+      serverTeachers = orderTeachers(serverTeachers.map((teacher) => teacher.user_id === userID ? updated : teacher))
+      return HttpResponse.json(updated)
+    }),
   )
 
   const view = render(<Application session={session} router={createPortalMemoryRouter(['/portal/teachers'])} />)
@@ -134,6 +149,29 @@ describe('Admin teachers portal composition (ATDD red phase)', () => {
 
     expect(await screen.findByRole('row', { name: /new-teacher@amrita.edu/ })).toBeInTheDocument()
     expect(adminRequest).toHaveBeenCalledWith('create')
+  })
+
+  test('[P0] edits an existing teacher category access without changing branches', async () => {
+    const user = userEvent.setup()
+    const existing = createTeacherProfileFixture({
+      email: 'category-edit@amrita.edu',
+      categories: [testTeacherCategories[0]],
+      branches: [testTeacherBranches[0]],
+    })
+    const { adminRequest } = renderTeachersPortal({ teachers: [existing] })
+
+    const row = await screen.findByRole('row', { name: /category-edit@amrita.edu/ })
+    expect(row).toHaveTextContent(testTeacherCategories[0].name)
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Edit category access' })
+    await user.click(within(dialog).getByRole('checkbox', { name: testTeacherCategories[1].name }))
+    await user.click(within(dialog).getByRole('button', { name: 'Save access' }))
+
+    const updated = await screen.findByRole('row', { name: /category-edit@amrita.edu/ })
+    expect(updated).toHaveTextContent(testTeacherCategories[1].name)
+    expect(updated).toHaveTextContent(testTeacherBranches[0].code)
+    expect(adminRequest).toHaveBeenCalledWith('update-categories')
   })
 
   test('[P1] maps a typed USER_NOT_FOUND rejection onto an announced non-field error', async () => {

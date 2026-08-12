@@ -142,6 +142,24 @@ func (r *SQLCReader) ListCoordinatorAssignments(ctx context.Context, eventID uui
 	return assignments, nil
 }
 
+func (r *SQLCReader) GetCoordinatorAssignment(ctx context.Context, eventID, userID uuid.UUID) (CoordinatorAssignment, error) {
+	row, err := r.queries.GetCoordinatorAssignmentByEventAndUser(ctx, sqlc.GetCoordinatorAssignmentByEventAndUserParams{
+		EventID: dbUUID(eventID),
+		UserID:  dbUUID(userID),
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return CoordinatorAssignment{}, ErrCoordinatorUserNotFound
+		}
+		return CoordinatorAssignment{}, err
+	}
+	categories, categoryErr := parseCategoriesJSON(row.CategoriesJson)
+	if categoryErr != nil {
+		return CoordinatorAssignment{}, categoryErr
+	}
+	return mapCoordinatorAssignment(row.ID, row.UserID, row.Email, row.Name, row.EventID, categories, row.CreatedAt)
+}
+
 func (r *SQLCReader) GetCaptureCreditConfig(ctx context.Context, eventID uuid.UUID) (CaptureCreditConfig, error) {
 	row, err := r.queries.GetCaptureCreditConfig(ctx, dbUUID(eventID))
 	if err != nil {

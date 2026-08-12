@@ -335,6 +335,18 @@ func (f *fakeCoordinatorReader) ListCoordinatorAssignments(context.Context, uuid
 	f.listAssignmentsCalls++
 	return f.assignments, nil
 }
+func (f *fakeCoordinatorReader) GetCoordinatorAssignment(context.Context, uuid.UUID, uuid.UUID) (CoordinatorAssignment, error) {
+	if len(f.assignments) > 0 {
+		return f.assignments[0], nil
+	}
+	return CoordinatorAssignment{
+		ID:        uuid.NewString(),
+		UserID:    coordinatorUserID,
+		Email:     "candidate@amrita.edu",
+		EventID:   activeEventID,
+		CreatedAt: time.Now(),
+	}, nil
+}
 func (f *fakeCoordinatorReader) GetCoordinatorCandidateByEmail(context.Context, string) (CoordinatorCandidate, error) {
 	if f.candidateErr != nil {
 		return CoordinatorCandidate{}, f.candidateErr
@@ -381,4 +393,8 @@ func (f *fakeCoordinatorWriter) CreateCoordinatorAssignment(context.Context, pgx
 		}
 	}
 	return f.assignment, true, nil
+}
+func (f *fakeCoordinatorWriter) ReplaceCoordinatorCategoryAccess(context.Context, pgx.Tx, ReplaceCoordinatorCategoryAccessWrite) (bool, error) {
+	f.calls++
+	return f.err == nil, f.err
 }

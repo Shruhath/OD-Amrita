@@ -15,6 +15,7 @@ type teacherWriteQueries interface {
 	AssignTeacherRole(context.Context, pgtype.UUID) (sqlc.AssignTeacherRoleRow, error)
 	AddUserBranch(context.Context, sqlc.AddUserBranchParams) (int64, error)
 	AssignUserCategory(context.Context, sqlc.AssignUserCategoryParams) (sqlc.UserCategoryAssignment, error)
+	DeleteUserCategoriesExcept(context.Context, sqlc.DeleteUserCategoriesExceptParams) (int64, error)
 }
 
 type queryFactory func(pgx.Tx) teacherWriteQueries
@@ -76,6 +77,30 @@ func (w *SQLCWriter) AssignRoleAndBranches(ctx context.Context, tx pgx.Tx, input
 	}
 
 	return uuid.UUID(row.ID.Bytes).String(), true, nil
+}
+
+func (w *SQLCWriter) ReplaceCategoryAccess(ctx context.Context, tx pgx.Tx, input ReplaceCategoryAccessWrite) (bool, error) {
+	q := w.queries(tx)
+	keepIDs := make([]pgtype.UUID, 0, len(input.CategoryIDs))
+	for _, categoryID := range input.CategoryIDs {
+		keepIDs = append(keepIDs, dbUUID(categoryID))
+	}
+	if _, err := q.DeleteUserCategoriesExcept(ctx, sqlc.DeleteUserCategoriesExceptParams{
+		UserID:          dbUUID(input.UserID),
+		KeepCategoryIds: keepIDs,
+	}); err != nil {
+		return false, err
+	}
+	for _, categoryID := range input.CategoryIDs {
+		if _, err := q.AssignUserCategory(ctx, sqlc.AssignUserCategoryParams{
+			UserID:          dbUUID(input.UserID),
+			CategoryID:      dbUUID(categoryID),
+			CreatedByUserID: dbUUID(input.ActorUserID),
+		}); err != nil && err != pgx.ErrNoRows {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 func dbUUID(id uuid.UUID) pgtype.UUID {

@@ -27,6 +27,34 @@ WHERE eca.event_id = @event_id
 GROUP BY eca.id, u.id
 ORDER BY eca.created_at ASC, eca.id ASC;
 
+-- name: GetCoordinatorAssignmentByEventAndUser :one
+SELECT
+    eca.id,
+    eca.user_id,
+    u.email,
+    u.name,
+    eca.event_id,
+    COALESCE(
+        jsonb_agg(
+            jsonb_build_object(
+                'id', c.id,
+                'event_id', c.event_id,
+                'name', c.name,
+                'visible_on_public_dashboard', c.visible_on_public_dashboard,
+                'created_at', c.created_at
+            )
+            ORDER BY c.name ASC, c.id ASC
+        ) FILTER (WHERE c.id IS NOT NULL),
+        '[]'::jsonb
+    )::text AS categories_json,
+    eca.created_at
+FROM event_coordinator_assignments eca
+JOIN users u ON u.id = eca.user_id
+LEFT JOIN user_category_assignments uca ON uca.user_id = eca.user_id
+LEFT JOIN categories c ON c.id = uca.category_id AND c.event_id = eca.event_id
+WHERE eca.event_id = @event_id AND eca.user_id = @user_id
+GROUP BY eca.id, u.id;
+
 -- name: GetCoordinatorCandidateByEmail :one
 SELECT id, email, name, role
 FROM users

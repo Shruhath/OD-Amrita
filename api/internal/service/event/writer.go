@@ -23,6 +23,7 @@ type eventWriteQueries interface {
 	PromoteUserToCoordinator(context.Context, pgtype.UUID) (int64, error)
 	InsertEventCoordinatorAssignment(context.Context, sqlc.InsertEventCoordinatorAssignmentParams) (sqlc.InsertEventCoordinatorAssignmentRow, error)
 	AssignUserCategory(context.Context, sqlc.AssignUserCategoryParams) (sqlc.UserCategoryAssignment, error)
+	DeleteUserCategoriesForEventExcept(context.Context, sqlc.DeleteUserCategoriesForEventExceptParams) (int64, error)
 	UpsertCaptureCreditConfig(context.Context, sqlc.UpsertCaptureCreditConfigParams) (sqlc.UpsertCaptureCreditConfigRow, error)
 	ResetCaptureCreditUsage(context.Context, sqlc.ResetCaptureCreditUsageParams) (sqlc.ResetCaptureCreditUsageRow, error)
 }
@@ -168,6 +169,31 @@ func (w *SQLCWriter) CreateCoordinatorAssignment(ctx context.Context, tx pgx.Tx,
 		return CoordinatorAssignment{}, false, mapErr
 	}
 	return assignment, true, nil
+}
+
+func (w *SQLCWriter) ReplaceCoordinatorCategoryAccess(ctx context.Context, tx pgx.Tx, input ReplaceCoordinatorCategoryAccessWrite) (bool, error) {
+	q := w.queries(tx)
+	keepIDs := make([]pgtype.UUID, 0, len(input.CategoryIDs))
+	for _, categoryID := range input.CategoryIDs {
+		keepIDs = append(keepIDs, dbUUID(categoryID))
+	}
+	if _, err := q.DeleteUserCategoriesForEventExcept(ctx, sqlc.DeleteUserCategoriesForEventExceptParams{
+		UserID:          dbUUID(input.UserID),
+		EventID:         dbUUID(input.EventID),
+		KeepCategoryIds: keepIDs,
+	}); err != nil {
+		return false, err
+	}
+	for _, categoryID := range input.CategoryIDs {
+		if _, err := q.AssignUserCategory(ctx, sqlc.AssignUserCategoryParams{
+			UserID:          dbUUID(input.UserID),
+			CategoryID:      dbUUID(categoryID),
+			CreatedByUserID: dbUUID(input.ActorUserID),
+		}); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 func (w *SQLCWriter) UpsertCaptureCreditConfig(ctx context.Context, tx pgx.Tx, input CaptureCreditConfigWrite) (CaptureCreditConfigWriteResult, bool, error) {

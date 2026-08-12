@@ -53,11 +53,24 @@ type CreateCoordinatorAssignmentInput struct {
 	CategoryIDs []string
 }
 
+type UpdateCoordinatorCategoryAccessInput struct {
+	EventID     string
+	UserID      string
+	CategoryIDs []string
+}
+
 type CreateCoordinatorAssignmentWrite struct {
 	UserID          uuid.UUID
 	EventID         uuid.UUID
 	CreatedByUserID uuid.UUID
 	CategoryIDs     []uuid.UUID
+}
+
+type ReplaceCoordinatorCategoryAccessWrite struct {
+	UserID      uuid.UUID
+	EventID     uuid.UUID
+	ActorUserID uuid.UUID
+	CategoryIDs []uuid.UUID
 }
 
 func (s *Service) ListCoordinatorAssignments(ctx context.Context, actor Actor, rawEventID string) ([]CoordinatorAssignment, error) {
@@ -182,6 +195,91 @@ func (s *Service) CreateCoordinatorAssignment(ctx context.Context, actor Actor, 
 		return CoordinatorAssignment{}, mapCoordinatorAssignmentWriteError(err)
 	}
 	return created, nil
+}
+
+func (s *Service) UpdateCoordinatorCategoryAccess(ctx context.Context, actor Actor, input UpdateCoordinatorCategoryAccessInput) (CoordinatorAssignment, error) {
+	eventID, err := parseCoordinatorEventID(input.EventID)
+	if err != nil {
+		return CoordinatorAssignment{}, err
+	}
+	userID, err := uuid.Parse(strings.TrimSpace(input.UserID))
+	if err != nil {
+		return CoordinatorAssignment{}, coordinatorValidation("user_id", "invalid_format", "User id must be a UUID.")
+	}
+	if actor.Role != "admin" {
+		return CoordinatorAssignment{}, forbidden()
+	}
+	actorID, err := uuid.Parse(actor.UserID)
+	if err != nil {
+		return CoordinatorAssignment{}, fmt.Errorf("event: invalid principal id: %w", err)
+	}
+	status, err := s.eventStatus(ctx, eventID)
+	if err != nil {
+		return CoordinatorAssignment{}, err
+	}
+	if status == StatusArchived {
+		return CoordinatorAssignment{}, eventArchived()
+	}
+	exists, err := s.reader.CoordinatorAssignmentExists(ctx, userID, eventID)
+	if err != nil {
+		return CoordinatorAssignment{}, err
+	}
+	if !exists {
+		return CoordinatorAssignment{}, domain.DomainError{Code: contracts.ErrorCodeUSERNOTFOUND, Message: "Coordinator assignment not found."}
+	}
+	categoryIDs, err := validateCategoryIDs(input.CategoryIDs)
+	if err != nil {
+		return CoordinatorAssignment{}, err
+	}
+	categoryReader, ok := s.reader.(categoryLookupReader)
+	if !ok {
+		return CoordinatorAssignment{}, errors.New("event: category lookup reader is not configured")
+	}
+	for _, categoryID := range categoryIDs {
+		category, categoryErr := categoryReader.GetCategory(ctx, categoryID)
+		if errors.Is(categoryErr, ErrCategoryNotFound) || (categoryErr == nil && category.EventID != eventID.String()) {
+			return CoordinatorAssignment{}, coordinatorValidation("category_ids", "not_found", "Category does not exist for this event.")
+		}
+		if categoryErr != nil {
+			return CoordinatorAssignment{}, categoryErr
+		}
+	}
+
+	actorAccount := strings.ToLower(strings.TrimSpace(actor.Email))
+	actorRole := actor.Role
+	targetTable := "user_category_assignments"
+	targetID := userID.String()
+	payloadCategoryIDs := uuidStringsForAudit(categoryIDs)
+	payload, _ := json.Marshal(map[string]any{
+		"user_id":      userID.String(),
+		"event_id":     eventID.String(),
+		"category_ids": payloadCategoryIDs,
+	})
+	evt := store.AuditEvent{
+		Action:       domain.ActionCoordinatorCategoryAccessUpdated,
+		ActorAccount: &actorAccount,
+		ActorRole:    &actorRole,
+		TargetTable:  &targetTable,
+		TargetID:     &targetID,
+		Payload:      payload,
+	}
+	err = s.store.WithAudit(ctx, evt, func(ctx context.Context, tx pgx.Tx) (bool, error) {
+		return s.writer.ReplaceCoordinatorCategoryAccess(ctx, tx, ReplaceCoordinatorCategoryAccessWrite{
+			UserID: userID, EventID: eventID, ActorUserID: actorID, CategoryIDs: categoryIDs,
+		})
+	})
+	if err != nil {
+		return CoordinatorAssignment{}, mapCoordinatorAssignmentWriteError(err)
+	}
+	return s.reader.GetCoordinatorAssignment(ctx, eventID, userID)
+}
+
+func uuidStringsForAudit(ids []uuid.UUID) []string {
+	out := make([]string, len(ids))
+	for index, id := range ids {
+		out[index] = id.String()
+	}
+	return out
 }
 
 func parseCoordinatorEventID(raw string) (uuid.UUID, error) {

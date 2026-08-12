@@ -244,3 +244,18 @@ func (q *Queries) ListTeachers(ctx context.Context, arg ListTeachersParams) ([]L
 	}
 	return items, nil
 }
+
+const teacherExists = `-- name: TeacherExists :one
+SELECT EXISTS(
+    SELECT 1
+    FROM users
+    WHERE id = $1 AND role = 'teacher'
+)::boolean
+`
+
+func (q *Queries) TeacherExists(ctx context.Context, userID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, teacherExists, userID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}

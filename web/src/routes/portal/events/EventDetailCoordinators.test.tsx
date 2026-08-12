@@ -31,6 +31,7 @@ const adminEventsCollectionPath = /\/api\/v1\/admin\/events(?:\?.*)?$/
 const adminEventItemPath = /\/api\/v1\/admin\/events\/[^/?]+$/
 const adminEventCategoriesPath = /\/api\/v1\/admin\/events\/[^/?]+\/categories$/
 const adminEventCoordinatorsPath = /\/api\/v1\/admin\/events\/[^/?]+\/coordinators$/
+const adminEventCoordinatorCategoriesPath = /\/api\/v1\/admin\/events\/[^/?]+\/coordinators\/[^/?]+\/categories$/
 const adminEventAttendancePath = /\/api\/v1\/admin\/events\/[^/?]+\/attendance(?:\?.*)?$/
 
 function renderCoordinatorPortal({
@@ -43,6 +44,7 @@ function renderCoordinatorPortal({
   let event = createEventFixture({ id: testEventID, name: eventName, status })
   let serverCoordinators = serverOrderedCoordinatorAssignments(coordinators)
   const category = createCategoryFixture({ name: 'Procession' })
+  const campusCategory = createCategoryFixture({ name: 'Campus Decoration' })
   const calls: string[] = []
 
   const session: SessionPort = {
@@ -73,7 +75,7 @@ function renderCoordinatorPortal({
       return HttpResponse.json(event)
     }),
     http.get(adminEventCategoriesPath, () =>
-      HttpResponse.json({ data: [category] }),
+      HttpResponse.json({ data: [category, campusCategory] }),
     ),
     http.get(adminEventAttendancePath, () =>
       HttpResponse.json({ data: [], page: 1, page_size: 20, total: 0 }),
@@ -108,6 +110,23 @@ function renderCoordinatorPortal({
       })
       serverCoordinators = serverOrderedCoordinatorAssignments([...serverCoordinators, created])
       return HttpResponse.json(created, { status: 201 })
+    }),
+    http.put(adminEventCoordinatorCategoriesPath, async ({ request }) => {
+      calls.push('update-coordinator')
+      const userID = lastPathSegment(new URL(request.url).pathname.replace('/categories', ''))
+      const input = (await request.json()) as { category_ids: string[] }
+      const found = serverCoordinators.find((coordinator) => coordinator.user_id === userID)
+      if (!found) return HttpResponse.json(userNotFoundError(), { status: 404 })
+      const updated = {
+        ...found,
+        categories: [category, campusCategory]
+          .filter((item) => input.category_ids.includes(item.id))
+          .map((item) => ({ id: item.id, name: item.name })),
+      }
+      serverCoordinators = serverOrderedCoordinatorAssignments(serverCoordinators.map((coordinator) => (
+        coordinator.user_id === userID ? updated : coordinator
+      )))
+      return HttpResponse.json(updated)
     }),
   )
 
@@ -157,6 +176,25 @@ describe('Admin event detail coordinator assignments', () => {
     const coordinators = await screen.findByRole('list', { name: 'Coordinators' })
     expect(await within(coordinators).findByText('candidate@amrita.edu')).toBeInTheDocument()
     expect(calls).toContain('create-coordinator')
+  })
+
+  test('[P0] edits an existing coordinator category access without recreating the assignment', async () => {
+    const user = userEvent.setup()
+    const existing = createCoordinatorAssignmentFixture({
+      email: 'existing@amrita.edu',
+      categories: [{ id: createCategoryFixture({ name: 'Procession' }).id, name: 'Procession' }],
+    })
+    const { calls } = renderCoordinatorPortal({ coordinators: [existing] })
+
+    await openEventDetail(user)
+    const coordinators = await screen.findByRole('list', { name: 'Coordinators' })
+    await user.click(within(coordinators).getByRole('button', { name: 'Edit' }))
+    await user.click(within(coordinators).getByRole('checkbox', { name: /Campus Decoration/ }))
+    await user.click(within(coordinators).getByRole('button', { name: 'Save access' }))
+
+    expect(await within(coordinators).findByText(/Campus Decoration/)).toBeInTheDocument()
+    expect(calls).toContain('update-coordinator')
+    expect(calls).not.toContain('create-coordinator')
   })
 
   test('[P0] maps duplicate, unknown user, and ineligible role to distinct messages', async () => {

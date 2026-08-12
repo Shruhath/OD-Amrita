@@ -26,6 +26,7 @@ import (
 type Service interface {
 	List(context.Context, teachersvc.Actor, teachersvc.ListInput) (teachersvc.Page, error)
 	Create(context.Context, teachersvc.Actor, teachersvc.CreateInput) (teachersvc.TeacherProfile, error)
+	UpdateCategoryAccess(context.Context, teachersvc.Actor, teachersvc.UpdateCategoryAccessInput) (teachersvc.TeacherProfile, error)
 }
 
 // RegisterAdminRoutes mounts the teacher routes on an already-guarded group.
@@ -35,6 +36,7 @@ type Service interface {
 func RegisterAdminRoutes(group gin.IRouter, svc Service) {
 	group.GET("/teachers", ListTeachersHandler(svc))
 	group.POST("/teachers", CreateTeacherHandler(svc))
+	group.PUT("/teachers/:user_id/categories", UpdateTeacherCategoryAccessHandler(svc))
 }
 
 func ListTeachersHandler(svc Service) gin.HandlerFunc {
@@ -112,6 +114,38 @@ func CreateTeacherHandler(svc Service) gin.HandlerFunc {
 	}
 }
 
+func UpdateTeacherCategoryAccessHandler(svc Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var body contracts.UpdateCategoryAccessRequest
+		if err := bindCategoryAccessRequest(c, &body); err != nil {
+			fail(c, err)
+			return
+		}
+		actor, err := actorFromContext(c)
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		categoryIDs := make([]string, len(body.CategoryIds))
+		for index, id := range body.CategoryIds {
+			categoryIDs[index] = id.String()
+		}
+		updated, err := svc.UpdateCategoryAccess(c.Request.Context(), actor, teachersvc.UpdateCategoryAccessInput{
+			UserID: c.Param("user_id"), CategoryIDs: categoryIDs,
+		})
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		response, err := teacherContract(updated)
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	}
+}
+
 // createTeacherRequestShape keeps email/branch_ids raw for one pass, the same
 // call bindCreateRequest (handler/event) and bindCreateCategoryRequest
 // (handler/event) make: a missing field, a non-string/non-array field and
@@ -153,6 +187,36 @@ func bindCreateTeacherRequest(c *gin.Context, body *contracts.CreateTeacherProfi
 		if _, err := uuid.Parse(value); err != nil {
 			return requestValidation(fmt.Sprintf("branch_ids[%d]", index), "invalid_format", "Branch id must be a UUID.")
 		}
+	}
+	if len(shape.CategoryIDs) == 0 {
+		return requestValidation("category_ids", "required", "Select at least one category.")
+	}
+	for index, raw := range shape.CategoryIDs {
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return requestValidation(fmt.Sprintf("category_ids[%d]", index), "invalid_format", "Category id must be a UUID.")
+		}
+		if _, err := uuid.Parse(value); err != nil {
+			return requestValidation(fmt.Sprintf("category_ids[%d]", index), "invalid_format", "Category id must be a UUID.")
+		}
+	}
+	if err := c.ShouldBindBodyWith(body, binding.JSON); err != nil {
+		return requestValidation("$", "invalid_json", "Request body must be valid JSON.")
+	}
+	return nil
+}
+
+func bindCategoryAccessRequest(c *gin.Context, body *contracts.UpdateCategoryAccessRequest) error {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxCreateRequestBytes)
+	var shape struct {
+		CategoryIDs []json.RawMessage `json:"category_ids"`
+	}
+	if err := c.ShouldBindBodyWith(&shape, binding.JSON); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return requestValidation("$", "maximum", "Request body must not exceed 1 MiB.")
+		}
+		return requestValidation("$", "invalid_json", "Request body must be valid JSON.")
 	}
 	if len(shape.CategoryIDs) == 0 {
 		return requestValidation("category_ids", "required", "Select at least one category.")

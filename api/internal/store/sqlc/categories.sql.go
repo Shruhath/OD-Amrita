@@ -81,6 +81,48 @@ func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) 
 	return i, err
 }
 
+const deleteUserCategoriesExcept = `-- name: DeleteUserCategoriesExcept :execrows
+DELETE FROM user_category_assignments
+WHERE user_id = $1
+  AND NOT (category_id = ANY($2::uuid[]))
+`
+
+type DeleteUserCategoriesExceptParams struct {
+	UserID          pgtype.UUID   `json:"user_id"`
+	KeepCategoryIds []pgtype.UUID `json:"keep_category_ids"`
+}
+
+func (q *Queries) DeleteUserCategoriesExcept(ctx context.Context, arg DeleteUserCategoriesExceptParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUserCategoriesExcept, arg.UserID, arg.KeepCategoryIds)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteUserCategoriesForEventExcept = `-- name: DeleteUserCategoriesForEventExcept :execrows
+DELETE FROM user_category_assignments uca
+USING categories c
+WHERE c.id = uca.category_id
+  AND uca.user_id = $1
+  AND c.event_id = $2
+  AND NOT (uca.category_id = ANY($3::uuid[]))
+`
+
+type DeleteUserCategoriesForEventExceptParams struct {
+	UserID          pgtype.UUID   `json:"user_id"`
+	EventID         pgtype.UUID   `json:"event_id"`
+	KeepCategoryIds []pgtype.UUID `json:"keep_category_ids"`
+}
+
+func (q *Queries) DeleteUserCategoriesForEventExcept(ctx context.Context, arg DeleteUserCategoriesForEventExceptParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUserCategoriesForEventExcept, arg.UserID, arg.EventID, arg.KeepCategoryIds)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getCategoryByID = `-- name: GetCategoryByID :one
 SELECT id, event_id, name, visible_on_public_dashboard, created_at
 FROM categories

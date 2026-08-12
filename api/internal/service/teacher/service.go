@@ -69,6 +69,11 @@ type CreateInput struct {
 	CategoryIDs []string
 }
 
+type UpdateCategoryAccessInput struct {
+	UserID      string
+	CategoryIDs []string
+}
+
 type ListInput struct {
 	Page     int
 	PageSize int
@@ -92,6 +97,7 @@ type resolvedUser struct {
 type Reader interface {
 	GetTeacherByEmail(ctx context.Context, email string) (resolvedUser, error)
 	GetTeacherProfile(ctx context.Context, userID uuid.UUID) (TeacherProfile, error)
+	TeacherExists(ctx context.Context, userID uuid.UUID) (bool, error)
 	ListTeachers(ctx context.Context, input ListInput) ([]TeacherProfile, int64, error)
 	CountBranchesByIDs(ctx context.Context, branchIDs []uuid.UUID) (int, error)
 	CountCategoriesByIDs(ctx context.Context, categoryIDs []uuid.UUID) (int, error)
@@ -99,6 +105,7 @@ type Reader interface {
 
 type Writer interface {
 	AssignRoleAndBranches(ctx context.Context, tx pgx.Tx, input AssignWrite) (string, bool, error)
+	ReplaceCategoryAccess(ctx context.Context, tx pgx.Tx, input ReplaceCategoryAccessWrite) (bool, error)
 }
 
 // AssignWrite is the already-validated shape handed to the writer inside the
@@ -106,6 +113,12 @@ type Writer interface {
 type AssignWrite struct {
 	UserID      uuid.UUID
 	BranchIDs   []uuid.UUID
+	CategoryIDs []uuid.UUID
+	ActorUserID uuid.UUID
+}
+
+type ReplaceCategoryAccessWrite struct {
+	UserID      uuid.UUID
 	CategoryIDs []uuid.UUID
 	ActorUserID uuid.UUID
 }
@@ -259,6 +272,64 @@ func (s *Service) Create(ctx context.Context, actor Actor, input CreateInput) (T
 		return TeacherProfile{}, err
 	}
 	return s.reader.GetTeacherProfile(ctx, uuid.MustParse(targetID))
+}
+
+func (s *Service) UpdateCategoryAccess(ctx context.Context, actor Actor, input UpdateCategoryAccessInput) (TeacherProfile, error) {
+	userID, err := uuid.Parse(strings.TrimSpace(input.UserID))
+	if err != nil {
+		return TeacherProfile{}, validation("user_id", "invalid_format", "User id must be a UUID.")
+	}
+	categoryIDs, err := validateCategoryIDs(input.CategoryIDs)
+	if err != nil {
+		return TeacherProfile{}, err
+	}
+	if actor.Role != "admin" {
+		return TeacherProfile{}, forbidden()
+	}
+	actorID, err := uuid.Parse(strings.TrimSpace(actor.UserID))
+	if err != nil {
+		return TeacherProfile{}, forbidden()
+	}
+	exists, err := s.reader.TeacherExists(ctx, userID)
+	if err != nil {
+		return TeacherProfile{}, err
+	}
+	if !exists {
+		return TeacherProfile{}, userNotFound()
+	}
+	categoryCount, err := s.reader.CountCategoriesByIDs(ctx, categoryIDs)
+	if err != nil {
+		return TeacherProfile{}, err
+	}
+	if categoryCount != len(categoryIDs) {
+		return TeacherProfile{}, validation("category_ids", "not_found", "Category does not exist.")
+	}
+
+	actorAccount := strings.ToLower(strings.TrimSpace(actor.Email))
+	actorRole := actor.Role
+	targetTable := "user_category_assignments"
+	targetID := userID.String()
+	payload, _ := json.Marshal(map[string]any{
+		"user_id":      userID.String(),
+		"category_ids": input.CategoryIDs,
+	})
+	evt := store.AuditEvent{
+		Action:       domain.ActionTeacherCategoryAccessUpdated,
+		ActorAccount: &actorAccount,
+		ActorRole:    &actorRole,
+		TargetTable:  &targetTable,
+		TargetID:     &targetID,
+		Payload:      payload,
+	}
+	err = s.store.WithAudit(ctx, evt, func(ctx context.Context, tx pgx.Tx) (bool, error) {
+		return s.writer.ReplaceCategoryAccess(ctx, tx, ReplaceCategoryAccessWrite{
+			UserID: userID, CategoryIDs: categoryIDs, ActorUserID: actorID,
+		})
+	})
+	if err != nil {
+		return TeacherProfile{}, err
+	}
+	return s.reader.GetTeacherProfile(ctx, userID)
 }
 
 func validateCategoryIDs(raw []string) ([]uuid.UUID, error) {

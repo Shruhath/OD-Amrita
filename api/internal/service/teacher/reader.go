@@ -44,6 +44,10 @@ func (r *SQLCReader) GetTeacherProfile(ctx context.Context, userID uuid.UUID) (T
 	return mapTeacherProfile(row.ID, row.Email, row.Name, row.CreatedAt, row.BranchesJson, row.CategoriesJson)
 }
 
+func (r *SQLCReader) TeacherExists(ctx context.Context, userID uuid.UUID) (bool, error) {
+	return r.queries.TeacherExists(ctx, dbUUID(userID))
+}
+
 func (r *SQLCReader) ListTeachers(ctx context.Context, input ListInput) ([]TeacherProfile, int64, error) {
 	total, err := r.queries.CountTeachers(ctx)
 	if err != nil {

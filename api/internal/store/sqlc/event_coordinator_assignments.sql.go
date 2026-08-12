@@ -76,6 +76,65 @@ func (q *Queries) CoordinatorAssignmentExists(ctx context.Context, arg Coordinat
 	return column_1, err
 }
 
+const getCoordinatorAssignmentByEventAndUser = `-- name: GetCoordinatorAssignmentByEventAndUser :one
+SELECT
+    eca.id,
+    eca.user_id,
+    u.email,
+    u.name,
+    eca.event_id,
+    COALESCE(
+        jsonb_agg(
+            jsonb_build_object(
+                'id', c.id,
+                'event_id', c.event_id,
+                'name', c.name,
+                'visible_on_public_dashboard', c.visible_on_public_dashboard,
+                'created_at', c.created_at
+            )
+            ORDER BY c.name ASC, c.id ASC
+        ) FILTER (WHERE c.id IS NOT NULL),
+        '[]'::jsonb
+    )::text AS categories_json,
+    eca.created_at
+FROM event_coordinator_assignments eca
+JOIN users u ON u.id = eca.user_id
+LEFT JOIN user_category_assignments uca ON uca.user_id = eca.user_id
+LEFT JOIN categories c ON c.id = uca.category_id AND c.event_id = eca.event_id
+WHERE eca.event_id = $1 AND eca.user_id = $2
+GROUP BY eca.id, u.id
+`
+
+type GetCoordinatorAssignmentByEventAndUserParams struct {
+	EventID pgtype.UUID `json:"event_id"`
+	UserID  pgtype.UUID `json:"user_id"`
+}
+
+type GetCoordinatorAssignmentByEventAndUserRow struct {
+	ID             pgtype.UUID        `json:"id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	Email          string             `json:"email"`
+	Name           pgtype.Text        `json:"name"`
+	EventID        pgtype.UUID        `json:"event_id"`
+	CategoriesJson string             `json:"categories_json"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetCoordinatorAssignmentByEventAndUser(ctx context.Context, arg GetCoordinatorAssignmentByEventAndUserParams) (GetCoordinatorAssignmentByEventAndUserRow, error) {
+	row := q.db.QueryRow(ctx, getCoordinatorAssignmentByEventAndUser, arg.EventID, arg.UserID)
+	var i GetCoordinatorAssignmentByEventAndUserRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Email,
+		&i.Name,
+		&i.EventID,
+		&i.CategoriesJson,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getCoordinatorCandidateByEmail = `-- name: GetCoordinatorCandidateByEmail :one
 SELECT id, email, name, role
 FROM users

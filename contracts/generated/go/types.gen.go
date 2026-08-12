@@ -1280,6 +1280,11 @@ type UpdateCaptureCreditConfigRequest struct {
 	Limit int `json:"limit"`
 }
 
+// UpdateCategoryAccessRequest defines model for UpdateCategoryAccessRequest.
+type UpdateCategoryAccessRequest struct {
+	CategoryIds []openapi_types.UUID `json:"category_ids"`
+}
+
 // UpdateCategoryVisibilityRequest defines model for UpdateCategoryVisibilityRequest.
 type UpdateCategoryVisibilityRequest struct {
 	VisibleOnPublicDashboard bool `json:"visible_on_public_dashboard"`
@@ -1470,6 +1475,9 @@ type UpdateAdminEventCategoryVisibilityJSONRequestBody = UpdateCategoryVisibilit
 // CreateAdminEventCoordinatorAssignmentJSONRequestBody defines body for CreateAdminEventCoordinatorAssignment for application/json ContentType.
 type CreateAdminEventCoordinatorAssignmentJSONRequestBody = CreateCoordinatorAssignmentRequest
 
+// UpdateAdminEventCoordinatorCategoryAccessJSONRequestBody defines body for UpdateAdminEventCoordinatorCategoryAccess for application/json ContentType.
+type UpdateAdminEventCoordinatorCategoryAccessJSONRequestBody = UpdateCategoryAccessRequest
+
 // SetExtendedSlotsSettingJSONRequestBody defines body for SetExtendedSlotsSetting for application/json ContentType.
 type SetExtendedSlotsSettingJSONRequestBody = ExtendedSlotsUpdate
 
@@ -1478,6 +1486,9 @@ type ImportAdminStudentsMultipartRequestBody ImportAdminStudentsMultipartBody
 
 // CreateAdminTeacherProfileJSONRequestBody defines body for CreateAdminTeacherProfile for application/json ContentType.
 type CreateAdminTeacherProfileJSONRequestBody = CreateTeacherProfileRequest
+
+// UpdateAdminTeacherCategoryAccessJSONRequestBody defines body for UpdateAdminTeacherCategoryAccess for application/json ContentType.
+type UpdateAdminTeacherCategoryAccessJSONRequestBody = UpdateCategoryAccessRequest
 
 // RevokeUserSessionsJSONRequestBody defines body for RevokeUserSessions for application/json ContentType.
 type RevokeUserSessionsJSONRequestBody = RevokeSessionsRequest

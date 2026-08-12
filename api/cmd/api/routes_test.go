@@ -104,6 +104,11 @@ func (s reachingService) CreateCoordinatorAssignment(context.Context, eventsvc.A
 	return eventsvc.CoordinatorAssignment{}, nil
 }
 
+func (s reachingService) UpdateCoordinatorCategoryAccess(context.Context, eventsvc.Actor, eventsvc.UpdateCoordinatorCategoryAccessInput) (eventsvc.CoordinatorAssignment, error) {
+	s.reached.hits++
+	return eventsvc.CoordinatorAssignment{}, nil
+}
+
 func (s reachingService) ListCaptureCredits(context.Context, eventsvc.Actor, string) (eventsvc.CaptureCreditSummary, error) {
 	s.reached.hits++
 	return eventsvc.CaptureCreditSummary{}, nil
@@ -127,6 +132,11 @@ func (s reachingTeacherService) List(context.Context, teachersvc.Actor, teachers
 }
 
 func (s reachingTeacherService) Create(context.Context, teachersvc.Actor, teachersvc.CreateInput) (teachersvc.TeacherProfile, error) {
+	s.reached.hits++
+	return teachersvc.TeacherProfile{}, nil
+}
+
+func (s reachingTeacherService) UpdateCategoryAccess(context.Context, teachersvc.Actor, teachersvc.UpdateCategoryAccessInput) (teachersvc.TeacherProfile, error) {
 	s.reached.hits++
 	return teachersvc.TeacherProfile{}, nil
 }

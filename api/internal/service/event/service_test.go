@@ -44,6 +44,9 @@ func (f *fakeReader) ListCategories(context.Context, uuid.UUID) ([]Category, err
 func (f *fakeReader) ListCoordinatorAssignments(context.Context, uuid.UUID) ([]CoordinatorAssignment, error) {
 	return nil, f.err
 }
+func (f *fakeReader) GetCoordinatorAssignment(context.Context, uuid.UUID, uuid.UUID) (CoordinatorAssignment, error) {
+	return CoordinatorAssignment{}, f.err
+}
 func (f *fakeReader) GetCoordinatorCandidateByEmail(context.Context, string) (CoordinatorCandidate, error) {
 	return CoordinatorCandidate{}, f.err
 }
@@ -94,6 +97,9 @@ func (f *fakeWriter) CreateCategory(context.Context, pgx.Tx, CreateCategoryWrite
 }
 func (f *fakeWriter) CreateCoordinatorAssignment(context.Context, pgx.Tx, CreateCoordinatorAssignmentWrite) (CoordinatorAssignment, bool, error) {
 	return CoordinatorAssignment{}, false, f.err
+}
+func (f *fakeWriter) ReplaceCoordinatorCategoryAccess(context.Context, pgx.Tx, ReplaceCoordinatorCategoryAccessWrite) (bool, error) {
+	return false, f.err
 }
 func (f *fakeWriter) UpsertCaptureCreditConfig(_ context.Context, _ pgx.Tx, input CaptureCreditConfigWrite) (CaptureCreditConfigWriteResult, bool, error) {
 	f.captureConfigCalls++

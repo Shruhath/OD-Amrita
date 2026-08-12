@@ -31,6 +31,7 @@ type Service interface {
 	UpdateCategoryVisibility(context.Context, eventsvc.Actor, eventsvc.UpdateCategoryVisibilityInput) (eventsvc.Category, error)
 	ListCoordinatorAssignments(context.Context, eventsvc.Actor, string) ([]eventsvc.CoordinatorAssignment, error)
 	CreateCoordinatorAssignment(context.Context, eventsvc.Actor, eventsvc.CreateCoordinatorAssignmentInput) (eventsvc.CoordinatorAssignment, error)
+	UpdateCoordinatorCategoryAccess(context.Context, eventsvc.Actor, eventsvc.UpdateCoordinatorCategoryAccessInput) (eventsvc.CoordinatorAssignment, error)
 	ListCaptureCredits(context.Context, eventsvc.Actor, string) (eventsvc.CaptureCreditSummary, error)
 	UpdateCaptureCreditConfig(context.Context, eventsvc.Actor, eventsvc.CaptureCreditConfigInput) (eventsvc.CaptureCreditConfig, error)
 	ResetCaptureCredits(context.Context, eventsvc.Actor, string, string) (eventsvc.CaptureCreditUsage, error)
@@ -59,6 +60,7 @@ func RegisterAdminRoutes(group gin.IRouter, svc Service) {
 	group.PUT("/events/:event_id/categories/:category_id/visibility", UpdateCategoryVisibilityHandler(svc))
 	group.GET("/events/:event_id/coordinators", ListCoordinatorAssignmentsHandler(svc))
 	group.POST("/events/:event_id/coordinators", CreateCoordinatorAssignmentHandler(svc))
+	group.PUT("/events/:event_id/coordinators/:user_id/categories", UpdateCoordinatorCategoryAccessHandler(svc))
 	group.GET("/events/:event_id/capture-credits", ListCaptureCreditsHandler(svc))
 	group.PUT("/events/:event_id/capture-credits/config", UpdateCaptureCreditConfigHandler(svc))
 	group.POST("/events/:event_id/capture-credits/coordinators/:user_id/reset", ResetCaptureCreditsHandler(svc))
@@ -372,6 +374,38 @@ func UpdateCaptureCreditConfigHandler(svc Service) gin.HandlerFunc {
 	}
 }
 
+func UpdateCoordinatorCategoryAccessHandler(svc Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var body contracts.UpdateCategoryAccessRequest
+		if err := bindCategoryAccessRequest(c, &body, coordinatorRequestValidation); err != nil {
+			fail(c, err)
+			return
+		}
+		actor, err := actorFromContext(c)
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		categoryIDs := make([]string, len(body.CategoryIds))
+		for index, id := range body.CategoryIds {
+			categoryIDs[index] = id.String()
+		}
+		updated, err := svc.UpdateCoordinatorCategoryAccess(c.Request.Context(), actor, eventsvc.UpdateCoordinatorCategoryAccessInput{
+			EventID: c.Param("event_id"), UserID: c.Param("user_id"), CategoryIDs: categoryIDs,
+		})
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		response, err := coordinatorAssignmentContract(updated)
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	}
+}
+
 type captureCreditConfigRequestShape struct {
 	Limit json.RawMessage `json:"limit"`
 }
@@ -428,6 +462,10 @@ type coordinatorAssignmentRequestShape struct {
 	CategoryIDs []json.RawMessage `json:"category_ids"`
 }
 
+type categoryAccessRequestShape struct {
+	CategoryIDs []json.RawMessage `json:"category_ids"`
+}
+
 func bindCoordinatorAssignmentRequest(c *gin.Context, body *contracts.CreateCoordinatorAssignmentRequest) error {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxCreateRequestBytes)
 	var shape coordinatorAssignmentRequestShape
@@ -459,6 +497,38 @@ func bindCoordinatorAssignmentRequest(c *gin.Context, body *contracts.CreateCoor
 	}
 	if err := c.ShouldBindBodyWith(body, binding.JSON); err != nil {
 		return coordinatorRequestValidation("$", "invalid_json", "Request body must be valid JSON.")
+	}
+	return nil
+}
+
+func bindCategoryAccessRequest(
+	c *gin.Context,
+	body *contracts.UpdateCategoryAccessRequest,
+	fieldError func(string, string, string) domain.DomainError,
+) error {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxCreateRequestBytes)
+	var shape categoryAccessRequestShape
+	if err := c.ShouldBindBodyWith(&shape, binding.JSON); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return fieldError("$", "maximum", "Request body must not exceed 1 MiB.")
+		}
+		return fieldError("$", "invalid_json", "Request body must be valid JSON.")
+	}
+	if len(shape.CategoryIDs) == 0 {
+		return fieldError("category_ids", "required", "Select at least one category.")
+	}
+	for index, raw := range shape.CategoryIDs {
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return fieldError(fmt.Sprintf("category_ids[%d]", index), "invalid_format", "Category id must be a UUID.")
+		}
+		if _, err := uuid.Parse(value); err != nil {
+			return fieldError(fmt.Sprintf("category_ids[%d]", index), "invalid_format", "Category id must be a UUID.")
+		}
+	}
+	if err := c.ShouldBindBodyWith(body, binding.JSON); err != nil {
+		return fieldError("$", "invalid_json", "Request body must be valid JSON.")
 	}
 	return nil
 }

@@ -180,14 +180,15 @@ func TestTeacherRejectionMatrixIsInternallyCoherent(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 type fakeTeacherReader struct {
-	userID      string
-	role        string
-	notFound    bool
-	branchCount int
-	profile     TeacherProfile
-	teachers    []TeacherProfile
-	total       int64
-	err         error
+	userID        string
+	role          string
+	notFound      bool
+	teacherExists bool
+	branchCount   int
+	profile       TeacherProfile
+	teachers      []TeacherProfile
+	total         int64
+	err           error
 }
 
 func (f *fakeTeacherReader) GetTeacherByEmail(context.Context, string) (resolvedUser, error) {
@@ -202,6 +203,13 @@ func (f *fakeTeacherReader) GetTeacherByEmail(context.Context, string) (resolved
 
 func (f *fakeTeacherReader) GetTeacherProfile(context.Context, uuid.UUID) (TeacherProfile, error) {
 	return f.profile, f.err
+}
+
+func (f *fakeTeacherReader) TeacherExists(context.Context, uuid.UUID) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
+	return f.teacherExists || f.userID != "", nil
 }
 
 func (f *fakeTeacherReader) ListTeachers(context.Context, ListInput) ([]TeacherProfile, int64, error) {
@@ -223,6 +231,7 @@ type countingTeacherWriter struct {
 	userID         string
 	assignCalls    int
 	addBranchCalls int
+	replaceCalls   int
 	raceNoRows     bool
 	err            error
 }
@@ -241,6 +250,11 @@ func (w *countingTeacherWriter) AssignRoleAndBranches(_ context.Context, _ pgx.T
 		userID = input.UserID.String()
 	}
 	return userID, true, nil
+}
+
+func (w *countingTeacherWriter) ReplaceCategoryAccess(_ context.Context, _ pgx.Tx, _ ReplaceCategoryAccessWrite) (bool, error) {
+	w.replaceCalls++
+	return w.err == nil, w.err
 }
 
 type fakeAuditStore struct {

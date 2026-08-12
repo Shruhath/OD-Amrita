@@ -99,6 +99,9 @@ func (f *fakeCategoryReader) ListCategories(_ context.Context, eventID uuid.UUID
 func (f *fakeCategoryReader) ListCoordinatorAssignments(context.Context, uuid.UUID) ([]CoordinatorAssignment, error) {
 	return nil, f.err
 }
+func (f *fakeCategoryReader) GetCoordinatorAssignment(context.Context, uuid.UUID, uuid.UUID) (CoordinatorAssignment, error) {
+	return CoordinatorAssignment{}, f.err
+}
 func (f *fakeCategoryReader) GetCoordinatorCandidateByEmail(context.Context, string) (CoordinatorCandidate, error) {
 	return CoordinatorCandidate{}, f.err
 }
@@ -148,6 +151,9 @@ func (w *countingCategoryWriter) CreateCategory(_ context.Context, _ pgx.Tx, inp
 }
 func (w *countingCategoryWriter) CreateCoordinatorAssignment(context.Context, pgx.Tx, CreateCoordinatorAssignmentWrite) (CoordinatorAssignment, bool, error) {
 	return CoordinatorAssignment{}, false, w.err
+}
+func (w *countingCategoryWriter) ReplaceCoordinatorCategoryAccess(context.Context, pgx.Tx, ReplaceCoordinatorCategoryAccessWrite) (bool, error) {
+	return false, w.err
 }
 
 // categoryRejection is one rejected create and the exact answer the caller is

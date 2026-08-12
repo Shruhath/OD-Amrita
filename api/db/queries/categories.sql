@@ -71,6 +71,19 @@ VALUES (@user_id, @category_id, @created_by_user_id)
 ON CONFLICT (user_id, category_id) DO NOTHING
 RETURNING user_id, category_id, created_by_user_id, created_at;
 
+-- name: DeleteUserCategoriesForEventExcept :execrows
+DELETE FROM user_category_assignments uca
+USING categories c
+WHERE c.id = uca.category_id
+  AND uca.user_id = @user_id
+  AND c.event_id = @event_id
+  AND NOT (uca.category_id = ANY(@keep_category_ids::uuid[]));
+
+-- name: DeleteUserCategoriesExcept :execrows
+DELETE FROM user_category_assignments
+WHERE user_id = @user_id
+  AND NOT (category_id = ANY(@keep_category_ids::uuid[]));
+
 -- name: CountCategoriesByIDs :one
 SELECT count(*)::bigint
 FROM categories

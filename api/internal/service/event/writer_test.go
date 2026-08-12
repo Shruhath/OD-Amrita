@@ -72,6 +72,10 @@ func (f *fakeWriteQueries) AssignUserCategory(context.Context, sqlc.AssignUserCa
 	return sqlc.UserCategoryAssignment{}, nil
 }
 
+func (f *fakeWriteQueries) DeleteUserCategoriesForEventExcept(context.Context, sqlc.DeleteUserCategoriesForEventExceptParams) (int64, error) {
+	return 0, nil
+}
+
 func (f *fakeWriteQueries) SetCategoryPublicVisibility(context.Context, sqlc.SetCategoryPublicVisibilityParams) (sqlc.SetCategoryPublicVisibilityRow, error) {
 	return sqlc.SetCategoryPublicVisibilityRow{}, nil
 }

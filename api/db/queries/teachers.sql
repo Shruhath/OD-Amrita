@@ -106,3 +106,10 @@ LIMIT @page_size::bigint OFFSET @page_offset::bigint;
 SELECT count(*)
 FROM users
 WHERE role = 'teacher';
+
+-- name: TeacherExists :one
+SELECT EXISTS(
+    SELECT 1
+    FROM users
+    WHERE id = @user_id AND role = 'teacher'
+)::boolean;

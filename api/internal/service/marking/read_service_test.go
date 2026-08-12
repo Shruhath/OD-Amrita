@@ -60,6 +60,10 @@ func (r *recordingEvents) ListCoordinatorAssignments(context.Context, uuid.UUID)
 	panic("marking read service must not list coordinator assignments directly")
 }
 
+func (r *recordingEvents) GetCoordinatorAssignment(context.Context, uuid.UUID, uuid.UUID) (svcevent.CoordinatorAssignment, error) {
+	panic("marking read service must not read coordinator assignments directly")
+}
+
 func (r *recordingEvents) GetCoordinatorCandidateByEmail(context.Context, string) (svcevent.CoordinatorCandidate, error) {
 	panic("marking read service must not read coordinator candidates")
 }

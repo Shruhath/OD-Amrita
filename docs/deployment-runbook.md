@@ -173,7 +173,7 @@ unset PGPASSWORD
 psql "$DATABASE_URL_MIGRATOR" -c 'SELECT max(version_id) FROM goose_db_version;'
 ```
 
-Expect **22** — migrations `0001`–`0022`. A lower number, or a missing table, means the
+Expect **23** — migrations `0001`–`0023`. A lower number, or a missing table, means the
 migrations did not all apply; stop and fix that before deploying, because the API will fail at
 runtime rather than at boot.
 

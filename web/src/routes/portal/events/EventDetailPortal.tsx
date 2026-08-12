@@ -34,6 +34,8 @@ export default function EventDetailPortal() {
   const [formError, setFormError] = useState<string | null>(null)
   const [coordinatorEmail, setCoordinatorEmail] = useState('')
   const [coordinatorCategoryIDs, setCoordinatorCategoryIDs] = useState<string[]>([])
+  const [editingCoordinatorID, setEditingCoordinatorID] = useState<string | null>(null)
+  const [editingCoordinatorCategoryIDs, setEditingCoordinatorCategoryIDs] = useState<string[]>([])
   const [coordinatorFieldError, setCoordinatorFieldError] = useState<string | null>(null)
   const [coordinatorFormError, setCoordinatorFormError] = useState<string | null>(null)
   const [creditLimit, setCreditLimit] = useState('5')
@@ -120,6 +122,31 @@ export default function EventDetailPortal() {
       }
       setCoordinatorFieldError(null)
       setCoordinatorFormError(messageOf(cause, 'The coordinator could not be assigned'))
+      if (cause instanceof ApiFailure && cause.body.code === 'EVENT_ARCHIVED') {
+        markEventArchived(queryClient, currentEventKey)
+        void queryClient.invalidateQueries({ queryKey: currentEventKey })
+      }
+    },
+  })
+
+  const updateCoordinatorAccess = useMutation({
+    mutationFn: ({ userID, categoryIDs }: { userID: string; categoryIDs: string[] }) => (
+      api.updateCoordinatorCategoryAccess(eventID, userID, { category_ids: categoryIDs })
+    ),
+    onSuccess: (updated) => {
+      if (coordinators.isSuccess) {
+        queryClient.setQueryData(currentCoordinatorKey, (current: { data: CoordinatorAssignment[] } | undefined) => ({
+          data: orderedCoordinators(mergeCoordinatorByID(current?.data ?? [], updated)),
+        }))
+      }
+      setEditingCoordinatorID(null)
+      setEditingCoordinatorCategoryIDs([])
+      setCoordinatorFormError(null)
+      void queryClient.invalidateQueries({ queryKey: currentCoordinatorKey })
+      void queryClient.invalidateQueries({ queryKey: ['mark-status'] })
+    },
+    onError: (cause) => {
+      setCoordinatorFormError(messageOf(cause, 'The coordinator category access could not be saved'))
       if (cause instanceof ApiFailure && cause.body.code === 'EVENT_ARCHIVED') {
         markEventArchived(queryClient, currentEventKey)
         void queryClient.invalidateQueries({ queryKey: currentEventKey })
@@ -226,6 +253,32 @@ export default function EventDetailPortal() {
         : [...current, categoryID]
     ))
     if (coordinatorFormError) setCoordinatorFormError(null)
+  }
+
+  const beginCoordinatorEdit = (coordinator: CoordinatorAssignment) => {
+    setEditingCoordinatorID(coordinator.user_id)
+    setEditingCoordinatorCategoryIDs(coordinator.categories.map((category) => category.id))
+    setCoordinatorFormError(null)
+  }
+
+  const cancelCoordinatorEdit = () => {
+    setEditingCoordinatorID(null)
+    setEditingCoordinatorCategoryIDs([])
+    setCoordinatorFormError(null)
+  }
+
+  const toggleEditingCoordinatorCategory = (categoryID: string) => {
+    setEditingCoordinatorCategoryIDs((current) => (
+      current.includes(categoryID)
+        ? current.filter((id) => id !== categoryID)
+        : [...current, categoryID]
+    ))
+    if (coordinatorFormError) setCoordinatorFormError(null)
+  }
+
+  const saveCoordinatorAccess = (coordinator: CoordinatorAssignment) => {
+    if (editingCoordinatorCategoryIDs.length === 0 || updateCoordinatorAccess.isPending) return
+    updateCoordinatorAccess.mutate({ userID: coordinator.user_id, categoryIDs: editingCoordinatorCategoryIDs })
   }
 
   const changeCreditLimit = (value: string) => {
@@ -437,33 +490,87 @@ export default function EventDetailPortal() {
               {coordinatorData.length > 0 && (
                 <ul className="flex flex-col gap-2" aria-label="Coordinators">
                   <AnimatePresence initial={false}>
-                    {coordinatorData.map((coordinator) => (
-                      <motion.li
-                        key={coordinator.id}
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="flex items-center justify-between p-3 bg-canvas rounded-[10px] border border-border"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-foreground/10 flex items-center justify-center text-xs font-bold shrink-0">
-                            {(coordinator.name ?? coordinator.email).slice(0, 2).toUpperCase()}
-                          </div>
-                          <div className="flex flex-col">
-                            <span className="text-sm font-semibold">{coordinator.name ?? coordinator.email}</span>
-                            {coordinator.name && <span className="text-xs text-foreground-muted">{coordinator.email}</span>}
-                            {coordinator.categories.length > 0 && (
-                              <span className="text-xs text-foreground-muted mt-0.5">
-                                {coordinator.categories.map((category) => category.name).join(', ')}
-                              </span>
+                    {coordinatorData.map((coordinator) => {
+                      const isEditing = editingCoordinatorID === coordinator.user_id
+                      return (
+                        <motion.li
+                          key={coordinator.id}
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="flex flex-col gap-3 p-3 bg-canvas rounded-[10px] border border-border"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-foreground/10 flex items-center justify-center text-xs font-bold shrink-0">
+                                {(coordinator.name ?? coordinator.email).slice(0, 2).toUpperCase()}
+                              </div>
+                              <div className="flex min-w-0 flex-col">
+                                <span className="truncate text-sm font-semibold">{coordinator.name ?? coordinator.email}</span>
+                                {coordinator.name && <span className="truncate text-xs text-foreground-muted">{coordinator.email}</span>}
+                                {!isEditing && coordinator.categories.length > 0 && (
+                                  <span className="text-xs text-foreground-muted mt-0.5">
+                                    {coordinator.categories.map((category) => category.name).join(', ')}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            {event.status === 'active' && (
+                              <button
+                                type="button"
+                                onClick={() => isEditing ? cancelCoordinatorEdit() : beginCoordinatorEdit(coordinator)}
+                                disabled={updateCoordinatorAccess.isPending}
+                                className="shrink-0 rounded-[10px] border border-border px-3 py-1.5 text-xs font-semibold hover:bg-surface active:scale-95 transition-all disabled:opacity-50"
+                              >
+                                {isEditing ? 'Cancel' : 'Edit'}
+                              </button>
                             )}
                           </div>
-                        </div>
-                        <time className="text-xs text-foreground-muted" dateTime={coordinator.created_at}>
-                          {new Date(coordinator.created_at).toLocaleDateString()}
-                        </time>
-                      </motion.li>
-                    ))}
+                          {isEditing ? (
+                            <div className="flex flex-col gap-3 border-t border-border pt-3">
+                              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                {categoryData.map((category) => (
+                                  <label
+                                    key={category.id}
+                                    className="flex items-center gap-2 rounded-[10px] border border-border bg-surface px-3 py-2 text-sm font-medium"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      className="h-4 w-4 accent-foreground"
+                                      checked={editingCoordinatorCategoryIDs.includes(category.id)}
+                                      onChange={() => toggleEditingCoordinatorCategory(category.id)}
+                                    />
+                                    <span className="truncate">{category.name}</span>
+                                  </label>
+                                ))}
+                              </div>
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={cancelCoordinatorEdit}
+                                  disabled={updateCoordinatorAccess.isPending}
+                                  className="rounded-[10px] border border-border px-3 py-1.5 text-xs font-semibold hover:bg-surface active:scale-95 transition-all disabled:opacity-50"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => saveCoordinatorAccess(coordinator)}
+                                  disabled={editingCoordinatorCategoryIDs.length === 0 || updateCoordinatorAccess.isPending}
+                                  className="rounded-[10px] bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground active:scale-95 transition-all disabled:opacity-50"
+                                >
+                                  {updateCoordinatorAccess.isPending ? 'Saving…' : 'Save access'}
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <time className="text-xs text-foreground-muted" dateTime={coordinator.created_at}>
+                              {new Date(coordinator.created_at).toLocaleDateString()}
+                            </time>
+                          )}
+                        </motion.li>
+                      )
+                    })}
                   </AnimatePresence>
                 </ul>
               )}

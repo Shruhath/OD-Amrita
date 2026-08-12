@@ -14,6 +14,7 @@ export type UpdateCategoryVisibilityInput = components['schemas']['UpdateCategor
 export type CoordinatorAssignment = components['schemas']['CoordinatorAssignment']
 export type CoordinatorAssignmentCollection = components['schemas']['CoordinatorAssignmentCollection']
 export type CreateCoordinatorAssignmentInput = components['schemas']['CreateCoordinatorAssignmentRequest']
+export type UpdateCategoryAccessInput = components['schemas']['UpdateCategoryAccessRequest']
 export type CaptureCreditConfig = components['schemas']['CaptureCreditConfig']
 export type CaptureCreditUsage = components['schemas']['CaptureCreditUsage']
 export type CaptureCreditSummary = components['schemas']['CaptureCreditSummary']
@@ -324,6 +325,12 @@ export function createEventApi(session: SessionPort) {
         body: input,
       }))
     },
+    async updateCoordinatorCategoryAccess(eventID: string, userID: string, input: UpdateCategoryAccessInput) {
+      return unwrap(await client.PUT('/api/v1/admin/events/{event_id}/coordinators/{user_id}/categories', {
+        params: { path: { event_id: eventID, user_id: userID } },
+        body: input,
+      }))
+    },
     async captureCredits(eventID: string) {
       return unwrap(await client.GET('/api/v1/admin/events/{event_id}/capture-credits', {
         params: { path: { event_id: eventID } },
@@ -345,6 +352,12 @@ export function createEventApi(session: SessionPort) {
     },
     async createTeacher(input: CreateTeacherProfileInput) {
       return unwrap(await client.POST('/api/v1/admin/teachers', { body: input }))
+    },
+    async updateTeacherCategoryAccess(userID: string, input: UpdateCategoryAccessInput) {
+      return unwrap(await client.PUT('/api/v1/admin/teachers/{user_id}/categories', {
+        params: { path: { user_id: userID } },
+        body: input,
+      }))
     },
     async importStudents(file: File) {
       const body = new FormData()

@@ -28,6 +28,7 @@ type Service interface {
 	Archive(context.Context, eventsvc.Actor, string) (eventsvc.Event, error)
 	ListCategories(context.Context, eventsvc.Actor, string) ([]eventsvc.Category, error)
 	CreateCategory(context.Context, eventsvc.Actor, eventsvc.CreateCategoryInput) (eventsvc.Category, error)
+	UpdateCategoryVisibility(context.Context, eventsvc.Actor, eventsvc.UpdateCategoryVisibilityInput) (eventsvc.Category, error)
 	ListCoordinatorAssignments(context.Context, eventsvc.Actor, string) ([]eventsvc.CoordinatorAssignment, error)
 	CreateCoordinatorAssignment(context.Context, eventsvc.Actor, eventsvc.CreateCoordinatorAssignmentInput) (eventsvc.CoordinatorAssignment, error)
 	ListCaptureCredits(context.Context, eventsvc.Actor, string) (eventsvc.CaptureCreditSummary, error)
@@ -55,6 +56,7 @@ func RegisterAdminRoutes(group gin.IRouter, svc Service) {
 	// without one, and nesting makes the lifecycle check fall out of the path.
 	group.GET("/events/:event_id/categories", ListCategoriesHandler(svc))
 	group.POST("/events/:event_id/categories", CreateCategoryHandler(svc))
+	group.PUT("/events/:event_id/categories/:category_id/visibility", UpdateCategoryVisibilityHandler(svc))
 	group.GET("/events/:event_id/coordinators", ListCoordinatorAssignmentsHandler(svc))
 	group.POST("/events/:event_id/coordinators", CreateCoordinatorAssignmentHandler(svc))
 	group.GET("/events/:event_id/capture-credits", ListCaptureCreditsHandler(svc))
@@ -303,8 +305,9 @@ func CreateCoordinatorAssignmentHandler(svc Service) gin.HandlerFunc {
 			return
 		}
 		created, err := svc.CreateCoordinatorAssignment(c.Request.Context(), actor, eventsvc.CreateCoordinatorAssignmentInput{
-			EventID: c.Param("event_id"),
-			Email:   body.Email,
+			EventID:     c.Param("event_id"),
+			Email:       body.Email,
+			CategoryIDs: uuidStrings(body.CategoryIds),
 		})
 		if err != nil {
 			fail(c, err)
@@ -421,7 +424,8 @@ func ResetCaptureCreditsHandler(svc Service) gin.HandlerFunc {
 }
 
 type coordinatorAssignmentRequestShape struct {
-	Email json.RawMessage `json:"email"`
+	Email       json.RawMessage   `json:"email"`
+	CategoryIDs []json.RawMessage `json:"category_ids"`
 }
 
 func bindCoordinatorAssignmentRequest(c *gin.Context, body *contracts.CreateCoordinatorAssignmentRequest) error {
@@ -441,10 +445,30 @@ func bindCoordinatorAssignmentRequest(c *gin.Context, body *contracts.CreateCoor
 	if err := json.Unmarshal(shape.Email, &email); err != nil {
 		return coordinatorRequestValidation("email", "invalid_format", "Coordinator email must be a string.")
 	}
+	if len(shape.CategoryIDs) == 0 {
+		return coordinatorRequestValidation("category_ids", "required", "Select at least one category.")
+	}
+	for index, raw := range shape.CategoryIDs {
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return coordinatorRequestValidation(fmt.Sprintf("category_ids[%d]", index), "invalid_format", "Category id must be a UUID.")
+		}
+		if _, err := uuid.Parse(value); err != nil {
+			return coordinatorRequestValidation(fmt.Sprintf("category_ids[%d]", index), "invalid_format", "Category id must be a UUID.")
+		}
+	}
 	if err := c.ShouldBindBodyWith(body, binding.JSON); err != nil {
 		return coordinatorRequestValidation("$", "invalid_json", "Request body must be valid JSON.")
 	}
 	return nil
+}
+
+func uuidStrings(ids []uuid.UUID) []string {
+	out := make([]string, len(ids))
+	for index, id := range ids {
+		out[index] = id.String()
+	}
+	return out
 }
 
 func actorFromContext(c *gin.Context) (eventsvc.Actor, error) {
@@ -509,13 +533,22 @@ func coordinatorAssignmentContract(value eventsvc.CoordinatorAssignment) (contra
 	if err != nil {
 		return contracts.CoordinatorAssignment{}, fmt.Errorf("event: map coordinator event id: %w", err)
 	}
+	categories := make([]contracts.Category, 0, len(value.Categories))
+	for _, category := range value.Categories {
+		mapped, mapErr := categoryContract(category)
+		if mapErr != nil {
+			return contracts.CoordinatorAssignment{}, mapErr
+		}
+		categories = append(categories, mapped)
+	}
 	return contracts.CoordinatorAssignment{
-		Id:        id,
-		UserId:    userID,
-		Email:     value.Email,
-		Name:      value.Name,
-		EventId:   eventID,
-		CreatedAt: value.CreatedAt,
+		Id:         id,
+		UserId:     userID,
+		Email:      value.Email,
+		Name:       value.Name,
+		EventId:    eventID,
+		Categories: categories,
+		CreatedAt:  value.CreatedAt,
 	}, nil
 }
 

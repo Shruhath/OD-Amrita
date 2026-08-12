@@ -6,9 +6,12 @@ import { Application } from '../../../Application'
 import type { SessionPort } from '../../../features/auth/session'
 import { createPortalMemoryRouter } from '../../../router'
 import { server } from '../../../test/server'
+import { createCategoryFixture, testEventID } from '../../../../tests/support/factories/category'
+import { createEventFixture } from '../../../../tests/support/factories/event'
 import {
   createTeacherProfileFixture,
   testTeacherBranches,
+  testTeacherCategories,
   type TeacherProfileFixture,
 } from '../../../../tests/support/factories/teacher'
 
@@ -42,6 +45,11 @@ function renderTeachersPortal({
 }: PortalScenario = {}) {
   const adminRequest = vi.fn()
   let serverTeachers = [...teachers]
+  const categoryFixtures = testTeacherCategories.map((category) => createCategoryFixture({
+    id: category.id,
+    event_id: testEventID,
+    name: category.name,
+  }))
   const session: SessionPort = {
     accessToken: vi.fn(async () => 'atdd-access-token'),
     refresh: vi.fn(async () => 'atdd-access-token'),
@@ -58,6 +66,15 @@ function renderTeachersPortal({
       adminRequest('branches')
       return HttpResponse.json({ data: branches })
     }),
+    http.get('*/api/v1/admin/events', () =>
+      HttpResponse.json({
+        data: [createEventFixture({ id: testEventID, status: 'active' })],
+        page: 1,
+        page_size: 100,
+        total: 1,
+      }),
+    ),
+    http.get('*/api/v1/admin/events/:eventID/categories', () => HttpResponse.json({ data: categoryFixtures })),
     http.get('*/api/v1/admin/teachers', ({ request }) => {
       adminRequest('teachers')
       if (teachersStatus !== 200) {
@@ -72,10 +89,11 @@ function renderTeachersPortal({
     }),
     http.post('*/api/v1/admin/teachers', async ({ request }) => {
       adminRequest('create')
-      const input = (await request.json()) as { email: string; branch_ids: string[] }
+      const input = (await request.json()) as { email: string; branch_ids: string[]; category_ids: string[] }
       const created = createTeacherProfileFixture({
         email: input.email.trim().toLowerCase(),
         branches: testTeacherBranches.filter((branch) => input.branch_ids.includes(branch.id)),
+        categories: testTeacherCategories.filter((category) => input.category_ids.includes(category.id)),
       })
       serverTeachers = orderTeachers([created, ...serverTeachers])
       return HttpResponse.json(created, { status: 201 })
@@ -111,6 +129,7 @@ describe('Admin teachers portal composition (ATDD red phase)', () => {
     const dialog = screen.getByRole('dialog', { name: 'New teacher' })
     await user.type(within(dialog).getByLabelText('Email'), 'new-teacher@amrita.edu')
     await user.click(within(dialog).getByRole('checkbox', { name: /Computer Science/ }))
+    await user.click(within(dialog).getByRole('checkbox', { name: /Campus Decoration/ }))
     await user.click(within(dialog).getByRole('button', { name: 'Create teacher' }))
 
     expect(await screen.findByRole('row', { name: /new-teacher@amrita.edu/ })).toBeInTheDocument()
@@ -129,6 +148,7 @@ describe('Admin teachers portal composition (ATDD red phase)', () => {
     const dialog = screen.getByRole('dialog', { name: 'New teacher' })
     await user.type(within(dialog).getByLabelText('Email'), 'never-logged-in@amrita.edu')
     await user.click(within(dialog).getByRole('checkbox', { name: /Computer Science/ }))
+    await user.click(within(dialog).getByRole('checkbox', { name: /Campus Decoration/ }))
     await user.click(within(dialog).getByRole('button', { name: 'Create teacher' }))
 
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('No user has signed in with this email yet.')
@@ -146,6 +166,7 @@ describe('Admin teachers portal composition (ATDD red phase)', () => {
     const dialog = screen.getByRole('dialog', { name: 'New teacher' })
     await user.type(within(dialog).getByLabelText('Email'), 'already-admin@amrita.edu')
     await user.click(within(dialog).getByRole('checkbox', { name: /Computer Science/ }))
+    await user.click(within(dialog).getByRole('checkbox', { name: /Campus Decoration/ }))
     await user.click(within(dialog).getByRole('button', { name: 'Create teacher' }))
 
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('This user already has an assigned role.')
@@ -166,6 +187,7 @@ describe('Admin teachers portal composition (ATDD red phase)', () => {
     const dialog = screen.getByRole('dialog', { name: 'New teacher' })
     await user.type(within(dialog).getByLabelText('Email'), 'duplicate-branch@amrita.edu')
     await user.click(within(dialog).getByRole('checkbox', { name: /Computer Science/ }))
+    await user.click(within(dialog).getByRole('checkbox', { name: /Campus Decoration/ }))
     await user.click(within(dialog).getByRole('button', { name: 'Create teacher' }))
 
     expect(await within(dialog).findByText('Branch ids must be unique.')).toBeInTheDocument()
@@ -186,6 +208,7 @@ describe('Admin teachers portal composition (ATDD red phase)', () => {
     const dialog = screen.getByRole('dialog', { name: 'New teacher' })
     await user.type(within(dialog).getByLabelText('Email'), 'never-logged-in@amrita.edu')
     await user.click(within(dialog).getByRole('checkbox', { name: /Computer Science/ }))
+    await user.click(within(dialog).getByRole('checkbox', { name: /Campus Decoration/ }))
     await user.click(within(dialog).getByRole('button', { name: 'Create teacher' }))
     await within(dialog).findByRole('alert')
 

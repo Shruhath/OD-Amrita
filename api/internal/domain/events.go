@@ -43,7 +43,8 @@ const (
 	// ActionCategoryCreated is the per-event category creation event (Story 2.2).
 	// Singular entity, past-tense verb — the string is written verbatim into the
 	// immutable ledger, so it is a permanent wire commitment.
-	ActionCategoryCreated Action = "category.created"
+	ActionCategoryCreated           Action = "category.created"
+	ActionCategoryVisibilityUpdated Action = "category.visibility_updated"
 	// ActionTeacherProfileCreated covers a role elevation AND every branch
 	// association from the same request as ONE audit row (Story 2.3) — mirroring
 	// event.created's single row covering the event insert and every
@@ -75,6 +76,7 @@ var AllActions = []Action{
 	ActionEventCreated,
 	ActionEventArchived,
 	ActionCategoryCreated,
+	ActionCategoryVisibilityUpdated,
 	ActionTeacherProfileCreated,
 	ActionStudentRosterImported,
 	ActionCardTokenSealed,

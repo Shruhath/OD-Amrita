@@ -34,6 +34,7 @@ import (
 )
 
 const teacherBranchOne = "10000000-0000-4000-8000-000000000001"
+const teacherCategoryOne = "10000000-0000-4000-8000-000000000011"
 
 // fakeTeacherService is the transport-layer double: it never validates, it
 // only records what it was called with and returns whatever failWith/teachers
@@ -167,7 +168,7 @@ func TestCreateTeacherHandlerRendersEveryOutcomeThroughTheErrorEnvelope(t *testi
 		t.Run(tc.name, func(t *testing.T) {
 			svc := &fakeTeacherService{failWith: tc.serviceCode}
 			recorder := performTeacherRequest(t, svc, http.MethodPost, "/api/v1/admin/teachers",
-				`{"email":"new-teacher@amrita.edu","branch_ids":["`+teacherBranchOne+`"]}`)
+				`{"email":"new-teacher@amrita.edu","branch_ids":["`+teacherBranchOne+`"],"category_ids":["`+teacherCategoryOne+`"]}`)
 
 			if recorder.Code != tc.wantStatus {
 				t.Fatalf("status = %d body = %s, want %d", recorder.Code, recorder.Body.String(), tc.wantStatus)
@@ -213,9 +214,10 @@ func TestCreateTeacherHandlerRendersEveryOutcomeThroughTheErrorEnvelope(t *testi
 func TestCreateTeacherHandlerRejectsMalformedAndOversizedBodiesBeforeTheService(t *testing.T) {
 	for _, tc := range []struct{ name, body, wantField, wantCode string }{
 		{name: "malformed json", body: `{"email":`, wantField: "$", wantCode: "invalid_json"},
-		{name: "missing email", body: `{"branch_ids":["` + teacherBranchOne + `"]}`, wantField: "email", wantCode: "required"},
-		{name: "email is not a string", body: `{"email":42,"branch_ids":["` + teacherBranchOne + `"]}`, wantField: "email", wantCode: "invalid_format"},
-		{name: "missing branch_ids", body: `{"email":"new-teacher@amrita.edu"}`, wantField: "branch_ids", wantCode: "required"},
+		{name: "missing email", body: `{"branch_ids":["` + teacherBranchOne + `"],"category_ids":["` + teacherCategoryOne + `"]}`, wantField: "email", wantCode: "required"},
+		{name: "email is not a string", body: `{"email":42,"branch_ids":["` + teacherBranchOne + `"],"category_ids":["` + teacherCategoryOne + `"]}`, wantField: "email", wantCode: "invalid_format"},
+		{name: "missing branch_ids", body: `{"email":"new-teacher@amrita.edu","category_ids":["` + teacherCategoryOne + `"]}`, wantField: "branch_ids", wantCode: "required"},
+		{name: "missing category_ids", body: `{"email":"new-teacher@amrita.edu","branch_ids":["` + teacherBranchOne + `"]}`, wantField: "category_ids", wantCode: "required"},
 		{name: "oversized body", body: `{"email":"` + strings.Repeat("a", 1<<20) + `"}`, wantField: "$", wantCode: "maximum"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

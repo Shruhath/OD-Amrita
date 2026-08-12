@@ -14,6 +14,7 @@ import (
 type teacherWriteQueries interface {
 	AssignTeacherRole(context.Context, pgtype.UUID) (sqlc.AssignTeacherRoleRow, error)
 	AddUserBranch(context.Context, sqlc.AddUserBranchParams) (int64, error)
+	AssignUserCategory(context.Context, sqlc.AssignUserCategoryParams) (sqlc.UserCategoryAssignment, error)
 }
 
 type queryFactory func(pgx.Tx) teacherWriteQueries
@@ -61,6 +62,16 @@ func (w *SQLCWriter) AssignRoleAndBranches(ctx context.Context, tx pgx.Tx, input
 		}
 		if rows != 1 {
 			return "", false, fmt.Errorf("teacher: branch association affected %d rows", rows)
+		}
+	}
+
+	for _, categoryID := range input.CategoryIDs {
+		if _, err := q.AssignUserCategory(ctx, sqlc.AssignUserCategoryParams{
+			UserID:          row.ID,
+			CategoryID:      dbUUID(categoryID),
+			CreatedByUserID: dbUUID(input.ActorUserID),
+		}); err != nil && err != pgx.ErrNoRows {
+			return "", false, err
 		}
 	}
 

@@ -26,7 +26,10 @@ const (
 	StatusAll      Status = "all"
 )
 
-var ErrEventNotFound = errors.New("event: not found")
+var (
+	ErrEventNotFound    = errors.New("event: not found")
+	ErrCategoryNotFound = errors.New("event: category not found")
+)
 
 type Branch struct {
 	ID   string `json:"id"`

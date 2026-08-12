@@ -79,6 +79,36 @@ func CreateCategoryHandler(svc Service) gin.HandlerFunc {
 	}
 }
 
+func UpdateCategoryVisibilityHandler(svc Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var body contracts.UpdateCategoryVisibilityRequest
+		if err := bindCategoryVisibilityRequest(c, &body); err != nil {
+			fail(c, err)
+			return
+		}
+		actor, err := actorFromContext(c)
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		updated, err := svc.UpdateCategoryVisibility(c.Request.Context(), actor, eventsvc.UpdateCategoryVisibilityInput{
+			EventID:                  c.Param("event_id"),
+			CategoryID:               c.Param("category_id"),
+			VisibleOnPublicDashboard: body.VisibleOnPublicDashboard,
+		})
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		response, err := categoryContract(updated)
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	}
+}
+
 // createCategoryRequestShape keeps `name` raw for one pass so a missing field, a
 // non-string field and malformed JSON stay distinguishable. Binding straight
 // into the generated type collapses all three into one undifferentiated JSON
@@ -110,6 +140,33 @@ func bindCreateCategoryRequest(c *gin.Context, body *contracts.CreateCategoryReq
 	return nil
 }
 
+type categoryVisibilityRequestShape struct {
+	VisibleOnPublicDashboard *json.RawMessage `json:"visible_on_public_dashboard"`
+}
+
+func bindCategoryVisibilityRequest(c *gin.Context, body *contracts.UpdateCategoryVisibilityRequest) error {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxCreateRequestBytes)
+	var shape categoryVisibilityRequestShape
+	if err := c.ShouldBindBodyWith(&shape, binding.JSON); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return requestValidation("$", "maximum", "Request body must not exceed 1 MiB.")
+		}
+		return requestValidation("$", "invalid_json", "Request body must be valid JSON.")
+	}
+	if shape.VisibleOnPublicDashboard == nil || len(*shape.VisibleOnPublicDashboard) == 0 {
+		return requestValidation("visible_on_public_dashboard", "required", "Public dashboard visibility is required.")
+	}
+	var visible bool
+	if err := json.Unmarshal(*shape.VisibleOnPublicDashboard, &visible); err != nil {
+		return requestValidation("visible_on_public_dashboard", "invalid_format", "Public dashboard visibility must be a boolean.")
+	}
+	if err := c.ShouldBindBodyWith(body, binding.JSON); err != nil {
+		return requestValidation("$", "invalid_json", "Request body must be valid JSON.")
+	}
+	return nil
+}
+
 func categoryContract(value eventsvc.Category) (contracts.Category, error) {
 	id, err := uuid.Parse(value.ID)
 	if err != nil {
@@ -120,9 +177,10 @@ func categoryContract(value eventsvc.Category) (contracts.Category, error) {
 		return contracts.Category{}, err
 	}
 	return contracts.Category{
-		Id:        id,
-		EventId:   eventID,
-		Name:      value.Name,
-		CreatedAt: value.CreatedAt,
+		Id:                       id,
+		EventId:                  eventID,
+		Name:                     value.Name,
+		VisibleOnPublicDashboard: value.VisibleOnPublicDashboard,
+		CreatedAt:                value.CreatedAt,
 	}, nil
 }

@@ -86,15 +86,30 @@ func hasVisibleCharacter(name string) bool {
 }
 
 type Category struct {
-	ID        string
-	EventID   string
-	Name      string
-	CreatedAt time.Time
+	ID                       string
+	EventID                  string
+	Name                     string
+	VisibleOnPublicDashboard bool
+	CreatedAt                time.Time
 }
 
 type CreateCategoryInput struct {
 	EventID string
 	Name    string
+}
+
+type UpdateCategoryVisibilityInput struct {
+	EventID                  string
+	CategoryID               string
+	VisibleOnPublicDashboard bool
+}
+
+type categoryLookupReader interface {
+	GetCategory(context.Context, uuid.UUID) (Category, error)
+}
+
+type categoryVisibilityWriter interface {
+	UpdateCategoryVisibility(context.Context, pgx.Tx, uuid.UUID, bool) (Category, error)
 }
 
 // CreateCategoryWrite is the already-validated, already-normalized shape handed
@@ -220,6 +235,76 @@ func (s *Service) CreateCategory(ctx context.Context, actor Actor, input CreateC
 		return Category{}, mapCategoryWriteError(err)
 	}
 	return created, nil
+}
+
+func (s *Service) UpdateCategoryVisibility(ctx context.Context, actor Actor, input UpdateCategoryVisibilityInput) (Category, error) {
+	eventID, err := parseCategoryEventID(input.EventID)
+	if err != nil {
+		return Category{}, err
+	}
+	categoryID, err := uuid.Parse(strings.TrimSpace(input.CategoryID))
+	if err != nil {
+		return Category{}, categoryValidation("category_id", "invalid_format", "Category id must be a UUID.")
+	}
+	if actor.Role != "admin" {
+		return Category{}, forbidden()
+	}
+	if _, err := s.eventStatus(ctx, eventID); err != nil {
+		return Category{}, err
+	}
+	categoryReader, ok := s.reader.(categoryLookupReader)
+	if !ok {
+		return Category{}, errors.New("event: category lookup reader is not configured")
+	}
+	categoryWriter, ok := s.writer.(categoryVisibilityWriter)
+	if !ok {
+		return Category{}, errors.New("event: category visibility writer is not configured")
+	}
+	category, err := categoryReader.GetCategory(ctx, categoryID)
+	if errors.Is(err, ErrCategoryNotFound) {
+		return Category{}, domain.DomainError{Code: contracts.ErrorCodeCATEGORYNOTFOUND, Message: "Category not found."}
+	}
+	if err != nil {
+		return Category{}, err
+	}
+	if category.EventID != eventID.String() {
+		return Category{}, domain.DomainError{Code: contracts.ErrorCodeCATEGORYNOTFOUND, Message: "Category not found for this event."}
+	}
+	actorAccount := strings.ToLower(strings.TrimSpace(actor.Email))
+	actorRole := actor.Role
+	targetTable := "categories"
+	targetID := categoryID.String()
+	var updated Category
+	evt := store.AuditEvent{
+		Action:       domain.ActionCategoryVisibilityUpdated,
+		ActorAccount: &actorAccount,
+		ActorRole:    &actorRole,
+		TargetTable:  &targetTable,
+		TargetID:     &targetID,
+		PayloadFunc: func() ([]byte, error) {
+			return json.Marshal(map[string]any{
+				"event_id":                             eventID.String(),
+				"category_id":                          categoryID.String(),
+				"visible_on_public_dashboard":          input.VisibleOnPublicDashboard,
+				"previous_visible_on_public_dashboard": category.VisibleOnPublicDashboard,
+			})
+		},
+	}
+	err = s.store.WithAudit(ctx, evt, func(ctx context.Context, tx pgx.Tx) (bool, error) {
+		row, writeErr := categoryWriter.UpdateCategoryVisibility(ctx, tx, categoryID, input.VisibleOnPublicDashboard)
+		if writeErr != nil {
+			return false, writeErr
+		}
+		updated = row
+		return category.VisibleOnPublicDashboard != input.VisibleOnPublicDashboard, nil
+	})
+	if err != nil {
+		return Category{}, err
+	}
+	if updated.ID == "" {
+		return category, nil
+	}
+	return updated, nil
 }
 
 // eventStatus resolves the owning event's lifecycle state, translating the

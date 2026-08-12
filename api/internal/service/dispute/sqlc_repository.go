@@ -56,6 +56,17 @@ func (r *SQLCRepository) Insert(ctx context.Context, tx pgx.Tx, write InsertWrit
 	if tx != nil {
 		q = sqlc.New(tx)
 	}
+	publicCategory, err := q.PublicCategoryAvailableForDispute(ctx, sqlc.PublicCategoryAvailableForDisputeParams{
+		EventID:    uuidParam(write.EventID),
+		CategoryID: uuidParam(write.CategoryID),
+		OdDate:     dateParam(write.ODDate),
+	})
+	if err != nil {
+		return Record{}, err
+	}
+	if !publicCategory {
+		return Record{}, domain.DomainError{Code: contracts.ErrorCodeCATEGORYNOTFOUND, Message: "Category not found for this event."}
+	}
 	row, err := q.InsertDispute(ctx, sqlc.InsertDisputeParams{
 		StudentID:              uuidParam(write.StudentID),
 		EventID:                uuidParam(write.EventID),

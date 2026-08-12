@@ -29,6 +29,7 @@ SELECT count(*)::bigint
 FROM disputes d
 JOIN students s ON s.id = d.student_id
 JOIN user_branches ub ON ub.branch_id = s.branch_id AND ub.user_id = $1
+JOIN user_category_assignments uca ON uca.category_id = d.category_id AND uca.user_id = $1
 WHERE ($2::text = 'all' OR d.status = $2::text)
 `
 
@@ -458,6 +459,7 @@ JOIN branches b ON b.id = s.branch_id
 JOIN user_branches ub ON ub.branch_id = s.branch_id AND ub.user_id = $1
 JOIN events e ON e.id = d.event_id
 JOIN categories c ON c.id = d.category_id
+JOIN user_category_assignments uca ON uca.category_id = d.category_id AND uca.user_id = $1
 WHERE ($2::text = 'all' OR d.status = $2::text)
 ORDER BY d.created_at DESC, d.id DESC
 LIMIT $4::bigint OFFSET $3::bigint
@@ -545,6 +547,31 @@ func (q *Queries) ListDisputesForTeacher(ctx context.Context, arg ListDisputesFo
 	return items, nil
 }
 
+const publicCategoryAvailableForDispute = `-- name: PublicCategoryAvailableForDispute :one
+SELECT EXISTS (
+    SELECT 1
+    FROM categories c
+    JOIN events e ON e.id = c.event_id
+    WHERE e.id = $1
+      AND c.id = $2
+      AND c.visible_on_public_dashboard = true
+      AND $3::date BETWEEN e.event_date AND e.end_date
+)::boolean
+`
+
+type PublicCategoryAvailableForDisputeParams struct {
+	EventID    pgtype.UUID `json:"event_id"`
+	CategoryID pgtype.UUID `json:"category_id"`
+	OdDate     pgtype.Date `json:"od_date"`
+}
+
+func (q *Queries) PublicCategoryAvailableForDispute(ctx context.Context, arg PublicCategoryAvailableForDisputeParams) (bool, error) {
+	row := q.db.QueryRow(ctx, publicCategoryAvailableForDispute, arg.EventID, arg.CategoryID, arg.OdDate)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const resolveDispute = `-- name: ResolveDispute :execrows
 UPDATE disputes
 SET status = 'resolved',
@@ -584,6 +611,7 @@ SELECT EXISTS (
     FROM disputes d
     JOIN students s ON s.id = d.student_id
     JOIN user_branches ub ON ub.branch_id = s.branch_id AND ub.user_id = $1
+    JOIN user_category_assignments uca ON uca.category_id = d.category_id AND uca.user_id = $1
     WHERE d.id = $2
 )::boolean
 `

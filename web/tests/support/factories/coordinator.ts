@@ -8,11 +8,23 @@ export type CoordinatorAssignmentFixture = {
   email: string
   name: string | null
   event_id: string
+  categories: CoordinatorCategoryFixture[]
   created_at: string
 }
 
 export type CreateCoordinatorAssignmentRequest = {
   email: string
+  category_ids: string[]
+}
+
+export type CoordinatorCategoryFixture = {
+  id: string
+  name: string
+}
+
+export const testCoordinatorCategory: CoordinatorCategoryFixture = {
+  id: '20000000-0000-4000-8000-000000000011',
+  name: 'Procession',
 }
 
 export function createCoordinatorAssignmentFixture(
@@ -26,6 +38,7 @@ export function createCoordinatorAssignmentFixture(
     email: `${first}.${last}.${faker.string.alphanumeric(6)}@amrita.edu`.toLowerCase(),
     name: `${first} ${last}`,
     event_id: testEventID,
+    categories: [testCoordinatorCategory],
     created_at: '2026-08-03T03:00:00Z',
     ...overrides,
   }
@@ -36,6 +49,7 @@ export function createCoordinatorAssignmentRequest(
 ): CreateCoordinatorAssignmentRequest {
   return {
     email: `candidate.${faker.string.alphanumeric(8)}@amrita.edu`.toLowerCase(),
+    category_ids: [testCoordinatorCategory.id],
     ...overrides,
   }
 }

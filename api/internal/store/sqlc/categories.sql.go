@@ -11,10 +11,48 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const assignUserCategory = `-- name: AssignUserCategory :one
+INSERT INTO user_category_assignments (user_id, category_id, created_by_user_id)
+VALUES ($1, $2, $3)
+ON CONFLICT (user_id, category_id) DO NOTHING
+RETURNING user_id, category_id, created_by_user_id, created_at
+`
+
+type AssignUserCategoryParams struct {
+	UserID          pgtype.UUID `json:"user_id"`
+	CategoryID      pgtype.UUID `json:"category_id"`
+	CreatedByUserID pgtype.UUID `json:"created_by_user_id"`
+}
+
+func (q *Queries) AssignUserCategory(ctx context.Context, arg AssignUserCategoryParams) (UserCategoryAssignment, error) {
+	row := q.db.QueryRow(ctx, assignUserCategory, arg.UserID, arg.CategoryID, arg.CreatedByUserID)
+	var i UserCategoryAssignment
+	err := row.Scan(
+		&i.UserID,
+		&i.CategoryID,
+		&i.CreatedByUserID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const countCategoriesByIDs = `-- name: CountCategoriesByIDs :one
+SELECT count(*)::bigint
+FROM categories
+WHERE id = ANY($1::uuid[])
+`
+
+func (q *Queries) CountCategoriesByIDs(ctx context.Context, categoryIds []pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countCategoriesByIDs, categoryIds)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createCategory = `-- name: CreateCategory :one
 INSERT INTO categories (event_id, name)
 VALUES ($1, $2)
-RETURNING id, event_id, name, created_at
+RETURNING id, event_id, name, visible_on_public_dashboard, created_at
 `
 
 type CreateCategoryParams struct {
@@ -23,10 +61,11 @@ type CreateCategoryParams struct {
 }
 
 type CreateCategoryRow struct {
-	ID        pgtype.UUID        `json:"id"`
-	EventID   pgtype.UUID        `json:"event_id"`
-	Name      string             `json:"name"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID                       pgtype.UUID        `json:"id"`
+	EventID                  pgtype.UUID        `json:"event_id"`
+	Name                     string             `json:"name"`
+	VisibleOnPublicDashboard bool               `json:"visible_on_public_dashboard"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
 }
 
 func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) (CreateCategoryRow, error) {
@@ -36,13 +75,41 @@ func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) 
 		&i.ID,
 		&i.EventID,
 		&i.Name,
+		&i.VisibleOnPublicDashboard,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getCategoryByID = `-- name: GetCategoryByID :one
+SELECT id, event_id, name, visible_on_public_dashboard, created_at
+FROM categories
+WHERE id = $1
+`
+
+type GetCategoryByIDRow struct {
+	ID                       pgtype.UUID        `json:"id"`
+	EventID                  pgtype.UUID        `json:"event_id"`
+	Name                     string             `json:"name"`
+	VisibleOnPublicDashboard bool               `json:"visible_on_public_dashboard"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetCategoryByID(ctx context.Context, categoryID pgtype.UUID) (GetCategoryByIDRow, error) {
+	row := q.db.QueryRow(ctx, getCategoryByID, categoryID)
+	var i GetCategoryByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.EventID,
+		&i.Name,
+		&i.VisibleOnPublicDashboard,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const listAdminPortalMarkCategories = `-- name: ListAdminPortalMarkCategories :many
-SELECT c.id, c.event_id, c.name, c.created_at
+SELECT c.id, c.event_id, c.name, c.visible_on_public_dashboard, c.created_at
 FROM categories c
 JOIN events e ON e.id = c.event_id
 WHERE c.event_id = $1
@@ -51,10 +118,11 @@ ORDER BY c.name ASC, c.id ASC
 `
 
 type ListAdminPortalMarkCategoriesRow struct {
-	ID        pgtype.UUID        `json:"id"`
-	EventID   pgtype.UUID        `json:"event_id"`
-	Name      string             `json:"name"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID                       pgtype.UUID        `json:"id"`
+	EventID                  pgtype.UUID        `json:"event_id"`
+	Name                     string             `json:"name"`
+	VisibleOnPublicDashboard bool               `json:"visible_on_public_dashboard"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
 }
 
 func (q *Queries) ListAdminPortalMarkCategories(ctx context.Context, eventID pgtype.UUID) ([]ListAdminPortalMarkCategoriesRow, error) {
@@ -70,6 +138,49 @@ func (q *Queries) ListAdminPortalMarkCategories(ctx context.Context, eventID pgt
 			&i.ID,
 			&i.EventID,
 			&i.Name,
+			&i.VisibleOnPublicDashboard,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAssignedCategoriesForUser = `-- name: ListAssignedCategoriesForUser :many
+SELECT c.id, c.event_id, c.name, c.visible_on_public_dashboard, c.created_at
+FROM user_category_assignments uca
+JOIN categories c ON c.id = uca.category_id
+WHERE uca.user_id = $1
+ORDER BY c.name ASC, c.id ASC
+`
+
+type ListAssignedCategoriesForUserRow struct {
+	ID                       pgtype.UUID        `json:"id"`
+	EventID                  pgtype.UUID        `json:"event_id"`
+	Name                     string             `json:"name"`
+	VisibleOnPublicDashboard bool               `json:"visible_on_public_dashboard"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) ListAssignedCategoriesForUser(ctx context.Context, userID pgtype.UUID) ([]ListAssignedCategoriesForUserRow, error) {
+	rows, err := q.db.Query(ctx, listAssignedCategoriesForUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAssignedCategoriesForUserRow
+	for rows.Next() {
+		var i ListAssignedCategoriesForUserRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventID,
+			&i.Name,
+			&i.VisibleOnPublicDashboard,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -83,17 +194,18 @@ func (q *Queries) ListAdminPortalMarkCategories(ctx context.Context, eventID pgt
 }
 
 const listCategoriesByEvent = `-- name: ListCategoriesByEvent :many
-SELECT id, event_id, name, created_at
+SELECT id, event_id, name, visible_on_public_dashboard, created_at
 FROM categories
 WHERE event_id = $1
 ORDER BY name ASC, id ASC
 `
 
 type ListCategoriesByEventRow struct {
-	ID        pgtype.UUID        `json:"id"`
-	EventID   pgtype.UUID        `json:"event_id"`
-	Name      string             `json:"name"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID                       pgtype.UUID        `json:"id"`
+	EventID                  pgtype.UUID        `json:"event_id"`
+	Name                     string             `json:"name"`
+	VisibleOnPublicDashboard bool               `json:"visible_on_public_dashboard"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
 }
 
 func (q *Queries) ListCategoriesByEvent(ctx context.Context, eventID pgtype.UUID) ([]ListCategoriesByEventRow, error) {
@@ -109,6 +221,7 @@ func (q *Queries) ListCategoriesByEvent(ctx context.Context, eventID pgtype.UUID
 			&i.ID,
 			&i.EventID,
 			&i.Name,
+			&i.VisibleOnPublicDashboard,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -122,7 +235,7 @@ func (q *Queries) ListCategoriesByEvent(ctx context.Context, eventID pgtype.UUID
 }
 
 const listTeacherPortalMarkCategories = `-- name: ListTeacherPortalMarkCategories :many
-SELECT c.id, c.event_id, c.name, c.created_at
+SELECT c.id, c.event_id, c.name, c.visible_on_public_dashboard, c.created_at
 FROM categories c
 JOIN events e ON e.id = c.event_id
 WHERE c.event_id = $1
@@ -134,6 +247,12 @@ WHERE c.event_id = $1
       WHERE eb.event_id = c.event_id
         AND ub.user_id = $2
   )
+  AND EXISTS (
+      SELECT 1
+      FROM user_category_assignments uca
+      WHERE uca.user_id = $2
+        AND uca.category_id = c.id
+  )
 ORDER BY c.name ASC, c.id ASC
 `
 
@@ -143,10 +262,11 @@ type ListTeacherPortalMarkCategoriesParams struct {
 }
 
 type ListTeacherPortalMarkCategoriesRow struct {
-	ID        pgtype.UUID        `json:"id"`
-	EventID   pgtype.UUID        `json:"event_id"`
-	Name      string             `json:"name"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID                       pgtype.UUID        `json:"id"`
+	EventID                  pgtype.UUID        `json:"event_id"`
+	Name                     string             `json:"name"`
+	VisibleOnPublicDashboard bool               `json:"visible_on_public_dashboard"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
 }
 
 func (q *Queries) ListTeacherPortalMarkCategories(ctx context.Context, arg ListTeacherPortalMarkCategoriesParams) ([]ListTeacherPortalMarkCategoriesRow, error) {
@@ -162,6 +282,7 @@ func (q *Queries) ListTeacherPortalMarkCategories(ctx context.Context, arg ListT
 			&i.ID,
 			&i.EventID,
 			&i.Name,
+			&i.VisibleOnPublicDashboard,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -172,4 +293,59 @@ func (q *Queries) ListTeacherPortalMarkCategories(ctx context.Context, arg ListT
 		return nil, err
 	}
 	return items, nil
+}
+
+const setCategoryPublicVisibility = `-- name: SetCategoryPublicVisibility :one
+UPDATE categories
+SET visible_on_public_dashboard = $1,
+    updated_at = now()
+WHERE id = $2
+RETURNING id, event_id, name, visible_on_public_dashboard, created_at
+`
+
+type SetCategoryPublicVisibilityParams struct {
+	VisibleOnPublicDashboard bool        `json:"visible_on_public_dashboard"`
+	CategoryID               pgtype.UUID `json:"category_id"`
+}
+
+type SetCategoryPublicVisibilityRow struct {
+	ID                       pgtype.UUID        `json:"id"`
+	EventID                  pgtype.UUID        `json:"event_id"`
+	Name                     string             `json:"name"`
+	VisibleOnPublicDashboard bool               `json:"visible_on_public_dashboard"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) SetCategoryPublicVisibility(ctx context.Context, arg SetCategoryPublicVisibilityParams) (SetCategoryPublicVisibilityRow, error) {
+	row := q.db.QueryRow(ctx, setCategoryPublicVisibility, arg.VisibleOnPublicDashboard, arg.CategoryID)
+	var i SetCategoryPublicVisibilityRow
+	err := row.Scan(
+		&i.ID,
+		&i.EventID,
+		&i.Name,
+		&i.VisibleOnPublicDashboard,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const userCategoryAssignmentExists = `-- name: UserCategoryAssignmentExists :one
+SELECT EXISTS (
+    SELECT 1
+    FROM user_category_assignments
+    WHERE user_id = $1
+      AND category_id = $2
+)::boolean
+`
+
+type UserCategoryAssignmentExistsParams struct {
+	UserID     pgtype.UUID `json:"user_id"`
+	CategoryID pgtype.UUID `json:"category_id"`
+}
+
+func (q *Queries) UserCategoryAssignmentExists(ctx context.Context, arg UserCategoryAssignmentExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, userCategoryAssignmentExists, arg.UserID, arg.CategoryID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }

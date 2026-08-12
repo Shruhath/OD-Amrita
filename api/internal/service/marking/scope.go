@@ -83,6 +83,10 @@ type Reader interface {
 	CategoryForEvent(ctx context.Context, eventID, categoryID string) error
 }
 
+type categoryScopedReader interface {
+	CoordinatorAssignedToEventCategory(ctx context.Context, userID, eventID, categoryID string) (bool, error)
+}
+
 type Policy struct {
 	reader Reader
 }
@@ -121,7 +125,19 @@ func (p *Policy) AssertCanMark(ctx context.Context, actor Actor, eventID, catego
 	if err := p.assertEventScope(ctx, actor, eventID); err != nil {
 		return err
 	}
-	return p.reader.CategoryForEvent(ctx, strings.TrimSpace(eventID), strings.TrimSpace(categoryID))
+	if err := p.reader.CategoryForEvent(ctx, strings.TrimSpace(eventID), strings.TrimSpace(categoryID)); err != nil {
+		return err
+	}
+	if scoped, ok := p.reader.(categoryScopedReader); ok {
+		assigned, err := scoped.CoordinatorAssignedToEventCategory(ctx, strings.TrimSpace(actor.UserID), strings.TrimSpace(eventID), strings.TrimSpace(categoryID))
+		if err != nil {
+			return err
+		}
+		if !assigned {
+			return ErrCategoryNotFound
+		}
+	}
+	return nil
 }
 
 // assertEventScope is the role-and-event half of the policy. It is unexported —

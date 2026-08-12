@@ -133,6 +133,7 @@ SELECT EXISTS (
     JOIN event_branches eb ON eb.branch_id = s.branch_id AND eb.event_id = @event_id
     JOIN events e ON e.id = eb.event_id AND e.status = 'active'
     JOIN categories c ON c.id = @category_id AND c.event_id = e.id
+    JOIN user_category_assignments uca ON uca.category_id = c.id AND uca.user_id = @user_id
     WHERE s.id = @student_id
 )::boolean;
 
@@ -142,6 +143,7 @@ SELECT EXISTS (
     FROM od_records r
     JOIN students s ON s.id = r.student_id
     JOIN user_branches ub ON ub.branch_id = s.branch_id AND ub.user_id = @user_id
+    JOIN user_category_assignments uca ON uca.category_id = r.category_id AND uca.user_id = @user_id
     WHERE r.id = @record_id
 )::boolean;
 
@@ -201,8 +203,10 @@ WHERE r.event_id = @event_id
       OR EXISTS (
           SELECT 1
           FROM user_branches ub
+          JOIN user_category_assignments uca ON uca.user_id = ub.user_id
           WHERE ub.user_id = sqlc.narg('viewer_id')
             AND ub.branch_id = s.branch_id
+            AND uca.category_id = r.category_id
       )
   )
 ORDER BY r.od_date DESC, r.slot ASC, r.server_received_at DESC, s.roll_no ASC, r.id ASC
@@ -234,8 +238,10 @@ WHERE r.event_id = @event_id
       OR EXISTS (
           SELECT 1
           FROM user_branches ub
+          JOIN user_category_assignments uca ON uca.user_id = ub.user_id
           WHERE ub.user_id = sqlc.narg('viewer_id')
             AND ub.branch_id = s.branch_id
+            AND uca.category_id = r.category_id
       )
   )
 ;
@@ -293,6 +299,7 @@ JOIN categories c ON c.id = r.category_id
 LEFT JOIN users u ON u.id = r.actor_user_id
 WHERE r.student_id = @student_id
   AND r.status = 'present'
+  AND c.visible_on_public_dashboard = true
 ORDER BY r.od_date DESC, r.slot ASC, r.server_received_at ASC, r.id ASC
 LIMIT @row_limit::bigint;
 
@@ -311,8 +318,12 @@ JOIN categories c ON c.id = r.category_id
 LEFT JOIN users u ON u.id = r.actor_user_id
 WHERE r.student_id = @student_id
   AND (sqlc.narg('viewer_id')::uuid IS NULL OR EXISTS (
-      SELECT 1 FROM user_branches ub
-      WHERE ub.user_id = sqlc.narg('viewer_id') AND ub.branch_id = s.branch_id
+      SELECT 1
+      FROM user_branches ub
+      JOIN user_category_assignments uca ON uca.user_id = ub.user_id
+      WHERE ub.user_id = sqlc.narg('viewer_id')
+        AND ub.branch_id = s.branch_id
+        AND uca.category_id = r.category_id
   ))
 ORDER BY r.od_date DESC, r.slot ASC, r.server_received_at DESC, r.id ASC
 LIMIT @page_size::bigint OFFSET @page_offset::bigint;
@@ -323,8 +334,12 @@ FROM od_records r
 JOIN students s ON s.id = r.student_id
 WHERE r.student_id = @student_id
   AND (sqlc.narg('viewer_id')::uuid IS NULL OR EXISTS (
-      SELECT 1 FROM user_branches ub
-      WHERE ub.user_id = sqlc.narg('viewer_id') AND ub.branch_id = s.branch_id
+      SELECT 1
+      FROM user_branches ub
+      JOIN user_category_assignments uca ON uca.user_id = ub.user_id
+      WHERE ub.user_id = sqlc.narg('viewer_id')
+        AND ub.branch_id = s.branch_id
+        AND uca.category_id = r.category_id
   ));
 
 -- name: ListPublicDayODRecords :many
@@ -368,6 +383,7 @@ JOIN categories c ON c.id = r.category_id
 JOIN events e ON e.id = r.event_id
 WHERE r.od_date = @od_date
   AND r.status = 'present'
+  AND c.visible_on_public_dashboard = true
   AND (sqlc.narg('slot')::integer IS NULL OR r.slot = sqlc.narg('slot'))
   AND (sqlc.narg('category_id')::uuid IS NULL OR r.category_id = sqlc.narg('category_id'))
 ORDER BY s.roll_no ASC, r.slot ASC, c.name ASC
@@ -385,4 +401,5 @@ FROM od_records r
 JOIN categories c ON c.id = r.category_id
 WHERE r.od_date = @od_date
   AND r.status = 'present'
+  AND c.visible_on_public_dashboard = true
 ORDER BY c.name ASC;

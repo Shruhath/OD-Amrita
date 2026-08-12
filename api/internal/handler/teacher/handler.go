@@ -92,8 +92,12 @@ func CreateTeacherHandler(svc Service) gin.HandlerFunc {
 		for index, id := range body.BranchIds {
 			branchIDs[index] = id.String()
 		}
+		categoryIDs := make([]string, len(body.CategoryIds))
+		for index, id := range body.CategoryIds {
+			categoryIDs[index] = id.String()
+		}
 		created, err := svc.Create(c.Request.Context(), actor, teachersvc.CreateInput{
-			Email: body.Email, BranchIDs: branchIDs,
+			Email: body.Email, BranchIDs: branchIDs, CategoryIDs: categoryIDs,
 		})
 		if err != nil {
 			fail(c, err)
@@ -114,8 +118,9 @@ func CreateTeacherHandler(svc Service) gin.HandlerFunc {
 // malformed JSON stay distinguishable, and the portal needs the field to
 // attach the message to the right input.
 type createTeacherRequestShape struct {
-	Email     *json.RawMessage  `json:"email"`
-	BranchIDs []json.RawMessage `json:"branch_ids"`
+	Email       *json.RawMessage  `json:"email"`
+	BranchIDs   []json.RawMessage `json:"branch_ids"`
+	CategoryIDs []json.RawMessage `json:"category_ids"`
 }
 
 const maxCreateRequestBytes int64 = 1 << 20
@@ -149,6 +154,18 @@ func bindCreateTeacherRequest(c *gin.Context, body *contracts.CreateTeacherProfi
 			return requestValidation(fmt.Sprintf("branch_ids[%d]", index), "invalid_format", "Branch id must be a UUID.")
 		}
 	}
+	if len(shape.CategoryIDs) == 0 {
+		return requestValidation("category_ids", "required", "Select at least one category.")
+	}
+	for index, raw := range shape.CategoryIDs {
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return requestValidation(fmt.Sprintf("category_ids[%d]", index), "invalid_format", "Category id must be a UUID.")
+		}
+		if _, err := uuid.Parse(value); err != nil {
+			return requestValidation(fmt.Sprintf("category_ids[%d]", index), "invalid_format", "Category id must be a UUID.")
+		}
+	}
 	if err := c.ShouldBindBodyWith(body, binding.JSON); err != nil {
 		return requestValidation("$", "invalid_json", "Request body must be valid JSON.")
 	}
@@ -176,12 +193,31 @@ func teacherContract(value teachersvc.TeacherProfile) (contracts.TeacherProfile,
 		}
 		branches = append(branches, contracts.BranchSummary{Id: branchID, Code: branch.Code, Name: branch.Name})
 	}
+	categories := make([]contracts.Category, 0, len(value.Categories))
+	for _, category := range value.Categories {
+		categoryID, categoryErr := uuid.Parse(category.ID)
+		if categoryErr != nil {
+			return contracts.TeacherProfile{}, categoryErr
+		}
+		eventID, eventErr := uuid.Parse(category.EventID)
+		if eventErr != nil {
+			return contracts.TeacherProfile{}, eventErr
+		}
+		categories = append(categories, contracts.Category{
+			Id:                       categoryID,
+			EventId:                  eventID,
+			Name:                     category.Name,
+			VisibleOnPublicDashboard: category.VisibleOnPublicDashboard,
+			CreatedAt:                category.CreatedAt,
+		})
+	}
 	return contracts.TeacherProfile{
-		UserId:    id,
-		Email:     value.Email,
-		Name:      value.Name,
-		Branches:  branches,
-		CreatedAt: value.CreatedAt,
+		UserId:     id,
+		Email:      value.Email,
+		Name:       value.Name,
+		Branches:   branches,
+		Categories: categories,
+		CreatedAt:  value.CreatedAt,
 	}, nil
 }
 

@@ -18,12 +18,19 @@ export type TeacherProfileFixture = {
   email: string
   name: string | null
   branches: TeacherBranchFixture[]
+  categories: TeacherCategoryFixture[]
   created_at: string
 }
 
 export type CreateTeacherProfileFixture = {
   email: string
   branch_ids: string[]
+  category_ids: string[]
+}
+
+export type TeacherCategoryFixture = {
+  id: string
+  name: string
 }
 
 export const testTeacherBranches: readonly [TeacherBranchFixture, TeacherBranchFixture] = [
@@ -39,12 +46,24 @@ export const testTeacherBranches: readonly [TeacherBranchFixture, TeacherBranchF
   },
 ]
 
+export const testTeacherCategories: readonly [TeacherCategoryFixture, TeacherCategoryFixture] = [
+  {
+    id: '20000000-0000-4000-8000-000000000011',
+    name: 'Campus Decoration',
+  },
+  {
+    id: '20000000-0000-4000-8000-000000000012',
+    name: 'Procession',
+  },
+]
+
 export function createTeacherProfileRequest(
   overrides: Partial<CreateTeacherProfileFixture> = {},
 ): CreateTeacherProfileFixture {
   return {
     email: faker.internet.email({ provider: 'amrita.edu' }).toLowerCase(),
     branch_ids: testTeacherBranches.map((branch) => branch.id),
+    category_ids: testTeacherCategories.map((category) => category.id),
     ...overrides,
   }
 }
@@ -57,6 +76,7 @@ export function createTeacherProfileFixture(
     email: faker.internet.email({ provider: 'amrita.edu' }).toLowerCase(),
     name: faker.person.fullName(),
     branches: [...testTeacherBranches],
+    categories: [...testTeacherCategories],
     created_at: '2026-07-23T03:00:00Z',
     ...overrides,
   }

@@ -5,10 +5,26 @@ SELECT
     u.email,
     u.name,
     eca.event_id,
+    COALESCE(
+        jsonb_agg(
+            jsonb_build_object(
+                'id', c.id,
+                'event_id', c.event_id,
+                'name', c.name,
+                'visible_on_public_dashboard', c.visible_on_public_dashboard,
+                'created_at', c.created_at
+            )
+            ORDER BY c.name ASC, c.id ASC
+        ) FILTER (WHERE c.id IS NOT NULL),
+        '[]'::jsonb
+    )::text AS categories_json,
     eca.created_at
 FROM event_coordinator_assignments eca
 JOIN users u ON u.id = eca.user_id
+LEFT JOIN user_category_assignments uca ON uca.user_id = eca.user_id
+LEFT JOIN categories c ON c.id = uca.category_id AND c.event_id = eca.event_id
 WHERE eca.event_id = @event_id
+GROUP BY eca.id, u.id
 ORDER BY eca.created_at ASC, eca.id ASC;
 
 -- name: GetCoordinatorCandidateByEmail :one
@@ -59,6 +75,8 @@ SELECT
     )::text AS branches_json
 FROM event_coordinator_assignments eca
 JOIN events e ON e.id = eca.event_id
+JOIN categories c ON c.event_id = e.id
+JOIN user_category_assignments uca ON uca.category_id = c.id AND uca.user_id = eca.user_id
 LEFT JOIN event_branches eb ON eb.event_id = e.id
 LEFT JOIN branches b ON b.id = eb.branch_id
 WHERE eca.user_id = @user_id AND e.status = 'active'
@@ -70,4 +88,15 @@ SELECT EXISTS(
     SELECT 1
     FROM event_coordinator_assignments
     WHERE user_id = @user_id AND event_id = @event_id
+)::boolean;
+
+-- name: CoordinatorAssignedToEventCategory :one
+SELECT EXISTS(
+    SELECT 1
+    FROM event_coordinator_assignments eca
+    JOIN user_category_assignments uca ON uca.user_id = eca.user_id
+    JOIN categories c ON c.id = uca.category_id AND c.event_id = eca.event_id
+    WHERE eca.user_id = @user_id
+      AND eca.event_id = @event_id
+      AND c.id = @category_id
 )::boolean;

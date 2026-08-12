@@ -185,8 +185,7 @@ describe('Admin event detail and categories', () => {
 
     // The server's order is the promise; the client renders it, never re-sorts.
     const list = await screen.findByRole('list', { name: 'Categories' })
-    const items = within(list).getAllByRole('listitem')
-    expect(items.map((item) => item.textContent)).toEqual(['Procession', 'Stage Setup'])
+    expect(categoryItemNames(list)).toEqual(['Procession', 'Stage Setup'])
   })
 
   test('[P1] adds a category and shows it without a manual reload', async () => {
@@ -246,10 +245,7 @@ describe('Admin event detail and categories', () => {
     await user.click(screen.getByRole('button', { name: 'Add category' }))
 
     await within(list).findByText('Procession')
-    expect(within(list).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
-      'Procession',
-      'Registration',
-    ])
+    expect(categoryItemNames(list)).toEqual(['Procession', 'Registration'])
     releaseRefetch()
   })
 
@@ -510,3 +506,9 @@ describe('Admin event detail and categories', () => {
     expect(screen.queryByRole('button', { name: 'Add category' })).not.toBeInTheDocument()
   })
 })
+
+function categoryItemNames(list: HTMLElement) {
+  return within(list).getAllByRole('listitem').map((item) => (
+    item.querySelector('.truncate')?.textContent ?? ''
+  ))
+}

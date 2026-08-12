@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-08-09
 **Status:** 🟢 **Live and verified end to end.** API on Fly (two machines, both healthy), web on
-Vercel served from **`odamrita.in`**, schema on Neon at version **21**, Supabase brokering sign-in.
+Vercel served from **`odamrita.in`**, schema on Neon at version **22**, Supabase brokering sign-in.
 Verified 2026-08-09 by `api/scripts/smoke.sh`, a browser run against the production origin, and a
 direct read of the live schema. §8 records exactly what is done and what still needs a human.
 
@@ -173,7 +173,7 @@ unset PGPASSWORD
 psql "$DATABASE_URL_MIGRATOR" -c 'SELECT max(version_id) FROM goose_db_version;'
 ```
 
-Expect **21** — migrations `0001`–`0021`. A lower number, or a missing table, means the
+Expect **22** — migrations `0001`–`0022`. A lower number, or a missing table, means the
 migrations did not all apply; stop and fix that before deploying, because the API will fail at
 runtime rather than at boot.
 
@@ -533,7 +533,7 @@ one says how.
 
 **Database (Neon)**
 - [x] Neon role bootstrap and both role passwords — *verified 2026-08-09: `od_migrator` applied migrations against the live database, which is only possible with the correct rotated password.*
-- [x] Migrations applied; `max(version_id)` is **21** — *verified 2026-08-09 by the `db-migrate` workflow run, whose final assertion printed `highest migration on disk: 21, applied: 21`.* (This said **14**, then **17**, and was wrong both times: migrations kept shipping after it was written. The number here is only ever as fresh as the last run — trust the assertion in the workflow log, not this line.)
+- [x] Migrations applied; `max(version_id)` is **22** — *next deploy must show the `db-migrate` workflow assertion printing `highest migration on disk: 22, applied: 22`.* (This said **14**, then **17**, then **21**, and was wrong each time migrations kept shipping after it was written. The number here is only ever as fresh as the last run — trust the assertion in the workflow log, not this line.)
 - [ ] ⚠️ **Upgrade the Neon plan before the event.** Free gives a **6-hour** PITR window, which does not cover an event plus the days afterwards when disputes are raised (Launch = 7 days, Scale = 30 days). Record the new window in the backup runbook §2.2. **Still open — this costs money, so it is yours to do.**
 - [ ] ⚠️ **Move the project to `ap-southeast-1`** — decision **H7**. Not a nice-to-have: ~0.5 s of every query is currently the Pacific. It is a dump-and-restore of live attendance data, so it is a deliberate human step.
 

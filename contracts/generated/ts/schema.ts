@@ -619,6 +619,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/events/{event_id}/categories/{category_id}/visibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+                category_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Show or hide a category on the public dashboard
+         * @description Updates only the public dashboard visibility flag. Authenticated admin reads still include the category; unauthenticated public reads exclude hidden categories and their OD records.
+         */
+        put: operations["updateAdminEventCategoryVisibility"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/events/{event_id}/coordinators": {
         parameters: {
             query?: never;
@@ -901,6 +924,7 @@ export interface components {
             /** Format: uuid */
             event_id: string;
             name: string;
+            visible_on_public_dashboard: boolean;
             /** Format: date-time */
             created_at: string;
         };
@@ -912,7 +936,7 @@ export interface components {
         CategoryCollection: {
             data: components["schemas"]["Category"][];
         };
-        /** @description Event-level coordinator assignment. A row grants the user coordinator marking access for the whole event; it carries no category or scope field in this MVP. */
+        /** @description Event-level coordinator eligibility plus category assignments. The event row admits the coordinator to the event; assigned categories are the only categories they may mark in. */
         CoordinatorAssignment: {
             /** Format: uuid */
             id: string;
@@ -922,6 +946,7 @@ export interface components {
             name: string | null;
             /** Format: uuid */
             event_id: string;
+            categories: components["schemas"]["Category"][];
             /** Format: date-time */
             created_at: string;
         };
@@ -932,6 +957,10 @@ export interface components {
         CreateCoordinatorAssignmentRequest: {
             /** @description Email of an existing, already-provisioned users row. The request does not pre-provision an identity. */
             email: string;
+            category_ids: string[];
+        };
+        UpdateCategoryVisibilityRequest: {
+            visible_on_public_dashboard: boolean;
         };
         /** @description Event-wide fallback-credit cap for camera/search marks. */
         CaptureCreditConfig: {
@@ -969,7 +998,7 @@ export interface components {
             /** @description Zero deliberately live-disables camera/search fallback modes. */
             limit: number;
         };
-        /** @description A teacher's elevated role plus the branches they are associated with. Reuses BranchSummary rather than a parallel branch shape. */
+        /** @description A teacher's elevated role plus the branches and categories they are associated with. */
         TeacherProfile: {
             /** Format: uuid */
             user_id: string;
@@ -977,6 +1006,7 @@ export interface components {
             /** @description Optional — some providers omit a display name. */
             name?: string | null;
             branches: components["schemas"]["BranchSummary"][];
+            categories: components["schemas"]["Category"][];
             /** Format: date-time */
             created_at: string;
         };
@@ -991,6 +1021,7 @@ export interface components {
             /** @description Email of an existing, already-provisioned users row. Resolved server-side; the request does not pre-provision an identity. */
             email: string;
             branch_ids: string[];
+            category_ids: string[];
         };
         StudentRosterImportResult: {
             /** Format: uuid */
@@ -3756,6 +3787,78 @@ export interface operations {
             };
             /** @description The event is archived. An archived event is a closed aggregate and accepts no child writes (EVENT_ARCHIVED). */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateAdminEventCategoryVisibility: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+                category_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCategoryVisibilityRequest"];
+            };
+        };
+        responses: {
+            /** @description Category visibility updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Category"];
+                };
+            };
+            /** @description Malformed id or request body. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event or category was not found. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

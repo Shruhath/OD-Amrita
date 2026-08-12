@@ -215,6 +215,10 @@ func (f *fakeTeacherReader) CountBranchesByIDs(_ context.Context, branchIDs []uu
 	return len(branchIDs), nil
 }
 
+func (f *fakeTeacherReader) CountCategoriesByIDs(_ context.Context, categoryIDs []uuid.UUID) (int, error) {
+	return len(categoryIDs), f.err
+}
+
 type countingTeacherWriter struct {
 	userID         string
 	assignCalls    int
@@ -270,7 +274,7 @@ func TestTeacherCreateRejectsEveryInvalidRequestBeforeOpeningATransaction(t *tes
 			reader := &fakeTeacherReader{userID: studentUserID, role: "student"}
 			writer := &countingTeacherWriter{}
 			audit := &fakeAuditStore{}
-			input := CreateInput{Email: "new-teacher@amrita.edu", BranchIDs: []string{teacherBranchOne}}
+			input := CreateInput{Email: "new-teacher@amrita.edu", BranchIDs: []string{teacherBranchOne}, CategoryIDs: []string{teacherBranchOne}}
 
 			switch tc.name {
 			case "blank email is rejected before anything else is consulted":
@@ -354,8 +358,9 @@ func TestTeacherCreateElevatesTheStudentRowAndAssociatesEveryBranch(t *testing.T
 	svc := NewService(reader, &fakeAuditStore{}, writer)
 
 	profile, err := svc.Create(context.Background(), adminActor(), CreateInput{
-		Email:     "new-teacher@amrita.edu",
-		BranchIDs: []string{teacherBranchOne, teacherBranchTwo},
+		Email:       "new-teacher@amrita.edu",
+		BranchIDs:   []string{teacherBranchOne, teacherBranchTwo},
+		CategoryIDs: []string{teacherBranchOne},
 	})
 	if err != nil {
 		t.Fatalf("create teacher profile: %v", err)
@@ -380,8 +385,9 @@ func TestTeacherCreateWritesExactlyOneAuditRowCoveringRoleAndEveryBranch(t *test
 	svc := NewService(&fakeTeacherReader{userID: studentUserID, role: "student"}, audit, writer)
 
 	_, err := svc.Create(context.Background(), adminActor(), CreateInput{
-		Email:     "new-teacher@amrita.edu",
-		BranchIDs: []string{teacherBranchOne, teacherBranchTwo},
+		Email:       "new-teacher@amrita.edu",
+		BranchIDs:   []string{teacherBranchOne, teacherBranchTwo},
+		CategoryIDs: []string{teacherBranchOne},
 	})
 	if err != nil {
 		t.Fatalf("create teacher profile: %v", err)
@@ -412,7 +418,7 @@ func TestTeacherCreateRefusesANonAdminActorWithoutTouchingTheDatabase(t *testing
 	svc := NewService(&fakeTeacherReader{}, audit, writer)
 
 	_, err := svc.Create(context.Background(), Actor{UserID: activeAdminID, Email: "student@amrita.edu", Role: "student"},
-		CreateInput{Email: "new-teacher@amrita.edu", BranchIDs: []string{teacherBranchOne}})
+		CreateInput{Email: "new-teacher@amrita.edu", BranchIDs: []string{teacherBranchOne}, CategoryIDs: []string{teacherBranchOne}})
 
 	var domainErr domain.DomainError
 	if !errors.As(err, &domainErr) || domainErr.Code != contracts.ErrorCodeRBACFORBIDDEN {
@@ -460,8 +466,9 @@ func TestTeacherCreateTrimsEmailBeforeLookup(t *testing.T) {
 	svc := NewService(reader, &fakeAuditStore{}, writer)
 
 	_, err := svc.Create(context.Background(), adminActor(), CreateInput{
-		Email:     "  new-teacher@amrita.edu  ",
-		BranchIDs: []string{teacherBranchOne},
+		Email:       "  new-teacher@amrita.edu  ",
+		BranchIDs:   []string{teacherBranchOne},
+		CategoryIDs: []string{teacherBranchOne},
 	})
 	if err != nil {
 		t.Fatalf("create teacher profile: %v", err)

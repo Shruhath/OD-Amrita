@@ -42,6 +42,7 @@ function renderCoordinatorPortal({
 }: CoordinatorScenario = {}) {
   let event = createEventFixture({ id: testEventID, name: eventName, status })
   let serverCoordinators = serverOrderedCoordinatorAssignments(coordinators)
+  const category = createCategoryFixture({ name: 'Procession' })
   const calls: string[] = []
 
   const session: SessionPort = {
@@ -72,7 +73,7 @@ function renderCoordinatorPortal({
       return HttpResponse.json(event)
     }),
     http.get(adminEventCategoriesPath, () =>
-      HttpResponse.json({ data: [createCategoryFixture({ name: 'Procession' })] }),
+      HttpResponse.json({ data: [category] }),
     ),
     http.get(adminEventAttendancePath, () =>
       HttpResponse.json({ data: [], page: 1, page_size: 20, total: 0 }),
@@ -99,10 +100,11 @@ function renderCoordinatorPortal({
         }
         return HttpResponse.json(coordinatorArchivedEventError(), { status: 409 })
       }
-      const input = (await request.json()) as { email: string }
+      const input = (await request.json()) as { email: string; category_ids: string[] }
       const created = createCoordinatorAssignmentFixture({
         email: input.email.trim().toLowerCase(),
         event_id: testEventID,
+        categories: input.category_ids.includes(category.id) ? [{ id: category.id, name: category.name }] : [],
       })
       serverCoordinators = serverOrderedCoordinatorAssignments([...serverCoordinators, created])
       return HttpResponse.json(created, { status: 201 })
@@ -149,6 +151,7 @@ describe('Admin event detail coordinator assignments', () => {
 
     await openEventDetail(user)
     await user.type(screen.getByLabelText('Coordinator email'), 'candidate@amrita.edu')
+    await user.click(screen.getByRole('checkbox', { name: /Procession/ }))
     await user.click(screen.getByRole('button', { name: 'Assign coordinator' }))
 
     const coordinators = await screen.findByRole('list', { name: 'Coordinators' })
@@ -162,6 +165,7 @@ describe('Admin event detail coordinator assignments', () => {
       renderCoordinatorPortal({ createResponse })
       await openEventDetail(user)
       await user.type(screen.getByLabelText('Coordinator email'), `${createResponse}@amrita.edu`)
+      await user.click(screen.getByRole('checkbox', { name: /Procession/ }))
       await user.click(screen.getByRole('button', { name: 'Assign coordinator' }))
       expect(await screen.findByRole('alert')).toBeVisible()
       cleanup()
@@ -175,6 +179,7 @@ describe('Admin event detail coordinator assignments', () => {
     await openEventDetail(user)
     const input = screen.getByLabelText('Coordinator email')
     await user.type(input, 'missing@amrita.edu')
+    await user.click(screen.getByRole('checkbox', { name: /Procession/ }))
     await user.click(screen.getByRole('button', { name: 'Assign coordinator' }))
     expect(await screen.findByRole('alert')).toBeVisible()
     await user.type(input, '.fixed')
@@ -187,6 +192,7 @@ describe('Admin event detail coordinator assignments', () => {
 
     await openEventDetail(user)
     await user.type(screen.getByLabelText('Coordinator email'), 'late@amrita.edu')
+    await user.click(screen.getByRole('checkbox', { name: /Procession/ }))
     await user.click(screen.getByRole('button', { name: 'Assign coordinator' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/archived/i)
@@ -206,6 +212,7 @@ describe('Admin event detail coordinator assignments', () => {
     const submit = screen.getByRole('button', { name: 'Assign coordinator' })
     expect(submit).toBeDisabled()
     await user.type(screen.getByLabelText('Coordinator email'), 'candidate@amrita.edu')
+    await user.click(screen.getByRole('checkbox', { name: /Procession/ }))
     await user.click(submit)
     expect(submit).toBeDisabled()
     release()

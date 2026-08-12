@@ -68,6 +68,14 @@ func (f *fakeWriteQueries) InsertEventCoordinatorAssignment(context.Context, sql
 	return f.assignment, f.assignmentErr
 }
 
+func (f *fakeWriteQueries) AssignUserCategory(context.Context, sqlc.AssignUserCategoryParams) (sqlc.UserCategoryAssignment, error) {
+	return sqlc.UserCategoryAssignment{}, nil
+}
+
+func (f *fakeWriteQueries) SetCategoryPublicVisibility(context.Context, sqlc.SetCategoryPublicVisibilityParams) (sqlc.SetCategoryPublicVisibilityRow, error) {
+	return sqlc.SetCategoryPublicVisibilityRow{}, nil
+}
+
 func (f *fakeWriteQueries) UpsertCaptureCreditConfig(context.Context, sqlc.UpsertCaptureCreditConfigParams) (sqlc.UpsertCaptureCreditConfigRow, error) {
 	return sqlc.UpsertCaptureCreditConfigRow{}, nil
 }

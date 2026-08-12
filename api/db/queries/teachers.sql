@@ -38,7 +38,25 @@ SELECT
             ORDER BY b.code ASC, b.id ASC
         ) FILTER (WHERE b.id IS NOT NULL),
         '[]'::jsonb
-    )::text AS branches_json
+    )::text AS branches_json,
+    COALESCE(
+        (
+            SELECT jsonb_agg(
+                jsonb_build_object(
+                    'id', c.id,
+                    'event_id', c.event_id,
+                    'name', c.name,
+                    'visible_on_public_dashboard', c.visible_on_public_dashboard,
+                    'created_at', c.created_at
+                )
+                ORDER BY c.name ASC, c.id ASC
+            )
+            FROM user_category_assignments uca
+            JOIN categories c ON c.id = uca.category_id
+            WHERE uca.user_id = u.id
+        ),
+        '[]'::jsonb
+    )::text AS categories_json
 FROM users u
 LEFT JOIN user_branches ub ON ub.user_id = u.id
 LEFT JOIN branches b ON b.id = ub.branch_id
@@ -57,7 +75,25 @@ SELECT
             ORDER BY b.code ASC, b.id ASC
         ) FILTER (WHERE b.id IS NOT NULL),
         '[]'::jsonb
-    )::text AS branches_json
+    )::text AS branches_json,
+    COALESCE(
+        (
+            SELECT jsonb_agg(
+                jsonb_build_object(
+                    'id', c.id,
+                    'event_id', c.event_id,
+                    'name', c.name,
+                    'visible_on_public_dashboard', c.visible_on_public_dashboard,
+                    'created_at', c.created_at
+                )
+                ORDER BY c.name ASC, c.id ASC
+            )
+            FROM user_category_assignments uca
+            JOIN categories c ON c.id = uca.category_id
+            WHERE uca.user_id = u.id
+        ),
+        '[]'::jsonb
+    )::text AS categories_json
 FROM users u
 LEFT JOIN user_branches ub ON ub.user_id = u.id
 LEFT JOIN branches b ON b.id = ub.branch_id

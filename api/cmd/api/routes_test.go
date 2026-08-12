@@ -89,6 +89,11 @@ func (s reachingService) CreateCategory(context.Context, eventsvc.Actor, eventsv
 	return eventsvc.Category{}, nil
 }
 
+func (s reachingService) UpdateCategoryVisibility(context.Context, eventsvc.Actor, eventsvc.UpdateCategoryVisibilityInput) (eventsvc.Category, error) {
+	s.reached.hits++
+	return eventsvc.Category{}, nil
+}
+
 func (s reachingService) ListCoordinatorAssignments(context.Context, eventsvc.Actor, string) ([]eventsvc.CoordinatorAssignment, error) {
 	s.reached.hits++
 	return nil, nil

@@ -18,9 +18,11 @@ type eventWriteQueries interface {
 	AddEventBranch(context.Context, sqlc.AddEventBranchParams) (int64, error)
 	ArchiveEvent(context.Context, sqlc.ArchiveEventParams) (pgtype.UUID, error)
 	CreateCategory(context.Context, sqlc.CreateCategoryParams) (sqlc.CreateCategoryRow, error)
+	SetCategoryPublicVisibility(context.Context, sqlc.SetCategoryPublicVisibilityParams) (sqlc.SetCategoryPublicVisibilityRow, error)
 	LockCoordinatorAssignmentUser(context.Context, pgtype.UUID) (sqlc.LockCoordinatorAssignmentUserRow, error)
 	PromoteUserToCoordinator(context.Context, pgtype.UUID) (int64, error)
 	InsertEventCoordinatorAssignment(context.Context, sqlc.InsertEventCoordinatorAssignmentParams) (sqlc.InsertEventCoordinatorAssignmentRow, error)
+	AssignUserCategory(context.Context, sqlc.AssignUserCategoryParams) (sqlc.UserCategoryAssignment, error)
 	UpsertCaptureCreditConfig(context.Context, sqlc.UpsertCaptureCreditConfigParams) (sqlc.UpsertCaptureCreditConfigRow, error)
 	ResetCaptureCreditUsage(context.Context, sqlc.ResetCaptureCreditUsageParams) (sqlc.ResetCaptureCreditUsageRow, error)
 }
@@ -103,11 +105,22 @@ func (w *SQLCWriter) CreateCategory(ctx context.Context, tx pgx.Tx, input Create
 	if err != nil {
 		return Category{}, false, err
 	}
-	category, mapErr := mapCategory(row.ID, row.EventID, row.Name, row.CreatedAt)
+	category, mapErr := mapCategory(row.ID, row.EventID, row.Name, row.VisibleOnPublicDashboard, row.CreatedAt)
 	if mapErr != nil {
 		return Category{}, false, mapErr
 	}
 	return category, true, nil
+}
+
+func (w *SQLCWriter) UpdateCategoryVisibility(ctx context.Context, tx pgx.Tx, categoryID uuid.UUID, visible bool) (Category, error) {
+	row, err := w.queries(tx).SetCategoryPublicVisibility(ctx, sqlc.SetCategoryPublicVisibilityParams{
+		CategoryID:               dbUUID(categoryID),
+		VisibleOnPublicDashboard: visible,
+	})
+	if err != nil {
+		return Category{}, err
+	}
+	return mapCategory(row.ID, row.EventID, row.Name, row.VisibleOnPublicDashboard, row.CreatedAt)
 }
 
 func (w *SQLCWriter) CreateCoordinatorAssignment(ctx context.Context, tx pgx.Tx, input CreateCoordinatorAssignmentWrite) (CoordinatorAssignment, bool, error) {
@@ -139,7 +152,18 @@ func (w *SQLCWriter) CreateCoordinatorAssignment(ctx context.Context, tx pgx.Tx,
 	if err != nil {
 		return CoordinatorAssignment{}, false, err
 	}
-	assignment, mapErr := mapCoordinatorAssignment(inserted.ID, inserted.UserID, user.Email, user.Name, inserted.EventID, inserted.CreatedAt)
+	categories := make([]Category, 0, len(input.CategoryIDs))
+	for _, categoryID := range input.CategoryIDs {
+		if _, err := q.AssignUserCategory(ctx, sqlc.AssignUserCategoryParams{
+			UserID:          dbUUID(input.UserID),
+			CategoryID:      dbUUID(categoryID),
+			CreatedByUserID: dbUUID(input.CreatedByUserID),
+		}); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return CoordinatorAssignment{}, false, err
+		}
+		categories = append(categories, Category{ID: categoryID.String(), EventID: input.EventID.String()})
+	}
+	assignment, mapErr := mapCoordinatorAssignment(inserted.ID, inserted.UserID, user.Email, user.Name, inserted.EventID, categories, inserted.CreatedAt)
 	if mapErr != nil {
 		return CoordinatorAssignment{}, false, mapErr
 	}

@@ -33,6 +33,7 @@ export default function EventDetailPortal() {
   const [fieldError, setFieldError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [coordinatorEmail, setCoordinatorEmail] = useState('')
+  const [coordinatorCategoryIDs, setCoordinatorCategoryIDs] = useState<string[]>([])
   const [coordinatorFieldError, setCoordinatorFieldError] = useState<string | null>(null)
   const [coordinatorFormError, setCoordinatorFormError] = useState<string | null>(null)
   const [creditLimit, setCreditLimit] = useState('5')
@@ -96,7 +97,7 @@ export default function EventDetailPortal() {
   })
 
   const createCoordinator = useMutation({
-    mutationFn: (email: string) => api.createCoordinator(eventID, { email }),
+    mutationFn: (email: string) => api.createCoordinator(eventID, { email, category_ids: coordinatorCategoryIDs }),
     onSuccess: (created) => {
       if (coordinators.isSuccess) {
         queryClient.setQueryData(currentCoordinatorKey, (current: { data: CoordinatorAssignment[] } | undefined) => ({
@@ -105,6 +106,7 @@ export default function EventDetailPortal() {
       }
       void queryClient.invalidateQueries({ queryKey: currentCoordinatorKey })
       setCoordinatorEmail('')
+      setCoordinatorCategoryIDs([])
       setCoordinatorFieldError(null)
       setCoordinatorFormError(null)
       coordinatorInput.current?.focus()
@@ -118,6 +120,25 @@ export default function EventDetailPortal() {
       }
       setCoordinatorFieldError(null)
       setCoordinatorFormError(messageOf(cause, 'The coordinator could not be assigned'))
+      if (cause instanceof ApiFailure && cause.body.code === 'EVENT_ARCHIVED') {
+        markEventArchived(queryClient, currentEventKey)
+        void queryClient.invalidateQueries({ queryKey: currentEventKey })
+      }
+    },
+  })
+
+  const updateCategoryVisibility = useMutation({
+    mutationFn: ({ categoryID, visible }: { categoryID: string; visible: boolean }) => (
+      api.updateCategoryVisibility(eventID, categoryID, { visible_on_public_dashboard: visible })
+    ),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(currentKey, (current: { data: CategoryRecord[] } | undefined) => ({
+        data: orderedCategories(mergeByID(current?.data ?? [], updated)),
+      }))
+      void queryClient.invalidateQueries({ queryKey: currentKey })
+    },
+    onError: (cause) => {
+      setFormError(messageOf(cause, 'The category visibility could not be saved'))
       if (cause instanceof ApiFailure && cause.body.code === 'EVENT_ARCHIVED') {
         markEventArchived(queryClient, currentEventKey)
         void queryClient.invalidateQueries({ queryKey: currentEventKey })
@@ -176,7 +197,7 @@ export default function EventDetailPortal() {
   const coordinatorData = coordinators.data?.data ?? []
   const creditData = credits.data?.data ?? []
   const canSubmit = name.trim().length > 0 && !create.isPending
-  const canSubmitCoordinator = coordinatorEmail.trim().length > 0 && !createCoordinator.isPending
+  const canSubmitCoordinator = coordinatorEmail.trim().length > 0 && coordinatorCategoryIDs.length > 0 && !createCoordinator.isPending
   const notFound = events.isError && events.error instanceof ApiFailure
     && events.error.body.code === 'EVENT_NOT_FOUND'
 
@@ -198,6 +219,15 @@ export default function EventDetailPortal() {
     if (coordinatorFormError) setCoordinatorFormError(null)
   }
 
+  const toggleCoordinatorCategory = (categoryID: string) => {
+    setCoordinatorCategoryIDs((current) => (
+      current.includes(categoryID)
+        ? current.filter((id) => id !== categoryID)
+        : [...current, categoryID]
+    ))
+    if (coordinatorFormError) setCoordinatorFormError(null)
+  }
+
   const changeCreditLimit = (value: string) => {
     setCreditLimit(value)
     if (creditFieldError) setCreditFieldError(null)
@@ -216,7 +246,7 @@ export default function EventDetailPortal() {
   const submitCoordinator = (submitEvent: FormEvent) => {
     submitEvent.preventDefault()
     const trimmed = coordinatorEmail.trim()
-    if (!trimmed || createCoordinator.isPending) return
+    if (!trimmed || coordinatorCategoryIDs.length === 0 || createCoordinator.isPending) return
     setCoordinatorFieldError(null)
     setCoordinatorFormError(null)
     createCoordinator.mutate(trimmed)
@@ -327,10 +357,25 @@ export default function EventDetailPortal() {
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
                         exit={{ opacity: 0, height: 0 }}
-                        className="flex items-center gap-3 p-3 bg-canvas rounded-[10px] border border-border text-sm font-medium"
+                        className="flex items-center justify-between gap-3 p-3 bg-canvas rounded-[10px] border border-border text-sm font-medium"
                       >
-                        <span className="w-1.5 h-1.5 rounded-full bg-foreground-muted shrink-0" aria-hidden="true" />
-                        {category.name}
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className="w-1.5 h-1.5 rounded-full bg-foreground-muted shrink-0" aria-hidden="true" />
+                          <span className="truncate">{category.name}</span>
+                        </div>
+                        <label className="flex items-center gap-2 text-xs font-semibold text-foreground-muted shrink-0">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 accent-foreground"
+                            checked={category.visible_on_public_dashboard}
+                            disabled={event.status === 'archived' || updateCategoryVisibility.isPending}
+                            onChange={(changeEvent) => updateCategoryVisibility.mutate({
+                              categoryID: category.id,
+                              visible: changeEvent.target.checked,
+                            })}
+                          />
+                          Public
+                        </label>
                       </motion.li>
                     ))}
                   </AnimatePresence>
@@ -407,6 +452,11 @@ export default function EventDetailPortal() {
                           <div className="flex flex-col">
                             <span className="text-sm font-semibold">{coordinator.name ?? coordinator.email}</span>
                             {coordinator.name && <span className="text-xs text-foreground-muted">{coordinator.email}</span>}
+                            {coordinator.categories.length > 0 && (
+                              <span className="text-xs text-foreground-muted mt-0.5">
+                                {coordinator.categories.map((category) => category.name).join(', ')}
+                              </span>
+                            )}
                           </div>
                         </div>
                         <time className="text-xs text-foreground-muted" dateTime={coordinator.created_at}>
@@ -441,6 +491,30 @@ export default function EventDetailPortal() {
                       {createCoordinator.isPending ? 'Assigning coordinator…' : 'Assign coordinator'}
                     </button>
                   </div>
+                  <fieldset className="flex flex-col gap-2 pt-2">
+                    <legend className="text-sm font-semibold">Categories</legend>
+                    {categoryData.length === 0 && (
+                      <p className="text-xs text-foreground-muted">Create a category before assigning a coordinator.</p>
+                    )}
+                    {categoryData.length > 0 && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {categoryData.map((category) => (
+                          <label
+                            key={category.id}
+                            className="flex items-center gap-2 rounded-[10px] border border-border bg-canvas px-3 py-2 text-sm font-medium"
+                          >
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 accent-foreground"
+                              checked={coordinatorCategoryIDs.includes(category.id)}
+                              onChange={() => toggleCoordinatorCategory(category.id)}
+                            />
+                            <span className="truncate">{category.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </fieldset>
                   {coordinatorFieldError && <p className="text-sm font-medium text-status-error-fg" id="coordinator-email-error">{coordinatorFieldError}</p>}
                   {coordinatorFormError && <p className="text-sm text-status-error-fg bg-status-error-bg p-3 rounded-[10px] border border-status-error-fg/20" role="alert">{coordinatorFormError}</p>}
                 </form>

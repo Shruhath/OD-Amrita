@@ -371,10 +371,7 @@ func TestBothCategoryRoutesAreMountedOnTheGuardedAdminGroup(t *testing.T) {
 			t.Errorf("Story 2.1 route %q was lost", want)
 		}
 	}
-	// Scope is create + list only: no route may address a category by id.
-	for path := range mounted {
-		if strings.Contains(path, "/categories/") {
-			t.Errorf("unexpected per-category route %q", path)
-		}
+	if !mounted["PUT /api/v1/admin/events/:event_id/categories/:category_id/visibility"] {
+		t.Errorf("category visibility route is not mounted")
 	}
 }

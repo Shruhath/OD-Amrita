@@ -651,10 +651,11 @@ type CardTokenResolveRequest struct {
 
 // Category An activity within one event (e.g. Procession, Stage Setup). A category has no identity without its event, which is why event_id is part of the resource and the operations are nested under the event.
 type Category struct {
-	CreatedAt time.Time          `json:"created_at"`
-	EventId   openapi_types.UUID `json:"event_id"`
-	Id        openapi_types.UUID `json:"id"`
-	Name      string             `json:"name"`
+	CreatedAt                time.Time          `json:"created_at"`
+	EventId                  openapi_types.UUID `json:"event_id"`
+	Id                       openapi_types.UUID `json:"id"`
+	Name                     string             `json:"name"`
+	VisibleOnPublicDashboard bool               `json:"visible_on_public_dashboard"`
 }
 
 // CategoryCollection Bounded per-event reference data — deliberately unpaginated, like BranchCollection and unlike EventCollection.
@@ -662,14 +663,15 @@ type CategoryCollection struct {
 	Data []Category `json:"data"`
 }
 
-// CoordinatorAssignment Event-level coordinator assignment. A row grants the user coordinator marking access for the whole event; it carries no category or scope field in this MVP.
+// CoordinatorAssignment Event-level coordinator eligibility plus category assignments. The event row admits the coordinator to the event; assigned categories are the only categories they may mark in.
 type CoordinatorAssignment struct {
-	CreatedAt time.Time          `json:"created_at"`
-	Email     string             `json:"email"`
-	EventId   openapi_types.UUID `json:"event_id"`
-	Id        openapi_types.UUID `json:"id"`
-	Name      *string            `json:"name"`
-	UserId    openapi_types.UUID `json:"user_id"`
+	Categories []Category         `json:"categories"`
+	CreatedAt  time.Time          `json:"created_at"`
+	Email      string             `json:"email"`
+	EventId    openapi_types.UUID `json:"event_id"`
+	Id         openapi_types.UUID `json:"id"`
+	Name       *string            `json:"name"`
+	UserId     openapi_types.UUID `json:"user_id"`
 }
 
 // CoordinatorAssignmentCollection Bounded per-event reference data, ordered by assignment creation time.
@@ -685,6 +687,8 @@ type CreateCategoryRequest struct {
 
 // CreateCoordinatorAssignmentRequest defines model for CreateCoordinatorAssignmentRequest.
 type CreateCoordinatorAssignmentRequest struct {
+	CategoryIds []openapi_types.UUID `json:"category_ids"`
+
 	// Email Email of an existing, already-provisioned users row. The request does not pre-provision an identity.
 	Email string `json:"email"`
 }
@@ -705,7 +709,8 @@ type CreateEventRequest struct {
 
 // CreateTeacherProfileRequest defines model for CreateTeacherProfileRequest.
 type CreateTeacherProfileRequest struct {
-	BranchIds []openapi_types.UUID `json:"branch_ids"`
+	BranchIds   []openapi_types.UUID `json:"branch_ids"`
+	CategoryIds []openapi_types.UUID `json:"category_ids"`
 
 	// Email Email of an existing, already-provisioned users row. Resolved server-side; the request does not pre-provision an identity.
 	Email string `json:"email"`
@@ -1249,11 +1254,12 @@ type StudentSearchResults struct {
 	Data []ResolvedCardStudent `json:"data"`
 }
 
-// TeacherProfile A teacher's elevated role plus the branches they are associated with. Reuses BranchSummary rather than a parallel branch shape.
+// TeacherProfile A teacher's elevated role plus the branches and categories they are associated with.
 type TeacherProfile struct {
-	Branches  []BranchSummary `json:"branches"`
-	CreatedAt time.Time       `json:"created_at"`
-	Email     string          `json:"email"`
+	Branches   []BranchSummary `json:"branches"`
+	Categories []Category      `json:"categories"`
+	CreatedAt  time.Time       `json:"created_at"`
+	Email      string          `json:"email"`
 
 	// Name Optional — some providers omit a display name.
 	Name   *string            `json:"name,omitempty"`
@@ -1272,6 +1278,11 @@ type TeacherProfileCollection struct {
 type UpdateCaptureCreditConfigRequest struct {
 	// Limit Zero deliberately live-disables camera/search fallback modes.
 	Limit int `json:"limit"`
+}
+
+// UpdateCategoryVisibilityRequest defines model for UpdateCategoryVisibilityRequest.
+type UpdateCategoryVisibilityRequest struct {
+	VisibleOnPublicDashboard bool `json:"visible_on_public_dashboard"`
 }
 
 // ValidationError 400 validation error — the error envelope whose `details` is a TYPED array of field-level failures (AC3), not a freeform object.
@@ -1452,6 +1463,9 @@ type UpdateAdminEventCaptureCreditConfigJSONRequestBody = UpdateCaptureCreditCon
 
 // CreateAdminEventCategoryJSONRequestBody defines body for CreateAdminEventCategory for application/json ContentType.
 type CreateAdminEventCategoryJSONRequestBody = CreateCategoryRequest
+
+// UpdateAdminEventCategoryVisibilityJSONRequestBody defines body for UpdateAdminEventCategoryVisibility for application/json ContentType.
+type UpdateAdminEventCategoryVisibilityJSONRequestBody = UpdateCategoryVisibilityRequest
 
 // CreateAdminEventCoordinatorAssignmentJSONRequestBody defines body for CreateAdminEventCoordinatorAssignment for application/json ContentType.
 type CreateAdminEventCoordinatorAssignmentJSONRequestBody = CreateCoordinatorAssignmentRequest

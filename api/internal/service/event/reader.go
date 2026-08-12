@@ -100,13 +100,24 @@ func (r *SQLCReader) ListCategories(ctx context.Context, eventID uuid.UUID) ([]C
 	}
 	categories := make([]Category, 0, len(rows))
 	for _, row := range rows {
-		category, mapErr := mapCategory(row.ID, row.EventID, row.Name, row.CreatedAt)
+		category, mapErr := mapCategory(row.ID, row.EventID, row.Name, row.VisibleOnPublicDashboard, row.CreatedAt)
 		if mapErr != nil {
 			return nil, mapErr
 		}
 		categories = append(categories, category)
 	}
 	return categories, nil
+}
+
+func (r *SQLCReader) GetCategory(ctx context.Context, id uuid.UUID) (Category, error) {
+	row, err := r.queries.GetCategoryByID(ctx, dbUUID(id))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Category{}, ErrCategoryNotFound
+		}
+		return Category{}, err
+	}
+	return mapCategory(row.ID, row.EventID, row.Name, row.VisibleOnPublicDashboard, row.CreatedAt)
 }
 
 func (r *SQLCReader) ListCoordinatorAssignments(ctx context.Context, eventID uuid.UUID) ([]CoordinatorAssignment, error) {
@@ -116,8 +127,12 @@ func (r *SQLCReader) ListCoordinatorAssignments(ctx context.Context, eventID uui
 	}
 	assignments := make([]CoordinatorAssignment, 0, len(rows))
 	for _, row := range rows {
+		categories, categoryErr := parseCategoriesJSON(row.CategoriesJson)
+		if categoryErr != nil {
+			return nil, categoryErr
+		}
 		assignment, mapErr := mapCoordinatorAssignment(
-			row.ID, row.UserID, row.Email, row.Name, row.EventID, row.CreatedAt,
+			row.ID, row.UserID, row.Email, row.Name, row.EventID, categories, row.CreatedAt,
 		)
 		if mapErr != nil {
 			return nil, mapErr
@@ -213,15 +228,24 @@ func (r *SQLCReader) CoordinatorAssignedToEvent(ctx context.Context, userID, eve
 	})
 }
 
-func mapCategory(id, eventID pgtype.UUID, name string, createdAt pgtype.Timestamptz) (Category, error) {
+func (r *SQLCReader) CoordinatorAssignedToEventCategory(ctx context.Context, userID, eventID, categoryID uuid.UUID) (bool, error) {
+	return r.queries.CoordinatorAssignedToEventCategory(ctx, sqlc.CoordinatorAssignedToEventCategoryParams{
+		UserID:     dbUUID(userID),
+		EventID:    dbUUID(eventID),
+		CategoryID: dbUUID(categoryID),
+	})
+}
+
+func mapCategory(id, eventID pgtype.UUID, name string, visible bool, createdAt pgtype.Timestamptz) (Category, error) {
 	if !id.Valid || !eventID.Valid || !createdAt.Valid {
 		return Category{}, errors.New("event: category row contains invalid required values")
 	}
 	return Category{
-		ID:        uuid.UUID(id.Bytes).String(),
-		EventID:   uuid.UUID(eventID.Bytes).String(),
-		Name:      name,
-		CreatedAt: createdAt.Time,
+		ID:                       uuid.UUID(id.Bytes).String(),
+		EventID:                  uuid.UUID(eventID.Bytes).String(),
+		Name:                     name,
+		VisibleOnPublicDashboard: visible,
+		CreatedAt:                createdAt.Time,
 	}, nil
 }
 
@@ -230,6 +254,7 @@ func mapCoordinatorAssignment(
 	email string,
 	name pgtype.Text,
 	eventID pgtype.UUID,
+	categories []Category,
 	createdAt pgtype.Timestamptz,
 ) (CoordinatorAssignment, error) {
 	if !id.Valid || !userID.Valid || !eventID.Valid || !createdAt.Valid {
@@ -241,13 +266,45 @@ func mapCoordinatorAssignment(
 		displayName = &value
 	}
 	return CoordinatorAssignment{
-		ID:        uuid.UUID(id.Bytes).String(),
-		UserID:    uuid.UUID(userID.Bytes).String(),
-		Email:     email,
-		Name:      displayName,
-		EventID:   uuid.UUID(eventID.Bytes).String(),
-		CreatedAt: createdAt.Time,
+		ID:         uuid.UUID(id.Bytes).String(),
+		UserID:     uuid.UUID(userID.Bytes).String(),
+		Email:      email,
+		Name:       displayName,
+		EventID:    uuid.UUID(eventID.Bytes).String(),
+		Categories: categories,
+		CreatedAt:  createdAt.Time,
 	}, nil
+}
+
+func parseCategoriesJSON(value any) ([]Category, error) {
+	var raw []struct {
+		ID                       string    `json:"id"`
+		EventID                  string    `json:"event_id"`
+		Name                     string    `json:"name"`
+		VisibleOnPublicDashboard bool      `json:"visible_on_public_dashboard"`
+		CreatedAt                time.Time `json:"created_at"`
+	}
+	switch v := value.(type) {
+	case string:
+		if err := json.Unmarshal([]byte(v), &raw); err != nil {
+			return nil, err
+		}
+	case []byte:
+		if err := json.Unmarshal(v, &raw); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("event: unsupported categories json type %T", value)
+	}
+	categories := make([]Category, 0, len(raw))
+	for _, item := range raw {
+		categories = append(categories, Category{
+			ID: item.ID, EventID: item.EventID, Name: item.Name,
+			VisibleOnPublicDashboard: item.VisibleOnPublicDashboard,
+			CreatedAt:                item.CreatedAt,
+		})
+	}
+	return categories, nil
 }
 
 func mapCaptureCreditConfig(id pgtype.UUID, limit int32, updatedBy pgtype.UUID, updatedAt pgtype.Timestamptz) (CaptureCreditConfig, error) {

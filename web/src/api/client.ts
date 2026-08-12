@@ -10,6 +10,7 @@ export type CreateEventInput = components['schemas']['CreateEventRequest']
 export type CategoryRecord = components['schemas']['Category']
 export type CategoryCollection = components['schemas']['CategoryCollection']
 export type CreateCategoryInput = components['schemas']['CreateCategoryRequest']
+export type UpdateCategoryVisibilityInput = components['schemas']['UpdateCategoryVisibilityRequest']
 export type CoordinatorAssignment = components['schemas']['CoordinatorAssignment']
 export type CoordinatorAssignmentCollection = components['schemas']['CoordinatorAssignmentCollection']
 export type CreateCoordinatorAssignmentInput = components['schemas']['CreateCoordinatorAssignmentRequest']
@@ -303,6 +304,12 @@ export function createEventApi(session: SessionPort) {
     async createCategory(eventID: string, input: CreateCategoryInput) {
       return unwrap(await client.POST('/api/v1/admin/events/{event_id}/categories', {
         params: { path: { event_id: eventID } },
+        body: input,
+      }))
+    },
+    async updateCategoryVisibility(eventID: string, categoryID: string, input: UpdateCategoryVisibilityInput) {
+      return unwrap(await client.PUT('/api/v1/admin/events/{event_id}/categories/{category_id}/visibility', {
+        params: { path: { event_id: eventID, category_id: categoryID } },
         body: input,
       }))
     },

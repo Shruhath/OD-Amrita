@@ -146,7 +146,7 @@ export function AttendanceExportDialog({
               <DialogTitle>Export on-duty lists</DialogTitle>
               <DialogDescription>
                 One Excel file per slot for {eventName || 'this event'}, holding the roll number, name, slot and
-                category of every student marked present — all categories together.
+                category of every student marked present in the categories visible to your account.
               </DialogDescription>
             </DialogHeader>
 

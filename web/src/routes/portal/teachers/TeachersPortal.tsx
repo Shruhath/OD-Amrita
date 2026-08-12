@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Branch, CreateTeacherProfileInput, TeacherProfile, ValidationError } from '../../../api/client'
+import type { Branch, CategoryRecord, CreateTeacherProfileInput, TeacherProfile, ValidationError } from '../../../api/client'
 import { BranchChip } from '../../../components/BranchChip'
 import { PortalShell } from '../../../components/PortalShell'
 import { ApiFailure } from '../../../api/client'
@@ -24,6 +24,7 @@ import { X } from '@phosphor-icons/react/dist/icons/X'
 import { Button } from '../../../components/ui/button'
 
 const branchKey = ['admin', 'branches'] as const
+const categoryKey = ['admin', 'teacher-category-options'] as const
 const teacherKeyRoot = ['admin', 'teachers'] as const
 const pageSize = 20
 const teacherKey = (page: number) => [...teacherKeyRoot, page, pageSize] as const
@@ -35,12 +36,26 @@ export default function TeachersPortal() {
   const [page, setPage] = useState(1)
 
   const branches = useQuery({ queryKey: branchKey, queryFn: api.branches })
+  const categoryOptions = useQuery({
+    queryKey: categoryKey,
+    queryFn: async () => {
+      const events = await api.events(1, 100)
+      const activeEvents = events.data.filter((event) => event.status === 'active')
+      const collections = await Promise.all(activeEvents.map((event) => api.categories(event.id)))
+      const byID = new Map<string, CategoryRecord>()
+      for (const collection of collections) {
+        for (const category of collection.data) byID.set(category.id, category)
+      }
+      return orderedCategories([...byID.values()])
+    },
+  })
   const currentTeacherKey = teacherKey(page)
   const teachers = useQuery({ queryKey: currentTeacherKey, queryFn: () => api.teachers(page, pageSize) })
 
   const branchData = branches.data?.data ?? []
+  const categoryData = categoryOptions.data ?? []
   const teacherData = teachers.data?.data ?? []
-  const canCreate = branches.isSuccess && branchData.length > 0
+  const canCreate = branches.isSuccess && categoryOptions.isSuccess && branchData.length > 0 && categoryData.length > 0
   const totalPages = Math.max(1, Math.ceil((teachers.data?.total ?? 0) / (teachers.data?.page_size ?? pageSize)))
 
   return (
@@ -50,7 +65,7 @@ export default function TeachersPortal() {
         <div>
           <p className="text-xs uppercase tracking-widest text-foreground-muted font-bold mb-1">Administration · Teachers</p>
           <h1 className="text-3xl font-bold tracking-tight mb-2">Teachers</h1>
-          <p className="text-foreground-muted">Elevate an already signed-in user to teacher and scope them to their branches.</p>
+          <p className="text-foreground-muted">Elevate an already signed-in user to teacher and scope them to their branches and categories.</p>
         </div>
         <Button disabled={!canCreate} onClick={() => setCreating(true)} className="w-full shrink-0 sm:w-auto">
           <Plus size={18} weight="bold" aria-hidden="true" />
@@ -58,9 +73,10 @@ export default function TeachersPortal() {
         </Button>
       </div>
 
-      <section className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-3" aria-label="Teacher directory summary">
+      <section className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Teacher directory summary">
         <SummaryCard icon={<UsersThree size={21} weight="duotone" aria-hidden="true" />} label="Teachers shown" value={teachers.data?.data.length ?? '—'} />
         <SummaryCard icon={<Buildings size={21} weight="duotone" aria-hidden="true" />} label="Available branches" value={branchData.length || '—'} />
+        <SummaryCard icon={<Check size={21} weight="bold" aria-hidden="true" />} label="Available categories" value={categoryData.length || '—'} />
         <SummaryCard icon={<Check size={21} weight="bold" aria-hidden="true" />} label="Page" value={`${page} / ${totalPages}`} />
       </section>
 
@@ -77,6 +93,12 @@ export default function TeachersPortal() {
           Loading teachers…
         </div>
       )}
+      {categoryOptions.isPending && (
+        <div className="flex items-center gap-3 text-sm text-status-info-fg bg-status-info-bg p-4 rounded-[10px] mb-6" role="status">
+          <span className="animate-spin inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full" />
+          Loading categories…
+        </div>
+      )}
 
       {/* Error states */}
       {branches.isError && (
@@ -85,6 +107,9 @@ export default function TeachersPortal() {
       {teachers.isError && (
         <ErrorState message={messageOf(teachers.error, 'Teachers could not be loaded')} retry={() => void teachers.refetch()} />
       )}
+      {categoryOptions.isError && (
+        <ErrorState message={messageOf(categoryOptions.error, 'Categories could not be loaded')} retry={() => void categoryOptions.refetch()} />
+      )}
 
       {/* Empty states */}
       {branches.isSuccess && branchData.length === 0 && (
@@ -92,6 +117,14 @@ export default function TeachersPortal() {
           <Buildings size={40} weight="duotone" aria-hidden="true" className="text-foreground-muted" />
           <h2 className="text-xl font-bold tracking-tight">No branches available</h2>
           <p className="text-foreground-muted">Branches must be configured before a teacher profile can be created.</p>
+        </div>
+      )}
+
+      {categoryOptions.isSuccess && categoryData.length === 0 && (
+        <div className="bg-surface border border-border rounded-[10px] p-12 flex flex-col items-center text-center gap-3 mb-8">
+          <Check size={40} weight="bold" aria-hidden="true" className="text-foreground-muted" />
+          <h2 className="text-xl font-bold tracking-tight">No categories available</h2>
+          <p className="text-foreground-muted">Create event categories before assigning teacher access.</p>
         </div>
       )}
 
@@ -112,7 +145,7 @@ export default function TeachersPortal() {
                 <caption className="sr-only">Every teacher profile, ordered by email</caption>
                 <thead className="bg-canvas border-b border-border">
                   <tr>
-                    {['Email', 'Name', 'Branches'].map((col) => (
+                    {['Email', 'Name', 'Branches', 'Categories'].map((col) => (
                       <th key={col} className="py-3 px-4 text-xs font-semibold uppercase tracking-wider text-foreground-muted whitespace-nowrap">
                         {col}
                       </th>
@@ -127,6 +160,15 @@ export default function TeachersPortal() {
                       <td className="py-4 px-4">
                         <div className="flex flex-wrap gap-2">
                           {teacher.branches.map((branch) => <BranchChip branch={branch} key={branch.id} />)}
+                        </div>
+                      </td>
+                      <td className="py-4 px-4">
+                        <div className="flex flex-wrap gap-1.5">
+                          {teacher.categories.map((category) => (
+                            <span key={category.id} className="rounded-md border border-border bg-canvas px-2 py-1 text-xs font-semibold text-foreground-muted">
+                              {category.name}
+                            </span>
+                          ))}
                         </div>
                       </td>
                     </tr>
@@ -150,6 +192,16 @@ export default function TeachersPortal() {
                   <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-foreground-muted">Branch access</p>
                   <div className="flex flex-wrap gap-2">{teacher.branches.map((branch) => <BranchChip branch={branch} key={branch.id} />)}</div>
                 </div>
+                <div className="mt-4 border-t border-border pt-3">
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-foreground-muted">Category access</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {teacher.categories.map((category) => (
+                      <span key={category.id} className="rounded-md border border-border bg-canvas px-2 py-1 text-xs font-semibold text-foreground-muted">
+                        {category.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               </article>
             ))}
           </div>
@@ -171,6 +223,7 @@ export default function TeachersPortal() {
         {creating && (
           <CreateDialog
             branches={branchData}
+            categories={categoryData}
             onClose={() => setCreating(false)}
             onCreated={() => {
               void queryClient.invalidateQueries({ queryKey: teacherKeyRoot })
@@ -196,27 +249,40 @@ function SummaryCard({ icon, label, value }: { icon: ReactNode; label: string; v
   )
 }
 
-function CreateDialog({ branches, onClose, onCreated }: { branches: Branch[]; onClose(): void; onCreated(teacher: TeacherProfile): void }) {
+function CreateDialog({
+  branches,
+  categories,
+  onClose,
+  onCreated,
+}: {
+  branches: Branch[]
+  categories: CategoryRecord[]
+  onClose(): void
+  onCreated(teacher: TeacherProfile): void
+}) {
   const { api } = useAuth()
   const [email, setEmail] = useState('')
   const [selected, setSelected] = useState<string[]>([])
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([])
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState<string | null>(null)
   const create = useMutation({ mutationFn: (input: CreateTeacherProfileInput) => api.createTeacher(input), onSuccess: onCreated })
-  const canSubmit = Boolean(email.trim() && selected.length > 0) && !create.isPending
+  const canSubmit = Boolean(email.trim() && selected.length > 0 && selectedCategories.length > 0) && !create.isPending
 
   const toggle = (id: string) => setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
+  const toggleCategory = (id: string) => setSelectedCategories((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
   const clearErrors = () => { setFieldErrors({}); setFormError(null) }
   const submit = (event: FormEvent) => {
     event.preventDefault()
     const errors: Record<string, string> = {}
     if (!email.trim()) errors.email = 'Enter an email address'
     if (selected.length === 0) errors.branch_ids = 'Select at least one branch'
+    if (selectedCategories.length === 0) errors.category_ids = 'Select at least one category'
     setFieldErrors(errors)
     setFormError(null)
     if (Object.keys(errors).length > 0) return
 
-    create.mutate({ email: email.trim(), branch_ids: selected }, {
+    create.mutate({ email: email.trim(), branch_ids: selected, category_ids: selectedCategories }, {
       onError(cause) {
         setFormError(messageOf(cause, 'The teacher profile could not be created'))
         if (cause instanceof ApiFailure && cause.body.code === 'VALIDATION_FAILED' && 'details' in cause.body && Array.isArray(cause.body.details)) {
@@ -270,7 +336,7 @@ function CreateDialog({ branches, onClose, onCreated }: { branches: Branch[]; on
         <div className="flex items-start justify-between gap-4 border-b border-border bg-canvas/50 px-5 py-5 sm:px-6">
           <div>
           <h2 id="new-teacher-dialog-title" className="text-xl font-bold tracking-tight">New teacher</h2>
-          <p className="mt-1 text-sm text-foreground-muted">Grant branch-scoped teaching access to an existing account.</p>
+          <p className="mt-1 text-sm text-foreground-muted">Grant branch and category access to an existing account.</p>
           </div>
           <button type="button" onClick={onClose} disabled={create.isPending} aria-label="Close dialog" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-border text-foreground-muted hover:bg-surface-muted hover:text-foreground">
             <X size={17} aria-hidden="true" />
@@ -329,6 +395,35 @@ function CreateDialog({ branches, onClose, onCreated }: { branches: Branch[]; on
               {fieldErrors.branch_ids && <p className="text-sm font-medium text-status-error-fg" id="teacher-branch-error">{fieldErrors.branch_ids}</p>}
             </fieldset>
 
+            <fieldset
+              aria-describedby={fieldErrors.category_ids ? 'teacher-category-error' : undefined}
+              className="flex flex-col gap-2"
+            >
+              <legend className="text-xs font-semibold uppercase tracking-wider text-foreground-muted mb-1">Categories</legend>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {categories.map((category) => (
+                  <label
+                    key={category.id}
+                    title={category.name}
+                    className={`relative flex min-h-10 items-center rounded-[10px] border px-3 py-2 text-sm transition-all active:scale-95 ${
+                      selectedCategories.includes(category.id)
+                        ? 'bg-foreground text-canvas border-foreground font-bold'
+                        : 'bg-canvas text-foreground border-border hover:bg-surface font-medium'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+                      checked={selectedCategories.includes(category.id)}
+                      onChange={() => { toggleCategory(category.id); clearErrors() }}
+                    />
+                    <span className="pointer-events-none truncate">{category.name}</span>
+                  </label>
+                ))}
+              </div>
+              {fieldErrors.category_ids && <p className="text-sm font-medium text-status-error-fg" id="teacher-category-error">{fieldErrors.category_ids}</p>}
+            </fieldset>
+
             {formError && (
               <div className="p-4 bg-status-error-bg rounded-[10px] border border-status-error-fg/20" role="alert">
                 <p className="text-sm font-semibold text-status-error-fg">{formError}</p>
@@ -373,4 +468,12 @@ function ErrorState({ message, retry }: { message: string; retry(): void }) {
       </button>
     </div>
   )
+}
+
+function orderedCategories(categories: CategoryRecord[]) {
+  return [...categories].sort((left, right) => {
+    if (left.name !== right.name) return left.name < right.name ? -1 : 1
+    if (left.id === right.id) return 0
+    return left.id < right.id ? -1 : 1
+  })
 }

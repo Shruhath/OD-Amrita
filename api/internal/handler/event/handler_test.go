@@ -56,6 +56,9 @@ func (f *fakeService) ListCategories(context.Context, eventsvc.Actor, string) ([
 func (f *fakeService) CreateCategory(context.Context, eventsvc.Actor, eventsvc.CreateCategoryInput) (eventsvc.Category, error) {
 	return eventsvc.Category{}, f.err
 }
+func (f *fakeService) UpdateCategoryVisibility(context.Context, eventsvc.Actor, eventsvc.UpdateCategoryVisibilityInput) (eventsvc.Category, error) {
+	return eventsvc.Category{}, f.err
+}
 func (f *fakeService) Archive(context.Context, eventsvc.Actor, string) (eventsvc.Event, error) {
 	return f.event, f.err
 }

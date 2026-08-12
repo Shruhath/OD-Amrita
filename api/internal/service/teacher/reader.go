@@ -41,7 +41,7 @@ func (r *SQLCReader) GetTeacherProfile(ctx context.Context, userID uuid.UUID) (T
 	if err != nil {
 		return TeacherProfile{}, err
 	}
-	return mapTeacherProfile(row.ID, row.Email, row.Name, row.CreatedAt, row.BranchesJson)
+	return mapTeacherProfile(row.ID, row.Email, row.Name, row.CreatedAt, row.BranchesJson, row.CategoriesJson)
 }
 
 func (r *SQLCReader) ListTeachers(ctx context.Context, input ListInput) ([]TeacherProfile, int64, error) {
@@ -62,7 +62,7 @@ func (r *SQLCReader) ListTeachers(ctx context.Context, input ListInput) ([]Teach
 	}
 	teachers := make([]TeacherProfile, 0, len(rows))
 	for _, row := range rows {
-		profile, mapErr := mapTeacherProfile(row.ID, row.Email, row.Name, row.CreatedAt, row.BranchesJson)
+		profile, mapErr := mapTeacherProfile(row.ID, row.Email, row.Name, row.CreatedAt, row.BranchesJson, row.CategoriesJson)
 		if mapErr != nil {
 			return nil, 0, mapErr
 		}
@@ -77,6 +77,18 @@ func (r *SQLCReader) CountBranchesByIDs(ctx context.Context, branchIDs []uuid.UU
 		ids[index] = dbUUID(id)
 	}
 	count, err := r.queries.CountBranchesByIDs(ctx, ids)
+	if err != nil {
+		return 0, err
+	}
+	return int(count), nil
+}
+
+func (r *SQLCReader) CountCategoriesByIDs(ctx context.Context, categoryIDs []uuid.UUID) (int, error) {
+	ids := make([]pgtype.UUID, len(categoryIDs))
+	for index, id := range categoryIDs {
+		ids[index] = dbUUID(id)
+	}
+	count, err := r.queries.CountCategoriesByIDs(ctx, ids)
 	if err != nil {
 		return 0, err
 	}
@@ -101,6 +113,7 @@ func mapTeacherProfile(
 	name pgtype.Text,
 	createdAt pgtype.Timestamptz,
 	branchesJSON string,
+	categoriesJSON string,
 ) (TeacherProfile, error) {
 	if !id.Valid || !createdAt.Valid {
 		return TeacherProfile{}, errors.New("teacher: row contains invalid required values")
@@ -112,11 +125,19 @@ func mapTeacherProfile(
 	if branches == nil {
 		branches = []Branch{}
 	}
+	var categories []Category
+	if err := json.Unmarshal([]byte(categoriesJSON), &categories); err != nil {
+		return TeacherProfile{}, fmt.Errorf("teacher: decode categories: %w", err)
+	}
+	if categories == nil {
+		categories = []Category{}
+	}
 	profile := TeacherProfile{
-		UserID:    uuid.UUID(id.Bytes).String(),
-		Email:     email,
-		Branches:  branches,
-		CreatedAt: createdAt.Time,
+		UserID:     uuid.UUID(id.Bytes).String(),
+		Email:      email,
+		Branches:   branches,
+		Categories: categories,
+		CreatedAt:  createdAt.Time,
 	}
 	if name.Valid {
 		value := name.String

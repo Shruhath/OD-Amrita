@@ -16,6 +16,7 @@ type CategoryRecord = {
   id: string
   event_id: string
   name: string
+  visible_on_public_dashboard: boolean
   created_at: string
 }
 
@@ -65,6 +66,7 @@ function categoryRecord(name: string, index: number): CategoryRecord {
     id: `dddddddd-dddd-4ddd-8ddd-${String(index).padStart(12, '0')}`,
     event_id: eventID,
     name,
+    visible_on_public_dashboard: true,
     created_at: '2026-07-21T03:00:00Z',
   }
 }
@@ -147,6 +149,22 @@ async function mockApi(page: Page, scenario: Scenario = {}) {
     }
     await json(route, { data: serverCategories })
   })
+  await page.route(`**/api/v1/admin/events/${eventID}/categories/*/visibility`, async (route) => {
+    if (route.request().method() === 'OPTIONS') {
+      await fulfilPreflight(route)
+      return
+    }
+    const input = route.request().postDataJSON() as { visible_on_public_dashboard: boolean }
+    const categoryID = route.request().url().split('/').at(-2)
+    const record = serverCategories.find((category) => category.id === categoryID)
+    if (!record) {
+      await json(route, { code: 'CATEGORY_NOT_FOUND', message: 'Category not found.' }, 404)
+      return
+    }
+    const updated = { ...record, visible_on_public_dashboard: input.visible_on_public_dashboard }
+    serverCategories = ordered(serverCategories.map((category) => (category.id === updated.id ? updated : category)))
+    await json(route, updated)
+  })
 
 }
 
@@ -160,7 +178,7 @@ test.describe('Admin event categories journey (ATDD)', () => {
     await expect(page.getByRole('heading', { level: 1, name: eventName })).toBeVisible()
 
     const list = page.getByRole('list', { name: 'Categories' })
-    await expect(list.getByRole('listitem')).toHaveText(['Registration'])
+    await expect(list.getByRole('listitem')).toContainText(['Registration'])
 
     // Journey 5 adds several in a row, so the form must survive each submit.
     for (const name of ['Procession', 'Stage Setup']) {
@@ -170,13 +188,13 @@ test.describe('Admin event categories journey (ATDD)', () => {
     }
 
     // Server order is name ASC — not insertion order.
-    await expect(list.getByRole('listitem')).toHaveText(['Procession', 'Registration', 'Stage Setup'])
+    await expect(list.getByRole('listitem')).toContainText(['Procession', 'Registration', 'Stage Setup'])
 
     // The reload is the whole point: it discards every scrap of client state, so
     // whatever survives came from the server.
     await page.reload()
     await expect(page.getByRole('heading', { level: 1, name: eventName })).toBeVisible()
-    await expect(page.getByRole('list', { name: 'Categories' }).getByRole('listitem')).toHaveText([
+    await expect(page.getByRole('list', { name: 'Categories' }).getByRole('listitem')).toContainText([
       'Procession',
       'Registration',
       'Stage Setup',

@@ -320,6 +320,12 @@ func seedTeacherAndBranch(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 		t.Fatalf("associate teacher branch: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
+		INSERT INTO user_category_assignments (user_id, category_id, created_by_user_id)
+		VALUES ($1, $2, $3)
+		ON CONFLICT DO NOTHING`, teacherID, fixture.categoryID, fixture.adminID); err != nil {
+		t.Fatalf("associate teacher category: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
 		INSERT INTO event_branches (event_id, branch_id)
 		VALUES ($1, '91000000-0000-4000-8000-000000000001')
 		ON CONFLICT DO NOTHING`, fixture.eventID); err != nil {

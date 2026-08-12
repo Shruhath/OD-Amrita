@@ -49,7 +49,8 @@ var runtimePrivileges = map[string][]string{
 	// A teacher's branch associations: no-hard-delete, same posture as
 	// event_branches/categories, inherited entirely from 0007's default
 	// privileges (0008 writes no explicit GRANT/REVOKE).
-	"user_branches": {"SELECT", "INSERT", "UPDATE"},
+	"user_branches":             {"SELECT", "INSERT", "UPDATE"},
+	"user_category_assignments": {"SELECT", "INSERT", "UPDATE"},
 
 	// Imported student roster and its import summaries are stable references for
 	// attendance, dashboard, and correction flows.

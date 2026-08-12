@@ -137,6 +137,8 @@ func seedTwoBranchAttendance(t *testing.T, ctx context.Context, pool *pgxpool.Po
 		fixture.eventID, taughtBranch, otherBranch)
 	exec(`INSERT INTO categories (id, event_id, name) VALUES ($1,$2,'Scope Category '||$3)`,
 		category, fixture.eventID, token)
+	exec(`INSERT INTO user_category_assignments (user_id, category_id, created_by_user_id)
+	      VALUES ($1,$2,$3)`, fixture.teacherID, category, fixture.adminID)
 
 	exec(`INSERT INTO students (id, roll_no, name, branch_id, section, batch)
 	      VALUES ($1,$2,'Taught Student',$3,'A','2024'),

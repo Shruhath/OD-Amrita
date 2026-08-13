@@ -856,7 +856,7 @@ type MarkAttendanceRequest struct {
 	CategoryId    openapi_types.UUID                 `json:"category_id"`
 	EventId       openapi_types.UUID                 `json:"event_id"`
 
-	// OdDate Optional for teacher/admin manual search marks. When supplied, the record is filed under this campus day and the server/database require it to fall inside the event date range. Coordinator NFC/camera marks ignore client dates and continue to use the server-derived campus day.
+	// OdDate Optional for teacher/admin manual search marks. When supplied, the record is filed under this campus day and the server/database require it to fall inside the event date range. Coordinator NFC/camera marks reject client dates and continue to use the server-derived campus day only.
 	OdDate *openapi_types.Date `json:"od_date,omitempty"`
 
 	// ReasonNote Required for teacher/admin manual search marks; optional for coordinator capture.

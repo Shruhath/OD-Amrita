@@ -139,7 +139,12 @@ export default function TeacherAdminMarkScreen() {
     },
   })
 
-  const eventReady = eventID !== '' && categoryID !== '' && odDate !== ''
+  const eventReady =
+    eventID !== '' &&
+    categoryID !== '' &&
+    selectedEvent !== null &&
+    odDate >= selectedEvent.event_date &&
+    odDate <= selectedEvent.end_date
   const markDisabled = !eventReady || !selectedStudent || reasonNote.trim() === '' || mark.isPending
 
   const changeQuery = (value: string) => {

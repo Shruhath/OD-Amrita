@@ -28,7 +28,7 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/service/marking"
 )
 
-// 0.6-HTTP-001a — a non-coordinator is refused before any parameter is judged.
+// 0.6-HTTP-001a — a non-live-marker is refused before any parameter is judged.
 func TestMarkingReadHandlers_AuthorizeBeforeValidating(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -60,6 +60,27 @@ func TestMarkingReadHandlers_AuthorizeBeforeValidating(t *testing.T) {
 			}
 			assertErrorEnvelope(t, recorder, contracts.ErrorCodeRBACFORBIDDEN)
 		})
+	}
+}
+
+func TestMarkingReadHandlers_AdminCanUseLiveMarkingReads(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router, svc := newMarkingReadRouter(t, actorRole("admin"))
+
+	for _, target := range []string{
+		"/api/v1/events",
+		"/api/v1/events/11111111-1111-4111-8111-111111111111/categories",
+		"/api/v1/mark/status?event_id=11111111-1111-4111-8111-111111111111&category_id=33333333-3333-4333-8333-333333333333",
+	} {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, target, nil))
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want 200 (body %s)", target, recorder.Code, recorder.Body.String())
+		}
+	}
+	if svc.calls != 3 {
+		t.Fatalf("service calls = %d, want 3", svc.calls)
 	}
 }
 

@@ -1,6 +1,6 @@
 // Package marking holds the ONE place that answers "may this actor mark here".
 //
-// The coordinator marking surface has four read paths and one write path, and
+// The live marking surface has four read paths and one write path, and
 // every one of them must agree about scope. NFR11 says no scope may be reachable
 // by URL manipulation, so enforcing it in the read handlers alone would be
 // worthless: the client picks the event_id and category_id, and could simply POST
@@ -8,10 +8,9 @@
 // behind exactly two entry points, and is called from every read AND from the
 // mark service before any write.
 //
-// POLICY IN FORCE: the actor's role is `coordinator`, the event exists and is
-// `active`, an event-level assignment exists for actor.UserID, and the category
-// belongs to that event. The assignment check is server-side; browser state is
-// never authorization.
+// POLICY IN FORCE: coordinators may mark active events they are assigned to,
+// narrowed by their category assignments. Admins may mark any active event and
+// category. Browser state is never authorization.
 package marking
 
 import (
@@ -22,11 +21,9 @@ import (
 )
 
 var (
-	// ErrNotCoordinator is the refusal every non-coordinator role gets. Teacher
-	// and admin marking is Story 0.9: it needs the explicit slot picker that
-	// Story 0.4 requires for those roles and that this screen deliberately does
-	// not have. Admitting an admin "because admins can do everything" would put
-	// them on a screen whose every mark the mark service then rejects.
+	// ErrNotCoordinator is the refusal every non-live-marker role gets. The name
+	// is kept for compatibility with the existing error mapper; the policy now
+	// admits coordinators and admins.
 	ErrNotCoordinator = errors.New("marking: actor is not a coordinator")
 
 	ErrEventNotFound    = errors.New("marking: event not found")
@@ -39,6 +36,7 @@ const (
 	statusActive    = "active"
 	statusArchived  = "archived"
 	roleCoordinator = "coordinator"
+	roleAdmin       = "admin"
 )
 
 type Actor struct {
@@ -72,8 +70,10 @@ type Event struct {
 // rather than a general event repository, so a future policy change cannot widen
 // what the seam can see without saying so here.
 type Reader interface {
-	// AssignedActiveEvents returns active assigned events only.
+	// AssignedActiveEvents returns active coordinator-assigned events only.
 	AssignedActiveEvents(ctx context.Context, userID string) ([]Event, error)
+	// ActiveEventsForAdminMarking returns active events an admin may live-mark.
+	ActiveEventsForAdminMarking(ctx context.Context) ([]Event, error)
 	// EventByID returns ErrEventNotFound for an unknown id.
 	EventByID(context.Context, string) (Event, error)
 	// CoordinatorAssignedToEvent reports whether userID is assigned to eventID.
@@ -101,10 +101,18 @@ func NewPolicy(reader Reader) *Policy {
 // from this list, so offering an event that AssertCanMark would refuse is a
 // screen that invites a guaranteed error on the coordinator's first tap.
 func (p *Policy) VisibleEvents(ctx context.Context, actor Actor) ([]Event, error) {
-	if err := assertCoordinator(actor); err != nil {
+	if err := assertLiveMarker(actor); err != nil {
 		return nil, err
 	}
-	events, err := p.reader.AssignedActiveEvents(ctx, strings.TrimSpace(actor.UserID))
+	var (
+		events []Event
+		err    error
+	)
+	if actor.Role == roleAdmin {
+		events, err = p.reader.ActiveEventsForAdminMarking(ctx)
+	} else {
+		events, err = p.reader.AssignedActiveEvents(ctx, strings.TrimSpace(actor.UserID))
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +153,7 @@ func (p *Policy) AssertCanMark(ctx context.Context, actor Actor, eventID, catego
 // read, which has no category id to check yet, asks the SAME policy rather than
 // re-deriving half of it somewhere else.
 func (p *Policy) assertEventScope(ctx context.Context, actor Actor, eventID string) error {
-	if err := assertCoordinator(actor); err != nil {
+	if err := assertLiveMarker(actor); err != nil {
 		return err
 	}
 	event, err := p.reader.EventByID(ctx, strings.TrimSpace(eventID))
@@ -154,6 +162,9 @@ func (p *Policy) assertEventScope(ctx context.Context, actor Actor, eventID stri
 	}
 	switch event.Status {
 	case statusActive:
+		if actor.Role == roleAdmin {
+			return nil
+		}
 		assigned, err := p.reader.CoordinatorAssignedToEvent(ctx, strings.TrimSpace(actor.UserID), strings.TrimSpace(eventID))
 		if err != nil {
 			return err
@@ -171,11 +182,11 @@ func (p *Policy) assertEventScope(ctx context.Context, actor Actor, eventID stri
 	}
 }
 
-// assertCoordinator is intentionally exact-match: role strings come from the
+// assertLiveMarker is intentionally exact-match: role strings come from the
 // users table, and a case-insensitive compare here would silently admit a row
 // written by some future path that did not canonicalise.
-func assertCoordinator(actor Actor) error {
-	if actor.Role != roleCoordinator {
+func assertLiveMarker(actor Actor) error {
+	if actor.Role != roleCoordinator && actor.Role != roleAdmin {
 		return ErrNotCoordinator
 	}
 	return nil

@@ -825,7 +825,7 @@ type ExtendedSlotsUpdate struct {
 	Enabled bool `json:"enabled"`
 }
 
-// FallbackCreditState Server-derived camera/search fallback-credit state for the selected event and coordinator. NFC never consumes this pool.
+// FallbackCreditState Server-derived camera/search fallback-credit state for the selected event and caller. NFC never consumes this pool.
 type FallbackCreditState struct {
 	Consumed         int  `json:"consumed"`
 	Exhausted        bool `json:"exhausted"`
@@ -892,7 +892,7 @@ type MarkAttendanceResult struct {
 	Student          MarkedStudent      `json:"student"`
 }
 
-// MarkCounters Both figures are server-computed live counts over od_records (FR13), scoped to the CAMPUS-LOCAL DAY of the request. `mine` is the calling coordinator's marks for this event, category and day; `category_total` is every coordinator's for the same three, and is identical for all callers.
+// MarkCounters Both figures are server-computed live counts over od_records (FR13), scoped to the CAMPUS-LOCAL DAY of the request. `mine` is the calling actor's marks for this event, category and day; `category_total` is every actor's for the same three, and is identical for all callers.
 // The day scope is not cosmetic: on a multi-day event these are the figures a coordinator reads as "today", so a running total across the whole festival would make the screen useless by day three. They reset at campus midnight, and the marking screen labels them as today's.
 type MarkCounters struct {
 	CategoryTotal int `json:"category_total"`
@@ -908,11 +908,11 @@ type MarkSlotWindow struct {
 
 // MarkStatus Everything the marking screen needs that the client must not compute for itself. `slot: null` is the explicit "no slot is open" state — never slot 0 — and `server_time` shares one clock read with the slot decision.
 type MarkStatus struct {
-	// Counters Both figures are server-computed live counts over od_records (FR13), scoped to the CAMPUS-LOCAL DAY of the request. `mine` is the calling coordinator's marks for this event, category and day; `category_total` is every coordinator's for the same three, and is identical for all callers.
+	// Counters Both figures are server-computed live counts over od_records (FR13), scoped to the CAMPUS-LOCAL DAY of the request. `mine` is the calling actor's marks for this event, category and day; `category_total` is every actor's for the same three, and is identical for all callers.
 	// The day scope is not cosmetic: on a multi-day event these are the figures a coordinator reads as "today", so a running total across the whole festival would make the screen useless by day three. They reset at campus midnight, and the marking screen labels them as today's.
 	Counters MarkCounters `json:"counters"`
 
-	// FallbackCredit Server-derived camera/search fallback-credit state for the selected event and coordinator. NFC never consumes this pool.
+	// FallbackCredit Server-derived camera/search fallback-credit state for the selected event and caller. NFC never consumes this pool.
 	FallbackCredit FallbackCreditState `json:"fallback_credit"`
 	ServerTime     time.Time           `json:"server_time"`
 	Slot           *MarkSlotWindow     `json:"slot"`

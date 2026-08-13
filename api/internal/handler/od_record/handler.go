@@ -96,7 +96,7 @@ func bindMarkRequest(c *gin.Context, actor odsvc.Actor) (contracts.MarkAttendanc
 	if actor.Role == "coordinator" && shape.Slot != nil {
 		return contracts.MarkAttendanceRequest{}, requestValidation("slot", "forbidden", "coordinator marks use server-derived slot only.")
 	}
-	if (actor.Role == "teacher" || actor.Role == "admin") && !rawProvided(shape.ReasonNote) {
+	if actor.Role == "teacher" && !rawProvided(shape.ReasonNote) {
 		return contracts.MarkAttendanceRequest{}, requestValidation("reason_note", "required", "reason_note is required for teacher and admin marks.")
 	}
 

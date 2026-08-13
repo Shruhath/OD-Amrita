@@ -111,6 +111,9 @@ func (f *fakeCategoryReader) CoordinatorAssignmentExists(context.Context, uuid.U
 func (f *fakeCategoryReader) ListAssignedActiveEvents(context.Context, uuid.UUID) ([]Event, error) {
 	return nil, f.err
 }
+func (f *fakeCategoryReader) ListActiveEventsForMarking(context.Context) ([]Event, error) {
+	return nil, f.err
+}
 func (f *fakeCategoryReader) CoordinatorAssignedToEvent(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
 	return false, f.err
 }

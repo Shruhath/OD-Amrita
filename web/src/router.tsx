@@ -29,9 +29,9 @@ const routes = [
   // The pre-event card-writing surface. Admin-only through SessionBoundary,
   // and Chrome-on-Android only at runtime because it needs Web NFC.
   { path: '/portal/card-populator', Component: CardPopulatorRoute },
-  // The coordinator marking surface. Deliberately at the ROOT rather than under
-  // /portal: /portal/* is the admin administration surface, and this screen has
-  // its own compact phone chrome rather than the admin nav.
+  // The live NFC/camera marking surface. Deliberately at the ROOT rather than
+  // under /portal: /portal/* is the administration surface, and this screen has
+  // its own compact phone chrome rather than the portal nav.
   { path: '/mark', Component: MarkRoute },
   // The UNAUTHENTICATED public dashboard. At the root and NOT wrapped in
   // SessionBoundary — it is the one surface with no session at all. It must stay

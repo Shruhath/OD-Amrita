@@ -200,7 +200,7 @@ export interface paths {
         put?: never;
         /**
          * Synchronously mark one student present for the current event slot
-         * @description Live one-event MVP marking path. The server resolves either a card token or direct student id, derives coordinator slots from server time, writes one OD record and one audit row in the same transaction, and rejects duplicate present records through the database uniqueness guarantee.
+         * @description Live one-event MVP marking path. The server resolves either a card token or direct student id, derives live coordinator/admin slots from server time, writes one OD record and one audit row in the same transaction, and rejects duplicate present records through the database uniqueness guarantee.
          */
         post: operations["markAttendance"];
         delete?: never;
@@ -218,7 +218,7 @@ export interface paths {
         };
         /**
          * Server-computed marking counters and the active slot window
-         * @description The single source of truth behind the coordinator marking screen's two counters and its slot countdown. `server_time` is read from the same clock read that decided the slot, so the client's countdown and the server's slot decision can never disagree by a poll interval. The client never computes a slot boundary and never counts a mark itself.
+         * @description The single source of truth behind the live marking screen's two counters and its slot countdown. `server_time` is read from the same clock read that decided the slot, so the client's countdown and the server's slot decision can never disagree by a poll interval. The client never computes a slot boundary and never counts a mark itself.
          */
         get: operations["getMarkStatus"];
         put?: never;
@@ -400,7 +400,7 @@ export interface paths {
         };
         /**
          * List the active events the caller may mark for
-         * @description The coordinator marking surface's scoped event read. A sibling of `/api/v1/admin/events`, never a replacement: this one is authenticated rather than admin-gated and returns ACTIVE events only, so the marking selector can never offer an event the mark path would refuse.
+         * @description The live marking surface's scoped event read. A sibling of `/api/v1/admin/events`, never a replacement: this one is authenticated and returns ACTIVE events only. Coordinators see assigned events; admins see active events. The marking selector can never offer an event the mark path would refuse.
          */
         get: operations["listMarkableEvents"];
         put?: never;
@@ -439,7 +439,7 @@ export interface paths {
         };
         /**
          * Search the roster by roll number or name
-         * @description The coordinator's fallback when a card will not tap, and the resolution step for the camera path (the printed barcode carries a ROLL NUMBER). `q` is split on whitespace and EVERY word must appear somewhere in the roll number or name, so a surname finds a full name and word order does not matter; terms are ANDed, so a longer query can only ever return fewer rows. Ordering is exact roll first, then word-start matches, so typing a first name still puts that person at the top. Each word is LIKE-escaped, `q` is bounded at both ends so an empty query cannot become a roster dump, and the result item carries no email, card token or token fingerprint.
+         * @description The live marker's fallback when a card will not tap, and the resolution step for the camera path (the printed barcode carries a ROLL NUMBER). `q` is split on whitespace and EVERY word must appear somewhere in the roll number or name, so a surname finds a full name and word order does not matter; terms are ANDed, so a longer query can only ever return fewer rows. Ordering is exact roll first, then word-start matches, so typing a first name still puts that person at the top. Each word is LIKE-escaped, `q` is bounded at both ends so an empty query cannot become a roster dump, and the result item carries no email, card token or token fingerprint.
          */
         get: operations["searchStudents"];
         put?: never;
@@ -1363,7 +1363,7 @@ export interface components {
             counters: components["schemas"]["MarkCounters"];
             fallback_credit: components["schemas"]["FallbackCreditState"];
         };
-        /** @description Server-derived camera/search fallback-credit state for the selected event and coordinator. NFC never consumes this pool. */
+        /** @description Server-derived camera/search fallback-credit state for the selected event and caller. NFC never consumes this pool. */
         FallbackCreditState: {
             limit: number;
             consumed: number;
@@ -1380,7 +1380,7 @@ export interface components {
             ends_at: string;
         };
         /**
-         * @description Both figures are server-computed live counts over od_records (FR13), scoped to the CAMPUS-LOCAL DAY of the request. `mine` is the calling coordinator's marks for this event, category and day; `category_total` is every coordinator's for the same three, and is identical for all callers.
+         * @description Both figures are server-computed live counts over od_records (FR13), scoped to the CAMPUS-LOCAL DAY of the request. `mine` is the calling actor's marks for this event, category and day; `category_total` is every actor's for the same three, and is identical for all callers.
          *     The day scope is not cosmetic: on a multi-day event these are the figures a coordinator reads as "today", so a running total across the whole festival would make the screen useless by day three. They reset at campus midnight, and the marking screen labels them as today's.
          */
         MarkCounters: {

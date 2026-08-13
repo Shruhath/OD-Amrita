@@ -40,6 +40,22 @@ func (a *EventReaderAdapter) AssignedActiveEvents(ctx context.Context, userID st
 	return events, nil
 }
 
+func (a *EventReaderAdapter) ActiveEventsForAdminMarking(ctx context.Context) ([]Event, error) {
+	rows, err := a.events.ListActiveEventsForMarking(ctx)
+	if err != nil {
+		return nil, err
+	}
+	events := make([]Event, 0, len(rows))
+	for _, row := range rows {
+		event, convErr := fromServiceEvent(row)
+		if convErr != nil {
+			return nil, convErr
+		}
+		events = append(events, event)
+	}
+	return events, nil
+}
+
 func (a *EventReaderAdapter) EventByID(ctx context.Context, eventID string) (Event, error) {
 	parsed, err := uuid.Parse(strings.TrimSpace(eventID))
 	if err != nil {

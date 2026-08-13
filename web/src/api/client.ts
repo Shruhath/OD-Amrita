@@ -408,7 +408,7 @@ export function createEventApi(session: SessionPort) {
     },
 
     // -----------------------------------------------------------------------
-    // Coordinator marking surface.
+    // Live marking surface.
     //
     // These call the SCOPED endpoints, never an `/admin/` one. The admin reads
     // are admin-gated by design, so calling one from `/mark` produces a 403 that
@@ -416,7 +416,7 @@ export function createEventApi(session: SessionPort) {
     // boundary it is.
     // -----------------------------------------------------------------------
 
-    /** The active events this coordinator may mark for. */
+    /** The active events this coordinator/admin may mark for. */
     async markableEvents() {
       return unwrap(await client.GET('/api/v1/events'))
     },

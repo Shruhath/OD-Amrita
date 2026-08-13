@@ -239,6 +239,22 @@ func (r *SQLCReader) ListAssignedActiveEvents(ctx context.Context, userID uuid.U
 	return events, nil
 }
 
+func (r *SQLCReader) ListActiveEventsForMarking(ctx context.Context) ([]Event, error) {
+	rows, err := r.queries.ListAdminPortalMarkEvents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	events := make([]Event, 0, len(rows))
+	for _, row := range rows {
+		event, mapErr := mapEvent(row.ID, row.Name, row.EventDate, row.EndDate, row.Status, row.ArchivedAt, row.CreatedAt, row.BranchesJson)
+		if mapErr != nil {
+			return nil, mapErr
+		}
+		events = append(events, event)
+	}
+	return events, nil
+}
+
 func (r *SQLCReader) CoordinatorAssignedToEvent(ctx context.Context, userID, eventID uuid.UUID) (bool, error) {
 	return r.queries.CoordinatorAssignedToEvent(ctx, sqlc.CoordinatorAssignedToEventParams{
 		UserID:  dbUUID(userID),

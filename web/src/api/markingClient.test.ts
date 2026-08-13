@@ -15,13 +15,13 @@ import {
 } from '../../tests/support/factories/marking'
 
 /**
- * The typed client methods for the coordinator marking surface.
+ * The typed client methods for the live marking surface.
  *
  * `web/src/api/client.ts` owns bearer injection, the single 401-refresh retry,
  * the ngrok header and `ApiFailure`. Every new call must go through it — a
  * component that reaches for `fetch` directly loses all four.
  *
- * THE RULE THESE PIN: the coordinator surface calls its OWN scoped endpoints and
+ * THE RULE THESE PIN: the live marking surface calls its OWN scoped endpoints and
  * never an `/admin/` one. `/api/v1/admin/students` and
  * `/api/v1/admin/card-tokens/resolve` are admin-gated by design; calling them
  * from `/mark` produces a 403 that looks like a bug in the marking screen.

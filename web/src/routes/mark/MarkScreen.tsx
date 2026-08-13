@@ -11,7 +11,7 @@ import { createBarcodeScanner, type BarcodeScannerStatus } from '../../features/
 import { CardNfcError, createWebNfcAdapter, type WebNfcStatus } from '../../features/nfc/webNfc'
 
 /**
- * The coordinator marking surface.
+ * The live NFC/camera marking surface.
  *
  * This is the one screen the event actually runs on. A coordinator holds the
  * phone at arm's length, marks ~90 students, and has exactly one signal to act

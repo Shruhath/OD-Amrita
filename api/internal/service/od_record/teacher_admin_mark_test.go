@@ -105,6 +105,69 @@ func TestTeacherAdminMark_UsesExplicitODDateInsideEventRange(t *testing.T) {
 	}
 }
 
+func TestAdminLiveMark_UsesServerDerivedSlotWithoutReason(t *testing.T) {
+	writer := &countingWriter{}
+	guard := &recordingGuard{}
+	studentID := scaffoldStudentID
+	svc := NewService(stubReader(), stubCardResolver(), writer, stubAuditStore(), scaffoldClock{}, guard, stubCreditLedger())
+
+	_, err := svc.Mark(context.Background(), Actor{
+		UserID: scaffoldActorID,
+		Email:  "admin@amrita.edu",
+		Role:   "admin",
+	}, MarkInput{
+		EventID:       scaffoldEventID,
+		CategoryID:    scaffoldCategoryID,
+		CaptureMethod: CaptureMethodCamera,
+		StudentID:     &studentID,
+	})
+
+	if err != nil {
+		t.Fatalf("admin live NFC mark = %v, want nil", err)
+	}
+	if writer.inserts != 1 {
+		t.Fatalf("admin live mark wrote %d rows, want 1", writer.inserts)
+	}
+	if writer.lastRecord.Slot != 2 {
+		t.Fatalf("admin live mark slot = %d, want server-derived slot 2", writer.lastRecord.Slot)
+	}
+	if writer.lastRecord.ActorRole != "admin" {
+		t.Fatalf("admin live mark actor role = %q, want admin", writer.lastRecord.ActorRole)
+	}
+	if len(guard.calls) != 1 || guard.calls[0][0] != "admin" {
+		t.Fatalf("scope guard calls = %+v, want one admin live scope check", guard.calls)
+	}
+}
+
+func TestAdminLiveMark_RejectsClientSlotAndDate(t *testing.T) {
+	writer := &countingWriter{}
+	studentID := scaffoldStudentID
+	slot := 4
+	day := campusTime(t, 2026, time.September, 4, 0, 0)
+	svc := NewService(stubReader(), stubCardResolver(), writer, stubAuditStore(), scaffoldClock{}, &recordingGuard{}, stubCreditLedger())
+
+	_, err := svc.Mark(context.Background(), Actor{
+		UserID: scaffoldActorID,
+		Email:  "admin@amrita.edu",
+		Role:   "admin",
+	}, MarkInput{
+		EventID:       scaffoldEventID,
+		CategoryID:    scaffoldCategoryID,
+		CaptureMethod: CaptureMethodCamera,
+		StudentID:     &studentID,
+		Slot:          &slot,
+		ODDate:        &day,
+	})
+
+	var de domain.DomainError
+	if !errors.As(err, &de) || len(de.Details) != 1 || de.Details[0].Field != "slot" {
+		t.Fatalf("admin live mark with client slot/date = %v, want slot forbidden validation", err)
+	}
+	if writer.inserts != 0 {
+		t.Fatalf("admin live mark with client slot/date wrote %d rows, want 0", writer.inserts)
+	}
+}
+
 func TestTeacherAdminMark_RejectsExplicitODDateOutsideEventRange(t *testing.T) {
 	writer := &countingWriter{}
 	studentID := scaffoldStudentID

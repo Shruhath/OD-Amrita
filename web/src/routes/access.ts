@@ -27,10 +27,9 @@ export const ROUTE_ROLES = {
   '/portal/teachers': ['admin'],
   '/portal/students': ['admin'],
   '/portal/card-populator': ['admin'],
-  // Deliberately coordinator-only. Teacher and admin marking needs the explicit
-  // slot picker that screen does not have, so admitting them would put them on a
-  // surface whose every mark the server then rejects — see MarkRoute.
-  '/mark': ['coordinator'],
+  // Live NFC/camera/search marking. Teachers use `/portal/mark` because their
+  // correction flow needs an explicit date, slot and reason note.
+  '/mark': ['coordinator', 'admin'],
 } as const satisfies Record<string, readonly Role[]>
 
 export type GuardedPath = keyof typeof ROUTE_ROLES

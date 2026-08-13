@@ -41,7 +41,7 @@ import {
  *     state this screen must never have.
  *  3. NOTHING IS CACHED. No card list, token, fingerprint set or roster in
  *     localStorage, sessionStorage, IndexedDB or the query cache (AR20 no-list).
- *  4. A NON-COORDINATOR ISSUES NO REQUESTS AT ALL — not even the status poll.
+ *  4. A NON-LIVE-MARKER ISSUES NO REQUESTS AT ALL — not even the status poll.
  *
  */
 
@@ -199,7 +199,18 @@ describe('the coordinator marking screen', () => {
     expect(screen.getByRole('button', { name: /search/i })).toBeInTheDocument()
   })
 
-  test('[P0] a non-coordinator gets an explicit state and issues NO requests', async () => {
+  test('[P0] an admin sees the coordinator-style NFC camera and search surface', async () => {
+    installMarkingBackend({ role: 'admin' })
+    await renderMarkRoute()
+
+    expect(await screen.findByRole('combobox', { name: /event/i })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: /category/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /tap|nfc/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /camera|scan/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /search/i })).toBeInTheDocument()
+  })
+
+  test('[P0] a non-live-marker gets an explicit state and issues NO requests', async () => {
     const requests = installMarkingBackend({ role: 'student' })
     await renderMarkRoute()
 

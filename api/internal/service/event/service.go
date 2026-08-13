@@ -97,6 +97,7 @@ type Reader interface {
 	GetCoordinatorCandidateByEmail(context.Context, string) (CoordinatorCandidate, error)
 	CoordinatorAssignmentExists(context.Context, uuid.UUID, uuid.UUID) (bool, error)
 	ListAssignedActiveEvents(context.Context, uuid.UUID) ([]Event, error)
+	ListActiveEventsForMarking(context.Context) ([]Event, error)
 	CoordinatorAssignedToEvent(context.Context, uuid.UUID, uuid.UUID) (bool, error)
 }
 

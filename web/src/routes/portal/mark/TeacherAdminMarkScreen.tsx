@@ -46,6 +46,7 @@ export default function TeacherAdminMarkScreen() {
   const [eventID, setEventID] = usePersistentState('teacher-mark.event.v1', '', asString)
   const [categoryID, setCategoryID] = usePersistentState('teacher-mark.category.v1', '', asString)
   const [slot, setSlot] = usePersistentState('teacher-mark.slot.v1', '1', asString)
+  const [odDate, setODDate] = usePersistentState('teacher-mark.od-date.v1', '', asString)
   const [query, setQuery] = useState('')
   const [reasonNote, setReasonNote] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
@@ -63,6 +64,10 @@ export default function TeacherAdminMarkScreen() {
     queryFn: () => api.portalMarkEvents(),
   })
   const eventOptions = useMemo(() => events.data?.data ?? [], [events.data])
+  const selectedEvent = useMemo(
+    () => eventOptions.find((event) => event.id === eventID) ?? null,
+    [eventID, eventOptions],
+  )
 
   useEffect(() => {
     if (eventOptions.length === 0) return
@@ -70,6 +75,13 @@ export default function TeacherAdminMarkScreen() {
       setEventID(eventOptions[0].id)
     }
   }, [eventID, eventOptions, setEventID])
+
+  useEffect(() => {
+    if (!selectedEvent) return
+    if (odDate < selectedEvent.event_date || odDate > selectedEvent.end_date) {
+      setODDate(selectedEvent.event_date)
+    }
+  }, [odDate, selectedEvent, setODDate])
 
   const categories = useQuery({
     queryKey: ['portal', 'mark', 'events', eventID, 'categories'],
@@ -106,6 +118,7 @@ export default function TeacherAdminMarkScreen() {
         capture_method: 'search',
         student_id: selectedStudent.student_id,
         slot: Number(slot),
+        od_date: odDate,
         reason_note: reasonNote.trim(),
       })
     },
@@ -126,7 +139,7 @@ export default function TeacherAdminMarkScreen() {
     },
   })
 
-  const eventReady = eventID !== '' && categoryID !== ''
+  const eventReady = eventID !== '' && categoryID !== '' && odDate !== ''
   const markDisabled = !eventReady || !selectedStudent || reasonNote.trim() === '' || mark.isPending
 
   const changeQuery = (value: string) => {
@@ -151,6 +164,12 @@ export default function TeacherAdminMarkScreen() {
 
   const changeSlot = (value: string) => {
     setSlot(value)
+    setFailure(null)
+    setSuccess(null)
+  }
+
+  const changeODDate = (value: string) => {
+    setODDate(value)
     setFailure(null)
     setSuccess(null)
   }
@@ -213,7 +232,7 @@ export default function TeacherAdminMarkScreen() {
         {!(events.isSuccess && eventOptions.length === 0) && (
           <form className="flex flex-col gap-5" onSubmit={submit} noValidate>
             {/* Event / Category / Slot selectors */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               <div className="flex flex-col gap-1">
                 <label htmlFor="teacher-mark-event" className="text-xs font-semibold uppercase tracking-wider text-foreground-muted">Event</label>
                 <Select
@@ -245,6 +264,20 @@ export default function TeacherAdminMarkScreen() {
                   value={slot}
                   onChange={changeSlot}
                   options={slotValues(maxSlot).map((value) => ({ value: String(value), label: String(value) }))}
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label htmlFor="teacher-mark-od-date" className="text-xs font-semibold uppercase tracking-wider text-foreground-muted">Date</label>
+                <input
+                  id="teacher-mark-od-date"
+                  type="date"
+                  value={odDate}
+                  min={selectedEvent?.event_date}
+                  max={selectedEvent?.end_date}
+                  onChange={(event) => changeODDate(event.target.value)}
+                  disabled={!selectedEvent}
+                  className="bg-canvas border border-border focus:border-foreground focus:ring-1 focus:ring-foreground rounded-[10px] px-3 py-2 text-sm outline-none transition-all disabled:opacity-60"
                 />
               </div>
             </div>
@@ -354,7 +387,7 @@ export default function TeacherAdminMarkScreen() {
               <div className="flex items-center gap-3 p-3 bg-status-success-bg rounded-[10px] border border-status-success-fg/20" role="status">
                 <Check size={20} weight="bold" aria-hidden="true" className="text-status-success-fg" />
                 <p className="text-sm font-semibold text-status-success-fg">
-                  Marked {success.student.display_name} present in slot {success.slot}.
+                  Marked {success.student.display_name} present on {success.od_date} in slot {success.slot}.
                 </p>
               </div>
             )}

@@ -30,7 +30,7 @@ export type AttendanceActor = {
 export type AttendanceRecord = ContractAttendanceRecord
 
 export function teacherMarkEvent() {
-  return markableEvent({ name: 'Teacher Mark Fixture' })
+  return markableEvent({ name: 'Teacher Mark Fixture', event_date: '2026-08-15', end_date: '2026-08-15' })
 }
 
 export function teacherMarkCategory() {
@@ -49,6 +49,7 @@ export function teacherSearchMarkResult(slot = 4, role: 'teacher' | 'admin' = 't
     event_id: markEventID,
     category_id: markCategoryID,
     slot,
+    od_date: '2026-08-15',
     capture_method: 'search',
     server_received_at: new Date().toISOString(),
     actor_role: role,

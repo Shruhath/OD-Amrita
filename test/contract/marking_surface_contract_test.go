@@ -244,6 +244,14 @@ func TestMarkingSurfaceContract_PairingDocumentedAndRegistriesStable(t *testing.
 	} else if !containsAllFold(desc, "camera", "student_id") {
 		t.Errorf("[P0] MarkAttendanceRequest description must state that student_id pairs with camera as well as search; got %q", desc)
 	}
+	props := getMap(request, "properties")
+	odDate := resolveSchema(doc, getMap(props, "od_date"))
+	if odDate == nil {
+		t.Fatal("[P0] MarkAttendanceRequest must include optional od_date so teacher/admin search marks can file a selected day")
+	}
+	if got := getStr(odDate, "format"); got != "date" {
+		t.Errorf("[P0] MarkAttendanceRequest.od_date format = %q, want date", got)
+	}
 
 	// /api/v1/scans is Epic 3's deferred 202 path. Epic 0 is synchronous only.
 	if scans := getMap(getMap(doc, "paths"), "/api/v1/scans"); scans != nil {

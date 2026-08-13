@@ -88,6 +88,8 @@ describe('teacher/admin mark route red-phase scaffold', () => {
     await selectByLabel(user, screen.getByRole('combobox', { name: /event/i }), /teacher mark fixture/i)
     await selectByLabel(user, screen.getByRole('combobox', { name: /category/i }), /exception desk/i)
     await selectByValue(user, screen.getByRole('combobox', { name: /slot/i }), '4')
+    await user.clear(screen.getByLabelText(/date/i))
+    await user.type(screen.getByLabelText(/date/i), '2026-08-15')
     await user.type(screen.getByRole('searchbox', { name: /student/i }), 'CB.SC.U4CSE24')
     await user.click(await screen.findByRole('option', { name: /CB\.SC\.U4CSE/i }))
     await user.type(screen.getByRole('textbox', { name: /reason note/i }), 'Student attended the make-up session.')
@@ -100,9 +102,10 @@ describe('teacher/admin mark route red-phase scaffold', () => {
       student_id: expect.any(String),
       capture_method: 'search',
       slot: 4,
+      od_date: '2026-08-15',
       reason_note: 'Student attended the make-up session.',
     })
-    expect(await screen.findByText(/Marked .* present in slot 4\./i)).toBeInTheDocument()
+    expect(await screen.findByText(/Marked .* present on 2026-08-15 in slot 4\./i)).toBeInTheDocument()
   })
 
   redTest('[P0] teacher/admin route has no NFC, camera, or fallback-credit controls', async () => {

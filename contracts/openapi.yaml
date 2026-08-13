@@ -4014,6 +4014,15 @@ components:
           type: integer
           minimum: 1.0
           maximum: 20.0
+        od_date:
+          type: string
+          format: date
+          description: >-
+            Optional for teacher/admin manual search marks. When supplied, the
+            record is filed under this campus day and the server/database require
+            it to fall inside the event date range. Coordinator NFC/camera marks
+            ignore client dates and continue to use the server-derived campus
+            day.
         reason_note:
           type: string
           nullable: true

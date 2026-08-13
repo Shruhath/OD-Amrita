@@ -1399,6 +1399,11 @@ export interface components {
             student_id?: string;
             card?: components["schemas"]["CardTokenResolveRequest"];
             slot?: number;
+            /**
+             * Format: date
+             * @description Optional for teacher/admin manual search marks. When supplied, the record is filed under this campus day and the server/database require it to fall inside the event date range. Coordinator NFC/camera marks ignore client dates and continue to use the server-derived campus day.
+             */
+            od_date?: string;
             /** @description Required for teacher/admin manual search marks; optional for coordinator capture. */
             reason_note?: string | null;
         } & ({

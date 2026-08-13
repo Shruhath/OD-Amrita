@@ -52,6 +52,7 @@ type MarkInput struct {
 	StudentID     *string
 	Card          *CardInput
 	Slot          *int
+	ODDate        *time.Time
 	ReasonNote    *string
 }
 
@@ -449,6 +450,9 @@ func (s *Service) slotFor(ctx context.Context, actor Actor, input MarkInput, eve
 		if input.Slot != nil {
 			return 0, today, now, validation("slot", "forbidden", "coordinator marks use server-derived slot only.")
 		}
+		if input.ODDate != nil {
+			return 0, today, now, validation("od_date", "forbidden", "coordinator marks use server-derived date only.")
+		}
 		slot, _, ok := ActiveSlot(now, event.EventDate, event.EndDate, ceiling)
 		if !ok {
 			return 0, today, now, slotClosed()
@@ -467,6 +471,13 @@ func (s *Service) slotFor(ctx context.Context, actor Actor, input MarkInput, eve
 		if *input.Slot < 1 || *input.Slot > ceiling {
 			return 0, today, now, validation(
 				"slot", "range", fmt.Sprintf("slot must be between 1 and %d.", ceiling))
+		}
+		if input.ODDate != nil {
+			day := CampusDate(*input.ODDate)
+			if day.Before(CampusDate(event.EventDate)) || day.After(CampusDate(event.EndDate)) {
+				return 0, today, now, validation("od_date", "outside_event_range", "The OD date must fall inside the event's date range.")
+			}
+			return *input.Slot, day, now, nil
 		}
 		// The CORRECTION path: exempt from slot windows, so it legitimately runs
 		// the morning after — or days after a one-day event. Campus today would

@@ -856,6 +856,9 @@ type MarkAttendanceRequest struct {
 	CategoryId    openapi_types.UUID                 `json:"category_id"`
 	EventId       openapi_types.UUID                 `json:"event_id"`
 
+	// OdDate Optional for teacher/admin manual search marks. When supplied, the record is filed under this campus day and the server/database require it to fall inside the event date range. Coordinator NFC/camera marks ignore client dates and continue to use the server-derived campus day.
+	OdDate *openapi_types.Date `json:"od_date,omitempty"`
+
 	// ReasonNote Required for teacher/admin manual search marks; optional for coordinator capture.
 	ReasonNote *string             `json:"reason_note,omitempty"`
 	Slot       *int                `json:"slot,omitempty"`
@@ -1598,6 +1601,13 @@ func (t MarkAttendanceRequest) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("error marshaling 'event_id': %w", err)
 	}
 
+	if t.OdDate != nil {
+		object["od_date"], err = json.Marshal(t.OdDate)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'od_date': %w", err)
+		}
+	}
+
 	if t.ReasonNote != nil {
 		object["reason_note"], err = json.Marshal(t.ReasonNote)
 		if err != nil {
@@ -1658,6 +1668,13 @@ func (t *MarkAttendanceRequest) UnmarshalJSON(b []byte) error {
 		err = json.Unmarshal(raw, &t.EventId)
 		if err != nil {
 			return fmt.Errorf("error reading 'event_id': %w", err)
+		}
+	}
+
+	if raw, found := object["od_date"]; found {
+		err = json.Unmarshal(raw, &t.OdDate)
+		if err != nil {
+			return fmt.Errorf("error reading 'od_date': %w", err)
 		}
 	}
 

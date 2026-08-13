@@ -62,6 +62,7 @@ type markRequestShape struct {
 	StudentID     *json.RawMessage `json:"student_id"`
 	Card          *json.RawMessage `json:"card"`
 	Slot          *json.RawMessage `json:"slot"`
+	ODDate        *json.RawMessage `json:"od_date"`
 	ReasonNote    *json.RawMessage `json:"reason_note"`
 }
 
@@ -131,6 +132,10 @@ func serviceInput(body contracts.MarkAttendanceRequest) odsvc.MarkInput {
 		CaptureMethod: odsvc.CaptureMethod(body.CaptureMethod),
 		Slot:          body.Slot,
 		ReasonNote:    body.ReasonNote,
+	}
+	if body.OdDate != nil {
+		odDate := body.OdDate.Time
+		input.ODDate = &odDate
 	}
 	if body.StudentId != nil {
 		studentID := body.StudentId.String()

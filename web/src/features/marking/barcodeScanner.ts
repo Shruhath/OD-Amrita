@@ -1,6 +1,6 @@
 /**
- * Camera capture adapter — the single place this app touches `BarcodeDetector`
- * and `navigator.mediaDevices`.
+ * Camera capture adapter — the single place this app touches `BarcodeDetector`,
+ * the ZXing browser decoder and `navigator.mediaDevices`.
  *
  * WHAT THE CAMERA ACTUALLY READS: not a sealed token. The card populator writes
  * the token to the NFC tag only; nothing in this MVP ever prints one. What the
@@ -8,25 +8,26 @@
  * which carries the ROLL NUMBER. This module therefore decodes TEXT, and the
  * screen above it resolves that text to a student through the search endpoint.
  *
- * Nothing above this module may reference `BarcodeDetector` or
+ * Nothing above this module may reference `BarcodeDetector`, ZXing or
  * `navigator.mediaDevices`. CI Chromium and jsdom have neither a camera nor the
- * detector — on Android it is backed by Google Play services, and on desktop
- * Chrome it is frequently absent — so a leak upward makes the marking screen
- * untestable without hardware.
+ * native detector — on Android it is backed by Google Play services, and on
+ * desktop Chrome it is frequently absent — so a leak upward makes the marking
+ * screen untestable without hardware.
  *
  * Sources: https://developer.chrome.com/docs/capabilities/shape-detection ·
  * https://developer.mozilla.org/en-US/docs/Web/API/Barcode_Detection_API
  */
+import { BrowserMultiFormatReader, type IScannerControls } from '@zxing/browser'
 
 /** Whether the camera mode can be offered, or precisely why it cannot. */
 export type BarcodeScannerStatus =
-  /** A detector exists on a secure origin and reports at least one format. */
+  /** A native detector or bundled JS decoder can read camera frames on HTTPS. */
   | 'available'
   /** Not a secure context, so neither the detector nor `getUserMedia` is exposed. */
   | 'insecure'
-  /** No `BarcodeDetector` — typically desktop Chrome, or the feature is disabled. */
+  /** No usable camera API is available. */
   | 'unsupported'
-  /** The detector exists but decodes nothing, so offering the mode would mislead. */
+  /** Reserved for native detector implementations that cannot decode anything. */
   | 'no-formats'
 
 export type BarcodeScannerErrorKind =
@@ -108,18 +109,21 @@ export function createBarcodeScanner(windowRef: Window, navigatorRef: Navigator)
     // report every plain-HTTP page as "unsupported" and send the coordinator
     // hunting for the wrong problem.
     if (!target.isSecureContext) return 'insecure'
-    if (typeof target.BarcodeDetector !== 'function') return 'unsupported'
+    if (!hasCamera(navigatorRef)) return 'unsupported'
+    if (typeof target.BarcodeDetector !== 'function') return 'available'
 
     // `'BarcodeDetector' in window` is not proof it can decode anything: on
     // Android the implementation is backed by Google Play services and can be
-    // present while supporting no formats at all.
+    // present while supporting no formats at all. The bundled ZXing fallback can
+    // still decode laptop and desktop camera frames, so native no-formats is no
+    // longer a reason to hide camera mode.
     const getSupportedFormats = target.BarcodeDetector.getSupportedFormats
     if (typeof getSupportedFormats !== 'function') return 'available'
     try {
-      const formats = await getSupportedFormats.call(target.BarcodeDetector)
-      return formats.length > 0 ? 'available' : 'no-formats'
+      await getSupportedFormats.call(target.BarcodeDetector)
+      return 'available'
     } catch {
-      return 'no-formats'
+      return 'available'
     }
   }
 
@@ -189,8 +193,6 @@ export function createBarcodeScanner(windowRef: Window, navigatorRef: Navigator)
 
       mount?.(video)
 
-      const detector = new (target.BarcodeDetector as BarcodeDetectorConstructor)()
-
       let frameID: number | undefined
       let stopped = false
       // The in-flight guard. requestAnimationFrame fires far faster than a
@@ -212,6 +214,13 @@ export function createBarcodeScanner(windowRef: Window, navigatorRef: Navigator)
         // battery cost across a long event and an obvious trust problem.
         stopTracks(stream)
       }
+
+      if (!(await hasUsableNativeDetector(target))) {
+        startZxingDecoder(stream, video, onDecode, onError, signal, stop)
+        return
+      }
+
+      const detector = new (target.BarcodeDetector as BarcodeDetectorConstructor)()
 
       // A single failed frame is normal; an unbroken RUN of them is a dead
       // detector. Without this ceiling `decode-failed` was a declared error kind
@@ -266,6 +275,67 @@ export function createBarcodeScanner(windowRef: Window, navigatorRef: Navigator)
 
 function stopTracks(stream: MediaStream) {
   for (const track of stream.getTracks()) track.stop()
+}
+
+function hasCamera(navigatorRef: Navigator): boolean {
+  return typeof navigatorRef.mediaDevices?.getUserMedia === 'function'
+}
+
+async function hasUsableNativeDetector(target: BarcodeWindow): Promise<boolean> {
+  if (typeof target.BarcodeDetector !== 'function') return false
+  const getSupportedFormats = target.BarcodeDetector.getSupportedFormats
+  if (typeof getSupportedFormats !== 'function') return true
+  try {
+    return (await getSupportedFormats.call(target.BarcodeDetector)).length > 0
+  } catch {
+    return false
+  }
+}
+
+function startZxingDecoder(
+  stream: MediaStream,
+  video: HTMLVideoElement,
+  onDecode: (text: string) => void,
+  onError: (error: BarcodeScannerError) => void,
+  signal: AbortSignal,
+  stop: () => void,
+) {
+  let controls: IScannerControls | null = null
+  const reader = new BrowserMultiFormatReader(undefined, {
+    delayBetweenScanAttempts: 80,
+    delayBetweenScanSuccess: 500,
+  })
+
+  const stopWithControls = () => {
+    controls?.stop()
+    stop()
+  }
+  signal.addEventListener('abort', stopWithControls, { once: true })
+
+  void reader
+    .decodeFromStream(stream, video, (result, error) => {
+      if (signal.aborted) return
+      const text = result?.getText().trim()
+      if (text) {
+        onDecode(text)
+        return
+      }
+      if (error && error.name !== 'NotFoundException') {
+        onError(new BarcodeScannerError(
+          'decode-failed',
+          'The camera is running but cannot decode the barcode. Try again, or use search instead.',
+        ))
+      }
+    })
+    .then((scannerControls) => {
+      controls = scannerControls
+      if (signal.aborted) stopWithControls()
+    })
+    .catch((error) => {
+      if (signal.aborted) return
+      onError(toScannerError(error))
+      stop()
+    })
 }
 
 function statusError(status: BarcodeScannerStatus): BarcodeScannerError {

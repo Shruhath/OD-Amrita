@@ -37,11 +37,13 @@ export type GuardedPath = keyof typeof ROUTE_ROLES
 /**
  * The portal sections, in the order they appear in the bar.
  *
- * `/mark` (the coordinator screen) is absent on purpose: it is not part of the
- * portal chrome and has its own compact phone layout.
+ * `/mark` is included for admins because they run the event desk too: it opens
+ * the compact live NFC/camera marking surface rather than the manual portal
+ * mark screen.
  */
 const SECTIONS = [
   { to: '/portal/events', label: 'Events' },
+  { to: '/mark', label: 'NFC marking' },
   { to: '/portal/live', label: 'Live' },
   { to: '/portal/mark', label: 'Mark' },
   { to: '/portal/od-records', label: 'Manage records' },
@@ -54,7 +56,10 @@ const SECTIONS = [
 /** The sections this role may actually open. */
 export function sectionsFor(role: string | undefined): { to: string; label: string }[] {
   if (!role) return []
-  return SECTIONS.filter((section) => (ROUTE_ROLES[section.to] as readonly string[]).includes(role))
+  return SECTIONS.filter((section) => {
+    if (section.to === '/mark' && role !== 'admin') return false
+    return (ROUTE_ROLES[section.to] as readonly string[]).includes(role)
+  })
 }
 
 /** The roles admitted to a path, for a route to hand to its boundary. */

@@ -136,7 +136,11 @@ func (p *Policy) AssertCanMark(ctx context.Context, actor Actor, eventID, catego
 	if err := p.reader.CategoryForEvent(ctx, strings.TrimSpace(eventID), strings.TrimSpace(categoryID)); err != nil {
 		return err
 	}
-	if scoped, ok := p.reader.(categoryScopedReader); ok {
+	if actor.Role != roleAdmin {
+		scoped, ok := p.reader.(categoryScopedReader)
+		if !ok {
+			return nil
+		}
 		assigned, err := scoped.CoordinatorAssignedToEventCategory(ctx, strings.TrimSpace(actor.UserID), strings.TrimSpace(eventID), strings.TrimSpace(categoryID))
 		if err != nil {
 			return err

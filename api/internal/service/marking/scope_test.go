@@ -36,6 +36,12 @@ type fakeReader struct {
 	err               error
 }
 
+type scopedFakeReader struct {
+	*fakeReader
+	categoryAssignments     map[string]bool
+	categoryAssignmentCalls [][3]string
+}
+
 func (f *fakeReader) AssignedActiveEvents(_ context.Context, userID string) ([]Event, error) {
 	f.activeEventsCalls++
 	if f.err != nil {
@@ -85,6 +91,14 @@ func (f *fakeReader) CategoryForEvent(_ context.Context, eventID, categoryID str
 		return ErrCategoryNotFound
 	}
 	return nil
+}
+
+func (f *scopedFakeReader) CoordinatorAssignedToEventCategory(_ context.Context, userID, eventID, categoryID string) (bool, error) {
+	f.categoryAssignmentCalls = append(f.categoryAssignmentCalls, [3]string{userID, eventID, categoryID})
+	if f.err != nil {
+		return false, f.err
+	}
+	return f.categoryAssignments[userID+"|"+eventID+"|"+categoryID], nil
 }
 
 const (
@@ -145,6 +159,40 @@ func TestAssertCanMark_AllowsAdminForActiveEventAndOwnedCategory(t *testing.T) {
 	}
 	if len(reader.assignmentCalls) != 0 {
 		t.Error("[P0] admin live marking must not require an event coordinator assignment row")
+	}
+}
+
+func TestAssertCanMark_AdminMayUseAnyEventCategoryWithoutCoordinatorCategoryAssignment(t *testing.T) {
+	reader := &scopedFakeReader{
+		fakeReader:          newFixture(),
+		categoryAssignments: map[string]bool{},
+	}
+	policy := NewPolicy(reader)
+
+	if err := policy.AssertCanMark(context.Background(), admin(), activeEventID, categoryID); err != nil {
+		t.Fatalf("AssertCanMark(admin) = %v, want nil without coordinator category assignment", err)
+	}
+	if len(reader.categoryCalls) == 0 {
+		t.Fatal("[P0] admin live marking allowed without checking the category belongs to the event")
+	}
+	if len(reader.categoryAssignmentCalls) != 0 {
+		t.Fatalf("[P0] admin live marking consulted coordinator category assignments: %+v", reader.categoryAssignmentCalls)
+	}
+}
+
+func TestAssertCanMark_CoordinatorStillNeedsCategoryAssignment(t *testing.T) {
+	reader := &scopedFakeReader{
+		fakeReader:          newFixture(),
+		categoryAssignments: map[string]bool{},
+	}
+	policy := NewPolicy(reader)
+
+	err := policy.AssertCanMark(context.Background(), coordinator(), activeEventID, categoryID)
+	if !errors.Is(err, ErrCategoryNotFound) {
+		t.Fatalf("[P0] coordinator without category assignment error = %v, want ErrCategoryNotFound", err)
+	}
+	if len(reader.categoryAssignmentCalls) != 1 {
+		t.Fatalf("[P0] coordinator category assignment checks = %d, want 1", len(reader.categoryAssignmentCalls))
 	}
 }
 

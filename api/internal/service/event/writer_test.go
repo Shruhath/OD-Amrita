@@ -80,8 +80,8 @@ func (f *fakeWriteQueries) SetCategoryPublicVisibility(context.Context, sqlc.Set
 	return sqlc.SetCategoryPublicVisibilityRow{}, nil
 }
 
-func (f *fakeWriteQueries) UpsertCaptureCreditConfig(context.Context, sqlc.UpsertCaptureCreditConfigParams) (sqlc.UpsertCaptureCreditConfigRow, error) {
-	return sqlc.UpsertCaptureCreditConfigRow{}, nil
+func (f *fakeWriteQueries) UpdateCoordinatorCaptureCreditLimit(context.Context, sqlc.UpdateCoordinatorCaptureCreditLimitParams) (sqlc.UpdateCoordinatorCaptureCreditLimitRow, error) {
+	return sqlc.UpdateCoordinatorCaptureCreditLimitRow{}, nil
 }
 
 func (f *fakeWriteQueries) ResetCaptureCreditUsage(context.Context, sqlc.ResetCaptureCreditUsageParams) (sqlc.ResetCaptureCreditUsageRow, error) {

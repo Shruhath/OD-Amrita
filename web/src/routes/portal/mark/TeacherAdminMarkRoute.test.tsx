@@ -57,7 +57,7 @@ function installTeacherBackend(role: 'teacher' | 'admin' = 'teacher') {
       HttpResponse.json({ data: [createCategoryFixture({ event_id: eventID, name: 'Procession' })] }),
     ),
     http.get('*/api/v1/admin/events/:eventID/coordinators', () => HttpResponse.json({ data: [createCoordinatorAssignmentFixture({ event_id: eventID, email: 'coordinator@amrita.edu' })] })),
-    http.get('*/api/v1/admin/events/:eventID/capture-credits', () => HttpResponse.json(captureCreditSummary({ config: { event_id: eventID, limit: 5, updated_by_user_id: '77777777-7777-4777-8777-777777777777', updated_at: '2026-08-03T05:00:00Z' }, data: [] }))),
+    http.get('*/api/v1/admin/events/:eventID/capture-credits', () => HttpResponse.json(captureCreditSummary({ data: [] }))),
     http.get('*/api/v1/students/search', () => HttpResponse.json(reads.students)),
     http.post('*/api/v1/mark', async ({ request }) => {
       posts.push(await request.json())

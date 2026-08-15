@@ -16,18 +16,16 @@ WHERE usage_date IS NULL;
 ALTER TABLE event_capture_credit_usage
     ALTER COLUMN usage_date SET NOT NULL;
 
--- The asymmetry with event_capture_credit_config is the whole point. Usage is per
--- day so a coordinator who burns the pool on day one starts day two with a fresh
--- one. The CAP stays per event, which is what keeps the documented NFC-failure
--- fallback — an admin raising the cap mid-festival — a single PUT covering every
--- remaining day rather than one per day.
+-- Usage is per day so a coordinator who burns the pool on day one starts day
+-- two with a fresh one. Migration 0018 moves the cap onto the coordinator
+-- assignment, where it remains independent of usage_date.
 ALTER TABLE event_capture_credit_usage
     DROP CONSTRAINT event_capture_credit_usage_pkey;
 
 ALTER TABLE event_capture_credit_usage
     ADD PRIMARY KEY (event_id, user_id, usage_date);
 
-COMMENT ON COLUMN event_capture_credit_usage.usage_date IS 'Campus-local day this pool belongs to. The cap on event_capture_credit_config stays per event.';
+COMMENT ON COLUMN event_capture_credit_usage.usage_date IS 'Campus-local day this pool belongs to. The coordinator assignment cap is independent of usage_date.';
 
 -- event_capture_credit_usage_assignment_fk is OUTBOUND, to
 -- event_coordinator_assignments (user_id, event_id), so it is unaffected by this

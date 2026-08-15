@@ -116,6 +116,8 @@ type EventCoordinatorAssignment struct {
 	EventID         pgtype.UUID        `json:"event_id"`
 	CreatedByUserID pgtype.UUID        `json:"created_by_user_id"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	// Camera/search fallback credit limit for this coordinator assignment. NFC is unlimited.
+	FallbackCreditLimit int32 `json:"fallback_credit_limit"`
 }
 
 type OdRecord struct {

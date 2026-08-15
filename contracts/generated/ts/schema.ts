@@ -713,22 +713,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/admin/events/{event_id}/capture-credits/config": {
+    "/api/v1/admin/events/{event_id}/capture-credits/coordinators/{user_id}/limit": {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 event_id: string;
+                user_id: string;
             };
             cookie?: never;
         };
         get?: never;
         /**
-         * Update an event's fallback-credit cap
-         * @description Persists the event-wide camera/search credit cap. A limit of zero is a deliberate live-disable for fallback modes; NFC remains unlimited.
-         *     The cap is per event and DELIBERATELY not per day: it bounds each coordinator's daily pool, so raising it once during a venue-wide NFC failure applies to every remaining day of the event without a second call. Usage against it is tracked per day (see `CaptureCreditUsage`).
+         * Update one coordinator's fallback-credit cap
+         * @description Persists the camera/search credit cap for one coordinator assignment. A limit of zero deliberately disables fallback modes for that coordinator only; NFC remains unlimited.
          */
-        put: operations["updateAdminEventCaptureCreditConfig"];
+        put: operations["updateAdminEventCoordinatorCaptureCreditLimit"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1010,21 +1010,7 @@ export interface components {
         UpdateCategoryAccessRequest: {
             category_ids: string[];
         };
-        /** @description Event-wide fallback-credit cap for camera/search marks. */
-        CaptureCreditConfig: {
-            /** Format: uuid */
-            event_id: string;
-            /** @description Zero deliberately live-disables camera/search fallback modes. */
-            limit: number;
-            /**
-             * Format: uuid
-             * @description Null until an admin explicitly saves the event cap.
-             */
-            updated_by_user_id: string | null;
-            /** Format: date-time */
-            updated_at: string;
-        };
-        /** @description One assigned coordinator's camera/search credit usage for a SINGLE DAY — the campus-local day of the request. The cap (`limit`) stays per event so one admin change covers every remaining day, but the pool it bounds is refilled each day, which is what keeps a venue-wide NFC failure on day 3 from being throttled by day 2's usage. */
+        /** @description One assigned coordinator's camera/search credit usage for a SINGLE DAY — the campus-local day of the request. The `limit` is the cap stored on that coordinator's assignment, so admins can change one coordinator without changing any other coordinator on the same event. */
         CaptureCreditUsage: {
             /** Format: uuid */
             event_id: string;
@@ -1032,18 +1018,18 @@ export interface components {
             user_id: string;
             email: string;
             name: string | null;
+            /** @description Coordinator-specific fallback cap; zero disables camera/search only for this coordinator. */
             limit: number;
             consumed: number;
             remaining: number;
             exhausted: boolean;
         };
-        /** @description Event credit config plus bounded coordinator usage rows. */
+        /** @description Bounded coordinator usage rows. There is no unified mutable event cap. */
         CaptureCreditSummary: {
-            config: components["schemas"]["CaptureCreditConfig"];
             data: components["schemas"]["CaptureCreditUsage"][];
         };
-        UpdateCaptureCreditConfigRequest: {
-            /** @description Zero deliberately live-disables camera/search fallback modes. */
+        UpdateCaptureCreditLimitRequest: {
+            /** @description Zero deliberately disables camera/search fallback modes for this coordinator only. */
             limit: number;
         };
         /** @description A teacher's elevated role plus the branches and categories they are associated with. */
@@ -4234,31 +4220,32 @@ export interface operations {
             };
         };
     };
-    updateAdminEventCaptureCreditConfig: {
+    updateAdminEventCoordinatorCaptureCreditLimit: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 event_id: string;
+                user_id: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UpdateCaptureCreditConfigRequest"];
+                "application/json": components["schemas"]["UpdateCaptureCreditLimitRequest"];
             };
         };
         responses: {
-            /** @description Persisted event credit config. */
+            /** @description Updated usage for the assigned coordinator. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CaptureCreditConfig"];
+                    "application/json": components["schemas"]["CaptureCreditUsage"];
                 };
             };
-            /** @description Malformed event id or invalid limit. */
+            /** @description Malformed event/user id or invalid limit. */
             400: {
                 headers: {
                     [name: string]: unknown;

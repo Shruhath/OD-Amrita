@@ -246,14 +246,8 @@ func TestMultiDaySchema_DatabaseRefusesAnODDateOutsideTheEventRange(t *testing.T
 	}
 }
 
-// 0.12a-DB-005 — credit USAGE is per day; the credit CAP stays per event.
-//
-// T12, and the asymmetry is the whole point. The cap living on
-// `event_capture_credit_config` unchanged is what keeps the documented NFC-failure
-// fallback — an admin raising the cap mid-festival — a SINGLE PUT that covers
-// every remaining day. Making the cap per-day would mean thirty PUTs during the
-// exact incident the fallback exists for.
-func TestMultiDaySchema_CreditUsageIsPerDayWhileTheCapStaysPerEvent(t *testing.T) {
+// 0.12a-DB-005 — credit USAGE is per day; the coordinator CAP is not.
+func TestMultiDaySchema_CreditUsageIsPerDayWhileTheCapStaysOnAssignment(t *testing.T) {
 	ctx := testCtx(t)
 	migrator := connect(t, ctx, dsnOrSkip(t, envMigratorDSN))
 
@@ -279,12 +273,14 @@ func TestMultiDaySchema_CreditUsageIsPerDayWhileTheCapStaysPerEvent(t *testing.T
 		}
 	}
 
-	// The CAP table must be untouched. A `usage_date` appearing here would mean
-	// the cap became per-day, which breaks the live cap raise.
-	if _, _, exists := optionalColumnShape(t, ctx, migrator, "event_capture_credit_config", "usage_date"); exists {
-		t.Errorf("[P0] event_capture_credit_config gained a date column. The CAP is per EVENT and stays that " +
-			"way (T12): one admin PUT must cover every remaining day, because the live cap raise is the " +
-			"documented fallback when NFC fails at the venue")
+	// The cap lives on the coordinator assignment and must not gain a usage date;
+	// usage rows reset daily, limits do not.
+	dataType, nullable = columnShape(t, ctx, migrator, "event_coordinator_assignments", "fallback_credit_limit")
+	if dataType != "integer" || nullable != "NO" {
+		t.Errorf("[P0] event_coordinator_assignments.fallback_credit_limit shape = %s/%s, want integer/NO", dataType, nullable)
+	}
+	if _, _, exists := optionalColumnShape(t, ctx, migrator, "event_coordinator_assignments", "usage_date"); exists {
+		t.Errorf("[P0] event_coordinator_assignments gained a usage_date column. Usage resets daily; the coordinator cap itself must not become per-day")
 	}
 }
 

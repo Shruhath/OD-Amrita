@@ -10,7 +10,6 @@ import { server } from '../../../test/server'
 import { createEventFixture, testBranches } from '../../../../tests/support/factories/event'
 import { createCategoryFixture, testEventID } from '../../../../tests/support/factories/category'
 import {
-  captureCreditConfig,
   captureCreditSummary,
   captureCreditUsage,
 } from '../../../../tests/support/factories/captureCredits'
@@ -21,7 +20,7 @@ const adminEventItemPath = /\/api\/v1\/admin\/events\/[^/?]+$/
 const adminEventCategoriesPath = /\/api\/v1\/admin\/events\/[^/?]+\/categories$/
 const adminEventCoordinatorsPath = /\/api\/v1\/admin\/events\/[^/?]+\/coordinators$/
 const adminEventCreditsPath = /\/api\/v1\/admin\/events\/[^/?]+\/capture-credits$/
-const adminEventCreditConfigPath = /\/api\/v1\/admin\/events\/[^/?]+\/capture-credits\/config$/
+const adminEventCreditLimitPath = /\/api\/v1\/admin\/events\/[^/?]+\/capture-credits\/coordinators\/[^/?]+\/limit$/
 const adminEventCreditResetPath = /\/api\/v1\/admin\/events\/[^/?]+\/capture-credits\/coordinators\/[^/?]+\/reset$/
 const adminEventAttendancePath = /\/api\/v1\/admin\/events\/[^/?]+\/attendance(?:\?.*)?$/
 
@@ -37,14 +36,23 @@ function session(): SessionPort {
 
 function renderEventDetail(status: 'active' | 'archived' = 'active') {
   let summary = captureCreditSummary({
-    config: captureCreditConfig({ event_id: testEventID, limit: 5 }),
     data: [
       captureCreditUsage({
         event_id: testEventID,
+        user_id: '11111111-1111-4111-8111-111111111111',
         email: 'coordinator-a@amrita.edu',
         name: 'Coordinator A',
         consumed: 4,
         remaining: 1,
+      }),
+      captureCreditUsage({
+        event_id: testEventID,
+        user_id: '22222222-2222-4222-8222-222222222222',
+        email: 'coordinator-b@amrita.edu',
+        name: 'Coordinator B',
+        limit: 20,
+        consumed: 0,
+        remaining: 20,
       }),
     ],
   })
@@ -73,15 +81,19 @@ function renderEventDetail(status: 'active' | 'archived' = 'active') {
       HttpResponse.json({ data: [], page: 1, page_size: 20, total: 0 }),
     ),
     http.get(adminEventCreditsPath, () => HttpResponse.json(summary)),
-    http.put(adminEventCreditConfigPath, async ({ request }) => {
-      calls.push('config')
+    http.put(adminEventCreditLimitPath, async ({ request }) => {
+      calls.push('limit')
       const input = (await request.json()) as { limit: number }
-      summary = { ...summary, config: captureCreditConfig({ event_id: testEventID, limit: input.limit }) }
-      return HttpResponse.json(summary.config)
+      const userID = new URL(request.url).pathname.split('/').at(-2)
+      const updated = { ...summary.data.find((row) => row.user_id === userID)!, limit: input.limit }
+      updated.remaining = Math.max(0, updated.limit - updated.consumed)
+      updated.exhausted = updated.consumed >= updated.limit
+      summary = { ...summary, data: summary.data.map((row) => (row.user_id === updated.user_id ? updated : row)) }
+      return HttpResponse.json(updated)
     }),
     http.post(adminEventCreditResetPath, () => {
       calls.push('reset')
-      const reset = { ...summary.data[0], consumed: 0, remaining: summary.config.limit, exhausted: false }
+      const reset = { ...summary.data[0], consumed: 0, remaining: summary.data[0].limit, exhausted: false }
       summary = { ...summary, data: [reset] }
       return HttpResponse.json(reset)
     }),
@@ -106,30 +118,33 @@ describe('event detail fallback credits', () => {
     expect(within(section).getByText(/1 remaining/i)).toBeInTheDocument()
   })
 
-  test('[P0] persists a cap change and refreshes the displayed value', async () => {
+  test('[P0] persists one coordinator cap change and refreshes only that row', async () => {
     const user = userEvent.setup()
     const { calls } = renderEventDetail()
 
-    const input = await screen.findByLabelText(/fallback credit cap/i)
+    const row = (await screen.findByText('Coordinator A')).closest('li')!
+    const input = within(row).getByLabelText(/cap/i)
     await user.clear(input)
     await user.type(input, '8')
-    await user.click(screen.getByRole('button', { name: /save cap/i }))
+    await user.click(within(row).getByRole('button', { name: /edit cap/i }))
 
-    expect(calls).toContain('config')
-    expect(await screen.findByText(/cap: 8/i)).toBeInTheDocument()
+    expect(calls).toContain('limit')
+    expect(await screen.findByText(/limit 8/i)).toBeInTheDocument()
+    expect(screen.getByText(/limit 20/i)).toBeInTheDocument()
   })
 
   test('[P1] rejects fractional cap input before sending the request', async () => {
     const user = userEvent.setup()
     const { calls } = renderEventDetail()
 
-    const input = await screen.findByLabelText(/fallback credit cap/i)
+    const row = (await screen.findByText('Coordinator A')).closest('li')!
+    const input = within(row).getByLabelText(/cap/i)
     await user.clear(input)
     await user.type(input, '1.5')
-    await user.click(screen.getByRole('button', { name: /save cap/i }))
+    await user.click(within(row).getByRole('button', { name: /edit cap/i }))
 
     expect(await screen.findByText(/whole number/i)).toBeInTheDocument()
-    expect(calls).not.toContain('config')
+    expect(calls).not.toContain('limit')
   })
 
   test('[P0] resets one coordinator without a page reload', async () => {
@@ -150,7 +165,7 @@ describe('event detail fallback credits', () => {
 
     const section = await screen.findByRole('region', { name: /fallback credits/i })
     expect(within(section).getByText('coordinator-a@amrita.edu')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /save cap/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /edit cap/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /reset coordinator/i })).not.toBeInTheDocument()
   })
 })

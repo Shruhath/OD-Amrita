@@ -114,9 +114,9 @@ func (s reachingService) ListCaptureCredits(context.Context, eventsvc.Actor, str
 	return eventsvc.CaptureCreditSummary{}, nil
 }
 
-func (s reachingService) UpdateCaptureCreditConfig(context.Context, eventsvc.Actor, eventsvc.CaptureCreditConfigInput) (eventsvc.CaptureCreditConfig, error) {
+func (s reachingService) UpdateCoordinatorCaptureCreditLimit(context.Context, eventsvc.Actor, eventsvc.CaptureCreditLimitInput) (eventsvc.CaptureCreditUsage, error) {
 	s.reached.hits++
-	return eventsvc.CaptureCreditConfig{}, nil
+	return eventsvc.CaptureCreditUsage{}, nil
 }
 
 func (s reachingService) ResetCaptureCredits(context.Context, eventsvc.Actor, string, string) (eventsvc.CaptureCreditUsage, error) {

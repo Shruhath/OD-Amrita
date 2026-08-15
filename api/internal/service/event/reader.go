@@ -160,17 +160,6 @@ func (r *SQLCReader) GetCoordinatorAssignment(ctx context.Context, eventID, user
 	return mapCoordinatorAssignment(row.ID, row.UserID, row.Email, row.Name, row.EventID, categories, row.CreatedAt)
 }
 
-func (r *SQLCReader) GetCaptureCreditConfig(ctx context.Context, eventID uuid.UUID) (CaptureCreditConfig, error) {
-	row, err := r.queries.GetCaptureCreditConfig(ctx, dbUUID(eventID))
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return CaptureCreditConfig{}, ErrEventNotFound
-		}
-		return CaptureCreditConfig{}, err
-	}
-	return mapCaptureCreditConfig(row.EventID, row.CreditLimit, row.UpdatedByUserID, row.UpdatedAt)
-}
-
 func (r *SQLCReader) ListCaptureCreditUsageByEvent(ctx context.Context, eventID uuid.UUID, usageDate time.Time) ([]CaptureCreditUsage, error) {
 	rows, err := r.queries.ListCaptureCreditUsageByEvent(ctx, sqlc.ListCaptureCreditUsageByEventParams{
 		EventID:   dbUUID(eventID),
@@ -339,23 +328,6 @@ func parseCategoriesJSON(value any) ([]Category, error) {
 		})
 	}
 	return categories, nil
-}
-
-func mapCaptureCreditConfig(id pgtype.UUID, limit int32, updatedBy pgtype.UUID, updatedAt pgtype.Timestamptz) (CaptureCreditConfig, error) {
-	if !id.Valid || !updatedAt.Valid {
-		return CaptureCreditConfig{}, errors.New("event: capture credit config row contains invalid required values")
-	}
-	var updatedByUserID *string
-	if updatedBy.Valid {
-		value := uuid.UUID(updatedBy.Bytes).String()
-		updatedByUserID = &value
-	}
-	return CaptureCreditConfig{
-		EventID:         uuid.UUID(id.Bytes).String(),
-		Limit:           int(limit),
-		UpdatedByUserID: updatedByUserID,
-		UpdatedAt:       updatedAt.Time,
-	}, nil
 }
 
 func mapCaptureCreditUsage(

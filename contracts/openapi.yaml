@@ -2136,7 +2136,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /api/v1/admin/events/{event_id}/capture-credits/config:
+  /api/v1/admin/events/{event_id}/capture-credits/coordinators/{user_id}/limit:
     parameters:
       - name: event_id
         in: path
@@ -2144,17 +2144,19 @@ paths:
         schema:
           type: string
           format: uuid
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
     put:
-      operationId: updateAdminEventCaptureCreditConfig
-      summary: Update an event's fallback-credit cap
+      operationId: updateAdminEventCoordinatorCaptureCreditLimit
+      summary: Update one coordinator's fallback-credit cap
       description: >-
-        Persists the event-wide camera/search credit cap. A limit of zero is a
-        deliberate live-disable for fallback modes; NFC remains unlimited.
-
-        The cap is per event and DELIBERATELY not per day: it bounds each
-        coordinator's daily pool, so raising it once during a venue-wide NFC
-        failure applies to every remaining day of the event without a second
-        call. Usage against it is tracked per day (see `CaptureCreditUsage`).
+        Persists the camera/search credit cap for one coordinator assignment.
+        A limit of zero deliberately disables fallback modes for that
+        coordinator only; NFC remains unlimited.
       security:
         - bearerAuth: []
       requestBody:
@@ -2162,16 +2164,16 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UpdateCaptureCreditConfigRequest"
+              $ref: "#/components/schemas/UpdateCaptureCreditLimitRequest"
       responses:
         "200":
-          description: Persisted event credit config.
+          description: Updated usage for the assigned coordinator.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CaptureCreditConfig"
+                $ref: "#/components/schemas/CaptureCreditUsage"
         "400":
-          description: Malformed event id or invalid limit.
+          description: Malformed event/user id or invalid limit.
           content:
             application/json:
               schema:
@@ -3004,36 +3006,13 @@ components:
             type: string
             format: uuid
 
-    CaptureCreditConfig:
-      type: object
-      description: Event-wide fallback-credit cap for camera/search marks.
-      required: [event_id, limit, updated_by_user_id, updated_at]
-      properties:
-        event_id:
-          type: string
-          format: uuid
-        limit:
-          type: integer
-          minimum: 0
-          maximum: 2147483647
-          description: Zero deliberately live-disables camera/search fallback modes.
-        updated_by_user_id:
-          type: string
-          format: uuid
-          nullable: true
-          description: Null until an admin explicitly saves the event cap.
-        updated_at:
-          type: string
-          format: date-time
-
     CaptureCreditUsage:
       type: object
       description: >-
         One assigned coordinator's camera/search credit usage for a SINGLE DAY —
-        the campus-local day of the request. The cap (`limit`) stays per event so
-        one admin change covers every remaining day, but the pool it bounds is
-        refilled each day, which is what keeps a venue-wide NFC failure on day 3
-        from being throttled by day 2's usage.
+        the campus-local day of the request. The `limit` is the cap stored on
+        that coordinator's assignment, so admins can change one coordinator
+        without changing any other coordinator on the same event.
       required: [event_id, user_id, email, name, limit, consumed, remaining, exhausted]
       properties:
         event_id:
@@ -3050,6 +3029,8 @@ components:
         limit:
           type: integer
           minimum: 0
+          maximum: 2147483647
+          description: Coordinator-specific fallback cap; zero disables camera/search only for this coordinator.
         consumed:
           type: integer
           minimum: 0
@@ -3061,17 +3042,15 @@ components:
 
     CaptureCreditSummary:
       type: object
-      description: Event credit config plus bounded coordinator usage rows.
-      required: [config, data]
+      description: Bounded coordinator usage rows. There is no unified mutable event cap.
+      required: [data]
       properties:
-        config:
-          $ref: "#/components/schemas/CaptureCreditConfig"
         data:
           type: array
           items:
             $ref: "#/components/schemas/CaptureCreditUsage"
 
-    UpdateCaptureCreditConfigRequest:
+    UpdateCaptureCreditLimitRequest:
       type: object
       required: [limit]
       properties:
@@ -3079,7 +3058,7 @@ components:
           type: integer
           minimum: 0
           maximum: 2147483647
-          description: Zero deliberately live-disables camera/search fallback modes.
+          description: Zero deliberately disables camera/search fallback modes for this coordinator only.
 
     TeacherProfile:
       type: object

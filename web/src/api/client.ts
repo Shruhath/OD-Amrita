@@ -15,10 +15,9 @@ export type CoordinatorAssignment = components['schemas']['CoordinatorAssignment
 export type CoordinatorAssignmentCollection = components['schemas']['CoordinatorAssignmentCollection']
 export type CreateCoordinatorAssignmentInput = components['schemas']['CreateCoordinatorAssignmentRequest']
 export type UpdateCategoryAccessInput = components['schemas']['UpdateCategoryAccessRequest']
-export type CaptureCreditConfig = components['schemas']['CaptureCreditConfig']
 export type CaptureCreditUsage = components['schemas']['CaptureCreditUsage']
 export type CaptureCreditSummary = components['schemas']['CaptureCreditSummary']
-export type UpdateCaptureCreditConfigInput = components['schemas']['UpdateCaptureCreditConfigRequest']
+export type UpdateCaptureCreditLimitInput = components['schemas']['UpdateCaptureCreditLimitRequest']
 export type TeacherProfile = components['schemas']['TeacherProfile']
 export type TeacherProfileCollection = components['schemas']['TeacherProfileCollection']
 export type CreateTeacherProfileInput = components['schemas']['CreateTeacherProfileRequest']
@@ -336,9 +335,9 @@ export function createEventApi(session: SessionPort) {
         params: { path: { event_id: eventID } },
       }))
     },
-    async updateCaptureCreditConfig(eventID: string, input: UpdateCaptureCreditConfigInput) {
-      return unwrap(await client.PUT('/api/v1/admin/events/{event_id}/capture-credits/config', {
-        params: { path: { event_id: eventID } },
+    async updateCaptureCreditLimit(eventID: string, userID: string, input: UpdateCaptureCreditLimitInput) {
+      return unwrap(await client.PUT('/api/v1/admin/events/{event_id}/capture-credits/coordinators/{user_id}/limit', {
+        params: { path: { event_id: eventID, user_id: userID } },
         body: input,
       }))
     },

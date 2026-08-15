@@ -598,31 +598,19 @@ type BranchSummary struct {
 	Name string             `json:"name"`
 }
 
-// CaptureCreditConfig Event-wide fallback-credit cap for camera/search marks.
-type CaptureCreditConfig struct {
-	EventId openapi_types.UUID `json:"event_id"`
-
-	// Limit Zero deliberately live-disables camera/search fallback modes.
-	Limit     int       `json:"limit"`
-	UpdatedAt time.Time `json:"updated_at"`
-
-	// UpdatedByUserId Null until an admin explicitly saves the event cap.
-	UpdatedByUserId *openapi_types.UUID `json:"updated_by_user_id"`
-}
-
-// CaptureCreditSummary Event credit config plus bounded coordinator usage rows.
+// CaptureCreditSummary Bounded coordinator usage rows. There is no unified mutable event cap.
 type CaptureCreditSummary struct {
-	// Config Event-wide fallback-credit cap for camera/search marks.
-	Config CaptureCreditConfig  `json:"config"`
-	Data   []CaptureCreditUsage `json:"data"`
+	Data []CaptureCreditUsage `json:"data"`
 }
 
-// CaptureCreditUsage One assigned coordinator's camera/search credit usage for a SINGLE DAY — the campus-local day of the request. The cap (`limit`) stays per event so one admin change covers every remaining day, but the pool it bounds is refilled each day, which is what keeps a venue-wide NFC failure on day 3 from being throttled by day 2's usage.
+// CaptureCreditUsage One assigned coordinator's camera/search credit usage for a SINGLE DAY — the campus-local day of the request. The `limit` is the cap stored on that coordinator's assignment, so admins can change one coordinator without changing any other coordinator on the same event.
 type CaptureCreditUsage struct {
 	Consumed  int                `json:"consumed"`
 	Email     string             `json:"email"`
 	EventId   openapi_types.UUID `json:"event_id"`
 	Exhausted bool               `json:"exhausted"`
+
+	// Limit Coordinator-specific fallback cap; zero disables camera/search only for this coordinator.
 	Limit     int                `json:"limit"`
 	Name      *string            `json:"name"`
 	Remaining int                `json:"remaining"`
@@ -1277,9 +1265,9 @@ type TeacherProfileCollection struct {
 	Total    int              `json:"total"`
 }
 
-// UpdateCaptureCreditConfigRequest defines model for UpdateCaptureCreditConfigRequest.
-type UpdateCaptureCreditConfigRequest struct {
-	// Limit Zero deliberately live-disables camera/search fallback modes.
+// UpdateCaptureCreditLimitRequest defines model for UpdateCaptureCreditLimitRequest.
+type UpdateCaptureCreditLimitRequest struct {
+	// Limit Zero deliberately disables camera/search fallback modes for this coordinator only.
 	Limit int `json:"limit"`
 }
 
@@ -1466,8 +1454,8 @@ type ResolveAdminCardTokenJSONRequestBody = CardTokenResolveRequest
 // CreateAdminEventJSONRequestBody defines body for CreateAdminEvent for application/json ContentType.
 type CreateAdminEventJSONRequestBody = CreateEventRequest
 
-// UpdateAdminEventCaptureCreditConfigJSONRequestBody defines body for UpdateAdminEventCaptureCreditConfig for application/json ContentType.
-type UpdateAdminEventCaptureCreditConfigJSONRequestBody = UpdateCaptureCreditConfigRequest
+// UpdateAdminEventCoordinatorCaptureCreditLimitJSONRequestBody defines body for UpdateAdminEventCoordinatorCaptureCreditLimit for application/json ContentType.
+type UpdateAdminEventCoordinatorCaptureCreditLimitJSONRequestBody = UpdateCaptureCreditLimitRequest
 
 // CreateAdminEventCategoryJSONRequestBody defines body for CreateAdminEventCategory for application/json ContentType.
 type CreateAdminEventCategoryJSONRequestBody = CreateCategoryRequest

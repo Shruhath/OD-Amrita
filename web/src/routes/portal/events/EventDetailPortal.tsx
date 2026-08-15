@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'motion/react'
@@ -38,8 +38,8 @@ export default function EventDetailPortal() {
   const [editingCoordinatorCategoryIDs, setEditingCoordinatorCategoryIDs] = useState<string[]>([])
   const [coordinatorFieldError, setCoordinatorFieldError] = useState<string | null>(null)
   const [coordinatorFormError, setCoordinatorFormError] = useState<string | null>(null)
-  const [creditLimit, setCreditLimit] = useState('5')
-  const [creditFieldError, setCreditFieldError] = useState<string | null>(null)
+  const [creditLimitDrafts, setCreditLimitDrafts] = useState<Record<string, string>>({})
+  const [creditFieldErrors, setCreditFieldErrors] = useState<Record<string, string | undefined>>({})
   const [creditFormError, setCreditFormError] = useState<string | null>(null)
   const [resetCandidate, setResetCandidate] = useState<CaptureCreditUsage | null>(null)
 
@@ -173,10 +173,16 @@ export default function EventDetailPortal() {
     },
   })
 
-  const updateCreditConfig = useMutation({
-    mutationFn: (limit: number) => api.updateCaptureCreditConfig(eventID, { limit }),
-    onSuccess: () => {
-      setCreditFieldError(null)
+  const updateCreditLimit = useMutation({
+    mutationFn: ({ userID, limit }: { userID: string; limit: number }) => api.updateCaptureCreditLimit(eventID, userID, { limit }),
+    onSuccess: (updated) => {
+      if (credits.isSuccess) {
+        queryClient.setQueryData(currentCreditKey, (current: typeof credits.data | undefined) => (
+          current ? { ...current, data: current.data.map((row) => (row.user_id === updated.user_id ? updated : row)) } : current
+        ))
+      }
+      setCreditLimitDrafts((current) => ({ ...current, [updated.user_id]: String(updated.limit) }))
+      setCreditFieldErrors((current) => ({ ...current, [updated.user_id]: undefined }))
       setCreditFormError(null)
       void queryClient.invalidateQueries({ queryKey: currentCreditKey })
       void queryClient.invalidateQueries({ queryKey: ['mark-status'] })
@@ -184,11 +190,11 @@ export default function EventDetailPortal() {
     onError: (cause) => {
       const detail = fieldDetail(cause, 'limit')
       if (detail) {
-        setCreditFieldError(detail)
+        const variables = updateCreditLimit.variables
+        if (variables) setCreditFieldErrors((current) => ({ ...current, [variables.userID]: detail }))
         setCreditFormError(null)
         return
       }
-      setCreditFieldError(null)
       setCreditFormError(messageOf(cause, 'The fallback credit cap could not be saved'))
       if (cause instanceof ApiFailure && cause.body.code === 'EVENT_ARCHIVED') {
         markEventArchived(queryClient, currentEventKey)
@@ -227,12 +233,6 @@ export default function EventDetailPortal() {
   const canSubmitCoordinator = coordinatorEmail.trim().length > 0 && coordinatorCategoryIDs.length > 0 && !createCoordinator.isPending
   const notFound = events.isError && events.error instanceof ApiFailure
     && events.error.body.code === 'EVENT_NOT_FOUND'
-
-  useEffect(() => {
-    if (credits.isSuccess && !updateCreditConfig.isPending) {
-      setCreditLimit(String(credits.data.config.limit))
-    }
-  }, [credits.isSuccess, credits.data?.config.limit, updateCreditConfig.isPending])
 
   const changeName = (value: string) => {
     setName(value)
@@ -281,9 +281,9 @@ export default function EventDetailPortal() {
     updateCoordinatorAccess.mutate({ userID: coordinator.user_id, categoryIDs: editingCoordinatorCategoryIDs })
   }
 
-  const changeCreditLimit = (value: string) => {
-    setCreditLimit(value)
-    if (creditFieldError) setCreditFieldError(null)
+  const changeCreditLimit = (userID: string, value: string) => {
+    setCreditLimitDrafts((current) => ({ ...current, [userID]: value }))
+    setCreditFieldErrors((current) => ({ ...current, [userID]: undefined }))
     if (creditFormError) setCreditFormError(null)
   }
 
@@ -305,16 +305,16 @@ export default function EventDetailPortal() {
     createCoordinator.mutate(trimmed)
   }
 
-  const submitCreditLimit = (submitEvent: FormEvent) => {
+  const submitCreditLimit = (submitEvent: FormEvent, row: CaptureCreditUsage) => {
     submitEvent.preventDefault()
-    const trimmed = creditLimit.trim()
+    const trimmed = (creditLimitDrafts[row.user_id] ?? String(row.limit)).trim()
     const parsed = Number(trimmed)
     if (trimmed === '' || !Number.isInteger(parsed) || parsed < 0) {
-      setCreditFieldError('Enter a whole number of 0 or more.')
+      setCreditFieldErrors((current) => ({ ...current, [row.user_id]: 'Enter a whole number of 0 or more.' }))
       setCreditFormError(null)
       return
     }
-    updateCreditConfig.mutate(parsed)
+    updateCreditLimit.mutate({ userID: row.user_id, limit: parsed })
   }
 
   return (
@@ -656,54 +656,26 @@ export default function EventDetailPortal() {
 
             {credits.isSuccess && (
               <div className="flex flex-col gap-4">
-                <div className="flex items-center gap-4 p-4 bg-canvas rounded-[10px] border border-border">
-                  <div className="text-4xl font-black tracking-tight">{credits.data.config.limit}</div>
-                  <div>
-                    <p className="text-sm font-semibold">Cap: {credits.data.config.limit} credits per coordinator per day</p>
-                    <p className="text-xs text-foreground-muted">Resets at midnight IST</p>
-                  </div>
-                </div>
-
                 {creditData.length > 0 && (
                   <ul className="flex flex-col gap-2" aria-label="Fallback credit usage">
                     {creditData.map((row) => (
                       <CreditUsageRow
                         key={row.user_id}
                         row={row}
+                        draftLimit={creditLimitDrafts[row.user_id] ?? String(row.limit)}
+                        fieldError={creditFieldErrors[row.user_id] ?? null}
                         readOnly={event.status === 'archived'}
+                        limitPending={updateCreditLimit.isPending && updateCreditLimit.variables?.userID === row.user_id}
                         resetPending={resetCredits.isPending}
+                        onLimitChange={(value) => changeCreditLimit(row.user_id, value)}
+                        onLimitSubmit={(submitEvent) => submitCreditLimit(submitEvent, row)}
                         onReset={() => setResetCandidate(row)}
                       />
                     ))}
                   </ul>
                 )}
 
-                {event.status === 'active' && (
-                  <form onSubmit={submitCreditLimit} noValidate className="flex flex-col gap-2 pt-4 border-t border-border">
-                    <label htmlFor="fallback-credit-limit" className="text-sm font-semibold">Fallback credit cap</label>
-                    <div className="flex gap-2">
-                      <input
-                        id="fallback-credit-limit"
-                        type="number"
-                        min="0"
-                        value={creditLimit}
-                        onChange={(e) => changeCreditLimit(e.target.value)}
-                        aria-invalid={creditFieldError ? 'true' : undefined}
-                        aria-describedby={creditFieldError ? 'fallback-credit-limit-error' : undefined}
-                        className={`w-28 bg-canvas border focus:ring-1 rounded-[10px] px-3 py-2 text-sm outline-none transition-all ${creditFieldError ? 'border-status-error-fg focus:border-status-error-fg focus:ring-status-error-fg' : 'border-border focus:border-foreground focus:ring-foreground'}`}
-                      />
-                      <button
-                        className="bg-primary text-primary-foreground px-4 py-2 rounded-[10px] text-sm font-semibold active:scale-95 transition-all disabled:opacity-50"
-                        type="submit"
-                        disabled={updateCreditConfig.isPending}
-                      >
-                        {updateCreditConfig.isPending ? 'Saving…' : 'Save cap'}
-                      </button>
-                    </div>
-                    {creditFieldError && <p className="text-sm font-medium text-status-error-fg" id="fallback-credit-limit-error">{creditFieldError}</p>}
-                    {creditFormError && <p className="text-sm text-status-error-fg bg-status-error-bg p-3 rounded-[10px] border border-status-error-fg/20" role="alert">{creditFormError}</p>}
-                  </form>
-                )}
+                {creditFormError && <p className="text-sm text-status-error-fg bg-status-error-bg p-3 rounded-[10px] border border-status-error-fg/20" role="alert">{creditFormError}</p>}
                 {event.status === 'archived' && (
                   <p className="text-xs text-foreground-muted italic">This event is archived. Fallback credits are read-only.</p>
                 )}
@@ -768,41 +740,76 @@ export default function EventDetailPortal() {
 
 function CreditUsageRow({
   row,
+  draftLimit,
+  fieldError,
   readOnly,
+  limitPending,
   resetPending,
+  onLimitChange,
+  onLimitSubmit,
   onReset,
 }: {
   row: CaptureCreditUsage
+  draftLimit: string
+  fieldError: string | null
   readOnly: boolean
+  limitPending: boolean
   resetPending: boolean
+  onLimitChange(value: string): void
+  onLimitSubmit(event: FormEvent): void
   onReset(): void
 }) {
+  const inputID = `fallback-credit-limit-${row.user_id}`
+  const errorID = `fallback-credit-limit-error-${row.user_id}`
   return (
-    <li className="flex items-center justify-between p-3 bg-canvas rounded-[10px] border border-border">
-      <div className="flex items-center gap-3">
+    <li className="flex flex-col gap-3 p-3 bg-canvas rounded-[10px] border border-border md:flex-row md:items-center md:justify-between">
+      <div className="flex items-center gap-3 min-w-0">
         <div className="w-8 h-8 rounded-full bg-foreground/10 flex items-center justify-center text-xs font-bold shrink-0">
           {(row.name ?? row.email).slice(0, 2).toUpperCase()}
         </div>
-        <div className="flex flex-col">
+        <div className="flex flex-col min-w-0">
           <span className="text-sm font-semibold">{row.name ?? row.email}</span>
           {row.name && <span className="text-xs text-foreground-muted">{row.email}</span>}
-          <span className="text-xs text-foreground-muted mt-0.5">{row.consumed} used · {row.remaining} remaining</span>
+          <span className="text-xs text-foreground-muted mt-0.5">Limit {row.limit} · {row.consumed} used · {row.remaining} remaining</span>
         </div>
       </div>
-      <div className="flex items-center gap-3 shrink-0">
+      <div className="flex flex-col gap-2 md:items-end">
         {row.exhausted && (
-          <span className="text-xs font-bold px-2 py-1 bg-status-error-bg text-status-error-fg rounded-md">Exhausted</span>
+          <span className="text-xs font-bold px-2 py-1 bg-status-error-bg text-status-error-fg rounded-md self-start md:self-end">Exhausted</span>
         )}
         {!readOnly && (
-          <button
-            type="button"
-            className="text-xs font-medium px-3 py-1.5 rounded-[10px] border border-border hover:bg-surface active:scale-95 transition-all disabled:opacity-50"
-            disabled={resetPending}
-            onClick={onReset}
-            aria-label={`Reset ${row.email}`}
-          >
-            Reset
-          </button>
+          <div className="flex flex-col gap-2">
+            <form onSubmit={onLimitSubmit} noValidate className="flex flex-wrap items-center gap-2">
+              <label htmlFor={inputID} className="text-xs font-semibold">Cap</label>
+              <input
+                id={inputID}
+                type="number"
+                min="0"
+                value={draftLimit}
+                onChange={(event) => onLimitChange(event.target.value)}
+                aria-invalid={fieldError ? 'true' : undefined}
+                aria-describedby={fieldError ? errorID : undefined}
+                className={`w-24 bg-surface border focus:ring-1 rounded-[10px] px-3 py-1.5 text-sm outline-none transition-all ${fieldError ? 'border-status-error-fg focus:border-status-error-fg focus:ring-status-error-fg' : 'border-border focus:border-foreground focus:ring-foreground'}`}
+              />
+              <button
+                className="text-xs font-medium px-3 py-1.5 rounded-[10px] border border-border hover:bg-surface active:scale-95 transition-all disabled:opacity-50"
+                type="submit"
+                disabled={limitPending}
+              >
+                {limitPending ? 'Saving…' : 'Edit cap'}
+              </button>
+              <button
+                type="button"
+                className="text-xs font-medium px-3 py-1.5 rounded-[10px] border border-border hover:bg-surface active:scale-95 transition-all disabled:opacity-50"
+                disabled={resetPending}
+                onClick={onReset}
+                aria-label={`Reset ${row.email}`}
+              >
+                Reset
+              </button>
+            </form>
+            {fieldError && <p className="text-sm font-medium text-status-error-fg" id={errorID}>{fieldError}</p>}
+          </div>
         )}
       </div>
     </li>

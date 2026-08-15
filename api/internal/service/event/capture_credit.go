@@ -16,13 +16,6 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/store"
 )
 
-type CaptureCreditConfig struct {
-	EventID         string
-	Limit           int
-	UpdatedByUserID *string
-	UpdatedAt       time.Time
-}
-
 type CaptureCreditUsage struct {
 	EventID   string
 	UserID    string
@@ -35,23 +28,24 @@ type CaptureCreditUsage struct {
 }
 
 type CaptureCreditSummary struct {
-	Config CaptureCreditConfig
-	Data   []CaptureCreditUsage
+	Data []CaptureCreditUsage
 }
 
-type CaptureCreditConfigInput struct {
+type CaptureCreditLimitInput struct {
 	EventID string
+	UserID  string
 	Limit   int
 }
 
-type CaptureCreditConfigWrite struct {
+type CaptureCreditLimitWrite struct {
 	EventID         uuid.UUID
+	UserID          uuid.UUID
 	Limit           int
 	UpdatedByUserID uuid.UUID
 }
 
-type CaptureCreditConfigWriteResult struct {
-	Config        CaptureCreditConfig
+type CaptureCreditLimitWriteResult struct {
+	Usage         CaptureCreditUsage
 	PreviousLimit int
 }
 
@@ -67,19 +61,14 @@ type CaptureCreditResetWriteResult struct {
 	PreviousConsumed int
 }
 
-// CaptureCreditReader reads the cap and the per-day usage.
-//
-// GetCaptureCreditConfig takes NO day: the cap is per event and stays that way,
-// which is what keeps a mid-festival cap raise one call covering every remaining
-// day. The two usage reads take one, because usage is per day.
+// CaptureCreditReader reads each assigned coordinator's cap and per-day usage.
 type CaptureCreditReader interface {
-	GetCaptureCreditConfig(context.Context, uuid.UUID) (CaptureCreditConfig, error)
 	ListCaptureCreditUsageByEvent(context.Context, uuid.UUID, time.Time) ([]CaptureCreditUsage, error)
 	GetCaptureCreditUsageForCoordinator(context.Context, uuid.UUID, uuid.UUID, time.Time) (CaptureCreditUsage, error)
 }
 
 type CaptureCreditWriter interface {
-	UpsertCaptureCreditConfig(context.Context, pgx.Tx, CaptureCreditConfigWrite) (CaptureCreditConfigWriteResult, bool, error)
+	UpdateCoordinatorCaptureCreditLimit(context.Context, pgx.Tx, CaptureCreditLimitWrite) (CaptureCreditLimitWriteResult, bool, error)
 	ResetCaptureCreditUsage(context.Context, pgx.Tx, CaptureCreditResetWrite) (CaptureCreditResetWriteResult, bool, error)
 }
 
@@ -101,10 +90,6 @@ func (s *Service) ListCaptureCredits(ctx context.Context, actor Actor, rawEventI
 	if _, err := s.eventStatus(ctx, eventID); err != nil {
 		return CaptureCreditSummary{}, err
 	}
-	config, err := s.creditReader.GetCaptureCreditConfig(ctx, eventID)
-	if err != nil {
-		return CaptureCreditSummary{}, err
-	}
 	// The admin surface acts on TODAY. A live cap intervention is only ever about
 	// the day in progress, and no day parameter is offered on these endpoints: an
 	// admin choosing a past day would be asking to change a number that can no
@@ -113,43 +98,48 @@ func (s *Service) ListCaptureCredits(ctx context.Context, actor Actor, rawEventI
 	if err != nil {
 		return CaptureCreditSummary{}, err
 	}
-	return CaptureCreditSummary{Config: config, Data: rows}, nil
+	return CaptureCreditSummary{Data: rows}, nil
 }
 
-func (s *Service) UpdateCaptureCreditConfig(ctx context.Context, actor Actor, input CaptureCreditConfigInput) (CaptureCreditConfig, error) {
+func (s *Service) UpdateCoordinatorCaptureCreditLimit(ctx context.Context, actor Actor, input CaptureCreditLimitInput) (CaptureCreditUsage, error) {
 	if s.creditReader == nil || s.creditWriter == nil {
-		return CaptureCreditConfig{}, errCaptureCreditStoreMissing
+		return CaptureCreditUsage{}, errCaptureCreditStoreMissing
 	}
 	if actor.Role != "admin" {
-		return CaptureCreditConfig{}, forbidden()
+		return CaptureCreditUsage{}, forbidden()
 	}
 	eventID, err := parseCoordinatorEventID(input.EventID)
 	if err != nil {
-		return CaptureCreditConfig{}, err
+		return CaptureCreditUsage{}, err
 	}
 	status, err := s.eventStatus(ctx, eventID)
 	if err != nil {
-		return CaptureCreditConfig{}, err
+		return CaptureCreditUsage{}, err
 	}
 	if status == StatusArchived {
-		return CaptureCreditConfig{}, eventArchived()
+		return CaptureCreditUsage{}, eventArchived()
+	}
+	userID, err := uuid.Parse(strings.TrimSpace(input.UserID))
+	if err != nil {
+		return CaptureCreditUsage{}, coordinatorValidation("user_id", "invalid_format", "User id must be a UUID.")
 	}
 	if input.Limit < 0 {
-		return CaptureCreditConfig{}, coordinatorValidation("limit", "minimum", "Limit must be at least 0.")
+		return CaptureCreditUsage{}, coordinatorValidation("limit", "minimum", "Limit must be at least 0.")
 	}
 	if input.Limit > maxCaptureCreditLimit {
-		return CaptureCreditConfig{}, coordinatorValidation("limit", "maximum", "Limit must not exceed 2147483647.")
+		return CaptureCreditUsage{}, coordinatorValidation("limit", "maximum", "Limit must not exceed 2147483647.")
 	}
 	actorID, err := uuid.Parse(strings.TrimSpace(actor.UserID))
 	if err != nil {
-		return CaptureCreditConfig{}, fmt.Errorf("event: invalid principal id: %w", err)
+		return CaptureCreditUsage{}, fmt.Errorf("event: invalid principal id: %w", err)
 	}
+	usageDate := s.campusToday()
 
 	actorAccount := strings.ToLower(strings.TrimSpace(actor.Email))
 	actorRole := actor.Role
-	targetTable := "event_capture_credit_config"
-	targetID := eventID.String()
-	var updated CaptureCreditConfig
+	targetTable := "event_coordinator_assignments"
+	targetID := eventID.String() + ":" + userID.String()
+	var updated CaptureCreditUsage
 	var previousLimit int
 	evt := store.AuditEvent{
 		Action:       domain.ActionCaptureCreditCapChanged,
@@ -159,7 +149,8 @@ func (s *Service) UpdateCaptureCreditConfig(ctx context.Context, actor Actor, in
 		TargetID:     &targetID,
 		PayloadFunc: func() ([]byte, error) {
 			return json.Marshal(map[string]any{
-				"event_id":       targetID,
+				"event_id":       eventID.String(),
+				"user_id":        userID.String(),
 				"actor_user_id":  actorID.String(),
 				"previous_limit": previousLimit,
 				"new_limit":      updated.Limit,
@@ -168,22 +159,27 @@ func (s *Service) UpdateCaptureCreditConfig(ctx context.Context, actor Actor, in
 	}
 
 	err = s.store.WithAudit(ctx, evt, func(ctx context.Context, tx pgx.Tx) (bool, error) {
-		written, changed, writeErr := s.creditWriter.UpsertCaptureCreditConfig(ctx, tx, CaptureCreditConfigWrite{
+		written, changed, writeErr := s.creditWriter.UpdateCoordinatorCaptureCreditLimit(ctx, tx, CaptureCreditLimitWrite{
 			EventID:         eventID,
+			UserID:          userID,
 			Limit:           input.Limit,
 			UpdatedByUserID: actorID,
 		})
 		if writeErr != nil {
 			return false, writeErr
 		}
-		updated = written.Config
+		updated = written.Usage
 		previousLimit = written.PreviousLimit
 		return changed, nil
 	})
 	if err != nil {
-		return CaptureCreditConfig{}, mapCaptureCreditWriteError(err)
+		return CaptureCreditUsage{}, mapCaptureCreditWriteError(err)
 	}
-	return updated, nil
+	updatedUsage, err := s.creditReader.GetCaptureCreditUsageForCoordinator(ctx, eventID, userID, usageDate)
+	if err != nil {
+		return CaptureCreditUsage{}, err
+	}
+	return updatedUsage, nil
 }
 
 func (s *Service) ResetCaptureCredits(ctx context.Context, actor Actor, rawEventID, rawUserID string) (CaptureCreditUsage, error) {

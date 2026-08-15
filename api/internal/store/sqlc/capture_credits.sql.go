@@ -13,16 +13,14 @@ import (
 
 const debitCaptureCredit = `-- name: DebitCaptureCredit :one
 WITH assignment AS (
-    SELECT eca.event_id, eca.user_id
+    SELECT eca.event_id, eca.user_id, eca.fallback_credit_limit
     FROM event_coordinator_assignments eca
     WHERE eca.event_id = $1 AND eca.user_id = $2
     FOR UPDATE
 ),
 effective AS (
-    SELECT COALESCE(cfg.credit_limit, 5)::integer AS credit_limit
-    FROM events e
-    JOIN assignment ON assignment.event_id = e.id
-    LEFT JOIN event_capture_credit_config cfg ON cfg.event_id = e.id
+    SELECT assignment.fallback_credit_limit::integer AS credit_limit
+    FROM assignment
 ),
 debited AS (
     INSERT INTO event_capture_credit_usage (event_id, user_id, usage_date, consumed, updated_at)
@@ -68,42 +66,11 @@ func (q *Queries) DebitCaptureCredit(ctx context.Context, arg DebitCaptureCredit
 	return i, err
 }
 
-const getCaptureCreditConfig = `-- name: GetCaptureCreditConfig :one
-SELECT
-    e.id AS event_id,
-    COALESCE(cfg.credit_limit, 5)::integer AS credit_limit,
-    cfg.updated_by_user_id,
-    COALESCE(cfg.updated_at, e.created_at) AS updated_at
-FROM events e
-LEFT JOIN event_capture_credit_config cfg ON cfg.event_id = e.id
-WHERE e.id = $1
-`
-
-type GetCaptureCreditConfigRow struct {
-	EventID         pgtype.UUID        `json:"event_id"`
-	CreditLimit     int32              `json:"credit_limit"`
-	UpdatedByUserID pgtype.UUID        `json:"updated_by_user_id"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-}
-
-func (q *Queries) GetCaptureCreditConfig(ctx context.Context, eventID pgtype.UUID) (GetCaptureCreditConfigRow, error) {
-	row := q.db.QueryRow(ctx, getCaptureCreditConfig, eventID)
-	var i GetCaptureCreditConfigRow
-	err := row.Scan(
-		&i.EventID,
-		&i.CreditLimit,
-		&i.UpdatedByUserID,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const getCaptureCreditState = `-- name: GetCaptureCreditState :one
 WITH effective AS (
-    SELECT COALESCE(cfg.credit_limit, 5)::integer AS credit_limit
-    FROM events e
-    LEFT JOIN event_capture_credit_config cfg ON cfg.event_id = e.id
-    WHERE e.id = $1
+    SELECT eca.fallback_credit_limit::integer AS credit_limit
+    FROM event_coordinator_assignments eca
+    WHERE eca.event_id = $1 AND eca.user_id = $2
 ),
 usage AS (
     SELECT COALESCE(u.consumed, 0)::integer AS consumed
@@ -145,24 +112,17 @@ func (q *Queries) GetCaptureCreditState(ctx context.Context, arg GetCaptureCredi
 }
 
 const getCaptureCreditUsageForCoordinator = `-- name: GetCaptureCreditUsageForCoordinator :one
-WITH effective AS (
-    SELECT COALESCE(cfg.credit_limit, 5)::integer AS credit_limit
-    FROM events e
-    LEFT JOIN event_capture_credit_config cfg ON cfg.event_id = e.id
-    WHERE e.id = $2
-)
 SELECT
     eca.event_id,
     eca.user_id,
     u.email,
     u.name,
-    effective.credit_limit,
+    eca.fallback_credit_limit::integer AS credit_limit,
     COALESCE(usage.consumed, 0)::integer AS consumed,
-    GREATEST(effective.credit_limit - COALESCE(usage.consumed, 0), 0)::integer AS remaining,
-    (COALESCE(usage.consumed, 0) >= effective.credit_limit)::boolean AS exhausted
+    GREATEST(eca.fallback_credit_limit - COALESCE(usage.consumed, 0), 0)::integer AS remaining,
+    (COALESCE(usage.consumed, 0) >= eca.fallback_credit_limit)::boolean AS exhausted
 FROM event_coordinator_assignments eca
 JOIN users u ON u.id = eca.user_id
-CROSS JOIN effective
 LEFT JOIN event_capture_credit_usage usage
     ON usage.event_id = eca.event_id AND usage.user_id = eca.user_id
    AND usage.usage_date = $1
@@ -203,24 +163,17 @@ func (q *Queries) GetCaptureCreditUsageForCoordinator(ctx context.Context, arg G
 }
 
 const listCaptureCreditUsageByEvent = `-- name: ListCaptureCreditUsageByEvent :many
-WITH effective AS (
-    SELECT COALESCE(cfg.credit_limit, 5)::integer AS credit_limit
-    FROM events e
-    LEFT JOIN event_capture_credit_config cfg ON cfg.event_id = e.id
-    WHERE e.id = $2
-)
 SELECT
     eca.event_id,
     eca.user_id,
     u.email,
     u.name,
-    effective.credit_limit,
+    eca.fallback_credit_limit::integer AS credit_limit,
     COALESCE(usage.consumed, 0)::integer AS consumed,
-    GREATEST(effective.credit_limit - COALESCE(usage.consumed, 0), 0)::integer AS remaining,
-    (COALESCE(usage.consumed, 0) >= effective.credit_limit)::boolean AS exhausted
+    GREATEST(eca.fallback_credit_limit - COALESCE(usage.consumed, 0), 0)::integer AS remaining,
+    (COALESCE(usage.consumed, 0) >= eca.fallback_credit_limit)::boolean AS exhausted
 FROM event_coordinator_assignments eca
 JOIN users u ON u.id = eca.user_id
-CROSS JOIN effective
 LEFT JOIN event_capture_credit_usage usage
     ON usage.event_id = eca.event_id AND usage.user_id = eca.user_id
    AND usage.usage_date = $1
@@ -332,58 +285,50 @@ func (q *Queries) ResetCaptureCreditUsage(ctx context.Context, arg ResetCaptureC
 	return i, err
 }
 
-const upsertCaptureCreditConfig = `-- name: UpsertCaptureCreditConfig :one
-WITH locked_event AS (
-    SELECT id
-    FROM events
-    WHERE id = $1
+const updateCoordinatorCaptureCreditLimit = `-- name: UpdateCoordinatorCaptureCreditLimit :one
+WITH assignment AS (
+    SELECT eca.event_id, eca.user_id, eca.fallback_credit_limit AS previous_limit
+    FROM event_coordinator_assignments eca
+    WHERE eca.event_id = $1 AND eca.user_id = $2
     FOR UPDATE
 ),
-previous AS (
-    SELECT COALESCE(cfg.credit_limit, 5)::integer AS previous_limit
-    FROM locked_event
-    LEFT JOIN event_capture_credit_config cfg ON cfg.event_id = locked_event.id
-),
 updated AS (
-    INSERT INTO event_capture_credit_config (event_id, credit_limit, updated_by_user_id, updated_at)
-    SELECT locked_event.id, $2, $3, now()
-    FROM locked_event
-    ON CONFLICT (event_id) DO UPDATE
-    SET credit_limit = EXCLUDED.credit_limit,
-        updated_by_user_id = EXCLUDED.updated_by_user_id,
-        updated_at = now()
-    RETURNING event_id, credit_limit, updated_by_user_id, updated_at
+    UPDATE event_coordinator_assignments eca
+    SET fallback_credit_limit = $3
+    FROM assignment
+    WHERE eca.event_id = assignment.event_id AND eca.user_id = assignment.user_id
+    RETURNING eca.event_id, eca.user_id, eca.fallback_credit_limit, eca.created_at
 )
 SELECT
     updated.event_id,
-    updated.credit_limit,
-    updated.updated_by_user_id,
-    updated.updated_at,
-    previous.previous_limit
-FROM updated, previous
+    updated.user_id,
+    updated.fallback_credit_limit,
+    updated.created_at AS updated_at,
+    assignment.previous_limit
+FROM updated, assignment
 `
 
-type UpsertCaptureCreditConfigParams struct {
-	EventID         pgtype.UUID `json:"event_id"`
-	CreditLimit     int32       `json:"credit_limit"`
-	UpdatedByUserID pgtype.UUID `json:"updated_by_user_id"`
+type UpdateCoordinatorCaptureCreditLimitParams struct {
+	EventID             pgtype.UUID `json:"event_id"`
+	UserID              pgtype.UUID `json:"user_id"`
+	FallbackCreditLimit int32       `json:"fallback_credit_limit"`
 }
 
-type UpsertCaptureCreditConfigRow struct {
-	EventID         pgtype.UUID        `json:"event_id"`
-	CreditLimit     int32              `json:"credit_limit"`
-	UpdatedByUserID pgtype.UUID        `json:"updated_by_user_id"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-	PreviousLimit   int32              `json:"previous_limit"`
+type UpdateCoordinatorCaptureCreditLimitRow struct {
+	EventID             pgtype.UUID        `json:"event_id"`
+	UserID              pgtype.UUID        `json:"user_id"`
+	FallbackCreditLimit int32              `json:"fallback_credit_limit"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	PreviousLimit       int32              `json:"previous_limit"`
 }
 
-func (q *Queries) UpsertCaptureCreditConfig(ctx context.Context, arg UpsertCaptureCreditConfigParams) (UpsertCaptureCreditConfigRow, error) {
-	row := q.db.QueryRow(ctx, upsertCaptureCreditConfig, arg.EventID, arg.CreditLimit, arg.UpdatedByUserID)
-	var i UpsertCaptureCreditConfigRow
+func (q *Queries) UpdateCoordinatorCaptureCreditLimit(ctx context.Context, arg UpdateCoordinatorCaptureCreditLimitParams) (UpdateCoordinatorCaptureCreditLimitRow, error) {
+	row := q.db.QueryRow(ctx, updateCoordinatorCaptureCreditLimit, arg.EventID, arg.UserID, arg.FallbackCreditLimit)
+	var i UpdateCoordinatorCaptureCreditLimitRow
 	err := row.Scan(
 		&i.EventID,
-		&i.CreditLimit,
-		&i.UpdatedByUserID,
+		&i.UserID,
+		&i.FallbackCreditLimit,
 		&i.UpdatedAt,
 		&i.PreviousLimit,
 	)

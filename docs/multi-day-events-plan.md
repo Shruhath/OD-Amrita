@@ -240,9 +240,9 @@ ALTER TABLE event_capture_credit_usage DROP CONSTRAINT event_capture_credit_usag
 ALTER TABLE event_capture_credit_usage ADD PRIMARY KEY (event_id, user_id, usage_date);
 ```
 
-`event_capture_credit_config` stays **per event** — one cap that applies to each day
-— which is what makes the live cap raise cover the rest of the festival in one call.
-Only *usage* becomes per-day.
+`event_coordinator_assignments.fallback_credit_limit` stays on the coordinator
+assignment — one cap for that coordinator across days — while only *usage*
+becomes per-day.
 
 The existing FK to `event_coordinator_assignments (user_id, event_id)` is unaffected
 by the primary-key change.

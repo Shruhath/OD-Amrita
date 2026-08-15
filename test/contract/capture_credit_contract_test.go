@@ -2,12 +2,13 @@ package contract
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
 const (
 	captureCreditSummaryPath = "/api/v1/admin/events/{event_id}/capture-credits"
-	captureCreditConfigPath  = "/api/v1/admin/events/{event_id}/capture-credits/config"
+	captureCreditLimitPath   = "/api/v1/admin/events/{event_id}/capture-credits/coordinators/{user_id}/limit"
 	captureCreditResetPath   = "/api/v1/admin/events/{event_id}/capture-credits/coordinators/{user_id}/reset"
 )
 
@@ -28,10 +29,10 @@ func TestCaptureCreditContract_AdminOperationsAreNestedAndProtected(t *testing.T
 			response:    "#/components/schemas/CaptureCreditSummary",
 		},
 		{
-			path:        captureCreditConfigPath,
+			path:        captureCreditLimitPath,
 			method:      "put",
-			operationID: "updateAdminEventCaptureCreditConfig",
-			response:    "#/components/schemas/CaptureCreditConfig",
+			operationID: "updateAdminEventCoordinatorCaptureCreditLimit",
+			response:    "#/components/schemas/CaptureCreditUsage",
 		},
 		{
 			path:        captureCreditResetPath,
@@ -67,8 +68,11 @@ func TestCaptureCreditContract_AdminOperationsAreNestedAndProtected(t *testing.T
 		})
 	}
 
-	if ref := getStr(jsonRequestSchema(getMap(getMap(paths, captureCreditConfigPath), "put")), "$ref"); ref != "#/components/schemas/UpdateCaptureCreditConfigRequest" {
-		t.Errorf("[P0] PUT %s request schema = %q, want UpdateCaptureCreditConfigRequest", captureCreditConfigPath, ref)
+	if _, ok := paths["/api/v1/admin/events/{event_id}/capture-credits/config"]; ok {
+		t.Fatal("[P0] global capture-credit config path is still documented; caps must be coordinator-specific")
+	}
+	if ref := getStr(jsonRequestSchema(getMap(getMap(paths, captureCreditLimitPath), "put")), "$ref"); ref != "#/components/schemas/UpdateCaptureCreditLimitRequest" {
+		t.Errorf("[P0] PUT %s request schema = %q, want UpdateCaptureCreditLimitRequest", captureCreditLimitPath, ref)
 	}
 }
 
@@ -116,30 +120,17 @@ func TestCaptureCreditContract_AdminSchemasAreEventScopedAndBounded(t *testing.T
 	schemas := getMap(getMap(doc, "components"), "schemas")
 
 	for _, name := range []string{
-		"CaptureCreditConfig",
 		"CaptureCreditUsage",
 		"CaptureCreditSummary",
-		"UpdateCaptureCreditConfigRequest",
+		"UpdateCaptureCreditLimitRequest",
 	} {
 		if getMap(schemas, name) == nil {
 			t.Errorf("[P0] components.schemas.%s is missing", name)
 		}
 	}
 
-	config := getMap(schemas, "CaptureCreditConfig")
-	if config != nil {
-		if missing := missingRequired(config, "event_id", "limit", "updated_by_user_id", "updated_at"); len(missing) > 0 {
-			t.Errorf("[P0] CaptureCreditConfig required is missing %v", missing)
-		}
-		props := getMap(config, "properties")
-		for _, field := range []string{"event_id", "updated_by_user_id"} {
-			if got := getStr(resolveSchema(doc, getMap(props, field)), "format"); got != "uuid" {
-				t.Errorf("[P1] CaptureCreditConfig.%s format = %q, want uuid", field, got)
-			}
-		}
-		if got := getFloat(resolveSchema(doc, getMap(props, "limit")), "minimum"); got != 0 {
-			t.Errorf("[P0] CaptureCreditConfig.limit minimum = %v, want 0 so admins can live-disable fallback modes", got)
-		}
+	if getMap(schemas, "CaptureCreditConfig") != nil {
+		t.Error("[P0] CaptureCreditConfig still exists; CaptureCreditSummary must not represent one unified mutable cap")
 	}
 
 	usage := getMap(schemas, "CaptureCreditUsage")
@@ -153,14 +144,27 @@ func TestCaptureCreditContract_AdminSchemasAreEventScopedAndBounded(t *testing.T
 				t.Errorf("[P0] CaptureCreditUsage must not expose %s", forbidden)
 			}
 		}
+		limit := resolveSchema(doc, getMap(props, "limit"))
+		if got := getFloat(limit, "minimum"); got != 0 {
+			t.Errorf("[P0] CaptureCreditUsage.limit minimum = %v, want 0", got)
+		}
+		if got := getFloat(limit, "maximum"); got != 2147483647 {
+			t.Errorf("[P0] CaptureCreditUsage.limit maximum = %v, want int32 max", got)
+		}
+		if desc := getStr(limit, "description"); !strings.Contains(strings.ToLower(desc), "coordinator") {
+			t.Errorf("[P0] CaptureCreditUsage.limit description = %q, want coordinator-specific documentation", desc)
+		}
 	}
 
 	summary := getMap(schemas, "CaptureCreditSummary")
 	if summary != nil {
-		if missing := missingRequired(summary, "config", "data"); len(missing) > 0 {
+		if missing := missingRequired(summary, "data"); len(missing) > 0 {
 			t.Errorf("[P0] CaptureCreditSummary required is missing %v", missing)
 		}
 		props := getMap(summary, "properties")
+		if _, ok := props["config"]; ok {
+			t.Error("[P0] CaptureCreditSummary.config still exists; there is no unified mutable cap")
+		}
 		for _, forbidden := range []string{"page", "page_size", "total"} {
 			if _, ok := props[forbidden]; ok {
 				t.Errorf("[P1] CaptureCreditSummary must not be paginated with %s; coordinator assignments are bounded event setup rows", forbidden)
@@ -168,16 +172,16 @@ func TestCaptureCreditContract_AdminSchemasAreEventScopedAndBounded(t *testing.T
 		}
 	}
 
-	update := getMap(schemas, "UpdateCaptureCreditConfigRequest")
+	update := getMap(schemas, "UpdateCaptureCreditLimitRequest")
 	if update != nil {
 		if missing := missingRequired(update, "limit"); len(missing) > 0 {
-			t.Errorf("[P0] UpdateCaptureCreditConfigRequest required is missing %v", missing)
+			t.Errorf("[P0] UpdateCaptureCreditLimitRequest required is missing %v", missing)
 		}
 		if got := getFloat(resolveSchema(doc, getMap(getMap(update, "properties"), "limit")), "minimum"); got != 0 {
-			t.Errorf("[P0] UpdateCaptureCreditConfigRequest.limit minimum = %v, want 0", got)
+			t.Errorf("[P0] UpdateCaptureCreditLimitRequest.limit minimum = %v, want 0", got)
 		}
 		if got := getFloat(resolveSchema(doc, getMap(getMap(update, "properties"), "limit")), "maximum"); got != 2147483647 {
-			t.Errorf("[P0] UpdateCaptureCreditConfigRequest.limit maximum = %v, want int32 max to prevent server-side cast overflow", got)
+			t.Errorf("[P0] UpdateCaptureCreditLimitRequest.limit maximum = %v, want int32 max to prevent server-side cast overflow", got)
 		}
 	}
 }

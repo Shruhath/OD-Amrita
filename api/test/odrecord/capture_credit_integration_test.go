@@ -89,6 +89,65 @@ func TestCaptureCreditAtomicDebitConcurrentRemainingOne(t *testing.T) {
 	assertAuditCount(t, ctx, migrator, fixture.eventID, domain.ActionScanBlocked, 1)
 }
 
+func TestCaptureCreditDebitUsesIndependentCoordinatorLimits(t *testing.T) {
+	ctx := testCtx(t)
+	migrator := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_MIGRATOR"))
+	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
+	fixture := seedMarkFixture(t, ctx, migrator)
+	coordinatorB := uuid.NewString()
+	if _, err := migrator.Exec(ctx, `
+		INSERT INTO users (id, supabase_subject, email, name, role)
+		VALUES ($1, $2, 'coordinator-b@amrita.edu', 'ATDD Coordinator B', 'coordinator')`,
+		coordinatorB, "atdd-coordinator-b-"+coordinatorB); err != nil {
+		t.Fatalf("seed second coordinator: %v", err)
+	}
+	if _, err := migrator.Exec(ctx, `
+		INSERT INTO event_coordinator_assignments (user_id, event_id, created_by_user_id, fallback_credit_limit)
+		VALUES ($1, $2, $3, 20)`, coordinatorB, fixture.eventID, fixture.adminID); err != nil {
+		t.Fatalf("seed second coordinator assignment: %v", err)
+	}
+	setCaptureCreditLimit(t, ctx, migrator, fixture, 5)
+
+	svc := markService(runtime, fixture)
+	actorA := odsvc.Actor{UserID: fixture.coordinatorID, Email: "coordinator@amrita.edu", Role: "coordinator"}
+	for range 5 {
+		studentID := seedMarkStudent(t, ctx, migrator, fixture)
+		if _, err := svc.Mark(ctx, actorA, odsvc.MarkInput{
+			EventID:       fixture.eventID,
+			CategoryID:    fixture.categoryID,
+			CaptureMethod: odsvc.CaptureMethodSearch,
+			StudentID:     &studentID,
+		}); err != nil {
+			t.Fatalf("coordinator A mark within limit: %v", err)
+		}
+	}
+	overflowStudent := seedMarkStudent(t, ctx, migrator, fixture)
+	if _, err := svc.Mark(ctx, actorA, odsvc.MarkInput{
+		EventID:       fixture.eventID,
+		CategoryID:    fixture.categoryID,
+		CaptureMethod: odsvc.CaptureMethodSearch,
+		StudentID:     &overflowStudent,
+	}); !isDomainCode(err, contracts.ErrorCodeCAPTURECREDITLIMITREACHED) {
+		t.Fatalf("coordinator A overflow = %v, want CAPTURE_CREDIT_LIMIT_REACHED", err)
+	}
+
+	studentB := seedMarkStudent(t, ctx, migrator, fixture)
+	if _, err := svc.Mark(ctx, odsvc.Actor{UserID: coordinatorB, Email: "coordinator-b@amrita.edu", Role: "coordinator"}, odsvc.MarkInput{
+		EventID:       fixture.eventID,
+		CategoryID:    fixture.categoryID,
+		CaptureMethod: odsvc.CaptureMethodSearch,
+		StudentID:     &studentB,
+	}); err != nil {
+		t.Fatalf("[P0] coordinator B mark after A exhausted = %v, want nil because B has independent limit 20", err)
+	}
+	if got := creditConsumed(t, ctx, migrator, fixture); got != 5 {
+		t.Fatalf("[P0] coordinator A consumed = %d, want 5", got)
+	}
+	if got := creditConsumedForUser(t, ctx, migrator, fixture.eventID, coordinatorB); got != 1 {
+		t.Fatalf("[P0] coordinator B consumed = %d, want 1", got)
+	}
+}
+
 func TestCaptureCreditRollbackDuplicateDoesNotBurnCredit(t *testing.T) {
 	ctx := testCtx(t)
 	migrator := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_MIGRATOR"))
@@ -196,13 +255,10 @@ func setCaptureCreditLimit(t *testing.T, ctx context.Context, pool interface {
 }, fixture markFixture, limit int) {
 	t.Helper()
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO event_capture_credit_config (event_id, credit_limit, updated_by_user_id)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (event_id) DO UPDATE
-		SET credit_limit = EXCLUDED.credit_limit,
-		    updated_by_user_id = EXCLUDED.updated_by_user_id,
-		    updated_at = now()`,
-		fixture.eventID, limit, fixture.adminID); err != nil {
+		UPDATE event_coordinator_assignments
+		SET fallback_credit_limit = $3
+		WHERE event_id = $1 AND user_id = $2`,
+		fixture.eventID, fixture.coordinatorID, limit); err != nil {
 		t.Fatalf("set credit limit: %v", err)
 	}
 }
@@ -226,11 +282,18 @@ func creditConsumed(t *testing.T, ctx context.Context, pool interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, fixture markFixture) int {
 	t.Helper()
+	return creditConsumedForUser(t, ctx, pool, fixture.eventID, fixture.coordinatorID)
+}
+
+func creditConsumedForUser(t *testing.T, ctx context.Context, pool interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, eventID, userID string) int {
+	t.Helper()
 	var consumed int
 	if err := pool.QueryRow(ctx, `
 		SELECT COALESCE(consumed, 0)
 		FROM event_capture_credit_usage
-		WHERE event_id = $1 AND user_id = $2`, fixture.eventID, fixture.coordinatorID).Scan(&consumed); errors.Is(err, pgx.ErrNoRows) {
+		WHERE event_id = $1 AND user_id = $2`, eventID, userID).Scan(&consumed); errors.Is(err, pgx.ErrNoRows) {
 		return 0
 	} else if err != nil {
 		t.Fatalf("read credit usage: %v", err)

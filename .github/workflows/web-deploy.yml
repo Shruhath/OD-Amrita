@@ -226,8 +226,8 @@ jobs:
             SELECT count(*)
             FROM audit_log
             WHERE action = 'capture_credit.cap_changed'
-              AND target_table = 'event_capture_credit_config'
-              AND target_id = '$event_id'")"
+              AND target_table = 'event_coordinator_assignments'
+              AND target_id = '$event_id:$coordinator_id'")"
           reset_audits="$(psql "$DATABASE_URL_MIGRATOR" -Atc "
             SELECT count(*)
             FROM audit_log

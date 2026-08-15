@@ -36,8 +36,8 @@ type fakeService struct {
 	coordinatorUpdateCalls int
 	coordinatorInput       eventsvc.CreateCoordinatorAssignmentInput
 	coordinatorUpdateInput eventsvc.UpdateCoordinatorCategoryAccessInput
-	creditConfigCalls      int
-	creditConfigInput      eventsvc.CaptureCreditConfigInput
+	creditLimitCalls       int
+	creditLimitInput       eventsvc.CaptureCreditLimitInput
 }
 
 func (f *fakeService) Branches(context.Context) ([]eventsvc.Branch, error) { return f.branches, f.err }
@@ -88,13 +88,14 @@ func (f *fakeService) ListCaptureCredits(context.Context, eventsvc.Actor, string
 	return eventsvc.CaptureCreditSummary{}, f.err
 }
 
-func (f *fakeService) UpdateCaptureCreditConfig(_ context.Context, _ eventsvc.Actor, input eventsvc.CaptureCreditConfigInput) (eventsvc.CaptureCreditConfig, error) {
-	f.creditConfigCalls++
-	f.creditConfigInput = input
-	return eventsvc.CaptureCreditConfig{
-		EventID:   input.EventID,
-		Limit:     input.Limit,
-		UpdatedAt: time.Date(2026, 8, 3, 3, 0, 0, 0, time.UTC),
+func (f *fakeService) UpdateCoordinatorCaptureCreditLimit(_ context.Context, _ eventsvc.Actor, input eventsvc.CaptureCreditLimitInput) (eventsvc.CaptureCreditUsage, error) {
+	f.creditLimitCalls++
+	f.creditLimitInput = input
+	return eventsvc.CaptureCreditUsage{
+		EventID: input.EventID,
+		UserID:  input.UserID,
+		Email:   "coord@amrita.edu",
+		Limit:   input.Limit,
 	}, f.err
 }
 
@@ -239,8 +240,9 @@ func TestCreateReturnsFieldSpecificGeneratedTypeValidationBeforeService(t *testi
 	}
 }
 
-func TestUpdateCaptureCreditConfigRejectsMissingAndMalformedLimitBeforeService(t *testing.T) {
+func TestUpdateCoordinatorCaptureCreditLimitRejectsMissingAndMalformedLimitBeforeService(t *testing.T) {
 	eventID := uuid.NewString()
+	userID := uuid.NewString()
 	for _, tc := range []struct {
 		name  string
 		body  string
@@ -253,7 +255,7 @@ func TestUpdateCaptureCreditConfigRejectsMissingAndMalformedLimitBeforeService(t
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			svc := &fakeService{}
-			recorder := request(eventRouter(svc), http.MethodPut, "/events/"+eventID+"/capture-credits/config", tc.body)
+			recorder := request(eventRouter(svc), http.MethodPut, "/events/"+eventID+"/capture-credits/coordinators/"+userID+"/limit", tc.body)
 			if recorder.Code != http.StatusBadRequest {
 				t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 			}
@@ -264,22 +266,23 @@ func TestUpdateCaptureCreditConfigRejectsMissingAndMalformedLimitBeforeService(t
 			if len(body.Details) != 1 || body.Details[0].Field != tc.field || body.Details[0].Code != tc.code {
 				t.Fatalf("details=%#v", body.Details)
 			}
-			if svc.creditConfigCalls != 0 {
+			if svc.creditLimitCalls != 0 {
 				t.Fatal("service called for invalid limit")
 			}
 		})
 	}
 }
 
-func TestUpdateCaptureCreditConfigPreservesExplicitZero(t *testing.T) {
+func TestUpdateCoordinatorCaptureCreditLimitPreservesExplicitZero(t *testing.T) {
 	eventID := uuid.NewString()
+	userID := uuid.NewString()
 	svc := &fakeService{}
-	recorder := request(eventRouter(svc), http.MethodPut, "/events/"+eventID+"/capture-credits/config", `{"limit":0}`)
+	recorder := request(eventRouter(svc), http.MethodPut, "/events/"+eventID+"/capture-credits/coordinators/"+userID+"/limit", `{"limit":0}`)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if svc.creditConfigCalls != 1 || svc.creditConfigInput.Limit != 0 {
-		t.Fatalf("calls/input = %d/%#v, want explicit zero passed to service", svc.creditConfigCalls, svc.creditConfigInput)
+	if svc.creditLimitCalls != 1 || svc.creditLimitInput.Limit != 0 || svc.creditLimitInput.UserID != userID {
+		t.Fatalf("calls/input = %d/%#v, want explicit zero passed to service", svc.creditLimitCalls, svc.creditLimitInput)
 	}
 }
 
@@ -372,7 +375,7 @@ func eventRouter(svc Service) *gin.Engine {
 	router.POST("/events/:event_id/coordinators", CreateCoordinatorAssignmentHandler(svc))
 	router.PUT("/events/:event_id/coordinators/:user_id/categories", UpdateCoordinatorCategoryAccessHandler(svc))
 	router.GET("/events/:event_id/capture-credits", ListCaptureCreditsHandler(svc))
-	router.PUT("/events/:event_id/capture-credits/config", UpdateCaptureCreditConfigHandler(svc))
+	router.PUT("/events/:event_id/capture-credits/coordinators/:user_id/limit", UpdateCoordinatorCaptureCreditLimitHandler(svc))
 	router.POST("/events/:event_id/capture-credits/coordinators/:user_id/reset", ResetCaptureCreditsHandler(svc))
 	return router
 }

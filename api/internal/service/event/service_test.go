@@ -24,7 +24,7 @@ type fakeReader struct {
 	total       int64
 	err         error
 	listIn      ListInput
-	creditUsage CaptureCreditUsage
+	creditUsage []CaptureCreditUsage
 }
 
 func (f *fakeReader) ListBranches(context.Context) ([]Branch, error) { return f.branches, f.err }
@@ -62,14 +62,14 @@ func (f *fakeReader) ListActiveEventsForMarking(context.Context) ([]Event, error
 func (f *fakeReader) CoordinatorAssignedToEvent(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
 	return false, f.err
 }
-func (f *fakeReader) GetCaptureCreditConfig(context.Context, uuid.UUID) (CaptureCreditConfig, error) {
-	return CaptureCreditConfig{}, f.err
-}
 func (f *fakeReader) ListCaptureCreditUsageByEvent(context.Context, uuid.UUID, time.Time) ([]CaptureCreditUsage, error) {
 	return nil, f.err
 }
 func (f *fakeReader) GetCaptureCreditUsageForCoordinator(context.Context, uuid.UUID, uuid.UUID, time.Time) (CaptureCreditUsage, error) {
-	return f.creditUsage, f.err
+	if len(f.creditUsage) > 0 {
+		return f.creditUsage[0], f.err
+	}
+	return CaptureCreditUsage{}, f.err
 }
 
 type fakeWriter struct {
@@ -79,9 +79,9 @@ type fakeWriter struct {
 	err                 error
 	createInput         CreateWrite
 	archiveCalls        int
-	captureConfigResult CaptureCreditConfigWriteResult
-	captureConfigCalls  int
-	captureConfigInput  CaptureCreditConfigWrite
+	captureLimitResult CaptureCreditLimitWriteResult
+	captureLimitCalls  int
+	captureLimitInput  CaptureCreditLimitWrite
 	captureResetResult  CaptureCreditResetWriteResult
 	captureResetCalls   int
 	captureResetInput   CaptureCreditResetWrite
@@ -104,10 +104,10 @@ func (f *fakeWriter) CreateCoordinatorAssignment(context.Context, pgx.Tx, Create
 func (f *fakeWriter) ReplaceCoordinatorCategoryAccess(context.Context, pgx.Tx, ReplaceCoordinatorCategoryAccessWrite) (bool, error) {
 	return false, f.err
 }
-func (f *fakeWriter) UpsertCaptureCreditConfig(_ context.Context, _ pgx.Tx, input CaptureCreditConfigWrite) (CaptureCreditConfigWriteResult, bool, error) {
-	f.captureConfigCalls++
-	f.captureConfigInput = input
-	return f.captureConfigResult, true, f.err
+func (f *fakeWriter) UpdateCoordinatorCaptureCreditLimit(_ context.Context, _ pgx.Tx, input CaptureCreditLimitWrite) (CaptureCreditLimitWriteResult, bool, error) {
+	f.captureLimitCalls++
+	f.captureLimitInput = input
+	return f.captureLimitResult, true, f.err
 }
 func (f *fakeWriter) ResetCaptureCreditUsage(_ context.Context, _ pgx.Tx, input CaptureCreditResetWrite) (CaptureCreditResetWriteResult, bool, error) {
 	f.captureResetCalls++
@@ -305,41 +305,45 @@ func TestListRejectsEveryInvalidBoundBeforeRead(t *testing.T) {
 	}
 }
 
-func TestUpdateCaptureCreditConfigRejectsOverflowBeforeWrite(t *testing.T) {
-	eventID, actorID := uuid.New(), uuid.New()
+func TestUpdateCoordinatorCaptureCreditLimitRejectsOverflowBeforeWrite(t *testing.T) {
+	eventID, actorID, userID := uuid.New(), uuid.New(), uuid.New()
 	writer := &fakeWriter{}
 	audit := &fakeAuditStore{}
-	_, err := NewService(&fakeReader{event: Event{Status: StatusActive}}, audit, writer).UpdateCaptureCreditConfig(
+	_, err := NewService(&fakeReader{event: Event{Status: StatusActive}}, audit, writer).UpdateCoordinatorCaptureCreditLimit(
 		context.Background(),
 		Actor{UserID: actorID.String(), Email: "admin@amrita.edu", Role: "admin"},
-		CaptureCreditConfigInput{EventID: eventID.String(), Limit: maxCaptureCreditLimit + 1},
+		CaptureCreditLimitInput{EventID: eventID.String(), UserID: userID.String(), Limit: maxCaptureCreditLimit + 1},
 	)
 	var de domain.DomainError
 	if !errors.As(err, &de) || len(de.Details) != 1 || de.Details[0].Field != "limit" || de.Details[0].Code != "maximum" {
 		t.Fatalf("error=%#v, want limit maximum validation", err)
 	}
-	if audit.calls != 0 || writer.captureConfigCalls != 0 {
-		t.Fatalf("audit/write calls = %d/%d, want none", audit.calls, writer.captureConfigCalls)
+	if audit.calls != 0 || writer.captureLimitCalls != 0 {
+		t.Fatalf("audit/write calls = %d/%d, want none", audit.calls, writer.captureLimitCalls)
 	}
 }
 
-func TestUpdateCaptureCreditConfigAuditUsesTransactionPreviousLimit(t *testing.T) {
-	eventID, actorID := uuid.New(), uuid.New()
-	writer := &fakeWriter{captureConfigResult: CaptureCreditConfigWriteResult{
-		Config:        CaptureCreditConfig{EventID: eventID.String(), Limit: 8, UpdatedAt: time.Date(2026, 8, 3, 3, 0, 0, 0, time.UTC)},
+func TestUpdateCoordinatorCaptureCreditLimitAuditUsesTransactionPreviousLimit(t *testing.T) {
+	eventID, actorID, userID := uuid.New(), uuid.New(), uuid.New()
+	writer := &fakeWriter{captureLimitResult: CaptureCreditLimitWriteResult{
+		Usage:         CaptureCreditUsage{EventID: eventID.String(), UserID: userID.String(), Limit: 8},
 		PreviousLimit: 3,
 	}}
 	audit := &fakeAuditStore{}
-	updated, err := NewService(&fakeReader{event: Event{Status: StatusActive}}, audit, writer).UpdateCaptureCreditConfig(
+	reader := &fakeReader{
+		event:       Event{Status: StatusActive},
+		creditUsage: []CaptureCreditUsage{{EventID: eventID.String(), UserID: userID.String(), Email: "coord@amrita.edu", Limit: 8, Remaining: 8}},
+	}
+	updated, err := NewService(reader, audit, writer).UpdateCoordinatorCaptureCreditLimit(
 		context.Background(),
 		Actor{UserID: actorID.String(), Email: " ADMIN@amrita.edu ", Role: "admin"},
-		CaptureCreditConfigInput{EventID: eventID.String(), Limit: 8},
+		CaptureCreditLimitInput{EventID: eventID.String(), UserID: userID.String(), Limit: 8},
 	)
 	if err != nil {
-		t.Fatalf("UpdateCaptureCreditConfig: %v", err)
+		t.Fatalf("UpdateCoordinatorCaptureCreditLimit: %v", err)
 	}
-	if updated.Limit != 8 || writer.captureConfigInput.Limit != 8 {
-		t.Fatalf("updated/input = %#v/%#v", updated, writer.captureConfigInput)
+	if updated.Limit != 8 || writer.captureLimitInput.Limit != 8 || writer.captureLimitInput.UserID != userID {
+		t.Fatalf("updated/input = %#v/%#v", updated, writer.captureLimitInput)
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(audit.event.Payload, &payload); err != nil {
@@ -348,6 +352,9 @@ func TestUpdateCaptureCreditConfigAuditUsesTransactionPreviousLimit(t *testing.T
 	if payload["previous_limit"] != float64(3) || payload["new_limit"] != float64(8) {
 		t.Fatalf("payload=%#v, want transaction previous and new limits", payload)
 	}
+	if payload["user_id"] != userID.String() || audit.event.TargetID == nil || *audit.event.TargetID != eventID.String()+":"+userID.String() {
+		t.Fatalf("payload/target=%#v/%v, want coordinator-specific cap target", payload, audit.event.TargetID)
+	}
 }
 
 func TestResetCaptureCreditsAuditUsesTransactionPreviousConsumed(t *testing.T) {
@@ -355,9 +362,9 @@ func TestResetCaptureCreditsAuditUsesTransactionPreviousConsumed(t *testing.T) {
 	writer := &fakeWriter{captureResetResult: CaptureCreditResetWriteResult{PreviousConsumed: 4}}
 	reader := &fakeReader{
 		event: Event{Status: StatusActive},
-		creditUsage: CaptureCreditUsage{
+		creditUsage: []CaptureCreditUsage{{
 			EventID: eventID.String(), UserID: userID.String(), Email: "coord@amrita.edu", Limit: 5,
-		},
+		}},
 	}
 	audit := &fakeAuditStore{}
 	_, err := NewService(reader, audit, writer).ResetCaptureCredits(

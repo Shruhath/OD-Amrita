@@ -290,6 +290,11 @@ func seedMarkFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) mark
 		VALUES ($1, $2, 'ATDD Category')`, fixture.categoryID, fixture.eventID); err != nil {
 		t.Fatalf("seed category: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO user_category_assignments (user_id, category_id, created_by_user_id)
+		VALUES ($1, $2, $3)`, fixture.coordinatorID, fixture.categoryID, fixture.adminID); err != nil {
+		t.Fatalf("assign coordinator category: %v", err)
+	}
 	rollSuffix := strings.ToUpper(strings.ReplaceAll(fixture.studentID, "-", ""))[:8]
 	rollNo := "CB.SC.U4ODR" + rollSuffix
 	fixture.rollNo = rollNo

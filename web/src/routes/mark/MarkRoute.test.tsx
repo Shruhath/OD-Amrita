@@ -41,7 +41,7 @@ import {
  *     state this screen must never have.
  *  3. NOTHING IS CACHED. No card list, token, fingerprint set or roster in
  *     localStorage, sessionStorage, IndexedDB or the query cache (AR20 no-list).
- *  4. A NON-COORDINATOR ISSUES NO REQUESTS AT ALL — not even the status poll.
+ *  4. A NON-LIVE-MARKER ISSUES NO REQUESTS AT ALL — not even the status poll.
  *
  */
 
@@ -106,6 +106,26 @@ function renderMarkRoute(ports: { camera?: ReturnType<typeof fakeCamera> } = {})
     <Application session={markSessionPort()} router={createPortalMemoryRouter(['/mark'])} />,
   )
 }
+
+test('[P0] admin NFC marking keeps the portal header and navigation', async () => {
+  installMarkingBackend({ role: 'admin' })
+  renderMarkRoute()
+
+  expect(await screen.findByRole('link', { name: /od-amrita home/i })).toBeInTheDocument()
+  expect(screen.getByRole('navigation', { name: /administration sections/i })).toBeInTheDocument()
+  expect(screen.getAllByRole('link', { name: /nfc marking/i }).length).toBeGreaterThan(0)
+  expect(await screen.findByRole('heading', { name: /mark attendance/i })).toBeInTheDocument()
+})
+
+test('[P0] coordinator NFC marking remains a focused full-screen surface', async () => {
+  installMarkingBackend({ role: 'coordinator' })
+  renderMarkRoute()
+
+  expect(await screen.findByRole('heading', { name: /mark attendance/i })).toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: /od-amrita home/i })).toBeNull()
+  expect(screen.queryByRole('navigation', { name: /administration sections/i })).toBeNull()
+  expect(screen.queryByRole('button', { name: /open navigation/i })).toBeNull()
+})
 
 /**
  * A fake `BarcodeDetector` + `getUserMedia` pair, installed on the real globals.
@@ -199,7 +219,18 @@ describe('the coordinator marking screen', () => {
     expect(screen.getByRole('button', { name: /search/i })).toBeInTheDocument()
   })
 
-  test('[P0] a non-coordinator gets an explicit state and issues NO requests', async () => {
+  test('[P0] an admin sees the coordinator-style NFC camera and search surface', async () => {
+    installMarkingBackend({ role: 'admin' })
+    await renderMarkRoute()
+
+    expect(await screen.findByRole('combobox', { name: /event/i })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: /category/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /tap|nfc/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /camera|scan/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /search/i })).toBeInTheDocument()
+  })
+
+  test('[P0] a non-live-marker gets an explicit state and issues NO requests', async () => {
     const requests = installMarkingBackend({ role: 'student' })
     await renderMarkRoute()
 

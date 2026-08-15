@@ -72,14 +72,12 @@ test.describe('real stack coordinator marking', () => {
     }
   })
 
-  test('[P0] an admin principal is refused the coordinator marking reads', async ({ request }) => {
-    // C2: teacher/admin marking is Story 0.9. An admin token must not open this
-    // surface just because admins can do everything else.
+  test('[P0] an admin principal can use live marking reads', async ({ request }) => {
     const status = await request.get(
       `${portalAPI}/api/v1/mark/status?event_id=00000000-0000-4000-8000-000000000000&category_id=00000000-0000-4000-8000-000000000000`,
       { headers: { Authorization: 'Bearer portal-admin-token' } },
     )
-    expect([403, 404]).toContain(status.status())
+    expect([200, 404]).toContain(status.status())
   })
 
   test('[P0] search hits real Postgres and returns no email or token', async ({ request }) => {

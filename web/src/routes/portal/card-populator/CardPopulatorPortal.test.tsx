@@ -30,6 +30,7 @@ type NfcHarness = {
   writes: { records: { recordType: string; mediaType?: string; data?: BufferSource | string }[] }[]
   /** Payload the next simulated tap will present. */
   nextRead: { version: string; token: string } | null
+  scanError: Error | null
   writeError: Error | null
   settleRead: boolean
 }
@@ -42,7 +43,14 @@ type NfcHarness = {
  * detection path the phone will take.
  */
 function installNfc(overrides: Partial<NfcHarness> = {}): NfcHarness {
-  const harness: NfcHarness = { writes: [], nextRead: cardPayload(), writeError: null, settleRead: true, ...overrides }
+  const harness: NfcHarness = {
+    writes: [],
+    nextRead: cardPayload(),
+    scanError: null,
+    writeError: null,
+    settleRead: true,
+    ...overrides,
+  }
   type ReadingListener = (event: { message: { records: unknown[] } }) => void
 
   class FakeNDEFReader {
@@ -54,6 +62,7 @@ function installNfc(overrides: Partial<NfcHarness> = {}): NfcHarness {
     }
 
     async scan() {
+      if (harness.scanError) throw harness.scanError
       // Deliver the tap on a microtask so the component observes its
       // "Verifying…" state before the read settles.
       queueMicrotask(() => {
@@ -146,7 +155,7 @@ describe('returning to a backgrounded app', () => {
   // gone. On Android the tab is discarded under memory pressure and the page is
   // rebuilt from nothing, so surviving that means the SELECTION was stored and
   // the roster re-fetched from it.
-  test('[P0] the roster is back without re-choosing branch, batch and section', async () => {
+  test('[P0] restored filters do not reload the roster until NFC permission is checked again', async () => {
     installNfc()
     const user = userEvent.setup()
     renderPopulator()
@@ -159,17 +168,16 @@ describe('returning to a backgrounded app', () => {
     cleanup()
     renderPopulator()
 
-    // No interaction at all this time — the roster comes back on its own.
-    //
-    // Waiting on a STUDENT rather than on the table: the table renders its
-    // header while the fetch is still in flight, so waiting for the table alone
-    // would resolve against an empty one and pass whether or not the roster ever
-    // returned.
-    expect(await screen.findByText('CB.SC.U4CSE24001', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByText('CB.SC.U4CSE24002')).toBeInTheDocument()
+    // The selection comes back, but RBAC-gated roster data must not reload
+    // until a fresh user gesture lets the browser prompt/check NFC permission.
+    await screen.findByRole('heading', { name: 'Card populator' })
+    expect(screen.queryByRole('table', { name: 'Students to write' })).not.toBeInTheDocument()
     expect(screen.getByLabelText('Batch')).toHaveValue('2024')
     expect(screen.getByLabelText('Section')).toHaveValue('A')
-  })
+
+    await user.click(screen.getByRole('button', { name: 'Load roster' }))
+    expect(await screen.findByText('CB.SC.U4CSE24001', {}, { timeout: 5000 })).toBeInTheDocument()
+  }, 10_000)
 
   // AR20. The roster comes BACK, but it must come back from the SERVER — a
   // resolved list of students sitting on the device is the cached list the
@@ -256,6 +264,35 @@ describe('Card populator portal', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/branch, batch and section/i)
     expect(screen.queryByRole('table', { name: 'Students to write' })).not.toBeInTheDocument()
+  })
+
+  test('[P0] requires NFC permission before loading the RBAC-gated roster', async () => {
+    const denied = new Error('denied')
+    denied.name = 'NotAllowedError'
+    installNfc({ scanError: denied })
+    const user = userEvent.setup()
+    const requestedSections: string[] = []
+    server.use(
+      http.get('*/api/v1/auth/me', () =>
+        HttpResponse.json({ subject: 'admin', email: 'admin@amrita.edu', name: 'Admin', role: 'admin' }),
+      ),
+      http.get('*/api/v1/admin/branches', () => HttpResponse.json({ data: [cardPopulatorBranch] })),
+      http.get('*/api/v1/admin/students', ({ request }) => {
+        requestedSections.push(new URL(request.url).searchParams.get('section') ?? '')
+        return HttpResponse.json(studentCollection([]))
+      }),
+    )
+    render(<Application session={sessionPort()} router={createPortalMemoryRouter(['/portal/card-populator'])} />)
+
+    await screen.findByRole('heading', { name: 'Card populator' })
+    await selectByValue(user, screen.getByLabelText('Branch'), cardPopulatorBranch.id)
+    await user.type(screen.getByLabelText('Batch'), '2024')
+    await user.type(screen.getByLabelText('Section'), 'A')
+    await user.click(screen.getByRole('button', { name: 'Load roster' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/NFC permission was refused/i)
+    expect(screen.queryByRole('table', { name: 'Students to write' })).not.toBeInTheDocument()
+    expect(requestedSections).toEqual([])
   })
 
   test('[P0] normalizes the section filter before requesting the roster', async () => {
@@ -438,11 +475,14 @@ describe('Card populator portal', () => {
     const user = userEvent.setup()
     renderPopulator('admin')
 
-    await loadRoster(user)
+    await screen.findByRole('heading', { name: 'Card populator' })
+    await selectByValue(user, screen.getByLabelText('Branch'), cardPopulatorBranch.id)
+    await user.type(screen.getByLabelText('Batch'), '2024')
+    await user.type(screen.getByLabelText('Section'), 'A')
+    await user.click(screen.getByRole('button', { name: 'Load roster' }))
 
-    expect(screen.getByRole('alert')).toHaveTextContent(/cannot use NFC/i)
-    expect(screen.getByRole('button', { name: /Write card for Ananya Rao/i })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /Verify card for Ananya Rao/i })).toBeDisabled()
+    expect(screen.getAllByRole('alert').map((alert) => alert.textContent).join('\n')).toMatch(/cannot use NFC/i)
+    expect(screen.queryByRole('table', { name: 'Students to write' })).not.toBeInTheDocument()
   })
 
   test('[P0] shows an explicit insecure-origin state rather than a generic failure', async () => {
@@ -450,9 +490,14 @@ describe('Card populator portal', () => {
     const user = userEvent.setup()
     renderPopulator('admin')
 
-    await loadRoster(user)
+    await screen.findByRole('heading', { name: 'Card populator' })
+    await selectByValue(user, screen.getByLabelText('Branch'), cardPopulatorBranch.id)
+    await user.type(screen.getByLabelText('Batch'), '2024')
+    await user.type(screen.getByLabelText('Section'), 'A')
+    await user.click(screen.getByRole('button', { name: 'Load roster' }))
 
-    expect(screen.getByRole('alert')).toHaveTextContent(/HTTPS/i)
+    expect(screen.getAllByRole('alert').map((alert) => alert.textContent).join('\n')).toMatch(/HTTPS/i)
+    expect(screen.queryByRole('table', { name: 'Students to write' })).not.toBeInTheDocument()
   })
 
   test('[P0] denies non-admins before any card-token request is issued', async () => {

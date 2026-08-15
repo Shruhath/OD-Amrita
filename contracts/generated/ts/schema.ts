@@ -200,7 +200,7 @@ export interface paths {
         put?: never;
         /**
          * Synchronously mark one student present for the current event slot
-         * @description Live one-event MVP marking path. The server resolves either a card token or direct student id, derives coordinator slots from server time, writes one OD record and one audit row in the same transaction, and rejects duplicate present records through the database uniqueness guarantee.
+         * @description Live one-event MVP marking path. The server resolves either a card token or direct student id, derives live coordinator/admin slots from server time, writes one OD record and one audit row in the same transaction, and rejects duplicate present records through the database uniqueness guarantee.
          */
         post: operations["markAttendance"];
         delete?: never;
@@ -218,7 +218,7 @@ export interface paths {
         };
         /**
          * Server-computed marking counters and the active slot window
-         * @description The single source of truth behind the coordinator marking screen's two counters and its slot countdown. `server_time` is read from the same clock read that decided the slot, so the client's countdown and the server's slot decision can never disagree by a poll interval. The client never computes a slot boundary and never counts a mark itself.
+         * @description The single source of truth behind the live marking screen's two counters and its slot countdown. `server_time` is read from the same clock read that decided the slot, so the client's countdown and the server's slot decision can never disagree by a poll interval. The client never computes a slot boundary and never counts a mark itself.
          */
         get: operations["getMarkStatus"];
         put?: never;
@@ -400,7 +400,7 @@ export interface paths {
         };
         /**
          * List the active events the caller may mark for
-         * @description The coordinator marking surface's scoped event read. A sibling of `/api/v1/admin/events`, never a replacement: this one is authenticated rather than admin-gated and returns ACTIVE events only, so the marking selector can never offer an event the mark path would refuse.
+         * @description The live marking surface's scoped event read. A sibling of `/api/v1/admin/events`, never a replacement: this one is authenticated and returns ACTIVE events only. Coordinators see assigned events; admins see active events. The marking selector can never offer an event the mark path would refuse.
          */
         get: operations["listMarkableEvents"];
         put?: never;
@@ -439,7 +439,7 @@ export interface paths {
         };
         /**
          * Search the roster by roll number or name
-         * @description The coordinator's fallback when a card will not tap, and the resolution step for the camera path (the printed barcode carries a ROLL NUMBER). `q` is split on whitespace and EVERY word must appear somewhere in the roll number or name, so a surname finds a full name and word order does not matter; terms are ANDed, so a longer query can only ever return fewer rows. Ordering is exact roll first, then word-start matches, so typing a first name still puts that person at the top. Each word is LIKE-escaped, `q` is bounded at both ends so an empty query cannot become a roster dump, and the result item carries no email, card token or token fingerprint.
+         * @description The live marker's fallback when a card will not tap, and the resolution step for the camera path (the printed barcode carries a ROLL NUMBER). `q` is split on whitespace and EVERY word must appear somewhere in the roll number or name, so a surname finds a full name and word order does not matter; terms are ANDed, so a longer query can only ever return fewer rows. Ordering is exact roll first, then word-start matches, so typing a first name still puts that person at the top. Each word is LIKE-escaped, `q` is bounded at both ends so an empty query cannot become a roster dump, and the result item carries no email, card token or token fingerprint.
          */
         get: operations["searchStudents"];
         put?: never;
@@ -619,6 +619,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/events/{event_id}/categories/{category_id}/visibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+                category_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Show or hide a category on the public dashboard
+         * @description Updates only the public dashboard visibility flag. Authenticated admin reads still include the category; unauthenticated public reads exclude hidden categories and their OD records.
+         */
+        put: operations["updateAdminEventCategoryVisibility"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/events/{event_id}/coordinators": {
         parameters: {
             query?: never;
@@ -639,6 +662,29 @@ export interface paths {
          * @description Elevates an existing student to coordinator on first assignment, or adds another event assignment for an existing coordinator. Duplicate user/event assignments are rejected with COORDINATOR_ASSIGNMENT_EXISTS.
          */
         post: operations["createAdminEventCoordinatorAssignment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/events/{event_id}/coordinators/{user_id}/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace one coordinator's category access for an event
+         * @description Replaces the coordinator's assigned categories for this event only. The coordinator must already be assigned to the event; the request cannot create a new coordinator assignment.
+         */
+        put: operations["updateAdminEventCoordinatorCategoryAccess"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -667,22 +713,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/admin/events/{event_id}/capture-credits/config": {
+    "/api/v1/admin/events/{event_id}/capture-credits/coordinators/{user_id}/limit": {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 event_id: string;
+                user_id: string;
             };
             cookie?: never;
         };
         get?: never;
         /**
-         * Update an event's fallback-credit cap
-         * @description Persists the event-wide camera/search credit cap. A limit of zero is a deliberate live-disable for fallback modes; NFC remains unlimited.
-         *     The cap is per event and DELIBERATELY not per day: it bounds each coordinator's daily pool, so raising it once during a venue-wide NFC failure applies to every remaining day of the event without a second call. Usage against it is tracked per day (see `CaptureCreditUsage`).
+         * Update one coordinator's fallback-credit cap
+         * @description Persists the camera/search credit cap for one coordinator assignment. A limit of zero deliberately disables fallback modes for that coordinator only; NFC remains unlimited.
          */
-        put: operations["updateAdminEventCaptureCreditConfig"];
+        put: operations["updateAdminEventCoordinatorCaptureCreditLimit"];
         post?: never;
         delete?: never;
         options?: never;
@@ -731,6 +777,28 @@ export interface paths {
          * @description Teacher-profile creation ELEVATES an existing, already-provisioned `users` row (someone who has signed in at least once) — it does not pre-provision an identity that has never logged in. Role elevation and every branch association from one request co-commit as exactly one audit row.
          */
         post: operations["createAdminTeacherProfile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/teachers/{user_id}/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace one teacher's category access
+         * @description Replaces the categories an existing teacher may see and export. Branch access and the teacher role are unchanged.
+         */
+        put: operations["updateAdminTeacherCategoryAccess"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -901,6 +969,7 @@ export interface components {
             /** Format: uuid */
             event_id: string;
             name: string;
+            visible_on_public_dashboard: boolean;
             /** Format: date-time */
             created_at: string;
         };
@@ -912,7 +981,7 @@ export interface components {
         CategoryCollection: {
             data: components["schemas"]["Category"][];
         };
-        /** @description Event-level coordinator assignment. A row grants the user coordinator marking access for the whole event; it carries no category or scope field in this MVP. */
+        /** @description Event-level coordinator eligibility plus category assignments. The event row admits the coordinator to the event; assigned categories are the only categories they may mark in. */
         CoordinatorAssignment: {
             /** Format: uuid */
             id: string;
@@ -922,6 +991,7 @@ export interface components {
             name: string | null;
             /** Format: uuid */
             event_id: string;
+            categories: components["schemas"]["Category"][];
             /** Format: date-time */
             created_at: string;
         };
@@ -932,22 +1002,15 @@ export interface components {
         CreateCoordinatorAssignmentRequest: {
             /** @description Email of an existing, already-provisioned users row. The request does not pre-provision an identity. */
             email: string;
+            category_ids: string[];
         };
-        /** @description Event-wide fallback-credit cap for camera/search marks. */
-        CaptureCreditConfig: {
-            /** Format: uuid */
-            event_id: string;
-            /** @description Zero deliberately live-disables camera/search fallback modes. */
-            limit: number;
-            /**
-             * Format: uuid
-             * @description Null until an admin explicitly saves the event cap.
-             */
-            updated_by_user_id: string | null;
-            /** Format: date-time */
-            updated_at: string;
+        UpdateCategoryVisibilityRequest: {
+            visible_on_public_dashboard: boolean;
         };
-        /** @description One assigned coordinator's camera/search credit usage for a SINGLE DAY — the campus-local day of the request. The cap (`limit`) stays per event so one admin change covers every remaining day, but the pool it bounds is refilled each day, which is what keeps a venue-wide NFC failure on day 3 from being throttled by day 2's usage. */
+        UpdateCategoryAccessRequest: {
+            category_ids: string[];
+        };
+        /** @description One assigned coordinator's camera/search credit usage for a SINGLE DAY — the campus-local day of the request. The `limit` is the cap stored on that coordinator's assignment, so admins can change one coordinator without changing any other coordinator on the same event. */
         CaptureCreditUsage: {
             /** Format: uuid */
             event_id: string;
@@ -955,21 +1018,21 @@ export interface components {
             user_id: string;
             email: string;
             name: string | null;
+            /** @description Coordinator-specific fallback cap; zero disables camera/search only for this coordinator. */
             limit: number;
             consumed: number;
             remaining: number;
             exhausted: boolean;
         };
-        /** @description Event credit config plus bounded coordinator usage rows. */
+        /** @description Bounded coordinator usage rows. There is no unified mutable event cap. */
         CaptureCreditSummary: {
-            config: components["schemas"]["CaptureCreditConfig"];
             data: components["schemas"]["CaptureCreditUsage"][];
         };
-        UpdateCaptureCreditConfigRequest: {
-            /** @description Zero deliberately live-disables camera/search fallback modes. */
+        UpdateCaptureCreditLimitRequest: {
+            /** @description Zero deliberately disables camera/search fallback modes for this coordinator only. */
             limit: number;
         };
-        /** @description A teacher's elevated role plus the branches they are associated with. Reuses BranchSummary rather than a parallel branch shape. */
+        /** @description A teacher's elevated role plus the branches and categories they are associated with. */
         TeacherProfile: {
             /** Format: uuid */
             user_id: string;
@@ -977,6 +1040,7 @@ export interface components {
             /** @description Optional — some providers omit a display name. */
             name?: string | null;
             branches: components["schemas"]["BranchSummary"][];
+            categories: components["schemas"]["Category"][];
             /** Format: date-time */
             created_at: string;
         };
@@ -991,6 +1055,7 @@ export interface components {
             /** @description Email of an existing, already-provisioned users row. Resolved server-side; the request does not pre-provision an identity. */
             email: string;
             branch_ids: string[];
+            category_ids: string[];
         };
         StudentRosterImportResult: {
             /** Format: uuid */
@@ -1197,9 +1262,9 @@ export interface components {
              */
             od_date: string;
             slot: number;
-            /** @description Optional free text; no public coordinator roster is exposed. */
-            claimed_coordinator_name?: string | null;
-            student_note?: string | null;
+            /** @description Required free text; no public coordinator roster is exposed. */
+            claimed_coordinator_name: string;
+            student_note: string;
         };
         /** @description Public creation receipt. It proves server-side roster auto-population by returning the resolved public student display shape, but deliberately never echoes submitted_email, user ids, card material, dispute content or resolution fields. */
         PublicDisputeReceipt: {
@@ -1284,7 +1349,7 @@ export interface components {
             counters: components["schemas"]["MarkCounters"];
             fallback_credit: components["schemas"]["FallbackCreditState"];
         };
-        /** @description Server-derived camera/search fallback-credit state for the selected event and coordinator. NFC never consumes this pool. */
+        /** @description Server-derived camera/search fallback-credit state for the selected event and caller. NFC never consumes this pool. */
         FallbackCreditState: {
             limit: number;
             consumed: number;
@@ -1301,7 +1366,7 @@ export interface components {
             ends_at: string;
         };
         /**
-         * @description Both figures are server-computed live counts over od_records (FR13), scoped to the CAMPUS-LOCAL DAY of the request. `mine` is the calling coordinator's marks for this event, category and day; `category_total` is every coordinator's for the same three, and is identical for all callers.
+         * @description Both figures are server-computed live counts over od_records (FR13), scoped to the CAMPUS-LOCAL DAY of the request. `mine` is the calling actor's marks for this event, category and day; `category_total` is every actor's for the same three, and is identical for all callers.
          *     The day scope is not cosmetic: on a multi-day event these are the figures a coordinator reads as "today", so a running total across the whole festival would make the screen useless by day three. They reset at campus midnight, and the marking screen labels them as today's.
          */
         MarkCounters: {
@@ -1320,6 +1385,11 @@ export interface components {
             student_id?: string;
             card?: components["schemas"]["CardTokenResolveRequest"];
             slot?: number;
+            /**
+             * Format: date
+             * @description Optional for teacher/admin manual search marks. When supplied, the record is filed under this campus day and the server/database require it to fall inside the event date range. Coordinator NFC/camera marks reject client dates and continue to use the server-derived campus day only.
+             */
+            od_date?: string;
             /** @description Required for teacher/admin manual search marks; optional for coordinator capture. */
             reason_note?: string | null;
         } & ({
@@ -3774,6 +3844,78 @@ export interface operations {
             };
         };
     };
+    updateAdminEventCategoryVisibility: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+                category_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCategoryVisibilityRequest"];
+            };
+        };
+        responses: {
+            /** @description Category visibility updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Category"];
+                };
+            };
+            /** @description Malformed id or request body. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event or category was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listAdminEventCoordinators: {
         parameters: {
             query?: never;
@@ -3921,6 +4063,87 @@ export interface operations {
             };
         };
     };
+    updateAdminEventCoordinatorCategoryAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCategoryAccessRequest"];
+            };
+        };
+        responses: {
+            /** @description Coordinator assignment with refreshed category access. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoordinatorAssignment"];
+                };
+            };
+            /** @description Malformed ids or request validation failed. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event or coordinator assignment was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event is archived. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listAdminEventCaptureCredits: {
         parameters: {
             query?: never;
@@ -3997,31 +4220,32 @@ export interface operations {
             };
         };
     };
-    updateAdminEventCaptureCreditConfig: {
+    updateAdminEventCoordinatorCaptureCreditLimit: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 event_id: string;
+                user_id: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UpdateCaptureCreditConfigRequest"];
+                "application/json": components["schemas"]["UpdateCaptureCreditLimitRequest"];
             };
         };
         responses: {
-            /** @description Persisted event credit config. */
+            /** @description Updated usage for the assigned coordinator. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CaptureCreditConfig"];
+                    "application/json": components["schemas"]["CaptureCreditUsage"];
                 };
             };
-            /** @description Malformed event id or invalid limit. */
+            /** @description Malformed event/user id or invalid limit. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -4273,6 +4497,77 @@ export interface operations {
             };
             /** @description The user already has a non-student role (ROLE_ALREADY_ASSIGNED). */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateAdminTeacherCategoryAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCategoryAccessRequest"];
+            };
+        };
+        responses: {
+            /** @description Teacher profile with refreshed category access. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeacherProfile"];
+                };
+            };
+            /** @description Malformed user id or request validation failed. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Teacher was not found. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

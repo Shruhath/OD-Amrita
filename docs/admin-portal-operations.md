@@ -198,17 +198,18 @@ ORDER BY assignment.created_at, u.email, assignment.id;
 ## Fallback credits
 
 The event detail page also shows **Fallback credits** for the same assigned
-coordinators. This is one event-wide cap per coordinator for the fallback mark
-paths: **Scan camera** and **Search** share the same pool. **Tap card/NFC never
-uses this pool** and remains available when fallback credits are exhausted.
+coordinators. Each assigned coordinator has their own cap for the fallback mark
+paths: **Scan camera** and **Search** share that coordinator's pool. **Tap
+card/NFC never uses this pool** and remains available when fallback credits are
+exhausted.
 
 Operational rules an administrator will notice:
 
-- **Default cap is 5.** Until an administrator saves a value for the event, each
-  assigned coordinator effectively has 5 fallback credits.
-- **Cap 0 is valid.** Setting the cap to 0 live-disables camera and search for
-  that event without redeploying. Raising the cap takes effect on the next mark
-  status read and the next mark request.
+- **Default cap is 5.** A new coordinator assignment starts with 5 fallback
+  credits unless an administrator edits that coordinator's row.
+- **Cap 0 is valid.** Setting one coordinator's cap to 0 live-disables camera and
+  search for that coordinator without redeploying. NFC remains available, and
+  other coordinators on the same event keep their own caps.
 - **Lowering below usage is allowed.** If a coordinator has consumed 4 credits
   and the cap is lowered to 3, their remaining value is 0 and camera/search stay
   disabled until a reset or later raise.
@@ -222,7 +223,7 @@ Operational rules an administrator will notice:
   caps, unknown users, and users not assigned to the event write no credit audit
   row.
 - **Successful admin writes are audited.** A cap change writes exactly one
-  `capture_credit.cap_changed` row targeting `event_capture_credit_config`.
+  `capture_credit.cap_changed` row targeting `event_coordinator_assignments`.
   A reset writes exactly one `capture_credit.reset` row targeting
   `event_capture_credit_usage`.
 
@@ -231,12 +232,11 @@ Verify fallback credits for an event as the migrator/database owner:
 ```sql
 SELECT u.email,
        COALESCE(usage.consumed, 0) AS consumed,
-       COALESCE(config.credit_limit, 5) AS cap,
-       GREATEST(COALESCE(config.credit_limit, 5) - COALESCE(usage.consumed, 0), 0) AS remaining
+       assignment.fallback_credit_limit AS cap,
+       GREATEST(assignment.fallback_credit_limit - COALESCE(usage.consumed, 0), 0) AS remaining
 FROM event_coordinator_assignments AS assignment
 JOIN users AS u ON u.id = assignment.user_id
 JOIN events AS event ON event.id = assignment.event_id
-LEFT JOIN event_capture_credit_config AS config ON config.event_id = assignment.event_id
 LEFT JOIN event_capture_credit_usage AS usage
   ON usage.event_id = assignment.event_id AND usage.user_id = assignment.user_id
 WHERE event.name = 'YOUR EVENT NAME'
@@ -503,9 +503,10 @@ outside them the server correctly refuses every mark):
 4. Switch to camera mode and scan the barcode printed on a real ID card. Confirm
    the same green confirmation for the right student and one fewer fallback
    credit.
-5. From the event detail page, set the fallback cap to 0. Confirm camera/search
-   are disabled on `/mark`, while NFC remains selectable. Raise the cap or reset
-   the coordinator and confirm camera/search return without redeploying.
+5. From the event detail page, set that coordinator's fallback cap to 0. Confirm
+   camera/search are disabled on `/mark`, while NFC remains selectable. Raise the
+   cap or reset the coordinator and confirm camera/search return without
+   redeploying.
 6. Turn airplane mode on and tap a card. Confirm a **red** "not recorded" state
    with a retry — never a queued or amber state.
 

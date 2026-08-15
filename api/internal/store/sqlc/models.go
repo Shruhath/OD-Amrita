@@ -47,11 +47,12 @@ type Branch struct {
 }
 
 type Category struct {
-	ID        pgtype.UUID        `json:"id"`
-	EventID   pgtype.UUID        `json:"event_id"`
-	Name      string             `json:"name"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID                       pgtype.UUID        `json:"id"`
+	EventID                  pgtype.UUID        `json:"event_id"`
+	Name                     string             `json:"name"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                pgtype.Timestamptz `json:"updated_at"`
+	VisibleOnPublicDashboard bool               `json:"visible_on_public_dashboard"`
 }
 
 type Dispute struct {
@@ -105,7 +106,7 @@ type EventCaptureCreditUsage struct {
 	UserID    pgtype.UUID        `json:"user_id"`
 	Consumed  int32              `json:"consumed"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	// Campus-local day this pool belongs to. The cap on event_capture_credit_config stays per event.
+	// Campus-local day this pool belongs to. The coordinator assignment cap is independent of usage_date.
 	UsageDate pgtype.Date `json:"usage_date"`
 }
 
@@ -115,6 +116,8 @@ type EventCoordinatorAssignment struct {
 	EventID         pgtype.UUID        `json:"event_id"`
 	CreatedByUserID pgtype.UUID        `json:"created_by_user_id"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	// Camera/search fallback credit limit for this coordinator assignment. NFC is unlimited.
+	FallbackCreditLimit int32 `json:"fallback_credit_limit"`
 }
 
 type OdRecord struct {
@@ -186,4 +189,11 @@ type UserBranch struct {
 	UserID    pgtype.UUID        `json:"user_id"`
 	BranchID  pgtype.UUID        `json:"branch_id"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type UserCategoryAssignment struct {
+	UserID          pgtype.UUID        `json:"user_id"`
+	CategoryID      pgtype.UUID        `json:"category_id"`
+	CreatedByUserID pgtype.UUID        `json:"created_by_user_id"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }

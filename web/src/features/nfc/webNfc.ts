@@ -51,6 +51,11 @@ export type CardNfcErrorKind =
 
 export type WebNfcAdapter = {
   status(): WebNfcStatus
+  /**
+   * Forces the browser's NFC permission/radio check from a user gesture without
+   * writing data or waiting for a card tap.
+   */
+  ensurePermission(): Promise<void>
   /** Writes one MIME record holding exactly `payload`. Requires a user gesture. */
   write(payload: CardPayload, signal?: AbortSignal): Promise<void>
   /** Scans until a tag carrying our record is tapped, then returns its payload. */
@@ -156,6 +161,18 @@ export function createWebNfcAdapter(windowRef: Window): WebNfcAdapter {
 
   return {
     status,
+
+    async ensurePermission() {
+      const reader = readerOrThrow()
+      const controller = new AbortController()
+      try {
+        await reader.scan({ signal: controller.signal })
+      } catch (error) {
+        throw toCardError(error, 'read-failed', 'NFC permission or scanning could not start. Check that NFC is switched on.')
+      } finally {
+        controller.abort()
+      }
+    },
 
     async write(payload, signal) {
       const reader = readerOrThrow()

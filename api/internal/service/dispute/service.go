@@ -540,6 +540,12 @@ func validateSubmitInput(input SubmitInput, now time.Time) error {
 	if input.Slot < 1 || input.Slot > 12 {
 		return validation("slot", "out_of_range", "Slot must be between 1 and 12.")
 	}
+	if input.ClaimedCoordinatorName == nil || strings.TrimSpace(*input.ClaimedCoordinatorName) == "" || !hasVisibleCharacter(*input.ClaimedCoordinatorName) {
+		return validation("claimed_coordinator_name", "required", "Coordinator name is required.")
+	}
+	if input.StudentNote == nil || strings.TrimSpace(*input.StudentNote) == "" || !hasVisibleCharacter(*input.StudentNote) {
+		return validation("student_note", "required", "Student note is required.")
+	}
 	// Counted in RUNES, not bytes. The contract's maxLength, the database CHECK
 	// (`length(...)`) and the browser's maxLength all count characters, so a
 	// byte count refused a 400-character Malayalam note as "at most 1000
@@ -551,23 +557,19 @@ func validateSubmitInput(input SubmitInput, now time.Time) error {
 	if hasControlCharacter(input.SubmittedEmail) {
 		return validation("submitted_email", "invalid_characters", "Email must not contain control characters.")
 	}
-	if input.StudentNote != nil {
-		note := strings.TrimSpace(*input.StudentNote)
-		if utf8.RuneCountInString(note) > 1000 {
-			return validation("student_note", "too_long", "Student note must be at most 1000 characters.")
-		}
-		if hasControlCharacter(note) {
-			return validation("student_note", "invalid_characters", "Student note must not contain control characters.")
-		}
+	note := strings.TrimSpace(*input.StudentNote)
+	if utf8.RuneCountInString(note) > 1000 {
+		return validation("student_note", "too_long", "Student note must be at most 1000 characters.")
 	}
-	if input.ClaimedCoordinatorName != nil {
-		name := strings.TrimSpace(*input.ClaimedCoordinatorName)
-		if utf8.RuneCountInString(name) > 200 {
-			return validation("claimed_coordinator_name", "too_long", "Coordinator name must be at most 200 characters.")
-		}
-		if hasControlCharacter(name) {
-			return validation("claimed_coordinator_name", "invalid_characters", "Coordinator name must not contain control characters.")
-		}
+	if hasControlCharacter(note) {
+		return validation("student_note", "invalid_characters", "Student note must not contain control characters.")
+	}
+	name := strings.TrimSpace(*input.ClaimedCoordinatorName)
+	if utf8.RuneCountInString(name) > 200 {
+		return validation("claimed_coordinator_name", "too_long", "Coordinator name must be at most 200 characters.")
+	}
+	if hasControlCharacter(name) {
+		return validation("claimed_coordinator_name", "invalid_characters", "Coordinator name must not contain control characters.")
 	}
 	odDate, err := time.Parse("2006-01-02", strings.TrimSpace(input.ODDate))
 	if err != nil {

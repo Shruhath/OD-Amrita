@@ -1,0 +1,30 @@
+# act (nektos/act) — running these workflows locally, e.g. `act push -j build`.
+#
+# ⚠️ SAFETY — WHY THESE TWO LINES EXIST. DO NOT DELETE THEM.
+#
+# act reads `.env` from the repository root BY DEFAULT and injects every entry
+# into the job container, where it takes precedence over the `env:` block the
+# workflow itself declares. This repo's `.env` is gitignored and local-only, but
+# it holds the LIVE Neon credentials — SUPERUSER_DSN, DATABASE_URL_MIGRATOR and
+# DATABASE_URL_RUNTIME.
+#
+# api-ci's `integration` job declares those three as localhost:5432 pointing at
+# its own throwaway postgres service. Unguarded, act overrides all three with the
+# production values, and the job then runs — against the database serving the
+# live event — the superuser role bootstrap (`psql -f api/db/init/00_roles.sql`),
+# `goose up`, and the reversibility gate's `goose down-to 0`. The last of those
+# drops every table.
+#
+# This was observed on 2026-08-10. It failed only because the network this project
+# is developed on blocks outbound 5432, so psql was refused before it connected —
+# see docs/deployment-runbook.md and the db-migrate workflow header for that same
+# restriction. A hotspot or any other network removes the accident that saved it.
+#
+# These workflows need NO ambient configuration: every value they use is a CI-only
+# literal declared in the workflow file (`ci_only_password`, the `*_dev_only_change_me`
+# role passwords, a dev card-seal key). So loading nothing is not a limitation.
+#
+# If a local run ever genuinely needs a credential, pass `--env-file` / `--secret-file`
+# explicitly on the command line for that one run. Never by deleting these lines.
+--env-file=/dev/null
+--secret-file=/dev/null

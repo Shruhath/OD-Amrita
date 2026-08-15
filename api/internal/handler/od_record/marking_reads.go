@@ -17,7 +17,7 @@ import (
 	svcstudent "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 )
 
-// MarkingReadService is everything the coordinator marking surface reads.
+// MarkingReadService is everything the live marking surface reads.
 //
 // One dependency, deliberately: no handler here reaches a repository directly,
 // so none can serve a scope the mark write would refuse. The scope-describing
@@ -223,7 +223,7 @@ func markingActor(c *gin.Context) (marking.Actor, error) {
 	if err != nil {
 		return marking.Actor{}, err
 	}
-	if actor.Role != "coordinator" {
+	if actor.Role != "coordinator" && actor.Role != "admin" {
 		return marking.Actor{}, domainForbidden()
 	}
 	return marking.Actor{UserID: actor.UserID, Email: actor.Email, Role: actor.Role}, nil
@@ -231,11 +231,8 @@ func markingActor(c *gin.Context) (marking.Actor, error) {
 
 // searchActor is markingActor's widened sibling for SearchStudentsHandler
 // alone. Story 0.9's teacher/admin search-mark screen calls this exact route
-// before it can select anyone to mark, so coordinator-only here would 403 the
-// entire teacher/admin surface at its first step. The other three reads
-// (events, categories, mark status) stay behind markingActor — they describe
-// the COORDINATOR's own scope, which teacher/admin never uses; they read
-// their own events/categories through the separate portal-mark surface.
+// before it can select anyone to mark, so live-marker-only here would 403 the
+// entire teacher/admin surface at its first step.
 func searchActor(c *gin.Context) (marking.Actor, error) {
 	actor, err := actorFromContext(c)
 	if err != nil {
@@ -408,6 +405,6 @@ func readValidationDetails(details []contracts.ValidationErrorDetail) error {
 func domainForbidden() error {
 	return domain.DomainError{
 		Code:    contracts.ErrorCodeRBACFORBIDDEN,
-		Message: "Only a coordinator may use the marking surface.",
+		Message: "Only a coordinator or admin may use the marking surface.",
 	}
 }

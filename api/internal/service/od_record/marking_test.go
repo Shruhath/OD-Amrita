@@ -305,12 +305,14 @@ const (
 // countingWriter records whether a write was attempted. The scope tests above
 // rely on `inserts` staying at 0 when the guard refuses.
 type countingWriter struct {
-	inserts int
-	err     error
+	inserts    int
+	lastRecord RecordInput
+	err        error
 }
 
 func (w *countingWriter) InsertPresent(_ context.Context, _ pgx.Tx, input RecordInput) (MarkResult, error) {
 	w.inserts++
+	w.lastRecord = input
 	if w.err != nil {
 		return MarkResult{}, w.err
 	}
@@ -320,6 +322,7 @@ func (w *countingWriter) InsertPresent(_ context.Context, _ pgx.Tx, input Record
 		EventID:          input.EventID,
 		CategoryID:       input.CategoryID,
 		Slot:             input.Slot,
+		ODDate:           input.ODDate,
 		CaptureMethod:    input.CaptureMethod,
 		ServerReceivedAt: input.ServerReceivedAt,
 	}, nil
@@ -327,7 +330,10 @@ func (w *countingWriter) InsertPresent(_ context.Context, _ pgx.Tx, input Record
 
 // scaffoldReader is a minimal in-memory Reader: one active event and one
 // category that belongs to it.
-type scaffoldReader struct{ eventDate time.Time }
+type scaffoldReader struct {
+	eventDate time.Time
+	endDate   time.Time
+}
 
 func (r scaffoldReader) EventForMark(_ context.Context, eventID string) (Event, error) {
 	if eventID != scaffoldEventID {
@@ -336,7 +342,11 @@ func (r scaffoldReader) EventForMark(_ context.Context, eventID string) (Event, 
 	// A one-day event: EndDate == EventDate is the shape every pre-existing
 	// event was backfilled to, so these scaffolds keep asserting the unchanged
 	// single-day behaviour.
-	return Event{EventID: scaffoldEventID, EventDate: r.eventDate, EndDate: r.eventDate, Status: "active"}, nil
+	endDate := r.endDate
+	if endDate.IsZero() {
+		endDate = r.eventDate
+	}
+	return Event{EventID: scaffoldEventID, EventDate: r.eventDate, EndDate: endDate, Status: "active"}, nil
 }
 
 func (r scaffoldReader) CategoryForEvent(_ context.Context, eventID, categoryID string) (Category, error) {

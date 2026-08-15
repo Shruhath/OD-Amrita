@@ -1,6 +1,5 @@
 import { Link } from 'react-router-dom'
 import { AuthBrand } from '../features/auth/AuthGate'
-import { ThemeToggle } from '../components/ThemeToggle'
 import { useAuth } from '../features/auth/context'
 
 /**
@@ -31,9 +30,14 @@ export default function HomeLanding() {
 
   return (
     <main className="center-state home-landing">
-      <div className="home-toolbar">
-        <ThemeToggle />
-      </div>
+      {/*
+        The theme control comes from AuthBrand and ONLY from there. This page
+        used to pin one of its own in the top-right corner as well, and the two
+        sat on top of each other — the same button drawn twice, half-overlapping,
+        on the first screen anybody sees. AuthBrand carries it for every
+        signed-out surface (this page, the session-error card, access denied), so
+        a second one here is not a fallback, it is a duplicate.
+      */}
       <AuthBrand />
       <p className="eyebrow">On-duty attendance</p>
       <h1>OD-Amrita</h1>

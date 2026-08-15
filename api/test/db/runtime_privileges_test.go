@@ -50,6 +50,10 @@ var runtimePrivileges = map[string][]string{
 	// event_branches/categories, inherited entirely from 0007's default
 	// privileges (0008 writes no explicit GRANT/REVOKE).
 	"user_branches": {"SELECT", "INSERT", "UPDATE"},
+	// Category assignment rows are the access-control switch admins edit. Removing
+	// one row is how category access is revoked; deleting the user or category
+	// would be the dangerous operation.
+	"user_category_assignments": {"SELECT", "INSERT", "UPDATE", "DELETE"},
 
 	// Imported student roster and its import summaries are stable references for
 	// attendance, dashboard, and correction flows.

@@ -31,6 +31,17 @@ WHERE student_id = @student_id
 ORDER BY created_at ASC, id ASC
 LIMIT 1;
 
+-- name: PublicCategoryAvailableForDispute :one
+SELECT EXISTS (
+    SELECT 1
+    FROM categories c
+    JOIN events e ON e.id = c.event_id
+    WHERE e.id = @event_id
+      AND c.id = @category_id
+      AND c.visible_on_public_dashboard = true
+      AND @od_date::date BETWEEN e.event_date AND e.end_date
+)::boolean;
+
 -- name: ListDisputesForAdmin :many
 SELECT
     d.id,
@@ -101,6 +112,7 @@ JOIN branches b ON b.id = s.branch_id
 JOIN user_branches ub ON ub.branch_id = s.branch_id AND ub.user_id = @teacher_user_id
 JOIN events e ON e.id = d.event_id
 JOIN categories c ON c.id = d.category_id
+JOIN user_category_assignments uca ON uca.category_id = d.category_id AND uca.user_id = @teacher_user_id
 WHERE (@status::text = 'all' OR d.status = @status::text)
 ORDER BY d.created_at DESC, d.id DESC
 LIMIT @page_size::bigint OFFSET @page_offset::bigint;
@@ -110,6 +122,7 @@ SELECT count(*)::bigint
 FROM disputes d
 JOIN students s ON s.id = d.student_id
 JOIN user_branches ub ON ub.branch_id = s.branch_id AND ub.user_id = @teacher_user_id
+JOIN user_category_assignments uca ON uca.category_id = d.category_id AND uca.user_id = @teacher_user_id
 WHERE (@status::text = 'all' OR d.status = @status::text);
 
 -- name: GetDisputeForResolution :one
@@ -132,6 +145,7 @@ SELECT EXISTS (
     FROM disputes d
     JOIN students s ON s.id = d.student_id
     JOIN user_branches ub ON ub.branch_id = s.branch_id AND ub.user_id = @teacher_user_id
+    JOIN user_category_assignments uca ON uca.category_id = d.category_id AND uca.user_id = @teacher_user_id
     WHERE d.id = @dispute_id
 )::boolean;
 

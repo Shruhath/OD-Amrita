@@ -20,7 +20,7 @@ import (
 // The preflight's Access-Control-Allow-Methods is DERIVED from this rather than
 // written out by hand, and that is the whole point of the parameter. The list
 // used to be the literal GET, POST, OPTIONS — which silently stopped being true
-// the day PUT /admin/events/{id}/capture-credits/config was added. A PUT always
+// the day a PUT admin fallback-credit route was added. A PUT always
 // triggers a preflight, and a preflight that does not name PUT makes the browser
 // refuse to send the real request, so the fallback-credit cap could not be
 // changed from the portal at all while every server-side test passed: nothing

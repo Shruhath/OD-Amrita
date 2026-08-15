@@ -18,11 +18,13 @@ import { fulfilPreflight, installPortalSession, json } from './support/portal-se
 // everything is queried by accessible role, label or text.
 
 type TeacherBranch = { id: string; code: string; name: string }
+type TeacherCategory = { id: string; event_id: string; name: string; visible_on_public_dashboard: boolean; created_at: string }
 type TeacherProfile = {
   user_id: string
   email: string
   name: string | null
   branches: TeacherBranch[]
+  categories: TeacherCategory[]
   created_at: string
 }
 
@@ -38,13 +40,22 @@ const computerScience: TeacherBranch = {
   code: 'CSE',
   name: 'Computer Science and Engineering',
 }
+const eventID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+const category: TeacherCategory = {
+  id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  event_id: eventID,
+  name: 'Campus Decoration',
+  visible_on_public_dashboard: true,
+  created_at: '2026-07-23T03:00:00Z',
+}
 
-function teacherProfile(email: string, index: number): TeacherProfile {
+function teacherProfile(email: string, index: number, categories: TeacherCategory[] = [category]): TeacherProfile {
   return {
     user_id: `eeeeeeee-eeee-4eee-8eee-${String(index).padStart(12, '0')}`,
     email,
     name: `Fixture Teacher ${index}`,
     branches: [computerScience],
+    categories,
     created_at: '2026-07-23T03:00:00Z',
   }
 }
@@ -62,6 +73,23 @@ async function mockApi(page: Page, scenario: Scenario = {}) {
     json(route, { subject: `atdd-${role}`, email: `${role}@amrita.edu`, name: `ATDD ${role}`, role }),
   )
   await page.route('**/api/v1/admin/branches', (route) => json(route, { data: [computerScience] }))
+  await page.route('**/api/v1/admin/events?*', (route) =>
+    json(route, {
+      data: [{
+        id: eventID,
+        name: 'Onam Celebrations',
+        event_date: '2026-08-15',
+        status: 'active',
+        branches: [computerScience],
+        created_at: '2026-07-23T03:00:00Z',
+        archived_at: null,
+      }],
+      page: 1,
+      page_size: 100,
+      total: 1,
+    }),
+  )
+  await page.route(`**/api/v1/admin/events/${eventID}/categories`, (route) => json(route, { data: [category] }))
   await page.route('**/api/v1/admin/teachers?*', async (route) => {
     if (route.request().method() === 'OPTIONS') return fulfilPreflight(route)
     const url = new URL(route.request().url())
@@ -75,8 +103,9 @@ async function mockApi(page: Page, scenario: Scenario = {}) {
     if (route.request().method() !== 'POST') return route.continue()
     created += 1
     if (createStatus !== 201) return json(route, createBody, createStatus)
-    const input = route.request().postDataJSON() as { email: string; branch_ids: string[] }
-    const profile = teacherProfile(input.email.trim().toLowerCase(), 100 + created)
+    const input = route.request().postDataJSON() as { email: string; branch_ids: string[]; category_ids: string[] }
+    const categories = [category].filter((candidate) => input.category_ids.includes(candidate.id))
+    const profile = teacherProfile(input.email.trim().toLowerCase(), 100 + created, categories)
     serverTeachers = ordered([profile, ...serverTeachers])
     return json(route, profile, 201)
   })
@@ -97,6 +126,7 @@ test('[P0] opens the teachers view and creates a profile that persists after rel
   const dialog = page.getByRole('dialog', { name: 'New teacher' })
   await dialog.getByLabel('Email').fill('new-teacher@amrita.edu')
   await dialog.getByRole('checkbox', { name: 'Computer Science and Engineering' }).check()
+  await dialog.getByRole('checkbox', { name: 'Campus Decoration' }).check()
   await dialog.getByRole('button', { name: 'Create teacher' }).click()
 
   const row = page.getByRole('row', { name: /new-teacher@amrita\.edu/ })
@@ -121,6 +151,7 @@ test('[P0] surfaces a typed USER_NOT_FOUND rejection on the form without creatin
   const dialog = page.getByRole('dialog', { name: 'New teacher' })
   await dialog.getByLabel('Email').fill('never-logged-in@amrita.edu')
   await dialog.getByRole('checkbox', { name: 'Computer Science and Engineering' }).check()
+  await dialog.getByRole('checkbox', { name: 'Campus Decoration' }).check()
   await dialog.getByRole('button', { name: 'Create teacher' }).click()
 
   await expect(dialog.getByRole('alert')).toHaveText('No user has signed in with this email yet.')
@@ -138,6 +169,7 @@ test('[P0] surfaces a typed ROLE_ALREADY_ASSIGNED rejection without blaming a fi
   const dialog = page.getByRole('dialog', { name: 'New teacher' })
   await dialog.getByLabel('Email').fill('already-admin@amrita.edu')
   await dialog.getByRole('checkbox', { name: 'Computer Science and Engineering' }).check()
+  await dialog.getByRole('checkbox', { name: 'Campus Decoration' }).check()
   await dialog.getByRole('button', { name: 'Create teacher' }).click()
 
   await expect(dialog.getByRole('alert')).toHaveText('This user already has an assigned role.')

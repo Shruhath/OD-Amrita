@@ -118,6 +118,7 @@ describe('mark fallback credit behavior', () => {
     }
     const nfc = {
       status: vi.fn(() => 'unsupported' as const),
+      ensurePermission: vi.fn(async () => undefined),
       write: vi.fn(async () => undefined),
       read: vi.fn(async () => ({ version: 'dev', token: 'token' })),
       scanSession: vi.fn(async () => undefined),

@@ -23,14 +23,22 @@ async function searchMark(page: import('@playwright/test').Page, roll: string) {
   await page.getByRole('button', { name: new RegExp(roll.replace(/\./g, '\\.')) }).click()
 }
 
+async function setFirstCoordinatorLimit(request: import('@playwright/test').APIRequestContext, limit: number) {
+  const summary = await request.get(`${portalAPI}/api/v1/admin/events/${markingEventID}/capture-credits`, {
+    headers: { Authorization: 'Bearer portal-admin-token' },
+  })
+  const first = (await summary.json()).data[0] as { user_id: string }
+  return request.put(`${portalAPI}/api/v1/admin/events/${markingEventID}/capture-credits/coordinators/${first.user_id}/limit`, {
+    headers: { Authorization: 'Bearer portal-admin-token', 'Content-Type': 'application/json' },
+    data: { limit },
+  })
+}
+
 test.describe.configure({ mode: 'serial' })
 
 test.describe('real stack fallback credits', () => {
   test('[P0] a live cap raise lets an exhausted coordinator use search again without redeploy', async ({ page, request }) => {
-    await request.put(`${portalAPI}/api/v1/admin/events/${markingEventID}/capture-credits/config`, {
-      headers: { Authorization: 'Bearer portal-admin-token', 'Content-Type': 'application/json' },
-      data: { limit: 1 },
-    })
+    await setFirstCoordinatorLimit(request, 1)
 
     await page.goto('/integration.html?role=coordinator&path=%2Fmark')
     const { eventID, categoryID } = await selectedScope(page)
@@ -57,16 +65,10 @@ test.describe('real stack fallback credits', () => {
     // teaching hours and three outside them, and the audit-conservation gate —
     // which hardcodes one of those numbers — was therefore red roughly fourteen
     // hours a day for reasons that had nothing to do with the change under test.
-    await request.put(`${portalAPI}/api/v1/admin/events/${markingEventID}/capture-credits/config`, {
-      headers: { Authorization: 'Bearer portal-admin-token', 'Content-Type': 'application/json' },
-      data: { limit: 0 },
-    })
+    await setFirstCoordinatorLimit(request, 0)
     await expect(page.getByRole('button', { name: /search/i })).toBeDisabled({ timeout: 15_000 })
 
-    const raise = await request.put(`${portalAPI}/api/v1/admin/events/${markingEventID}/capture-credits/config`, {
-      headers: { Authorization: 'Bearer portal-admin-token', 'Content-Type': 'application/json' },
-      data: { limit: 2 },
-    })
+    const raise = await setFirstCoordinatorLimit(request, 2)
     expect(raise.status()).toBe(200)
 
     await expect(page.getByRole('button', { name: /search/i })).toBeEnabled({ timeout: 15_000 })

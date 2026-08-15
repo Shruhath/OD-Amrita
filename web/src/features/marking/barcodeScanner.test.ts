@@ -1,4 +1,28 @@
-import { describe, expect, test, vi } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
+
+const zxing = vi.hoisted(() => {
+  const controls = { stop: vi.fn() }
+  return {
+    controls,
+    decodeFromStream: vi.fn(async (_stream: MediaStream, _video: HTMLVideoElement, callback: (result?: { getText(): string }) => void) => {
+      callback({ getText: () => 'CB.SC.U4CSE24002' })
+      return controls
+    }),
+  }
+})
+
+vi.mock('@zxing/browser', () => ({
+  BrowserMultiFormatReader: vi.fn(function BrowserMultiFormatReader() {
+    return {
+      decodeFromStream: zxing.decodeFromStream,
+    }
+  }),
+}))
+
+beforeEach(() => {
+  zxing.decodeFromStream.mockClear()
+  zxing.controls.stop.mockClear()
+})
 
 /**
  * The camera capture seam.
@@ -25,10 +49,11 @@ async function loadScannerModule() {
 function fakeEnvironment(options: {
   secure?: boolean
   hasDetector?: boolean
+  hasCamera?: boolean
   formats?: string[]
   decoded?: string[]
 } = {}) {
-  const { secure = true, hasDetector = true, formats = ['code_128', 'qr_code'], decoded = [] } = options
+  const { secure = true, hasDetector = true, hasCamera = true, formats = ['code_128', 'qr_code'], decoded = [] } = options
 
   const stoppedTracks: string[] = []
   const track = {
@@ -56,7 +81,7 @@ function fakeEnvironment(options: {
   } as unknown as Window
 
   const getUserMedia = vi.fn(async () => stream)
-  const navigatorRef = { mediaDevices: { getUserMedia } } as unknown as Navigator
+  const navigatorRef = (hasCamera ? { mediaDevices: { getUserMedia } } : {}) as unknown as Navigator
 
   return { windowRef, navigatorRef, getUserMedia, stoppedTracks, track }
 }
@@ -72,23 +97,41 @@ describe('camera capture behind a fakeable seam', () => {
     expect(await createBarcodeScanner(env.windowRef, env.navigatorRef).status()).toBe('insecure')
   })
 
-  test('[P0] a browser without BarcodeDetector reports unsupported explicitly', async () => {
+  test('[P0] a browser without a camera API reports unsupported explicitly', async () => {
     const { createBarcodeScanner } = await loadScannerModule()
-    const env = fakeEnvironment({ hasDetector: false })
+    const env = fakeEnvironment({ hasDetector: false, hasCamera: false })
 
-    // Desktop Chrome frequently lacks this. An unsupported camera mode is an
-    // explicit red state the coordinator can see, never a silently dead button.
     expect(await createBarcodeScanner(env.windowRef, env.navigatorRef).status()).toBe('unsupported')
   })
 
-  test('[P0] getSupportedFormats() is consulted before the mode is offered', async () => {
+  test('[P0] a laptop browser without native BarcodeDetector can still use the bundled decoder', async () => {
+    const { createBarcodeScanner } = await loadScannerModule()
+    const env = fakeEnvironment({ hasDetector: false })
+    const scanner = createBarcodeScanner(env.windowRef, env.navigatorRef)
+
+    expect(await scanner.status()).toBe('available')
+
+    const seen: string[] = []
+    const controller = new AbortController()
+    void scanner.start((text) => seen.push(text), () => {}, controller.signal)
+
+    await vi.waitFor(() => expect(zxing.decodeFromStream).toHaveBeenCalled())
+    expect(seen).toEqual(['CB.SC.U4CSE24002'])
+    controller.abort()
+    await vi.waitFor(() => expect(zxing.controls.stop).toHaveBeenCalled())
+  })
+
+  test('[P0] getSupportedFormats() is consulted before choosing the native decoder', async () => {
     const { createBarcodeScanner } = await loadScannerModule()
     const env = fakeEnvironment({ formats: [] })
+    const scanner = createBarcodeScanner(env.windowRef, env.navigatorRef)
 
-    // `'BarcodeDetector' in window` is not proof it can decode anything: on
-    // Android the implementation is backed by Google Play services and can be
-    // present with no usable formats.
-    expect(await createBarcodeScanner(env.windowRef, env.navigatorRef).status()).toBe('no-formats')
+    expect(await scanner.status()).toBe('available')
+
+    const controller = new AbortController()
+    void scanner.start(() => {}, () => {}, controller.signal)
+    await vi.waitFor(() => expect(zxing.decodeFromStream).toHaveBeenCalled())
+    controller.abort()
   })
 
   test('[P0] the camera is requested with the rear lens', async () => {

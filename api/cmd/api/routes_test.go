@@ -89,6 +89,11 @@ func (s reachingService) CreateCategory(context.Context, eventsvc.Actor, eventsv
 	return eventsvc.Category{}, nil
 }
 
+func (s reachingService) UpdateCategoryVisibility(context.Context, eventsvc.Actor, eventsvc.UpdateCategoryVisibilityInput) (eventsvc.Category, error) {
+	s.reached.hits++
+	return eventsvc.Category{}, nil
+}
+
 func (s reachingService) ListCoordinatorAssignments(context.Context, eventsvc.Actor, string) ([]eventsvc.CoordinatorAssignment, error) {
 	s.reached.hits++
 	return nil, nil
@@ -99,14 +104,19 @@ func (s reachingService) CreateCoordinatorAssignment(context.Context, eventsvc.A
 	return eventsvc.CoordinatorAssignment{}, nil
 }
 
+func (s reachingService) UpdateCoordinatorCategoryAccess(context.Context, eventsvc.Actor, eventsvc.UpdateCoordinatorCategoryAccessInput) (eventsvc.CoordinatorAssignment, error) {
+	s.reached.hits++
+	return eventsvc.CoordinatorAssignment{}, nil
+}
+
 func (s reachingService) ListCaptureCredits(context.Context, eventsvc.Actor, string) (eventsvc.CaptureCreditSummary, error) {
 	s.reached.hits++
 	return eventsvc.CaptureCreditSummary{}, nil
 }
 
-func (s reachingService) UpdateCaptureCreditConfig(context.Context, eventsvc.Actor, eventsvc.CaptureCreditConfigInput) (eventsvc.CaptureCreditConfig, error) {
+func (s reachingService) UpdateCoordinatorCaptureCreditLimit(context.Context, eventsvc.Actor, eventsvc.CaptureCreditLimitInput) (eventsvc.CaptureCreditUsage, error) {
 	s.reached.hits++
-	return eventsvc.CaptureCreditConfig{}, nil
+	return eventsvc.CaptureCreditUsage{}, nil
 }
 
 func (s reachingService) ResetCaptureCredits(context.Context, eventsvc.Actor, string, string) (eventsvc.CaptureCreditUsage, error) {
@@ -122,6 +132,11 @@ func (s reachingTeacherService) List(context.Context, teachersvc.Actor, teachers
 }
 
 func (s reachingTeacherService) Create(context.Context, teachersvc.Actor, teachersvc.CreateInput) (teachersvc.TeacherProfile, error) {
+	s.reached.hits++
+	return teachersvc.TeacherProfile{}, nil
+}
+
+func (s reachingTeacherService) UpdateCategoryAccess(context.Context, teachersvc.Actor, teachersvc.UpdateCategoryAccessInput) (teachersvc.TeacherProfile, error) {
 	s.reached.hits++
 	return teachersvc.TeacherProfile{}, nil
 }

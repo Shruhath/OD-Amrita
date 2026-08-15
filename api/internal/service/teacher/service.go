@@ -38,12 +38,21 @@ type Branch struct {
 	Name string `json:"name"`
 }
 
+type Category struct {
+	ID                       string    `json:"id"`
+	EventID                  string    `json:"event_id"`
+	Name                     string    `json:"name"`
+	VisibleOnPublicDashboard bool      `json:"visible_on_public_dashboard"`
+	CreatedAt                time.Time `json:"created_at"`
+}
+
 type TeacherProfile struct {
-	UserID    string
-	Email     string
-	Name      *string
-	Branches  []Branch
-	CreatedAt time.Time
+	UserID     string
+	Email      string
+	Name       *string
+	Branches   []Branch
+	Categories []Category
+	CreatedAt  time.Time
 }
 
 // Actor mirrors event.Actor — small intentional duplication per that
@@ -55,8 +64,14 @@ type Actor struct {
 }
 
 type CreateInput struct {
-	Email     string
-	BranchIDs []string
+	Email       string
+	BranchIDs   []string
+	CategoryIDs []string
+}
+
+type UpdateCategoryAccessInput struct {
+	UserID      string
+	CategoryIDs []string
 }
 
 type ListInput struct {
@@ -82,19 +97,30 @@ type resolvedUser struct {
 type Reader interface {
 	GetTeacherByEmail(ctx context.Context, email string) (resolvedUser, error)
 	GetTeacherProfile(ctx context.Context, userID uuid.UUID) (TeacherProfile, error)
+	TeacherExists(ctx context.Context, userID uuid.UUID) (bool, error)
 	ListTeachers(ctx context.Context, input ListInput) ([]TeacherProfile, int64, error)
 	CountBranchesByIDs(ctx context.Context, branchIDs []uuid.UUID) (int, error)
+	CountCategoriesByIDs(ctx context.Context, categoryIDs []uuid.UUID) (int, error)
 }
 
 type Writer interface {
 	AssignRoleAndBranches(ctx context.Context, tx pgx.Tx, input AssignWrite) (string, bool, error)
+	ReplaceCategoryAccess(ctx context.Context, tx pgx.Tx, input ReplaceCategoryAccessWrite) (bool, error)
 }
 
 // AssignWrite is the already-validated shape handed to the writer inside the
 // audited transaction.
 type AssignWrite struct {
-	UserID    uuid.UUID
-	BranchIDs []uuid.UUID
+	UserID      uuid.UUID
+	BranchIDs   []uuid.UUID
+	CategoryIDs []uuid.UUID
+	ActorUserID uuid.UUID
+}
+
+type ReplaceCategoryAccessWrite struct {
+	UserID      uuid.UUID
+	CategoryIDs []uuid.UUID
+	ActorUserID uuid.UUID
 }
 
 type AuditStore interface {
@@ -158,6 +184,10 @@ func (s *Service) Create(ctx context.Context, actor Actor, input CreateInput) (T
 	if err != nil {
 		return TeacherProfile{}, err
 	}
+	categoryIDs, err := validateCategoryIDs(input.CategoryIDs)
+	if err != nil {
+		return TeacherProfile{}, err
+	}
 	if actor.Role != "admin" {
 		return TeacherProfile{}, forbidden()
 	}
@@ -183,10 +213,21 @@ func (s *Service) Create(ctx context.Context, actor Actor, input CreateInput) (T
 		// pinned to keep the field error addressable, matching that shape.
 		return TeacherProfile{}, validation(fmt.Sprintf("branch_ids[%d]", 0), "not_found", "Branch does not exist.")
 	}
+	categoryCount, err := s.reader.CountCategoriesByIDs(ctx, categoryIDs)
+	if err != nil {
+		return TeacherProfile{}, err
+	}
+	if categoryCount != len(categoryIDs) {
+		return TeacherProfile{}, validation("category_ids", "not_found", "Category does not exist.")
+	}
 
 	userID, err := uuid.Parse(user.ID)
 	if err != nil {
 		return TeacherProfile{}, fmt.Errorf("teacher: invalid user id: %w", err)
+	}
+	actorID, err := uuid.Parse(strings.TrimSpace(actor.UserID))
+	if err != nil {
+		return TeacherProfile{}, forbidden()
 	}
 
 	actorAccount := strings.ToLower(strings.TrimSpace(actor.Email))
@@ -198,8 +239,9 @@ func (s *Service) Create(ctx context.Context, actor Actor, input CreateInput) (T
 		payloadBranchIDs[index] = id.String()
 	}
 	payload, _ := json.Marshal(map[string]any{
-		"email":      email,
-		"branch_ids": payloadBranchIDs,
+		"email":        email,
+		"branch_ids":   payloadBranchIDs,
+		"category_ids": input.CategoryIDs,
 	})
 	evt := store.AuditEvent{
 		Action:       domain.ActionTeacherProfileCreated,
@@ -211,7 +253,9 @@ func (s *Service) Create(ctx context.Context, actor Actor, input CreateInput) (T
 	}
 
 	err = s.store.WithAudit(ctx, evt, func(ctx context.Context, tx pgx.Tx) (bool, error) {
-		id, changed, writeErr := s.writer.AssignRoleAndBranches(ctx, tx, AssignWrite{UserID: userID, BranchIDs: branchIDs})
+		id, changed, writeErr := s.writer.AssignRoleAndBranches(ctx, tx, AssignWrite{
+			UserID: userID, BranchIDs: branchIDs, CategoryIDs: categoryIDs, ActorUserID: actorID,
+		})
 		if errors.Is(writeErr, ErrRoleAlreadyAssigned) {
 			return false, roleAlreadyAssigned()
 		}
@@ -228,6 +272,87 @@ func (s *Service) Create(ctx context.Context, actor Actor, input CreateInput) (T
 		return TeacherProfile{}, err
 	}
 	return s.reader.GetTeacherProfile(ctx, uuid.MustParse(targetID))
+}
+
+func (s *Service) UpdateCategoryAccess(ctx context.Context, actor Actor, input UpdateCategoryAccessInput) (TeacherProfile, error) {
+	userID, err := uuid.Parse(strings.TrimSpace(input.UserID))
+	if err != nil {
+		return TeacherProfile{}, validation("user_id", "invalid_format", "User id must be a UUID.")
+	}
+	categoryIDs, err := validateCategoryIDs(input.CategoryIDs)
+	if err != nil {
+		return TeacherProfile{}, err
+	}
+	if actor.Role != "admin" {
+		return TeacherProfile{}, forbidden()
+	}
+	actorID, err := uuid.Parse(strings.TrimSpace(actor.UserID))
+	if err != nil {
+		return TeacherProfile{}, forbidden()
+	}
+	exists, err := s.reader.TeacherExists(ctx, userID)
+	if err != nil {
+		return TeacherProfile{}, err
+	}
+	if !exists {
+		return TeacherProfile{}, userNotFound()
+	}
+	categoryCount, err := s.reader.CountCategoriesByIDs(ctx, categoryIDs)
+	if err != nil {
+		return TeacherProfile{}, err
+	}
+	if categoryCount != len(categoryIDs) {
+		return TeacherProfile{}, validation("category_ids", "not_found", "Category does not exist.")
+	}
+
+	actorAccount := strings.ToLower(strings.TrimSpace(actor.Email))
+	actorRole := actor.Role
+	targetTable := "user_category_assignments"
+	targetID := userID.String()
+	payload, _ := json.Marshal(map[string]any{
+		"user_id":      userID.String(),
+		"category_ids": input.CategoryIDs,
+	})
+	evt := store.AuditEvent{
+		Action:       domain.ActionTeacherCategoryAccessUpdated,
+		ActorAccount: &actorAccount,
+		ActorRole:    &actorRole,
+		TargetTable:  &targetTable,
+		TargetID:     &targetID,
+		Payload:      payload,
+	}
+	err = s.store.WithAudit(ctx, evt, func(ctx context.Context, tx pgx.Tx) (bool, error) {
+		return s.writer.ReplaceCategoryAccess(ctx, tx, ReplaceCategoryAccessWrite{
+			UserID: userID, CategoryIDs: categoryIDs, ActorUserID: actorID,
+		})
+	})
+	if err != nil {
+		return TeacherProfile{}, err
+	}
+	return s.reader.GetTeacherProfile(ctx, userID)
+}
+
+func validateCategoryIDs(raw []string) ([]uuid.UUID, error) {
+	if len(raw) == 0 {
+		return nil, validation("category_ids", "required", "Select at least one category.")
+	}
+	if len(raw) > 100 {
+		return nil, validation("category_ids", "maximum", "Select no more than 100 categories.")
+	}
+	ids := make([]uuid.UUID, 0, len(raw))
+	seen := make(map[uuid.UUID]struct{}, len(raw))
+	for index, value := range raw {
+		id, err := uuid.Parse(value)
+		if err != nil {
+			return nil, validation(fmt.Sprintf("category_ids[%d]", index), "invalid_format", "Category id must be a UUID.")
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return nil, validation("category_ids", "duplicate", "Category ids must be unique.")
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 func validateBranchIDs(raw []string) ([]uuid.UUID, error) {

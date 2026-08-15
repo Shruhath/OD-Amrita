@@ -26,7 +26,10 @@ const (
 	StatusAll      Status = "all"
 )
 
-var ErrEventNotFound = errors.New("event: not found")
+var (
+	ErrEventNotFound    = errors.New("event: not found")
+	ErrCategoryNotFound = errors.New("event: category not found")
+)
 
 type Branch struct {
 	ID   string `json:"id"`
@@ -90,9 +93,11 @@ type Reader interface {
 	EventStatus(context.Context, uuid.UUID) (Status, error)
 	ListCategories(context.Context, uuid.UUID) ([]Category, error)
 	ListCoordinatorAssignments(context.Context, uuid.UUID) ([]CoordinatorAssignment, error)
+	GetCoordinatorAssignment(context.Context, uuid.UUID, uuid.UUID) (CoordinatorAssignment, error)
 	GetCoordinatorCandidateByEmail(context.Context, string) (CoordinatorCandidate, error)
 	CoordinatorAssignmentExists(context.Context, uuid.UUID, uuid.UUID) (bool, error)
 	ListAssignedActiveEvents(context.Context, uuid.UUID) ([]Event, error)
+	ListActiveEventsForMarking(context.Context) ([]Event, error)
 	CoordinatorAssignedToEvent(context.Context, uuid.UUID, uuid.UUID) (bool, error)
 }
 
@@ -101,6 +106,7 @@ type Writer interface {
 	Archive(context.Context, pgx.Tx, uuid.UUID, uuid.UUID) (bool, error)
 	CreateCategory(context.Context, pgx.Tx, CreateCategoryWrite) (Category, bool, error)
 	CreateCoordinatorAssignment(context.Context, pgx.Tx, CreateCoordinatorAssignmentWrite) (CoordinatorAssignment, bool, error)
+	ReplaceCoordinatorCategoryAccess(context.Context, pgx.Tx, ReplaceCoordinatorCategoryAccessWrite) (bool, error)
 }
 
 type AuditStore interface {

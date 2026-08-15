@@ -598,31 +598,19 @@ type BranchSummary struct {
 	Name string             `json:"name"`
 }
 
-// CaptureCreditConfig Event-wide fallback-credit cap for camera/search marks.
-type CaptureCreditConfig struct {
-	EventId openapi_types.UUID `json:"event_id"`
-
-	// Limit Zero deliberately live-disables camera/search fallback modes.
-	Limit     int       `json:"limit"`
-	UpdatedAt time.Time `json:"updated_at"`
-
-	// UpdatedByUserId Null until an admin explicitly saves the event cap.
-	UpdatedByUserId *openapi_types.UUID `json:"updated_by_user_id"`
-}
-
-// CaptureCreditSummary Event credit config plus bounded coordinator usage rows.
+// CaptureCreditSummary Bounded coordinator usage rows. There is no unified mutable event cap.
 type CaptureCreditSummary struct {
-	// Config Event-wide fallback-credit cap for camera/search marks.
-	Config CaptureCreditConfig  `json:"config"`
-	Data   []CaptureCreditUsage `json:"data"`
+	Data []CaptureCreditUsage `json:"data"`
 }
 
-// CaptureCreditUsage One assigned coordinator's camera/search credit usage for a SINGLE DAY — the campus-local day of the request. The cap (`limit`) stays per event so one admin change covers every remaining day, but the pool it bounds is refilled each day, which is what keeps a venue-wide NFC failure on day 3 from being throttled by day 2's usage.
+// CaptureCreditUsage One assigned coordinator's camera/search credit usage for a SINGLE DAY — the campus-local day of the request. The `limit` is the cap stored on that coordinator's assignment, so admins can change one coordinator without changing any other coordinator on the same event.
 type CaptureCreditUsage struct {
 	Consumed  int                `json:"consumed"`
 	Email     string             `json:"email"`
 	EventId   openapi_types.UUID `json:"event_id"`
 	Exhausted bool               `json:"exhausted"`
+
+	// Limit Coordinator-specific fallback cap; zero disables camera/search only for this coordinator.
 	Limit     int                `json:"limit"`
 	Name      *string            `json:"name"`
 	Remaining int                `json:"remaining"`
@@ -651,10 +639,11 @@ type CardTokenResolveRequest struct {
 
 // Category An activity within one event (e.g. Procession, Stage Setup). A category has no identity without its event, which is why event_id is part of the resource and the operations are nested under the event.
 type Category struct {
-	CreatedAt time.Time          `json:"created_at"`
-	EventId   openapi_types.UUID `json:"event_id"`
-	Id        openapi_types.UUID `json:"id"`
-	Name      string             `json:"name"`
+	CreatedAt                time.Time          `json:"created_at"`
+	EventId                  openapi_types.UUID `json:"event_id"`
+	Id                       openapi_types.UUID `json:"id"`
+	Name                     string             `json:"name"`
+	VisibleOnPublicDashboard bool               `json:"visible_on_public_dashboard"`
 }
 
 // CategoryCollection Bounded per-event reference data — deliberately unpaginated, like BranchCollection and unlike EventCollection.
@@ -662,14 +651,15 @@ type CategoryCollection struct {
 	Data []Category `json:"data"`
 }
 
-// CoordinatorAssignment Event-level coordinator assignment. A row grants the user coordinator marking access for the whole event; it carries no category or scope field in this MVP.
+// CoordinatorAssignment Event-level coordinator eligibility plus category assignments. The event row admits the coordinator to the event; assigned categories are the only categories they may mark in.
 type CoordinatorAssignment struct {
-	CreatedAt time.Time          `json:"created_at"`
-	Email     string             `json:"email"`
-	EventId   openapi_types.UUID `json:"event_id"`
-	Id        openapi_types.UUID `json:"id"`
-	Name      *string            `json:"name"`
-	UserId    openapi_types.UUID `json:"user_id"`
+	Categories []Category         `json:"categories"`
+	CreatedAt  time.Time          `json:"created_at"`
+	Email      string             `json:"email"`
+	EventId    openapi_types.UUID `json:"event_id"`
+	Id         openapi_types.UUID `json:"id"`
+	Name       *string            `json:"name"`
+	UserId     openapi_types.UUID `json:"user_id"`
 }
 
 // CoordinatorAssignmentCollection Bounded per-event reference data, ordered by assignment creation time.
@@ -685,6 +675,8 @@ type CreateCategoryRequest struct {
 
 // CreateCoordinatorAssignmentRequest defines model for CreateCoordinatorAssignmentRequest.
 type CreateCoordinatorAssignmentRequest struct {
+	CategoryIds []openapi_types.UUID `json:"category_ids"`
+
 	// Email Email of an existing, already-provisioned users row. The request does not pre-provision an identity.
 	Email string `json:"email"`
 }
@@ -705,7 +697,8 @@ type CreateEventRequest struct {
 
 // CreateTeacherProfileRequest defines model for CreateTeacherProfileRequest.
 type CreateTeacherProfileRequest struct {
-	BranchIds []openapi_types.UUID `json:"branch_ids"`
+	BranchIds   []openapi_types.UUID `json:"branch_ids"`
+	CategoryIds []openapi_types.UUID `json:"category_ids"`
 
 	// Email Email of an existing, already-provisioned users row. Resolved server-side; the request does not pre-provision an identity.
 	Email string `json:"email"`
@@ -820,7 +813,7 @@ type ExtendedSlotsUpdate struct {
 	Enabled bool `json:"enabled"`
 }
 
-// FallbackCreditState Server-derived camera/search fallback-credit state for the selected event and coordinator. NFC never consumes this pool.
+// FallbackCreditState Server-derived camera/search fallback-credit state for the selected event and caller. NFC never consumes this pool.
 type FallbackCreditState struct {
 	Consumed         int  `json:"consumed"`
 	Exhausted        bool `json:"exhausted"`
@@ -850,6 +843,9 @@ type MarkAttendanceRequest struct {
 	Card          *CardTokenResolveRequest           `json:"card,omitempty"`
 	CategoryId    openapi_types.UUID                 `json:"category_id"`
 	EventId       openapi_types.UUID                 `json:"event_id"`
+
+	// OdDate Optional for teacher/admin manual search marks. When supplied, the record is filed under this campus day and the server/database require it to fall inside the event date range. Coordinator NFC/camera marks reject client dates and continue to use the server-derived campus day only.
+	OdDate *openapi_types.Date `json:"od_date,omitempty"`
 
 	// ReasonNote Required for teacher/admin manual search marks; optional for coordinator capture.
 	ReasonNote *string             `json:"reason_note,omitempty"`
@@ -884,7 +880,7 @@ type MarkAttendanceResult struct {
 	Student          MarkedStudent      `json:"student"`
 }
 
-// MarkCounters Both figures are server-computed live counts over od_records (FR13), scoped to the CAMPUS-LOCAL DAY of the request. `mine` is the calling coordinator's marks for this event, category and day; `category_total` is every coordinator's for the same three, and is identical for all callers.
+// MarkCounters Both figures are server-computed live counts over od_records (FR13), scoped to the CAMPUS-LOCAL DAY of the request. `mine` is the calling actor's marks for this event, category and day; `category_total` is every actor's for the same three, and is identical for all callers.
 // The day scope is not cosmetic: on a multi-day event these are the figures a coordinator reads as "today", so a running total across the whole festival would make the screen useless by day three. They reset at campus midnight, and the marking screen labels them as today's.
 type MarkCounters struct {
 	CategoryTotal int `json:"category_total"`
@@ -900,11 +896,11 @@ type MarkSlotWindow struct {
 
 // MarkStatus Everything the marking screen needs that the client must not compute for itself. `slot: null` is the explicit "no slot is open" state — never slot 0 — and `server_time` shares one clock read with the slot decision.
 type MarkStatus struct {
-	// Counters Both figures are server-computed live counts over od_records (FR13), scoped to the CAMPUS-LOCAL DAY of the request. `mine` is the calling coordinator's marks for this event, category and day; `category_total` is every coordinator's for the same three, and is identical for all callers.
+	// Counters Both figures are server-computed live counts over od_records (FR13), scoped to the CAMPUS-LOCAL DAY of the request. `mine` is the calling actor's marks for this event, category and day; `category_total` is every actor's for the same three, and is identical for all callers.
 	// The day scope is not cosmetic: on a multi-day event these are the figures a coordinator reads as "today", so a running total across the whole festival would make the screen useless by day three. They reset at campus midnight, and the marking screen labels them as today's.
 	Counters MarkCounters `json:"counters"`
 
-	// FallbackCredit Server-derived camera/search fallback-credit state for the selected event and coordinator. NFC never consumes this pool.
+	// FallbackCredit Server-derived camera/search fallback-credit state for the selected event and caller. NFC never consumes this pool.
 	FallbackCredit FallbackCreditState `json:"fallback_credit"`
 	ServerTime     time.Time           `json:"server_time"`
 	Slot           *MarkSlotWindow     `json:"slot"`
@@ -1002,15 +998,15 @@ type PublicDisputeReceiptStatus string
 type PublicDisputeRequest struct {
 	CategoryId openapi_types.UUID `json:"category_id"`
 
-	// ClaimedCoordinatorName Optional free text; no public coordinator roster is exposed.
-	ClaimedCoordinatorName *string            `json:"claimed_coordinator_name,omitempty"`
+	// ClaimedCoordinatorName Required free text; no public coordinator roster is exposed.
+	ClaimedCoordinatorName string             `json:"claimed_coordinator_name"`
 	EventId                openapi_types.UUID `json:"event_id"`
 
 	// OdDate The day the disputed OD belongs to, not the row write time.
 	OdDate      openapi_types.Date `json:"od_date"`
 	Slot        int                `json:"slot"`
 	StudentId   openapi_types.UUID `json:"student_id"`
-	StudentNote *string            `json:"student_note,omitempty"`
+	StudentNote string             `json:"student_note"`
 
 	// SubmittedEmail Lowercased for storage after domain validation; never echoed on public responses.
 	SubmittedEmail string `json:"submitted_email"`
@@ -1249,11 +1245,12 @@ type StudentSearchResults struct {
 	Data []ResolvedCardStudent `json:"data"`
 }
 
-// TeacherProfile A teacher's elevated role plus the branches they are associated with. Reuses BranchSummary rather than a parallel branch shape.
+// TeacherProfile A teacher's elevated role plus the branches and categories they are associated with.
 type TeacherProfile struct {
-	Branches  []BranchSummary `json:"branches"`
-	CreatedAt time.Time       `json:"created_at"`
-	Email     string          `json:"email"`
+	Branches   []BranchSummary `json:"branches"`
+	Categories []Category      `json:"categories"`
+	CreatedAt  time.Time       `json:"created_at"`
+	Email      string          `json:"email"`
 
 	// Name Optional — some providers omit a display name.
 	Name   *string            `json:"name,omitempty"`
@@ -1268,10 +1265,20 @@ type TeacherProfileCollection struct {
 	Total    int              `json:"total"`
 }
 
-// UpdateCaptureCreditConfigRequest defines model for UpdateCaptureCreditConfigRequest.
-type UpdateCaptureCreditConfigRequest struct {
-	// Limit Zero deliberately live-disables camera/search fallback modes.
+// UpdateCaptureCreditLimitRequest defines model for UpdateCaptureCreditLimitRequest.
+type UpdateCaptureCreditLimitRequest struct {
+	// Limit Zero deliberately disables camera/search fallback modes for this coordinator only.
 	Limit int `json:"limit"`
+}
+
+// UpdateCategoryAccessRequest defines model for UpdateCategoryAccessRequest.
+type UpdateCategoryAccessRequest struct {
+	CategoryIds []openapi_types.UUID `json:"category_ids"`
+}
+
+// UpdateCategoryVisibilityRequest defines model for UpdateCategoryVisibilityRequest.
+type UpdateCategoryVisibilityRequest struct {
+	VisibleOnPublicDashboard bool `json:"visible_on_public_dashboard"`
 }
 
 // ValidationError 400 validation error — the error envelope whose `details` is a TYPED array of field-level failures (AC3), not a freeform object.
@@ -1447,14 +1454,20 @@ type ResolveAdminCardTokenJSONRequestBody = CardTokenResolveRequest
 // CreateAdminEventJSONRequestBody defines body for CreateAdminEvent for application/json ContentType.
 type CreateAdminEventJSONRequestBody = CreateEventRequest
 
-// UpdateAdminEventCaptureCreditConfigJSONRequestBody defines body for UpdateAdminEventCaptureCreditConfig for application/json ContentType.
-type UpdateAdminEventCaptureCreditConfigJSONRequestBody = UpdateCaptureCreditConfigRequest
+// UpdateAdminEventCoordinatorCaptureCreditLimitJSONRequestBody defines body for UpdateAdminEventCoordinatorCaptureCreditLimit for application/json ContentType.
+type UpdateAdminEventCoordinatorCaptureCreditLimitJSONRequestBody = UpdateCaptureCreditLimitRequest
 
 // CreateAdminEventCategoryJSONRequestBody defines body for CreateAdminEventCategory for application/json ContentType.
 type CreateAdminEventCategoryJSONRequestBody = CreateCategoryRequest
 
+// UpdateAdminEventCategoryVisibilityJSONRequestBody defines body for UpdateAdminEventCategoryVisibility for application/json ContentType.
+type UpdateAdminEventCategoryVisibilityJSONRequestBody = UpdateCategoryVisibilityRequest
+
 // CreateAdminEventCoordinatorAssignmentJSONRequestBody defines body for CreateAdminEventCoordinatorAssignment for application/json ContentType.
 type CreateAdminEventCoordinatorAssignmentJSONRequestBody = CreateCoordinatorAssignmentRequest
+
+// UpdateAdminEventCoordinatorCategoryAccessJSONRequestBody defines body for UpdateAdminEventCoordinatorCategoryAccess for application/json ContentType.
+type UpdateAdminEventCoordinatorCategoryAccessJSONRequestBody = UpdateCategoryAccessRequest
 
 // SetExtendedSlotsSettingJSONRequestBody defines body for SetExtendedSlotsSetting for application/json ContentType.
 type SetExtendedSlotsSettingJSONRequestBody = ExtendedSlotsUpdate
@@ -1464,6 +1477,9 @@ type ImportAdminStudentsMultipartRequestBody ImportAdminStudentsMultipartBody
 
 // CreateAdminTeacherProfileJSONRequestBody defines body for CreateAdminTeacherProfile for application/json ContentType.
 type CreateAdminTeacherProfileJSONRequestBody = CreateTeacherProfileRequest
+
+// UpdateAdminTeacherCategoryAccessJSONRequestBody defines body for UpdateAdminTeacherCategoryAccess for application/json ContentType.
+type UpdateAdminTeacherCategoryAccessJSONRequestBody = UpdateCategoryAccessRequest
 
 // RevokeUserSessionsJSONRequestBody defines body for RevokeUserSessions for application/json ContentType.
 type RevokeUserSessionsJSONRequestBody = RevokeSessionsRequest
@@ -1573,6 +1589,13 @@ func (t MarkAttendanceRequest) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("error marshaling 'event_id': %w", err)
 	}
 
+	if t.OdDate != nil {
+		object["od_date"], err = json.Marshal(t.OdDate)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'od_date': %w", err)
+		}
+	}
+
 	if t.ReasonNote != nil {
 		object["reason_note"], err = json.Marshal(t.ReasonNote)
 		if err != nil {
@@ -1633,6 +1656,13 @@ func (t *MarkAttendanceRequest) UnmarshalJSON(b []byte) error {
 		err = json.Unmarshal(raw, &t.EventId)
 		if err != nil {
 			return fmt.Errorf("error reading 'event_id': %w", err)
+		}
+	}
+
+	if raw, found := object["od_date"]; found {
+		err = json.Unmarshal(raw, &t.OdDate)
+		if err != nil {
+			return fmt.Errorf("error reading 'od_date': %w", err)
 		}
 	}
 

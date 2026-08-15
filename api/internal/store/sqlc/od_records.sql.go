@@ -123,8 +123,10 @@ WHERE r.event_id = $1
       OR EXISTS (
           SELECT 1
           FROM user_branches ub
+          JOIN user_category_assignments uca ON uca.user_id = ub.user_id
           WHERE ub.user_id = $7
             AND ub.branch_id = s.branch_id
+            AND uca.category_id = r.category_id
       )
   )
 `
@@ -209,8 +211,12 @@ FROM od_records r
 JOIN students s ON s.id = r.student_id
 WHERE r.student_id = $1
   AND ($2::uuid IS NULL OR EXISTS (
-      SELECT 1 FROM user_branches ub
-      WHERE ub.user_id = $2 AND ub.branch_id = s.branch_id
+      SELECT 1
+      FROM user_branches ub
+      JOIN user_category_assignments uca ON uca.user_id = ub.user_id
+      WHERE ub.user_id = $2
+        AND ub.branch_id = s.branch_id
+        AND uca.category_id = r.category_id
   ))
 `
 
@@ -489,8 +495,10 @@ WHERE r.event_id = $1
       OR EXISTS (
           SELECT 1
           FROM user_branches ub
+          JOIN user_category_assignments uca ON uca.user_id = ub.user_id
           WHERE ub.user_id = $7
             AND ub.branch_id = s.branch_id
+            AND uca.category_id = r.category_id
       )
   )
 ORDER BY r.od_date DESC, r.slot ASC, r.server_received_at DESC, s.roll_no ASC, r.id ASC
@@ -600,8 +608,12 @@ JOIN categories c ON c.id = r.category_id
 LEFT JOIN users u ON u.id = r.actor_user_id
 WHERE r.student_id = $1
   AND ($2::uuid IS NULL OR EXISTS (
-      SELECT 1 FROM user_branches ub
-      WHERE ub.user_id = $2 AND ub.branch_id = s.branch_id
+      SELECT 1
+      FROM user_branches ub
+      JOIN user_category_assignments uca ON uca.user_id = ub.user_id
+      WHERE ub.user_id = $2
+        AND ub.branch_id = s.branch_id
+        AND uca.category_id = r.category_id
   ))
 ORDER BY r.od_date DESC, r.slot ASC, r.server_received_at DESC, r.id ASC
 LIMIT $4::bigint OFFSET $3::bigint
@@ -693,6 +705,7 @@ FROM od_records r
 JOIN categories c ON c.id = r.category_id
 WHERE r.od_date = $1
   AND r.status = 'present'
+  AND c.visible_on_public_dashboard = true
 ORDER BY c.name ASC
 `
 
@@ -741,6 +754,7 @@ JOIN categories c ON c.id = r.category_id
 JOIN events e ON e.id = r.event_id
 WHERE r.od_date = $1
   AND r.status = 'present'
+  AND c.visible_on_public_dashboard = true
   AND ($2::integer IS NULL OR r.slot = $2)
   AND ($3::uuid IS NULL OR r.category_id = $3)
 ORDER BY s.roll_no ASC, r.slot ASC, c.name ASC
@@ -841,6 +855,7 @@ JOIN categories c ON c.id = r.category_id
 LEFT JOIN users u ON u.id = r.actor_user_id
 WHERE r.student_id = $1
   AND r.status = 'present'
+  AND c.visible_on_public_dashboard = true
 ORDER BY r.od_date DESC, r.slot ASC, r.server_received_at ASC, r.id ASC
 LIMIT $2::bigint
 `
@@ -1045,6 +1060,7 @@ SELECT EXISTS (
     FROM od_records r
     JOIN students s ON s.id = r.student_id
     JOIN user_branches ub ON ub.branch_id = s.branch_id AND ub.user_id = $1
+    JOIN user_category_assignments uca ON uca.category_id = r.category_id AND uca.user_id = $1
     WHERE r.id = $2
 )::boolean
 `
@@ -1069,6 +1085,7 @@ SELECT EXISTS (
     JOIN event_branches eb ON eb.branch_id = s.branch_id AND eb.event_id = $2
     JOIN events e ON e.id = eb.event_id AND e.status = 'active'
     JOIN categories c ON c.id = $3 AND c.event_id = e.id
+    JOIN user_category_assignments uca ON uca.category_id = c.id AND uca.user_id = $1
     WHERE s.id = $4
 )::boolean
 `

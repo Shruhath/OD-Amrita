@@ -522,6 +522,11 @@ func TestDispute_TeacherSeesOnlyTheirOwnBranchAndAdminSeesAll(t *testing.T) {
 		teacherID); err != nil {
 		t.Fatalf("associate teacher branch: %v", err)
 	}
+	if _, err := migrator.Exec(ctx, `
+		INSERT INTO user_category_assignments (user_id, category_id, created_by_user_id)
+		VALUES ($1, $2, $3)`, teacherID, fixture.categoryID, fixture.adminID); err != nil {
+		t.Fatalf("associate teacher category: %v", err)
+	}
 
 	mineRoll := "CB.SC.U4CSE24804"
 	theirsRoll := "CB.SC.U4ECE24804"

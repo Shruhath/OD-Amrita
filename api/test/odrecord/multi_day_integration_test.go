@@ -233,17 +233,16 @@ func TestMultiDay_CreditPoolIsPerDayWhileTheCapStaysPerEvent(t *testing.T) {
 		t.Errorf("[P0] day two consumed = %d, want 1 — a fresh pool, not a continuation of day one's", got)
 	}
 
-	// And the CAP is still one row for the whole event. A per-day cap would mean
-	// the live raise has to be repeated for every remaining day.
-	var configRows int
+	// And the CAP is still one row for the coordinator assignment. A per-day cap
+	// would mean the live raise has to be repeated for every remaining day.
+	var assignmentRows int
 	if err := runtime.QueryRow(ctx,
-		`SELECT count(*) FROM event_capture_credit_config WHERE event_id = $1`, fixture.eventID).Scan(&configRows); err != nil {
-		t.Fatalf("count credit config rows: %v", err)
+		`SELECT count(*) FROM event_coordinator_assignments WHERE event_id = $1 AND user_id = $2`,
+		fixture.eventID, fixture.coordinatorID).Scan(&assignmentRows); err != nil {
+		t.Fatalf("count coordinator assignment rows: %v", err)
 	}
-	if configRows != 1 {
-		t.Errorf("[P0] event_capture_credit_config has %d rows for one event, want 1. The CAP is per EVENT (T12): "+
-			"one admin PUT must cover every remaining day, because raising it mid-festival is the documented "+
-			"fallback when NFC fails at the venue", configRows)
+	if assignmentRows != 1 {
+		t.Errorf("[P0] coordinator assignment rows = %d, want 1. The CAP is per coordinator assignment, not per day", assignmentRows)
 	}
 }
 

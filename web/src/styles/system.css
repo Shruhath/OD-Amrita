@@ -1,0 +1,138 @@
+/* Central visual contract: the product uses crisp 10px geometry everywhere. */
+:root {
+  --radius-control: 10px;
+  --motion-fast: 140ms;
+  --motion-standard: 220ms;
+  --ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root[data-theme='dark'] {
+  --primary: #E4B94F;
+  --primary-foreground: #171717;
+  --accent: #2A2413;
+  --accent-foreground: #F5F5F2;
+  --brand-accent: #E4B94F;
+  --brand-accent-soft: #E4B94F;
+  --brand-accent-wash: #2A2413;
+  --crimson: var(--brand-accent);
+  --crimson-light: var(--brand-accent-soft);
+  --crimson-50: var(--brand-accent-wash);
+  --focus-ring: rgb(228 185 79 / 0.72);
+  --focus-ring-dark: rgb(228 185 79 / 0.72);
+  --focus-glow: rgb(228 185 79 / 0.16);
+}
+
+/* Tailwind radius utilities and legacy CSS converge here. This intentionally
+   removes the generic SaaS pill language from controls, cards, and badges. */
+#root *,
+#root *::before,
+#root *::after {
+  border-radius: var(--radius-control) !important;
+}
+
+/* Anything that spins has to stay a CIRCLE. A 10px corner on a rotating ring
+   reads as a wobbling square, which is why every spinner is named here — the
+   Tailwind utility the redesigned screens use AND the shared component's own
+   ring, which the blanket rule above had been turning into a rounded box on
+   every loading screen in the app. */
+#root .animate-spin,
+#root .spinner,
+#root .spinner__ring {
+  border-radius: 50% !important;
+}
+
+#root button,
+#root a,
+#root input,
+#root select,
+#root textarea {
+  transition-duration: var(--motion-fast);
+  transition-timing-function: var(--ease-standard);
+}
+
+#root button:active:not(:disabled),
+#root a:active {
+  transform: translateY(1px) scale(0.985);
+}
+
+#root button:hover:not(:disabled),
+#root a:hover {
+  transition-duration: var(--motion-standard);
+}
+
+/* Keep the platform date picker available on touch devices. The visual field
+   remains themed, but the calendar affordance must stay native and tappable. */
+#root input[type='date'] {
+  appearance: auto !important;
+  -webkit-appearance: auto !important;
+  color-scheme: light;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+#root input[type='date']::-webkit-calendar-picker-indicator {
+  display: block;
+  opacity: 0.8;
+  cursor: pointer;
+  padding: 4px;
+}
+
+:root[data-theme='dark'] #root input[type='date'] {
+  color-scheme: dark;
+}
+
+/* Radix Select is intentionally modal and temporarily disables body pointer
+   events. Keep outside-pointer dismissal available for this non-destructive
+   field control while retaining modal behavior for dialogs. */
+body[data-select-open='true'] {
+  pointer-events: auto !important;
+}
+
+/* Quiet depth: a small lift is reserved for interactive surfaces. */
+#root .bg-surface.border,
+#root .bg-surface[class*='border-'] {
+  transition: box-shadow var(--motion-standard) var(--ease-standard), transform var(--motion-standard) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
+}
+
+#root .bg-surface.border:hover,
+#root .bg-surface[class*='border-']:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgb(23 23 23 / 0.04);
+}
+
+/* Keep utility shadows within the quiet, diffuse depth language. */
+#root [class*='shadow-'] {
+  box-shadow: 0 2px 8px rgb(23 23 23 / 0.04) !important;
+}
+
+:root[data-theme='dark'] #root [class*='shadow-'] {
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.16) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #root *,
+  #root *::before,
+  #root *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  #root button:active:not(:disabled),
+  #root a:active,
+  #root .bg-surface.border:hover,
+  #root .bg-surface[class*='border-']:hover {
+    transform: none !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  #root .topbar,
+  #root [data-radix-popper-content-wrapper] > *,
+  #root [role='dialog'] {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: var(--surface) !important;
+  }
+}

@@ -36,6 +36,12 @@ type fakeReader struct {
 	err               error
 }
 
+type scopedFakeReader struct {
+	*fakeReader
+	categoryAssignments     map[string]bool
+	categoryAssignmentCalls [][3]string
+}
+
 func (f *fakeReader) AssignedActiveEvents(_ context.Context, userID string) ([]Event, error) {
 	f.activeEventsCalls++
 	if f.err != nil {
@@ -43,6 +49,14 @@ func (f *fakeReader) AssignedActiveEvents(_ context.Context, userID string) ([]E
 	}
 	if userID == "" {
 		return nil, ErrNotCoordinator
+	}
+	return f.activeEvents, nil
+}
+
+func (f *fakeReader) ActiveEventsForAdminMarking(context.Context) ([]Event, error) {
+	f.activeEventsCalls++
+	if f.err != nil {
+		return nil, f.err
 	}
 	return f.activeEvents, nil
 }
@@ -79,6 +93,14 @@ func (f *fakeReader) CategoryForEvent(_ context.Context, eventID, categoryID str
 	return nil
 }
 
+func (f *scopedFakeReader) CoordinatorAssignedToEventCategory(_ context.Context, userID, eventID, categoryID string) (bool, error) {
+	f.categoryAssignmentCalls = append(f.categoryAssignmentCalls, [3]string{userID, eventID, categoryID})
+	if f.err != nil {
+		return false, f.err
+	}
+	return f.categoryAssignments[userID+"|"+eventID+"|"+categoryID], nil
+}
+
 const (
 	activeEventID   = "11111111-1111-4111-8111-111111111111"
 	archivedEventID = "22222222-2222-4222-8222-222222222222"
@@ -102,6 +124,7 @@ func newFixture() *fakeReader {
 }
 
 func coordinator() Actor { return Actor{UserID: "u-coord", Role: "coordinator"} }
+func admin() Actor       { return Actor{UserID: "u-admin", Role: "admin"} }
 
 // 0.6-SCOPE-001a — the policy admits a coordinator for an active event whose
 // category belongs to it, and proves it actually consulted the event and the
@@ -121,18 +144,68 @@ func TestAssertCanMark_AllowsCoordinatorForActiveEventAndOwnedCategory(t *testin
 	}
 }
 
-// 0.6-SCOPE-001b — every non-coordinator role is refused. Teacher and admin
-// marking is Story 0.9 and needs an explicit slot picker this screen does not
-// have, so admitting an admin "because admins can do everything" is a defect.
-func TestAssertCanMark_RefusesEveryNonCoordinatorRole(t *testing.T) {
-	for _, role := range []string{"student", "teacher", "admin", "", "COORDINATOR"} {
+func TestAssertCanMark_AllowsAdminForActiveEventAndOwnedCategory(t *testing.T) {
+	reader := newFixture()
+	policy := NewPolicy(reader)
+
+	if err := policy.AssertCanMark(context.Background(), admin(), activeEventID, categoryID); err != nil {
+		t.Fatalf("AssertCanMark = %v, want nil for an admin on an active event", err)
+	}
+	if len(reader.eventByIDCalls) == 0 {
+		t.Error("[P0] admin live marking allowed without loading the event")
+	}
+	if len(reader.categoryCalls) == 0 {
+		t.Error("[P0] admin live marking allowed without checking the category belongs to the event")
+	}
+	if len(reader.assignmentCalls) != 0 {
+		t.Error("[P0] admin live marking must not require an event coordinator assignment row")
+	}
+}
+
+func TestAssertCanMark_AdminMayUseAnyEventCategoryWithoutCoordinatorCategoryAssignment(t *testing.T) {
+	reader := &scopedFakeReader{
+		fakeReader:          newFixture(),
+		categoryAssignments: map[string]bool{},
+	}
+	policy := NewPolicy(reader)
+
+	if err := policy.AssertCanMark(context.Background(), admin(), activeEventID, categoryID); err != nil {
+		t.Fatalf("AssertCanMark(admin) = %v, want nil without coordinator category assignment", err)
+	}
+	if len(reader.categoryCalls) == 0 {
+		t.Fatal("[P0] admin live marking allowed without checking the category belongs to the event")
+	}
+	if len(reader.categoryAssignmentCalls) != 0 {
+		t.Fatalf("[P0] admin live marking consulted coordinator category assignments: %+v", reader.categoryAssignmentCalls)
+	}
+}
+
+func TestAssertCanMark_CoordinatorStillNeedsCategoryAssignment(t *testing.T) {
+	reader := &scopedFakeReader{
+		fakeReader:          newFixture(),
+		categoryAssignments: map[string]bool{},
+	}
+	policy := NewPolicy(reader)
+
+	err := policy.AssertCanMark(context.Background(), coordinator(), activeEventID, categoryID)
+	if !errors.Is(err, ErrCategoryNotFound) {
+		t.Fatalf("[P0] coordinator without category assignment error = %v, want ErrCategoryNotFound", err)
+	}
+	if len(reader.categoryAssignmentCalls) != 1 {
+		t.Fatalf("[P0] coordinator category assignment checks = %d, want 1", len(reader.categoryAssignmentCalls))
+	}
+}
+
+// 0.6-SCOPE-001b — roles that are neither coordinator nor admin are refused.
+func TestAssertCanMark_RefusesNonLiveMarkerRoles(t *testing.T) {
+	for _, role := range []string{"student", "teacher", "", "COORDINATOR"} {
 		t.Run(role, func(t *testing.T) {
 			reader := newFixture()
 			policy := NewPolicy(reader)
 
 			err := policy.AssertCanMark(context.Background(), Actor{UserID: "u", Role: role}, activeEventID, categoryID)
 			if err == nil {
-				t.Fatalf("[P0] AssertCanMark admitted role %q — 0.6 is coordinator-only (C2)", role)
+				t.Fatalf("[P0] AssertCanMark admitted role %q — live marking is coordinator/admin only", role)
 			}
 			if !errors.Is(err, ErrNotCoordinator) {
 				t.Errorf("[P0] error = %v, want ErrNotCoordinator so the handler can map it to RBAC_FORBIDDEN", err)
@@ -193,14 +266,27 @@ func TestVisibleEvents_ActiveOnlyForCoordinatorsAndEmptyForOthers(t *testing.T) 
 		}
 	})
 
-	t.Run("non-coordinator sees nothing", func(t *testing.T) {
-		for _, role := range []string{"student", "teacher", "admin"} {
+	t.Run("admin sees active events without coordinator assignment", func(t *testing.T) {
+		reader := newFixture()
+		policy := NewPolicy(reader)
+
+		events, err := policy.VisibleEvents(context.Background(), admin())
+		if err != nil {
+			t.Fatalf("VisibleEvents(admin) = %v, want nil", err)
+		}
+		if len(events) != 1 || events[0].EventID != activeEventID {
+			t.Fatalf("[P0] VisibleEvents(admin) = %+v, want exactly the active event", events)
+		}
+	})
+
+	t.Run("non-live-marker sees nothing", func(t *testing.T) {
+		for _, role := range []string{"student", "teacher"} {
 			reader := newFixture()
 			policy := NewPolicy(reader)
 
 			events, err := policy.VisibleEvents(context.Background(), Actor{UserID: "u", Role: role})
 			if err == nil && len(events) != 0 {
-				t.Errorf("[P0] role %q received %d visible events — 0.6 is coordinator-only", role, len(events))
+				t.Errorf("[P0] role %q received %d visible events — live marking is coordinator/admin only", role, len(events))
 			}
 			if err != nil && !errors.Is(err, ErrNotCoordinator) {
 				t.Errorf("[P0] role %q error = %v, want ErrNotCoordinator or an empty list", role, err)

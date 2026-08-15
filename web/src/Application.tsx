@@ -7,6 +7,7 @@ import { AuthProvider } from './features/auth/AuthGate'
 import type { SessionPort } from './features/auth/session'
 import type { PortalRouter } from './router'
 import './App.css'
+import './styles/system.css'
 
 export function Application({ session, router }: { session: SessionPort; router: PortalRouter }) {
   const [queryClient] = useState(() => new QueryClient({

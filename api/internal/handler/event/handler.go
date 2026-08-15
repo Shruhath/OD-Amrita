@@ -28,10 +28,12 @@ type Service interface {
 	Archive(context.Context, eventsvc.Actor, string) (eventsvc.Event, error)
 	ListCategories(context.Context, eventsvc.Actor, string) ([]eventsvc.Category, error)
 	CreateCategory(context.Context, eventsvc.Actor, eventsvc.CreateCategoryInput) (eventsvc.Category, error)
+	UpdateCategoryVisibility(context.Context, eventsvc.Actor, eventsvc.UpdateCategoryVisibilityInput) (eventsvc.Category, error)
 	ListCoordinatorAssignments(context.Context, eventsvc.Actor, string) ([]eventsvc.CoordinatorAssignment, error)
 	CreateCoordinatorAssignment(context.Context, eventsvc.Actor, eventsvc.CreateCoordinatorAssignmentInput) (eventsvc.CoordinatorAssignment, error)
+	UpdateCoordinatorCategoryAccess(context.Context, eventsvc.Actor, eventsvc.UpdateCoordinatorCategoryAccessInput) (eventsvc.CoordinatorAssignment, error)
 	ListCaptureCredits(context.Context, eventsvc.Actor, string) (eventsvc.CaptureCreditSummary, error)
-	UpdateCaptureCreditConfig(context.Context, eventsvc.Actor, eventsvc.CaptureCreditConfigInput) (eventsvc.CaptureCreditConfig, error)
+	UpdateCoordinatorCaptureCreditLimit(context.Context, eventsvc.Actor, eventsvc.CaptureCreditLimitInput) (eventsvc.CaptureCreditUsage, error)
 	ResetCaptureCredits(context.Context, eventsvc.Actor, string, string) (eventsvc.CaptureCreditUsage, error)
 }
 
@@ -55,10 +57,12 @@ func RegisterAdminRoutes(group gin.IRouter, svc Service) {
 	// without one, and nesting makes the lifecycle check fall out of the path.
 	group.GET("/events/:event_id/categories", ListCategoriesHandler(svc))
 	group.POST("/events/:event_id/categories", CreateCategoryHandler(svc))
+	group.PUT("/events/:event_id/categories/:category_id/visibility", UpdateCategoryVisibilityHandler(svc))
 	group.GET("/events/:event_id/coordinators", ListCoordinatorAssignmentsHandler(svc))
 	group.POST("/events/:event_id/coordinators", CreateCoordinatorAssignmentHandler(svc))
+	group.PUT("/events/:event_id/coordinators/:user_id/categories", UpdateCoordinatorCategoryAccessHandler(svc))
 	group.GET("/events/:event_id/capture-credits", ListCaptureCreditsHandler(svc))
-	group.PUT("/events/:event_id/capture-credits/config", UpdateCaptureCreditConfigHandler(svc))
+	group.PUT("/events/:event_id/capture-credits/coordinators/:user_id/limit", UpdateCoordinatorCaptureCreditLimitHandler(svc))
 	group.POST("/events/:event_id/capture-credits/coordinators/:user_id/reset", ResetCaptureCreditsHandler(svc))
 }
 
@@ -303,8 +307,9 @@ func CreateCoordinatorAssignmentHandler(svc Service) gin.HandlerFunc {
 			return
 		}
 		created, err := svc.CreateCoordinatorAssignment(c.Request.Context(), actor, eventsvc.CreateCoordinatorAssignmentInput{
-			EventID: c.Param("event_id"),
-			Email:   body.Email,
+			EventID:     c.Param("event_id"),
+			Email:       body.Email,
+			CategoryIDs: uuidStrings(body.CategoryIds),
 		})
 		if err != nil {
 			fail(c, err)
@@ -340,10 +345,10 @@ func ListCaptureCreditsHandler(svc Service) gin.HandlerFunc {
 	}
 }
 
-func UpdateCaptureCreditConfigHandler(svc Service) gin.HandlerFunc {
+func UpdateCoordinatorCaptureCreditLimitHandler(svc Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var body contracts.UpdateCaptureCreditConfigRequest
-		if err := bindCaptureCreditConfigRequest(c, &body); err != nil {
+		var body contracts.UpdateCaptureCreditLimitRequest
+		if err := bindCaptureCreditLimitRequest(c, &body); err != nil {
 			fail(c, err)
 			return
 		}
@@ -352,15 +357,48 @@ func UpdateCaptureCreditConfigHandler(svc Service) gin.HandlerFunc {
 			fail(c, err)
 			return
 		}
-		updated, err := svc.UpdateCaptureCreditConfig(c.Request.Context(), actor, eventsvc.CaptureCreditConfigInput{
+		updated, err := svc.UpdateCoordinatorCaptureCreditLimit(c.Request.Context(), actor, eventsvc.CaptureCreditLimitInput{
 			EventID: c.Param("event_id"),
+			UserID:  c.Param("user_id"),
 			Limit:   body.Limit,
 		})
 		if err != nil {
 			fail(c, err)
 			return
 		}
-		response, err := captureCreditConfigContract(updated)
+		response, err := captureCreditUsageContract(updated)
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, response)
+	}
+}
+
+func UpdateCoordinatorCategoryAccessHandler(svc Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var body contracts.UpdateCategoryAccessRequest
+		if err := bindCategoryAccessRequest(c, &body, coordinatorRequestValidation); err != nil {
+			fail(c, err)
+			return
+		}
+		actor, err := actorFromContext(c)
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		categoryIDs := make([]string, len(body.CategoryIds))
+		for index, id := range body.CategoryIds {
+			categoryIDs[index] = id.String()
+		}
+		updated, err := svc.UpdateCoordinatorCategoryAccess(c.Request.Context(), actor, eventsvc.UpdateCoordinatorCategoryAccessInput{
+			EventID: c.Param("event_id"), UserID: c.Param("user_id"), CategoryIDs: categoryIDs,
+		})
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		response, err := coordinatorAssignmentContract(updated)
 		if err != nil {
 			fail(c, err)
 			return
@@ -373,7 +411,7 @@ type captureCreditConfigRequestShape struct {
 	Limit json.RawMessage `json:"limit"`
 }
 
-func bindCaptureCreditConfigRequest(c *gin.Context, body *contracts.UpdateCaptureCreditConfigRequest) error {
+func bindCaptureCreditLimitRequest(c *gin.Context, body *contracts.UpdateCaptureCreditLimitRequest) error {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxCreateRequestBytes)
 	var shape captureCreditConfigRequestShape
 	if err := c.ShouldBindBodyWith(&shape, binding.JSON); err != nil {
@@ -421,7 +459,12 @@ func ResetCaptureCreditsHandler(svc Service) gin.HandlerFunc {
 }
 
 type coordinatorAssignmentRequestShape struct {
-	Email json.RawMessage `json:"email"`
+	Email       json.RawMessage   `json:"email"`
+	CategoryIDs []json.RawMessage `json:"category_ids"`
+}
+
+type categoryAccessRequestShape struct {
+	CategoryIDs []json.RawMessage `json:"category_ids"`
 }
 
 func bindCoordinatorAssignmentRequest(c *gin.Context, body *contracts.CreateCoordinatorAssignmentRequest) error {
@@ -441,10 +484,62 @@ func bindCoordinatorAssignmentRequest(c *gin.Context, body *contracts.CreateCoor
 	if err := json.Unmarshal(shape.Email, &email); err != nil {
 		return coordinatorRequestValidation("email", "invalid_format", "Coordinator email must be a string.")
 	}
+	if len(shape.CategoryIDs) == 0 {
+		return coordinatorRequestValidation("category_ids", "required", "Select at least one category.")
+	}
+	for index, raw := range shape.CategoryIDs {
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return coordinatorRequestValidation(fmt.Sprintf("category_ids[%d]", index), "invalid_format", "Category id must be a UUID.")
+		}
+		if _, err := uuid.Parse(value); err != nil {
+			return coordinatorRequestValidation(fmt.Sprintf("category_ids[%d]", index), "invalid_format", "Category id must be a UUID.")
+		}
+	}
 	if err := c.ShouldBindBodyWith(body, binding.JSON); err != nil {
 		return coordinatorRequestValidation("$", "invalid_json", "Request body must be valid JSON.")
 	}
 	return nil
+}
+
+func bindCategoryAccessRequest(
+	c *gin.Context,
+	body *contracts.UpdateCategoryAccessRequest,
+	fieldError func(string, string, string) domain.DomainError,
+) error {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxCreateRequestBytes)
+	var shape categoryAccessRequestShape
+	if err := c.ShouldBindBodyWith(&shape, binding.JSON); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return fieldError("$", "maximum", "Request body must not exceed 1 MiB.")
+		}
+		return fieldError("$", "invalid_json", "Request body must be valid JSON.")
+	}
+	if len(shape.CategoryIDs) == 0 {
+		return fieldError("category_ids", "required", "Select at least one category.")
+	}
+	for index, raw := range shape.CategoryIDs {
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return fieldError(fmt.Sprintf("category_ids[%d]", index), "invalid_format", "Category id must be a UUID.")
+		}
+		if _, err := uuid.Parse(value); err != nil {
+			return fieldError(fmt.Sprintf("category_ids[%d]", index), "invalid_format", "Category id must be a UUID.")
+		}
+	}
+	if err := c.ShouldBindBodyWith(body, binding.JSON); err != nil {
+		return fieldError("$", "invalid_json", "Request body must be valid JSON.")
+	}
+	return nil
+}
+
+func uuidStrings(ids []uuid.UUID) []string {
+	out := make([]string, len(ids))
+	for index, id := range ids {
+		out[index] = id.String()
+	}
+	return out
 }
 
 func actorFromContext(c *gin.Context) (eventsvc.Actor, error) {
@@ -509,21 +604,26 @@ func coordinatorAssignmentContract(value eventsvc.CoordinatorAssignment) (contra
 	if err != nil {
 		return contracts.CoordinatorAssignment{}, fmt.Errorf("event: map coordinator event id: %w", err)
 	}
+	categories := make([]contracts.Category, 0, len(value.Categories))
+	for _, category := range value.Categories {
+		mapped, mapErr := categoryContract(category)
+		if mapErr != nil {
+			return contracts.CoordinatorAssignment{}, mapErr
+		}
+		categories = append(categories, mapped)
+	}
 	return contracts.CoordinatorAssignment{
-		Id:        id,
-		UserId:    userID,
-		Email:     value.Email,
-		Name:      value.Name,
-		EventId:   eventID,
-		CreatedAt: value.CreatedAt,
+		Id:         id,
+		UserId:     userID,
+		Email:      value.Email,
+		Name:       value.Name,
+		EventId:    eventID,
+		Categories: categories,
+		CreatedAt:  value.CreatedAt,
 	}, nil
 }
 
 func captureCreditSummaryContract(value eventsvc.CaptureCreditSummary) (contracts.CaptureCreditSummary, error) {
-	config, err := captureCreditConfigContract(value.Config)
-	if err != nil {
-		return contracts.CaptureCreditSummary{}, err
-	}
 	data := make([]contracts.CaptureCreditUsage, 0, len(value.Data))
 	for _, row := range value.Data {
 		mapped, mapErr := captureCreditUsageContract(row)
@@ -532,28 +632,7 @@ func captureCreditSummaryContract(value eventsvc.CaptureCreditSummary) (contract
 		}
 		data = append(data, mapped)
 	}
-	return contracts.CaptureCreditSummary{Config: config, Data: data}, nil
-}
-
-func captureCreditConfigContract(value eventsvc.CaptureCreditConfig) (contracts.CaptureCreditConfig, error) {
-	eventID, err := uuid.Parse(value.EventID)
-	if err != nil {
-		return contracts.CaptureCreditConfig{}, fmt.Errorf("event: map credit event id: %w", err)
-	}
-	var updatedBy *uuid.UUID
-	if value.UpdatedByUserID != nil {
-		parsed, parseErr := uuid.Parse(*value.UpdatedByUserID)
-		if parseErr != nil {
-			return contracts.CaptureCreditConfig{}, fmt.Errorf("event: map credit updated_by: %w", parseErr)
-		}
-		updatedBy = &parsed
-	}
-	return contracts.CaptureCreditConfig{
-		EventId:         eventID,
-		Limit:           value.Limit,
-		UpdatedByUserId: updatedBy,
-		UpdatedAt:       value.UpdatedAt,
-	}, nil
+	return contracts.CaptureCreditSummary{Data: data}, nil
 }
 
 func captureCreditUsageContract(value eventsvc.CaptureCreditUsage) (contracts.CaptureCreditUsage, error) {

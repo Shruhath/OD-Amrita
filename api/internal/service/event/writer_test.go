@@ -68,8 +68,20 @@ func (f *fakeWriteQueries) InsertEventCoordinatorAssignment(context.Context, sql
 	return f.assignment, f.assignmentErr
 }
 
-func (f *fakeWriteQueries) UpsertCaptureCreditConfig(context.Context, sqlc.UpsertCaptureCreditConfigParams) (sqlc.UpsertCaptureCreditConfigRow, error) {
-	return sqlc.UpsertCaptureCreditConfigRow{}, nil
+func (f *fakeWriteQueries) AssignUserCategory(context.Context, sqlc.AssignUserCategoryParams) (sqlc.UserCategoryAssignment, error) {
+	return sqlc.UserCategoryAssignment{}, nil
+}
+
+func (f *fakeWriteQueries) DeleteUserCategoriesForEventExcept(context.Context, sqlc.DeleteUserCategoriesForEventExceptParams) (int64, error) {
+	return 0, nil
+}
+
+func (f *fakeWriteQueries) SetCategoryPublicVisibility(context.Context, sqlc.SetCategoryPublicVisibilityParams) (sqlc.SetCategoryPublicVisibilityRow, error) {
+	return sqlc.SetCategoryPublicVisibilityRow{}, nil
+}
+
+func (f *fakeWriteQueries) UpdateCoordinatorCaptureCreditLimit(context.Context, sqlc.UpdateCoordinatorCaptureCreditLimitParams) (sqlc.UpdateCoordinatorCaptureCreditLimitRow, error) {
+	return sqlc.UpdateCoordinatorCaptureCreditLimitRow{}, nil
 }
 
 func (f *fakeWriteQueries) ResetCaptureCreditUsage(context.Context, sqlc.ResetCaptureCreditUsageParams) (sqlc.ResetCaptureCreditUsageRow, error) {

@@ -100,13 +100,24 @@ func (r *SQLCReader) ListCategories(ctx context.Context, eventID uuid.UUID) ([]C
 	}
 	categories := make([]Category, 0, len(rows))
 	for _, row := range rows {
-		category, mapErr := mapCategory(row.ID, row.EventID, row.Name, row.CreatedAt)
+		category, mapErr := mapCategory(row.ID, row.EventID, row.Name, row.VisibleOnPublicDashboard, row.CreatedAt)
 		if mapErr != nil {
 			return nil, mapErr
 		}
 		categories = append(categories, category)
 	}
 	return categories, nil
+}
+
+func (r *SQLCReader) GetCategory(ctx context.Context, id uuid.UUID) (Category, error) {
+	row, err := r.queries.GetCategoryByID(ctx, dbUUID(id))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Category{}, ErrCategoryNotFound
+		}
+		return Category{}, err
+	}
+	return mapCategory(row.ID, row.EventID, row.Name, row.VisibleOnPublicDashboard, row.CreatedAt)
 }
 
 func (r *SQLCReader) ListCoordinatorAssignments(ctx context.Context, eventID uuid.UUID) ([]CoordinatorAssignment, error) {
@@ -116,8 +127,12 @@ func (r *SQLCReader) ListCoordinatorAssignments(ctx context.Context, eventID uui
 	}
 	assignments := make([]CoordinatorAssignment, 0, len(rows))
 	for _, row := range rows {
+		categories, categoryErr := parseCategoriesJSON(row.CategoriesJson)
+		if categoryErr != nil {
+			return nil, categoryErr
+		}
 		assignment, mapErr := mapCoordinatorAssignment(
-			row.ID, row.UserID, row.Email, row.Name, row.EventID, row.CreatedAt,
+			row.ID, row.UserID, row.Email, row.Name, row.EventID, categories, row.CreatedAt,
 		)
 		if mapErr != nil {
 			return nil, mapErr
@@ -127,15 +142,22 @@ func (r *SQLCReader) ListCoordinatorAssignments(ctx context.Context, eventID uui
 	return assignments, nil
 }
 
-func (r *SQLCReader) GetCaptureCreditConfig(ctx context.Context, eventID uuid.UUID) (CaptureCreditConfig, error) {
-	row, err := r.queries.GetCaptureCreditConfig(ctx, dbUUID(eventID))
+func (r *SQLCReader) GetCoordinatorAssignment(ctx context.Context, eventID, userID uuid.UUID) (CoordinatorAssignment, error) {
+	row, err := r.queries.GetCoordinatorAssignmentByEventAndUser(ctx, sqlc.GetCoordinatorAssignmentByEventAndUserParams{
+		EventID: dbUUID(eventID),
+		UserID:  dbUUID(userID),
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return CaptureCreditConfig{}, ErrEventNotFound
+			return CoordinatorAssignment{}, ErrCoordinatorUserNotFound
 		}
-		return CaptureCreditConfig{}, err
+		return CoordinatorAssignment{}, err
 	}
-	return mapCaptureCreditConfig(row.EventID, row.CreditLimit, row.UpdatedByUserID, row.UpdatedAt)
+	categories, categoryErr := parseCategoriesJSON(row.CategoriesJson)
+	if categoryErr != nil {
+		return CoordinatorAssignment{}, categoryErr
+	}
+	return mapCoordinatorAssignment(row.ID, row.UserID, row.Email, row.Name, row.EventID, categories, row.CreatedAt)
 }
 
 func (r *SQLCReader) ListCaptureCreditUsageByEvent(ctx context.Context, eventID uuid.UUID, usageDate time.Time) ([]CaptureCreditUsage, error) {
@@ -206,6 +228,22 @@ func (r *SQLCReader) ListAssignedActiveEvents(ctx context.Context, userID uuid.U
 	return events, nil
 }
 
+func (r *SQLCReader) ListActiveEventsForMarking(ctx context.Context) ([]Event, error) {
+	rows, err := r.queries.ListAdminPortalMarkEvents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	events := make([]Event, 0, len(rows))
+	for _, row := range rows {
+		event, mapErr := mapEvent(row.ID, row.Name, row.EventDate, row.EndDate, row.Status, row.ArchivedAt, row.CreatedAt, row.BranchesJson)
+		if mapErr != nil {
+			return nil, mapErr
+		}
+		events = append(events, event)
+	}
+	return events, nil
+}
+
 func (r *SQLCReader) CoordinatorAssignedToEvent(ctx context.Context, userID, eventID uuid.UUID) (bool, error) {
 	return r.queries.CoordinatorAssignedToEvent(ctx, sqlc.CoordinatorAssignedToEventParams{
 		UserID:  dbUUID(userID),
@@ -213,15 +251,24 @@ func (r *SQLCReader) CoordinatorAssignedToEvent(ctx context.Context, userID, eve
 	})
 }
 
-func mapCategory(id, eventID pgtype.UUID, name string, createdAt pgtype.Timestamptz) (Category, error) {
+func (r *SQLCReader) CoordinatorAssignedToEventCategory(ctx context.Context, userID, eventID, categoryID uuid.UUID) (bool, error) {
+	return r.queries.CoordinatorAssignedToEventCategory(ctx, sqlc.CoordinatorAssignedToEventCategoryParams{
+		UserID:     dbUUID(userID),
+		EventID:    dbUUID(eventID),
+		CategoryID: dbUUID(categoryID),
+	})
+}
+
+func mapCategory(id, eventID pgtype.UUID, name string, visible bool, createdAt pgtype.Timestamptz) (Category, error) {
 	if !id.Valid || !eventID.Valid || !createdAt.Valid {
 		return Category{}, errors.New("event: category row contains invalid required values")
 	}
 	return Category{
-		ID:        uuid.UUID(id.Bytes).String(),
-		EventID:   uuid.UUID(eventID.Bytes).String(),
-		Name:      name,
-		CreatedAt: createdAt.Time,
+		ID:                       uuid.UUID(id.Bytes).String(),
+		EventID:                  uuid.UUID(eventID.Bytes).String(),
+		Name:                     name,
+		VisibleOnPublicDashboard: visible,
+		CreatedAt:                createdAt.Time,
 	}, nil
 }
 
@@ -230,6 +277,7 @@ func mapCoordinatorAssignment(
 	email string,
 	name pgtype.Text,
 	eventID pgtype.UUID,
+	categories []Category,
 	createdAt pgtype.Timestamptz,
 ) (CoordinatorAssignment, error) {
 	if !id.Valid || !userID.Valid || !eventID.Valid || !createdAt.Valid {
@@ -241,30 +289,45 @@ func mapCoordinatorAssignment(
 		displayName = &value
 	}
 	return CoordinatorAssignment{
-		ID:        uuid.UUID(id.Bytes).String(),
-		UserID:    uuid.UUID(userID.Bytes).String(),
-		Email:     email,
-		Name:      displayName,
-		EventID:   uuid.UUID(eventID.Bytes).String(),
-		CreatedAt: createdAt.Time,
+		ID:         uuid.UUID(id.Bytes).String(),
+		UserID:     uuid.UUID(userID.Bytes).String(),
+		Email:      email,
+		Name:       displayName,
+		EventID:    uuid.UUID(eventID.Bytes).String(),
+		Categories: categories,
+		CreatedAt:  createdAt.Time,
 	}, nil
 }
 
-func mapCaptureCreditConfig(id pgtype.UUID, limit int32, updatedBy pgtype.UUID, updatedAt pgtype.Timestamptz) (CaptureCreditConfig, error) {
-	if !id.Valid || !updatedAt.Valid {
-		return CaptureCreditConfig{}, errors.New("event: capture credit config row contains invalid required values")
+func parseCategoriesJSON(value any) ([]Category, error) {
+	var raw []struct {
+		ID                       string    `json:"id"`
+		EventID                  string    `json:"event_id"`
+		Name                     string    `json:"name"`
+		VisibleOnPublicDashboard bool      `json:"visible_on_public_dashboard"`
+		CreatedAt                time.Time `json:"created_at"`
 	}
-	var updatedByUserID *string
-	if updatedBy.Valid {
-		value := uuid.UUID(updatedBy.Bytes).String()
-		updatedByUserID = &value
+	switch v := value.(type) {
+	case string:
+		if err := json.Unmarshal([]byte(v), &raw); err != nil {
+			return nil, err
+		}
+	case []byte:
+		if err := json.Unmarshal(v, &raw); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("event: unsupported categories json type %T", value)
 	}
-	return CaptureCreditConfig{
-		EventID:         uuid.UUID(id.Bytes).String(),
-		Limit:           int(limit),
-		UpdatedByUserID: updatedByUserID,
-		UpdatedAt:       updatedAt.Time,
-	}, nil
+	categories := make([]Category, 0, len(raw))
+	for _, item := range raw {
+		categories = append(categories, Category{
+			ID: item.ID, EventID: item.EventID, Name: item.Name,
+			VisibleOnPublicDashboard: item.VisibleOnPublicDashboard,
+			CreatedAt:                item.CreatedAt,
+		})
+	}
+	return categories, nil
 }
 
 func mapCaptureCreditUsage(

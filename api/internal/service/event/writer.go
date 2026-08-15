@@ -18,10 +18,13 @@ type eventWriteQueries interface {
 	AddEventBranch(context.Context, sqlc.AddEventBranchParams) (int64, error)
 	ArchiveEvent(context.Context, sqlc.ArchiveEventParams) (pgtype.UUID, error)
 	CreateCategory(context.Context, sqlc.CreateCategoryParams) (sqlc.CreateCategoryRow, error)
+	SetCategoryPublicVisibility(context.Context, sqlc.SetCategoryPublicVisibilityParams) (sqlc.SetCategoryPublicVisibilityRow, error)
 	LockCoordinatorAssignmentUser(context.Context, pgtype.UUID) (sqlc.LockCoordinatorAssignmentUserRow, error)
 	PromoteUserToCoordinator(context.Context, pgtype.UUID) (int64, error)
 	InsertEventCoordinatorAssignment(context.Context, sqlc.InsertEventCoordinatorAssignmentParams) (sqlc.InsertEventCoordinatorAssignmentRow, error)
-	UpsertCaptureCreditConfig(context.Context, sqlc.UpsertCaptureCreditConfigParams) (sqlc.UpsertCaptureCreditConfigRow, error)
+	AssignUserCategory(context.Context, sqlc.AssignUserCategoryParams) (sqlc.UserCategoryAssignment, error)
+	DeleteUserCategoriesForEventExcept(context.Context, sqlc.DeleteUserCategoriesForEventExceptParams) (int64, error)
+	UpdateCoordinatorCaptureCreditLimit(context.Context, sqlc.UpdateCoordinatorCaptureCreditLimitParams) (sqlc.UpdateCoordinatorCaptureCreditLimitRow, error)
 	ResetCaptureCreditUsage(context.Context, sqlc.ResetCaptureCreditUsageParams) (sqlc.ResetCaptureCreditUsageRow, error)
 }
 
@@ -103,11 +106,22 @@ func (w *SQLCWriter) CreateCategory(ctx context.Context, tx pgx.Tx, input Create
 	if err != nil {
 		return Category{}, false, err
 	}
-	category, mapErr := mapCategory(row.ID, row.EventID, row.Name, row.CreatedAt)
+	category, mapErr := mapCategory(row.ID, row.EventID, row.Name, row.VisibleOnPublicDashboard, row.CreatedAt)
 	if mapErr != nil {
 		return Category{}, false, mapErr
 	}
 	return category, true, nil
+}
+
+func (w *SQLCWriter) UpdateCategoryVisibility(ctx context.Context, tx pgx.Tx, categoryID uuid.UUID, visible bool) (Category, error) {
+	row, err := w.queries(tx).SetCategoryPublicVisibility(ctx, sqlc.SetCategoryPublicVisibilityParams{
+		CategoryID:               dbUUID(categoryID),
+		VisibleOnPublicDashboard: visible,
+	})
+	if err != nil {
+		return Category{}, err
+	}
+	return mapCategory(row.ID, row.EventID, row.Name, row.VisibleOnPublicDashboard, row.CreatedAt)
 }
 
 func (w *SQLCWriter) CreateCoordinatorAssignment(ctx context.Context, tx pgx.Tx, input CreateCoordinatorAssignmentWrite) (CoordinatorAssignment, bool, error) {
@@ -139,27 +153,69 @@ func (w *SQLCWriter) CreateCoordinatorAssignment(ctx context.Context, tx pgx.Tx,
 	if err != nil {
 		return CoordinatorAssignment{}, false, err
 	}
-	assignment, mapErr := mapCoordinatorAssignment(inserted.ID, inserted.UserID, user.Email, user.Name, inserted.EventID, inserted.CreatedAt)
+	categories := make([]Category, 0, len(input.CategoryIDs))
+	for _, categoryID := range input.CategoryIDs {
+		if _, err := q.AssignUserCategory(ctx, sqlc.AssignUserCategoryParams{
+			UserID:          dbUUID(input.UserID),
+			CategoryID:      dbUUID(categoryID),
+			CreatedByUserID: dbUUID(input.CreatedByUserID),
+		}); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return CoordinatorAssignment{}, false, err
+		}
+		categories = append(categories, Category{ID: categoryID.String(), EventID: input.EventID.String()})
+	}
+	assignment, mapErr := mapCoordinatorAssignment(inserted.ID, inserted.UserID, user.Email, user.Name, inserted.EventID, categories, inserted.CreatedAt)
 	if mapErr != nil {
 		return CoordinatorAssignment{}, false, mapErr
 	}
 	return assignment, true, nil
 }
 
-func (w *SQLCWriter) UpsertCaptureCreditConfig(ctx context.Context, tx pgx.Tx, input CaptureCreditConfigWrite) (CaptureCreditConfigWriteResult, bool, error) {
-	row, err := w.queries(tx).UpsertCaptureCreditConfig(ctx, sqlc.UpsertCaptureCreditConfigParams{
+func (w *SQLCWriter) ReplaceCoordinatorCategoryAccess(ctx context.Context, tx pgx.Tx, input ReplaceCoordinatorCategoryAccessWrite) (bool, error) {
+	q := w.queries(tx)
+	keepIDs := make([]pgtype.UUID, 0, len(input.CategoryIDs))
+	for _, categoryID := range input.CategoryIDs {
+		keepIDs = append(keepIDs, dbUUID(categoryID))
+	}
+	if _, err := q.DeleteUserCategoriesForEventExcept(ctx, sqlc.DeleteUserCategoriesForEventExceptParams{
+		UserID:          dbUUID(input.UserID),
 		EventID:         dbUUID(input.EventID),
-		CreditLimit:     int32(input.Limit),
-		UpdatedByUserID: dbUUID(input.UpdatedByUserID),
+		KeepCategoryIds: keepIDs,
+	}); err != nil {
+		return false, err
+	}
+	for _, categoryID := range input.CategoryIDs {
+		if _, err := q.AssignUserCategory(ctx, sqlc.AssignUserCategoryParams{
+			UserID:          dbUUID(input.UserID),
+			CategoryID:      dbUUID(categoryID),
+			CreatedByUserID: dbUUID(input.ActorUserID),
+		}); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+func (w *SQLCWriter) UpdateCoordinatorCaptureCreditLimit(ctx context.Context, tx pgx.Tx, input CaptureCreditLimitWrite) (CaptureCreditLimitWriteResult, bool, error) {
+	row, err := w.queries(tx).UpdateCoordinatorCaptureCreditLimit(ctx, sqlc.UpdateCoordinatorCaptureCreditLimitParams{
+		EventID:             dbUUID(input.EventID),
+		UserID:              dbUUID(input.UserID),
+		FallbackCreditLimit: int32(input.Limit),
 	})
 	if err != nil {
-		return CaptureCreditConfigWriteResult{}, false, err
+		if errors.Is(err, pgx.ErrNoRows) {
+			return CaptureCreditLimitWriteResult{}, false, ErrCoordinatorUserNotFound
+		}
+		return CaptureCreditLimitWriteResult{}, false, err
 	}
-	config, mapErr := mapCaptureCreditConfig(row.EventID, row.CreditLimit, row.UpdatedByUserID, row.UpdatedAt)
-	if mapErr != nil {
-		return CaptureCreditConfigWriteResult{}, false, mapErr
+	usage := CaptureCreditUsage{
+		EventID:   uuid.UUID(row.EventID.Bytes).String(),
+		UserID:    uuid.UUID(row.UserID.Bytes).String(),
+		Limit:     int(row.FallbackCreditLimit),
+		Remaining: int(row.FallbackCreditLimit),
+		Exhausted: row.FallbackCreditLimit == 0,
 	}
-	return CaptureCreditConfigWriteResult{Config: config, PreviousLimit: int(row.PreviousLimit)}, true, nil
+	return CaptureCreditLimitWriteResult{Usage: usage, PreviousLimit: int(row.PreviousLimit)}, true, nil
 }
 
 func (w *SQLCWriter) ResetCaptureCreditUsage(ctx context.Context, tx pgx.Tx, input CaptureCreditResetWrite) (CaptureCreditResetWriteResult, bool, error) {

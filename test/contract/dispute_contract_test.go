@@ -302,8 +302,10 @@ func TestDisputeContract_PublicSchemaAllowlists(t *testing.T) {
 			why   string
 		}{
 			{"submitted_email", "maxLength", 320, "RFC-bounded address length; anything longer is not an address"},
+			{"student_note", "minLength", 1, "all public dispute fields are compulsory"},
 			{"student_note", "maxLength", 1000, "the student's own note"},
-			{"claimed_coordinator_name", "maxLength", 200, "free text a student types from memory (T6)"},
+			{"claimed_coordinator_name", "minLength", 1, "all public dispute fields are compulsory"},
+			{"claimed_coordinator_name", "maxLength", 200, "free text a student types from memory"},
 			{"slot", "minimum", 1, "slot 0 is not a slot"},
 			{"slot", "maximum", MaxSlot, "the slot table's ceiling"},
 		} {
@@ -316,13 +318,11 @@ func TestDisputeContract_PublicSchemaAllowlists(t *testing.T) {
 			}
 		}
 
-		// T6: the coordinator is OPTIONAL. A student disputing a MISSING slot has
-		// no record, therefore no coordinator name to read — making it required
-		// blocks exactly the person this form exists for.
-		if required := requiredSet(request); required["claimed_coordinator_name"] {
-			t.Errorf("[P0] PublicDisputeRequest requires claimed_coordinator_name. Story 5.7 states coordinator " +
-				"selection is optional (\"I don't know\" allowed) precisely because a student with no record has " +
-				"no coordinator to name (T6)")
+		// All public dispute form fields are compulsory. The request must not
+		// let the browser omit coordinator name or the student's note and then
+		// discover the problem only in the service.
+		if required := requiredSet(request); !required["claimed_coordinator_name"] || !required["student_note"] {
+			t.Errorf("[P0] PublicDisputeRequest must require claimed_coordinator_name and student_note; required = %v", required)
 		}
 		// The OD date is REQUIRED and is a date, not a datetime. It is the day the
 		// OD belongs to, which under 0.12a is one of up to thirty days in an

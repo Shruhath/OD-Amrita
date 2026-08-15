@@ -139,7 +139,7 @@ SELECT
         '[]'::jsonb
     )::text AS categories_json
 FROM events e
-LEFT JOIN categories c ON c.event_id = e.id
+LEFT JOIN categories c ON c.event_id = e.id AND c.visible_on_public_dashboard = true
 GROUP BY e.id
 ORDER BY e.event_date DESC, e.created_at DESC, e.id DESC
 LIMIT @row_limit::bigint;

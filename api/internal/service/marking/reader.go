@@ -40,6 +40,22 @@ func (a *EventReaderAdapter) AssignedActiveEvents(ctx context.Context, userID st
 	return events, nil
 }
 
+func (a *EventReaderAdapter) ActiveEventsForAdminMarking(ctx context.Context) ([]Event, error) {
+	rows, err := a.events.ListActiveEventsForMarking(ctx)
+	if err != nil {
+		return nil, err
+	}
+	events := make([]Event, 0, len(rows))
+	for _, row := range rows {
+		event, convErr := fromServiceEvent(row)
+		if convErr != nil {
+			return nil, convErr
+		}
+		events = append(events, event)
+	}
+	return events, nil
+}
+
 func (a *EventReaderAdapter) EventByID(ctx context.Context, eventID string) (Event, error) {
 	parsed, err := uuid.Parse(strings.TrimSpace(eventID))
 	if err != nil {
@@ -67,6 +83,30 @@ func (a *EventReaderAdapter) CoordinatorAssignedToEvent(ctx context.Context, use
 		return false, ErrEventNotFound
 	}
 	return a.events.CoordinatorAssignedToEvent(ctx, parsedUser, parsedEvent)
+}
+
+type coordinatorCategoryAssigner interface {
+	CoordinatorAssignedToEventCategory(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (bool, error)
+}
+
+func (a *EventReaderAdapter) CoordinatorAssignedToEventCategory(ctx context.Context, userID, eventID, categoryID string) (bool, error) {
+	scoped, ok := a.events.(coordinatorCategoryAssigner)
+	if !ok {
+		return false, nil
+	}
+	parsedUser, err := uuid.Parse(strings.TrimSpace(userID))
+	if err != nil {
+		return false, ErrNotCoordinator
+	}
+	parsedEvent, err := uuid.Parse(strings.TrimSpace(eventID))
+	if err != nil {
+		return false, ErrEventNotFound
+	}
+	parsedCategory, err := uuid.Parse(strings.TrimSpace(categoryID))
+	if err != nil {
+		return false, ErrCategoryNotFound
+	}
+	return scoped.CoordinatorAssignedToEventCategory(ctx, parsedUser, parsedEvent, parsedCategory)
 }
 
 func (a *EventReaderAdapter) CategoryForEvent(ctx context.Context, eventID, categoryID string) error {

@@ -32,6 +32,7 @@ export type MarkableCategory = {
   id: string
   event_id: string
   name: string
+  visible_on_public_dashboard: boolean
   created_at: string
 }
 
@@ -91,6 +92,7 @@ export function markableCategory(overrides: Partial<MarkableCategory> = {}): Mar
     id: markCategoryID,
     event_id: markEventID,
     name: 'Cultural',
+    visible_on_public_dashboard: true,
     created_at: new Date().toISOString(),
     ...overrides,
   }

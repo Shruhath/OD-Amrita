@@ -9,6 +9,7 @@ export type CategoryFixture = {
   id: string
   event_id: string
   name: string
+  visible_on_public_dashboard: boolean
   created_at: string
 }
 
@@ -21,6 +22,7 @@ export function createCategoryFixture(
     id: faker.string.uuid(),
     event_id: testEventID,
     name: `${faker.commerce.department()} ${faker.string.alphanumeric(6)}`,
+    visible_on_public_dashboard: true,
     created_at: '2026-07-21T03:00:00Z',
     ...overrides,
   }

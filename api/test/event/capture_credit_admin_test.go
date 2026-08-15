@@ -56,44 +56,48 @@ func TestCaptureCreditAdminSummary_ListsAssignedCoordinatorsOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListCaptureCredits: %v", err)
 	}
-	if summary.Config.Limit != 5 {
-		t.Fatalf("default cap = %d, want 5", summary.Config.Limit)
-	}
 	if len(summary.Data) != 2 {
 		t.Fatalf("[P0] summary rows = %d, want only the two assigned coordinators", len(summary.Data))
 	}
-	if summary.Data[0].UserID != fixture.coordinatorA.String() || summary.Data[0].Consumed != 4 || summary.Data[0].Remaining != 1 {
+	if summary.Data[0].UserID != fixture.coordinatorA.String() || summary.Data[0].Limit != 5 || summary.Data[0].Consumed != 4 || summary.Data[0].Remaining != 1 {
 		t.Fatalf("first coordinator usage = %#v", summary.Data[0])
 	}
-	if summary.Data[1].UserID != fixture.coordinatorB.String() || summary.Data[1].Consumed != 0 || summary.Data[1].Remaining != 5 {
+	if summary.Data[1].UserID != fixture.coordinatorB.String() || summary.Data[1].Limit != 5 || summary.Data[1].Consumed != 0 || summary.Data[1].Remaining != 5 {
 		t.Fatalf("second coordinator usage = %#v", summary.Data[1])
 	}
 }
 
-func TestCaptureCreditAdminConfig_ChangeAuditsExactlyOnce(t *testing.T) {
+func TestCaptureCreditAdminLimit_ChangeOneCoordinatorAuditsExactlyOnce(t *testing.T) {
 	ctx := testContext(t)
 	migrator, runtime, _ := isolatedCategoryDatabase(t, ctx)
 	fixture := seedCaptureCreditAdminFixture(t, ctx, migrator)
 
-	updated, err := eventAdminService(runtime).UpdateCaptureCreditConfig(ctx, adminActor(fixture), eventsvc.CaptureCreditConfigInput{
+	updated, err := eventAdminService(runtime).UpdateCoordinatorCaptureCreditLimit(ctx, adminActor(fixture), eventsvc.CaptureCreditLimitInput{
 		EventID: fixture.eventID.String(),
+		UserID:  fixture.coordinatorA.String(),
 		Limit:   0,
 	})
 	if err != nil {
-		t.Fatalf("UpdateCaptureCreditConfig: %v", err)
+		t.Fatalf("UpdateCoordinatorCaptureCreditLimit: %v", err)
 	}
-	if updated.Limit != 0 || updated.UpdatedByUserID == nil || *updated.UpdatedByUserID != fixture.adminID.String() {
-		t.Fatalf("updated config = %#v", updated)
+	if updated.Limit != 0 || updated.UserID != fixture.coordinatorA.String() {
+		t.Fatalf("updated usage = %#v", updated)
 	}
-	assertEventAuditCount(t, ctx, migrator, domain.ActionCaptureCreditCapChanged, fixture.eventID.String(), 1)
+	assertEventAuditCount(t, ctx, migrator, domain.ActionCaptureCreditCapChanged, fixture.eventID.String()+":"+fixture.coordinatorA.String(), 1)
 
-	var persisted int
+	var persistedA, persistedB int
 	if err := migrator.QueryRow(ctx,
-		`SELECT credit_limit FROM event_capture_credit_config WHERE event_id = $1`, fixture.eventID).Scan(&persisted); err != nil {
-		t.Fatalf("read persisted cap: %v", err)
+		`SELECT fallback_credit_limit FROM event_coordinator_assignments WHERE event_id = $1 AND user_id = $2`,
+		fixture.eventID, fixture.coordinatorA).Scan(&persistedA); err != nil {
+		t.Fatalf("read persisted coordinator A cap: %v", err)
 	}
-	if persisted != 0 {
-		t.Fatalf("[P0] persisted cap = %d, want 0 live-disable", persisted)
+	if err := migrator.QueryRow(ctx,
+		`SELECT fallback_credit_limit FROM event_coordinator_assignments WHERE event_id = $1 AND user_id = $2`,
+		fixture.eventID, fixture.coordinatorB).Scan(&persistedB); err != nil {
+		t.Fatalf("read persisted coordinator B cap: %v", err)
+	}
+	if persistedA != 0 || persistedB != 5 {
+		t.Fatalf("[P0] persisted caps A/B = %d/%d, want 0/5", persistedA, persistedB)
 	}
 }
 
@@ -143,7 +147,7 @@ func TestCaptureCreditAdminRejection_NoAuditOnRejectedInputs(t *testing.T) {
 		{
 			name: "non-admin",
 			run: func() error {
-				_, err := svc.UpdateCaptureCreditConfig(ctx, eventsvc.Actor{UserID: fixture.coordinatorA.String(), Email: "coord-a@amrita.edu", Role: "coordinator"}, eventsvc.CaptureCreditConfigInput{EventID: fixture.eventID.String(), Limit: 2})
+				_, err := svc.UpdateCoordinatorCaptureCreditLimit(ctx, eventsvc.Actor{UserID: fixture.coordinatorA.String(), Email: "coord-a@amrita.edu", Role: "coordinator"}, eventsvc.CaptureCreditLimitInput{EventID: fixture.eventID.String(), UserID: fixture.coordinatorA.String(), Limit: 2})
 				return err
 			},
 			code: contracts.ErrorCodeRBACFORBIDDEN,
@@ -151,7 +155,7 @@ func TestCaptureCreditAdminRejection_NoAuditOnRejectedInputs(t *testing.T) {
 		{
 			name: "negative cap",
 			run: func() error {
-				_, err := svc.UpdateCaptureCreditConfig(ctx, adminActor(fixture), eventsvc.CaptureCreditConfigInput{EventID: fixture.eventID.String(), Limit: -1})
+				_, err := svc.UpdateCoordinatorCaptureCreditLimit(ctx, adminActor(fixture), eventsvc.CaptureCreditLimitInput{EventID: fixture.eventID.String(), UserID: fixture.coordinatorA.String(), Limit: -1})
 				return err
 			},
 			code: contracts.ErrorCodeVALIDATIONFAILED,
@@ -159,7 +163,7 @@ func TestCaptureCreditAdminRejection_NoAuditOnRejectedInputs(t *testing.T) {
 		{
 			name: "archived event",
 			run: func() error {
-				_, err := svc.UpdateCaptureCreditConfig(ctx, adminActor(fixture), eventsvc.CaptureCreditConfigInput{EventID: archived.String(), Limit: 3})
+				_, err := svc.UpdateCoordinatorCaptureCreditLimit(ctx, adminActor(fixture), eventsvc.CaptureCreditLimitInput{EventID: archived.String(), UserID: fixture.coordinatorA.String(), Limit: 3})
 				return err
 			},
 			code: contracts.ErrorCodeEVENTARCHIVED,
@@ -181,7 +185,7 @@ func TestCaptureCreditAdminRejection_NoAuditOnRejectedInputs(t *testing.T) {
 			}
 		})
 	}
-	assertEventAuditCount(t, ctx, migrator, domain.ActionCaptureCreditCapChanged, fixture.eventID.String(), 0)
+	assertEventAuditCount(t, ctx, migrator, domain.ActionCaptureCreditCapChanged, fixture.eventID.String()+":"+fixture.coordinatorA.String(), 0)
 	assertEventActionTotal(t, ctx, migrator, domain.ActionCaptureCreditReset, 0)
 }
 

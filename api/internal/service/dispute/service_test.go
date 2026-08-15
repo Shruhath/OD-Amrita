@@ -12,7 +12,7 @@
 //	type SubmitInput struct { StudentID, SubmittedEmail, EventID, CategoryID string
 //	                          ODDate string   // "YYYY-MM-DD"; the day the OD belongs to
 //	                          Slot int
-//	                          ClaimedCoordinatorName, StudentNote *string }   // nil == absent (T6)
+//	                          ClaimedCoordinatorName, StudentNote *string }   // nil == absent
 //	type Receipt     struct { DisputeID, Reference, Status string
 //	                          SubmittedAt time.Time
 //	                          Student Student }
@@ -251,13 +251,17 @@ func newTestService(t *testing.T) (*Service, *fakeStudents, *fakeRepo, *fakeStor
 }
 
 func validInput() SubmitInput {
+	coordinatorName := "Priya Menon"
+	studentNote := "I was present in the queue but my slot was missed."
 	return SubmitInput{
-		StudentID:      fixtureID,
-		SubmittedEmail: fixtureEmail,
-		EventID:        fixtureEvent,
-		CategoryID:     fixtureCat,
-		ODDate:         fixtureODDate,
-		Slot:           3,
+		StudentID:              fixtureID,
+		SubmittedEmail:         fixtureEmail,
+		EventID:                fixtureEvent,
+		CategoryID:             fixtureCat,
+		ODDate:                 fixtureODDate,
+		Slot:                   3,
+		ClaimedCoordinatorName: &coordinatorName,
+		StudentNote:            &studentNote,
 	}
 }
 
@@ -600,6 +604,16 @@ func TestSubmit_RefusesOutOfBoundsFieldsBeforeAnyQuery(t *testing.T) {
 		{"slot 0", func(i *SubmitInput) { i.Slot = 0 }, contracts.ErrorCodeVALIDATIONFAILED},
 		{"slot 13", func(i *SubmitInput) { i.Slot = 13 }, contracts.ErrorCodeVALIDATIONFAILED},
 		{"slot -1", func(i *SubmitInput) { i.Slot = -1 }, contracts.ErrorCodeVALIDATIONFAILED},
+		{"missing coordinator name", func(i *SubmitInput) { i.ClaimedCoordinatorName = nil }, contracts.ErrorCodeVALIDATIONFAILED},
+		{"blank coordinator name", func(i *SubmitInput) {
+			name := "   "
+			i.ClaimedCoordinatorName = &name
+		}, contracts.ErrorCodeVALIDATIONFAILED},
+		{"missing student note", func(i *SubmitInput) { i.StudentNote = nil }, contracts.ErrorCodeVALIDATIONFAILED},
+		{"blank student note", func(i *SubmitInput) {
+			note := "   "
+			i.StudentNote = &note
+		}, contracts.ErrorCodeVALIDATIONFAILED},
 		{"note over 1000 chars", func(i *SubmitInput) { i.StudentNote = &tooLongNote }, contracts.ErrorCodeVALIDATIONFAILED},
 		{"coordinator name over 200 chars", func(i *SubmitInput) { i.ClaimedCoordinatorName = &tooLongCoordinator }, contracts.ErrorCodeVALIDATIONFAILED},
 		{"email over 320 chars", func(i *SubmitInput) { i.SubmittedEmail = tooLongEmail }, contracts.ErrorCodeVALIDATIONFAILED},
@@ -674,13 +688,9 @@ func TestSubmit_RefusesOutOfBoundsFieldsBeforeAnyQuery(t *testing.T) {
 		})
 	}
 
-	// The optional fields are genuinely optional (T6). A student disputing a
-	// MISSING slot has no record and therefore no coordinator name to read;
-	// requiring one blocks exactly the person this form exists for.
 	svc, _, _, _ := newTestService(t)
 	if _, err := svc.Submit(ctx, validInput()); err != nil {
-		t.Errorf("[P0] a submission with no coordinator name and no note was refused: %v. Story 5.7 makes "+
-			"coordinator selection optional (\"I don't know\" allowed) — nil means absent, not empty (T6)", err)
+		t.Errorf("[P0] a complete submission with coordinator name and note was refused: %v", err)
 	}
 }
 

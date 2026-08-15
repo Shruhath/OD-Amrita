@@ -24,12 +24,19 @@ node_modules/
 npm-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+# pnpm puts its store on the same filesystem as the project, so it normally lands
+# outside the repo — but not always (a container whose checkout sits on its own
+# overlay resolves it to the repo root instead). Untracked, it fails the
+# contract-drift gate, whose final check is `git status --porcelain` over the
+# WHOLE repo and reports any stray path as "generated output drifted".
+.pnpm-store/
 dist/
 build/
 web/dist/
 web/coverage/
 web/playwright-report/
 web/test-results/
+tmp/
 
 # ── Go ──
 *.o

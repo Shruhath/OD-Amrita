@@ -59,7 +59,9 @@ const (
 		`"submitted_email":"cb.sc.u4cse24101@cb.students.amrita.edu",` +
 		`"event_id":"00000000-0000-4000-8000-000000000001",` +
 		`"category_id":"00000000-0000-4000-8000-000000000002",` +
-		`"od_date":"2026-08-03","slot":3}`
+		`"od_date":"2026-08-03","slot":3,` +
+		`"claimed_coordinator_name":"Priya Menon",` +
+		`"student_note":"I was present in the queue but my slot was missed."}`
 )
 
 // reachingDisputeService stands in for the dispute service on both sides, so a

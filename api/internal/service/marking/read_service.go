@@ -12,7 +12,7 @@ import (
 	svcstudent "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 )
 
-// ReadService is the coordinator marking surface's read façade.
+// ReadService is the live marking surface's read façade.
 //
 // It exists so the four read handlers depend on ONE thing, and so no handler can
 // reach the event reader or the student service directly and serve a scope the
@@ -22,7 +22,7 @@ import (
 // deliberate rather than an oversight:
 //
 //   - VisibleEvents, Categories and MarkStatus go through the FULL policy —
-//     role, assignment, event, and (for MarkStatus) category ownership. They describe a
+//     role, assignment/event, and (for MarkStatus) category ownership. They describe a
 //     scope, so they must agree exactly with what the write would accept.
 //   - SearchStudents goes through the ROLE half only (assertCoordinator, which
 //     lives in scope.go beside the policy — not a second copy of it). The roster
@@ -142,11 +142,10 @@ func (s *ReadService) Categories(ctx context.Context, actor Actor, eventID strin
 // SearchStudents is the ROLE-gated read. See the type doc above for why it is
 // not event-scoped, and what the assignment story has to decide about it.
 //
-// Deliberately NOT assertCoordinator: Story 0.9's teacher/admin search-mark
+// Deliberately NOT assertLiveMarker: Story 0.9's teacher/admin search-mark
 // screen calls this exact endpoint before it can select a student to mark, so
-// coordinator-only here would 403 the entire teacher/admin surface at the
-// first step. VisibleEvents/Categories/MarkStatus stay coordinator-only via
-// assertCoordinator — this is the one read three roles share.
+// live-marker-only here would 403 the entire teacher/admin surface at the
+// first step.
 func (s *ReadService) SearchStudents(ctx context.Context, actor Actor, query string, limit int) ([]Student, error) {
 	if err := assertMaySearchRoster(actor); err != nil {
 		return nil, err
@@ -201,7 +200,7 @@ func (s *ReadService) MarkStatus(ctx context.Context, actor Actor, eventID, cate
 // not canonicalise.
 func assertMaySearchRoster(actor Actor) error {
 	switch actor.Role {
-	case roleCoordinator, "teacher", "admin":
+	case roleCoordinator, "teacher", roleAdmin:
 		return nil
 	default:
 		return forbiddenPortal("Coordinator, teacher, or administrator access is required to search students.")

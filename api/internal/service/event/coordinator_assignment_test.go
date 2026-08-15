@@ -149,7 +149,7 @@ func TestCoordinatorAssignmentCreateRejectsEveryInvalidRequestBeforeOpeningATran
 			_, err := NewService(reader, audit, writer).CreateCoordinatorAssignment(
 				context.Background(),
 				adminActor(),
-				CreateCoordinatorAssignmentInput{EventID: eventID, Email: row.email},
+				CreateCoordinatorAssignmentInput{EventID: eventID, Email: row.email, CategoryIDs: coordinatorCategoryIDs()},
 			)
 			if err == nil {
 				t.Fatal("CreateCoordinatorAssignment succeeded, want rejection")
@@ -174,7 +174,7 @@ func TestCoordinatorAssignmentCreateRejectsEveryInvalidRequestBeforeOpeningATran
 }
 
 func TestCoordinatorAssignmentCreateElevatesStudentAndAuditsOneAssignment(t *testing.T) {
-	eventID := uuid.New()
+	eventID := uuid.MustParse(activeEventID)
 	assignmentID := uuid.NewString()
 	createdAt := time.Date(2026, 8, 3, 4, 0, 0, 0, time.UTC)
 	reader := &fakeCoordinatorReader{
@@ -188,7 +188,7 @@ func TestCoordinatorAssignmentCreateElevatesStudentAndAuditsOneAssignment(t *tes
 	created, err := NewService(reader, audit, writer).CreateCoordinatorAssignment(
 		context.Background(),
 		adminActor(),
-		CreateCoordinatorAssignmentInput{EventID: eventID.String(), Email: " candidate@amrita.edu "},
+		CreateCoordinatorAssignmentInput{EventID: eventID.String(), Email: " candidate@amrita.edu ", CategoryIDs: coordinatorCategoryIDs()},
 	)
 	if err != nil {
 		t.Fatalf("CreateCoordinatorAssignment = %v", err)
@@ -226,7 +226,7 @@ func TestCoordinatorAssignmentCreateAllowsExistingCoordinatorOnAnotherEvent(t *t
 		ID: uuid.NewString(), UserID: coordinatorUserID, Email: "coord@amrita.edu", EventID: activeEventID, CreatedAt: time.Now(),
 	}}
 	if _, err := NewService(reader, &fakeAuditStore{}, writer).CreateCoordinatorAssignment(
-		context.Background(), adminActor(), CreateCoordinatorAssignmentInput{EventID: activeEventID, Email: "coord@amrita.edu"},
+		context.Background(), adminActor(), CreateCoordinatorAssignmentInput{EventID: activeEventID, Email: "coord@amrita.edu", CategoryIDs: coordinatorCategoryIDs()},
 	); err != nil {
 		t.Fatalf("existing coordinator assignment rejected: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestCoordinatorAssignmentCreateMapsDuplicateRaceWithoutWritingAudit(t *test
 	}
 	writer := &fakeCoordinatorWriter{err: &pgconn.PgError{Code: "23505", ConstraintName: coordinatorAssignmentUniqueConstraint}}
 	_, err := NewService(reader, &fakeAuditStore{}, writer).CreateCoordinatorAssignment(
-		context.Background(), adminActor(), CreateCoordinatorAssignmentInput{EventID: activeEventID, Email: "raced@amrita.edu"},
+		context.Background(), adminActor(), CreateCoordinatorAssignmentInput{EventID: activeEventID, Email: "raced@amrita.edu", CategoryIDs: coordinatorCategoryIDs()},
 	)
 	var de domain.DomainError
 	if !errors.As(err, &de) || de.Code != contracts.ErrorCodeCOORDINATORASSIGNMENTEXISTS {
@@ -292,6 +292,9 @@ func longLocalPart(length int) string {
 }
 
 const coordinatorUserID = "50000000-0000-4000-8000-000000000001"
+const coordinatorCategoryID = "50000000-0000-4000-8000-000000000002"
+
+func coordinatorCategoryIDs() []string { return []string{coordinatorCategoryID} }
 
 type fakeCoordinatorReader struct {
 	status               Status
@@ -325,9 +328,24 @@ func (f *fakeCoordinatorReader) EventStatus(context.Context, uuid.UUID) (Status,
 func (f *fakeCoordinatorReader) ListCategories(context.Context, uuid.UUID) ([]Category, error) {
 	return nil, nil
 }
+func (f *fakeCoordinatorReader) GetCategory(context.Context, uuid.UUID) (Category, error) {
+	return Category{ID: coordinatorCategoryID, EventID: activeEventID, Name: "Procession"}, nil
+}
 func (f *fakeCoordinatorReader) ListCoordinatorAssignments(context.Context, uuid.UUID) ([]CoordinatorAssignment, error) {
 	f.listAssignmentsCalls++
 	return f.assignments, nil
+}
+func (f *fakeCoordinatorReader) GetCoordinatorAssignment(context.Context, uuid.UUID, uuid.UUID) (CoordinatorAssignment, error) {
+	if len(f.assignments) > 0 {
+		return f.assignments[0], nil
+	}
+	return CoordinatorAssignment{
+		ID:        uuid.NewString(),
+		UserID:    coordinatorUserID,
+		Email:     "candidate@amrita.edu",
+		EventID:   activeEventID,
+		CreatedAt: time.Now(),
+	}, nil
 }
 func (f *fakeCoordinatorReader) GetCoordinatorCandidateByEmail(context.Context, string) (CoordinatorCandidate, error) {
 	if f.candidateErr != nil {
@@ -339,6 +357,9 @@ func (f *fakeCoordinatorReader) CoordinatorAssignmentExists(context.Context, uui
 	return f.exists, nil
 }
 func (f *fakeCoordinatorReader) ListAssignedActiveEvents(context.Context, uuid.UUID) ([]Event, error) {
+	return nil, nil
+}
+func (f *fakeCoordinatorReader) ListActiveEventsForMarking(context.Context) ([]Event, error) {
 	return nil, nil
 }
 func (f *fakeCoordinatorReader) CoordinatorAssignedToEvent(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
@@ -375,4 +396,8 @@ func (f *fakeCoordinatorWriter) CreateCoordinatorAssignment(context.Context, pgx
 		}
 	}
 	return f.assignment, true, nil
+}
+func (f *fakeCoordinatorWriter) ReplaceCoordinatorCategoryAccess(context.Context, pgx.Tx, ReplaceCoordinatorCategoryAccessWrite) (bool, error) {
+	f.calls++
+	return f.err == nil, f.err
 }

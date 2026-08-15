@@ -84,7 +84,25 @@ SELECT
             ORDER BY b.code ASC, b.id ASC
         ) FILTER (WHERE b.id IS NOT NULL),
         '[]'::jsonb
-    )::text AS branches_json
+    )::text AS branches_json,
+    COALESCE(
+        (
+            SELECT jsonb_agg(
+                jsonb_build_object(
+                    'id', c.id,
+                    'event_id', c.event_id,
+                    'name', c.name,
+                    'visible_on_public_dashboard', c.visible_on_public_dashboard,
+                    'created_at', c.created_at
+                )
+                ORDER BY c.name ASC, c.id ASC
+            )
+            FROM user_category_assignments uca
+            JOIN categories c ON c.id = uca.category_id
+            WHERE uca.user_id = u.id
+        ),
+        '[]'::jsonb
+    )::text AS categories_json
 FROM users u
 LEFT JOIN user_branches ub ON ub.user_id = u.id
 LEFT JOIN branches b ON b.id = ub.branch_id
@@ -93,11 +111,12 @@ GROUP BY u.id
 `
 
 type GetTeacherProfileRow struct {
-	ID           pgtype.UUID        `json:"id"`
-	Email        string             `json:"email"`
-	Name         pgtype.Text        `json:"name"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	BranchesJson string             `json:"branches_json"`
+	ID             pgtype.UUID        `json:"id"`
+	Email          string             `json:"email"`
+	Name           pgtype.Text        `json:"name"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	BranchesJson   string             `json:"branches_json"`
+	CategoriesJson string             `json:"categories_json"`
 }
 
 func (q *Queries) GetTeacherProfile(ctx context.Context, userID pgtype.UUID) (GetTeacherProfileRow, error) {
@@ -109,6 +128,7 @@ func (q *Queries) GetTeacherProfile(ctx context.Context, userID pgtype.UUID) (Ge
 		&i.Name,
 		&i.CreatedAt,
 		&i.BranchesJson,
+		&i.CategoriesJson,
 	)
 	return i, err
 }
@@ -156,7 +176,25 @@ SELECT
             ORDER BY b.code ASC, b.id ASC
         ) FILTER (WHERE b.id IS NOT NULL),
         '[]'::jsonb
-    )::text AS branches_json
+    )::text AS branches_json,
+    COALESCE(
+        (
+            SELECT jsonb_agg(
+                jsonb_build_object(
+                    'id', c.id,
+                    'event_id', c.event_id,
+                    'name', c.name,
+                    'visible_on_public_dashboard', c.visible_on_public_dashboard,
+                    'created_at', c.created_at
+                )
+                ORDER BY c.name ASC, c.id ASC
+            )
+            FROM user_category_assignments uca
+            JOIN categories c ON c.id = uca.category_id
+            WHERE uca.user_id = u.id
+        ),
+        '[]'::jsonb
+    )::text AS categories_json
 FROM users u
 LEFT JOIN user_branches ub ON ub.user_id = u.id
 LEFT JOIN branches b ON b.id = ub.branch_id
@@ -172,11 +210,12 @@ type ListTeachersParams struct {
 }
 
 type ListTeachersRow struct {
-	ID           pgtype.UUID        `json:"id"`
-	Email        string             `json:"email"`
-	Name         pgtype.Text        `json:"name"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	BranchesJson string             `json:"branches_json"`
+	ID             pgtype.UUID        `json:"id"`
+	Email          string             `json:"email"`
+	Name           pgtype.Text        `json:"name"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	BranchesJson   string             `json:"branches_json"`
+	CategoriesJson string             `json:"categories_json"`
 }
 
 func (q *Queries) ListTeachers(ctx context.Context, arg ListTeachersParams) ([]ListTeachersRow, error) {
@@ -194,6 +233,7 @@ func (q *Queries) ListTeachers(ctx context.Context, arg ListTeachersParams) ([]L
 			&i.Name,
 			&i.CreatedAt,
 			&i.BranchesJson,
+			&i.CategoriesJson,
 		); err != nil {
 			return nil, err
 		}
@@ -203,4 +243,19 @@ func (q *Queries) ListTeachers(ctx context.Context, arg ListTeachersParams) ([]L
 		return nil, err
 	}
 	return items, nil
+}
+
+const teacherExists = `-- name: TeacherExists :one
+SELECT EXISTS(
+    SELECT 1
+    FROM users
+    WHERE id = $1 AND role = 'teacher'
+)::boolean
+`
+
+func (q *Queries) TeacherExists(ctx context.Context, userID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, teacherExists, userID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }

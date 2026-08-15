@@ -52,6 +52,7 @@ type MarkInput struct {
 	StudentID     *string
 	Card          *CardInput
 	Slot          *int
+	ODDate        *time.Time
 	ReasonNote    *string
 }
 
@@ -247,7 +248,7 @@ func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkR
 	// regardless of role (AC 2) — a teacher/admin nfc/camera request is rejected
 	// downstream by slotFor's capture-method check, not by a note requirement
 	// that was never the actual reason for the rejection.
-	if actor.Role != "coordinator" && input.CaptureMethod == CaptureMethodSearch {
+	if manualSearchMark(actor, input) {
 		if input.ReasonNote == nil || strings.TrimSpace(*input.ReasonNote) == "" {
 			return MarkResult{}, validation("reason_note", "required", "reason_note is required for teacher and admin marks.")
 		}
@@ -267,8 +268,8 @@ func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkR
 		return MarkResult{}, validation("category_id", "invalid_format", "category_id must be a UUID.")
 	}
 
-	if actor.Role == "coordinator" {
-		// The coordinator scope gate stays in front of every read and write on
+	if actor.Role == "coordinator" || liveAdminMark(actor, input) {
+		// The live marking scope gate stays in front of every read and write on
 		// this path. Enforcing scope in the read handlers alone would be worthless:
 		// the client chooses these ids and could post any pair it liked (NFR11).
 		if err := s.scope.AssertCanMark(ctx, actor, input.EventID, input.CategoryID); err != nil {
@@ -310,7 +311,7 @@ func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkR
 		return MarkResult{}, err
 	}
 
-	if actor.Role != "coordinator" {
+	if actor.Role != "coordinator" && !liveAdminMark(actor, input) {
 		studentScope, ok := s.scope.(StudentScopeGuard)
 		if !ok {
 			return MarkResult{}, forbidden("Teacher/admin mark authorization is not configured.")
@@ -446,40 +447,60 @@ func (s *Service) slotFor(ctx context.Context, actor Actor, input MarkInput, eve
 	}
 	switch actor.Role {
 	case "coordinator":
-		if input.Slot != nil {
-			return 0, today, now, validation("slot", "forbidden", "coordinator marks use server-derived slot only.")
+		return liveSlot(now, today, event, ceiling, input, "coordinator")
+	case "admin":
+		if input.CaptureMethod != CaptureMethodSearch || input.Slot == nil {
+			return liveSlot(now, today, event, ceiling, input, "admin")
 		}
-		slot, _, ok := ActiveSlot(now, event.EventDate, event.EndDate, ceiling)
-		if !ok {
-			return 0, today, now, slotClosed()
-		}
-		// ActiveSlot already proved today is inside the range, so the campus date
-		// needs no clamp here — and must not get one: a live mark files under the
-		// day it happened or not at all.
-		return slot, today, now, nil
-	case "teacher", "admin":
+		return manualSlot(today, now, event, ceiling, input)
+	case "teacher":
 		if input.CaptureMethod != CaptureMethodSearch {
-			return 0, today, now, forbidden("Teacher and admin MVP marks are search-only.")
+			return 0, today, now, forbidden("Teacher marks are search-only.")
 		}
-		if input.Slot == nil {
-			return 0, today, now, validation("slot", "required", "slot is required for teacher and admin search marks.")
-		}
-		if *input.Slot < 1 || *input.Slot > ceiling {
-			return 0, today, now, validation(
-				"slot", "range", fmt.Sprintf("slot must be between 1 and %d.", ceiling))
-		}
-		// The CORRECTION path: exempt from slot windows, so it legitimately runs
-		// the morning after — or days after a one-day event. Campus today would
-		// then be outside the range and the database's range guard would refuse a
-		// correction the teacher is entitled to make, so it is clamped to the
-		// nearest bound.
-		//
-		// Story 0.12b replaces this default with a day the teacher picks, which is
-		// the only way to file a Tuesday correction under Monday.
-		return *input.Slot, ClampToEventRange(today, event.EventDate, event.EndDate), now, nil
+		return manualSlot(today, now, event, ceiling, input)
 	default:
 		return 0, today, now, forbidden("Coordinator, teacher, or admin role required.")
 	}
+}
+
+func liveSlot(now, today time.Time, event Event, ceiling int, input MarkInput, role string) (int, time.Time, time.Time, error) {
+	if input.Slot != nil {
+		return 0, today, now, validation("slot", "forbidden", role+" live marks use server-derived slot only.")
+	}
+	if input.ODDate != nil {
+		return 0, today, now, validation("od_date", "forbidden", role+" live marks use server-derived date only.")
+	}
+	slot, _, ok := ActiveSlot(now, event.EventDate, event.EndDate, ceiling)
+	if !ok {
+		return 0, today, now, slotClosed()
+	}
+	return slot, today, now, nil
+}
+
+func manualSlot(today, now time.Time, event Event, ceiling int, input MarkInput) (int, time.Time, time.Time, error) {
+	if input.Slot == nil {
+		return 0, today, now, validation("slot", "required", "slot is required for teacher and admin search marks.")
+	}
+	if *input.Slot < 1 || *input.Slot > ceiling {
+		return 0, today, now, validation(
+			"slot", "range", fmt.Sprintf("slot must be between 1 and %d.", ceiling))
+	}
+	if input.ODDate != nil {
+		day := CampusDate(*input.ODDate)
+		if day.Before(CampusDate(event.EventDate)) || day.After(CampusDate(event.EndDate)) {
+			return 0, today, now, validation("od_date", "outside_event_range", "The OD date must fall inside the event's date range.")
+		}
+		return *input.Slot, day, now, nil
+	}
+	return *input.Slot, ClampToEventRange(today, event.EventDate, event.EndDate), now, nil
+}
+
+func liveAdminMark(actor Actor, input MarkInput) bool {
+	return actor.Role == "admin" && (input.CaptureMethod == CaptureMethodNFC || input.CaptureMethod == CaptureMethodCamera || input.Slot == nil)
+}
+
+func manualSearchMark(actor Actor, input MarkInput) bool {
+	return actor.Role == "teacher" || (actor.Role == "admin" && input.CaptureMethod == CaptureMethodSearch && input.Slot != nil)
 }
 
 func (s *Service) resolveStudent(ctx context.Context, actor Actor, input MarkInput) (Student, error) {

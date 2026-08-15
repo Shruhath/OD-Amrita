@@ -7,7 +7,13 @@ type CoordinatorRecord = {
   email: string
   name: string | null
   event_id: string
+  categories: CoordinatorCategory[]
   created_at: string
+}
+
+type CoordinatorCategory = {
+  id: string
+  name: string
 }
 
 type Branch = { id: string; code: string; name: string }
@@ -38,6 +44,10 @@ const branch: Branch = {
 
 const eventID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const eventName = 'Onam Celebrations'
+const processionCategory: CoordinatorCategory = {
+  id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  name: 'Procession',
+}
 
 function eventRecord(status: 'active' | 'archived'): EventRecord {
   return {
@@ -51,13 +61,14 @@ function eventRecord(status: 'active' | 'archived'): EventRecord {
   }
 }
 
-function coordinatorRecord(email: string, index: number): CoordinatorRecord {
+function coordinatorRecord(email: string, index: number, categories: CoordinatorCategory[] = [processionCategory]): CoordinatorRecord {
   return {
     id: `dddddddd-dddd-4ddd-8ddd-${String(index).padStart(12, '0')}`,
     user_id: `eeeeeeee-eeee-4eee-8eee-${String(index).padStart(12, '0')}`,
     email,
     name: email.split('@')[0],
     event_id: eventID,
+    categories,
     created_at: `2026-08-03T03:${String(index).padStart(2, '0')}:00Z`,
   }
 }
@@ -106,6 +117,7 @@ async function mockApi(page: Page, scenario: Scenario = {}) {
           id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
           event_id: eventID,
           name: 'Procession',
+          visible_on_public_dashboard: true,
           created_at: '2026-08-03T03:00:00Z',
         },
       ],
@@ -128,8 +140,9 @@ async function mockApi(page: Page, scenario: Scenario = {}) {
         await json(route, createBody, createStatus)
         return
       }
-      const input = route.request().postDataJSON() as { email: string }
-      const record = coordinatorRecord(input.email.trim().toLowerCase(), ++created)
+      const input = route.request().postDataJSON() as { email: string; category_ids: string[] }
+      const categories = [processionCategory].filter((category) => input.category_ids.includes(category.id))
+      const record = coordinatorRecord(input.email.trim().toLowerCase(), ++created, categories)
       serverCoordinators = [...serverCoordinators, record]
       await json(route, record, 201)
       return
@@ -150,6 +163,7 @@ test.describe('Admin event coordinators journey', () => {
     await expect(list.getByText('existing@amrita.edu')).toBeVisible()
 
     await page.getByLabel('Coordinator email').fill('candidate@amrita.edu')
+    await page.getByRole('checkbox', { name: 'Procession' }).check()
     await page.getByRole('button', { name: 'Assign coordinator' }).click()
     await expect(list.getByText('candidate@amrita.edu')).toBeVisible()
 
@@ -170,6 +184,7 @@ test.describe('Admin event coordinators journey', () => {
     await page.getByRole('link', { name: eventName }).click()
 
     await page.getByLabel('Coordinator email').fill('existing@amrita.edu')
+    await page.getByRole('checkbox', { name: 'Procession' }).check()
     await page.getByRole('button', { name: 'Assign coordinator' }).click()
 
     await expect(page.getByRole('alert')).toHaveText(/already assigned/i)

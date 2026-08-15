@@ -100,11 +100,12 @@ func TestCoordinatorAssignmentCreateCommitsRoleInsertAndAuditAtomically(t *testi
 	adminID := seedAdmin(t, ctx, migrator, "coord-create-admin@amrita.edu")
 	studentID := seedUser(t, ctx, migrator, "coord-create@amrita.edu", "student")
 	eventID := seedActiveEvent(t, ctx, migrator, "Coordinator Create")
+	categoryID := seedCategory(t, ctx, migrator, eventID, "Coordinator Create Category")
 
 	svc := eventsvc.NewService(eventsvc.NewSQLCReader(runtime), store.New(runtime), eventsvc.NewSQLCWriter())
 	created, err := svc.CreateCoordinatorAssignment(ctx,
 		eventsvc.Actor{UserID: adminID.String(), Email: "coord-create-admin@amrita.edu", Role: "admin"},
-		eventsvc.CreateCoordinatorAssignmentInput{EventID: eventID.String(), Email: "coord-create@amrita.edu"},
+		eventsvc.CreateCoordinatorAssignmentInput{EventID: eventID.String(), Email: "coord-create@amrita.edu", CategoryIDs: []string{categoryID.String()}},
 	)
 	if err != nil {
 		t.Fatalf("CreateCoordinatorAssignment: %v", err)
@@ -135,15 +136,24 @@ func TestCoordinatorAssignmentCreateAllowsExistingCoordinatorOnDifferentEvents(t
 	coordinatorID := seedUser(t, ctx, migrator, "coord-second@amrita.edu", "coordinator")
 	firstEvent := seedActiveEvent(t, ctx, migrator, "Coordinator First Event")
 	secondEvent := seedActiveEvent(t, ctx, migrator, "Coordinator Second Event")
+	firstCategory := seedCategory(t, ctx, migrator, firstEvent, "Coordinator First Category")
+	secondCategory := seedCategory(t, ctx, migrator, secondEvent, "Coordinator Second Category")
 
 	svc := eventsvc.NewService(eventsvc.NewSQLCReader(runtime), store.New(runtime), eventsvc.NewSQLCWriter())
 	actor := eventsvc.Actor{UserID: adminID.String(), Email: "coord-second-admin@amrita.edu", Role: "admin"}
-	for _, eventID := range []uuid.UUID{firstEvent, secondEvent} {
+	for _, assignment := range []struct {
+		eventID    uuid.UUID
+		categoryID uuid.UUID
+	}{
+		{eventID: firstEvent, categoryID: firstCategory},
+		{eventID: secondEvent, categoryID: secondCategory},
+	} {
 		if _, err := svc.CreateCoordinatorAssignment(ctx, actor, eventsvc.CreateCoordinatorAssignmentInput{
-			EventID: eventID.String(),
-			Email:   "coord-second@amrita.edu",
+			EventID:     assignment.eventID.String(),
+			Email:       "coord-second@amrita.edu",
+			CategoryIDs: []string{assignment.categoryID.String()},
 		}); err != nil {
-			t.Fatalf("assign existing coordinator to %s: %v", eventID, err)
+			t.Fatalf("assign existing coordinator to %s: %v", assignment.eventID, err)
 		}
 	}
 
@@ -176,11 +186,12 @@ func TestCoordinatorAssignmentRejectionsLeaveNoAssignmentRoleChangeOrAudit(t *te
 	adminID := seedAdmin(t, ctx, migrator, "coord-reject-admin@amrita.edu")
 	teacherID := seedUser(t, ctx, migrator, "coord-reject-teacher@amrita.edu", "teacher")
 	eventID := seedActiveEvent(t, ctx, migrator, "Coordinator Reject")
+	categoryID := seedCategory(t, ctx, migrator, eventID, "Coordinator Reject Category")
 
 	svc := eventsvc.NewService(eventsvc.NewSQLCReader(runtime), store.New(runtime), eventsvc.NewSQLCWriter())
 	_, err := svc.CreateCoordinatorAssignment(ctx,
 		eventsvc.Actor{UserID: adminID.String(), Email: "coord-reject-admin@amrita.edu", Role: "admin"},
-		eventsvc.CreateCoordinatorAssignmentInput{EventID: eventID.String(), Email: "coord-reject-teacher@amrita.edu"},
+		eventsvc.CreateCoordinatorAssignmentInput{EventID: eventID.String(), Email: "coord-reject-teacher@amrita.edu", CategoryIDs: []string{categoryID.String()}},
 	)
 	var de domain.DomainError
 	if !errors.As(err, &de) || de.Code != contracts.ErrorCodeROLEALREADYASSIGNED {
@@ -216,6 +227,11 @@ func TestCoordinatorAssignmentPolicyLimitsVisibleEventsAndMarkWrites(t *testing.
 		INSERT INTO event_coordinator_assignments (user_id, event_id, created_by_user_id)
 		VALUES ($1, $2, $3)`, coordID, assignedEvent, adminID); err != nil {
 		t.Fatalf("seed assignment: %v", err)
+	}
+	if _, err := migrator.Exec(ctx, `
+		INSERT INTO user_category_assignments (user_id, category_id, created_by_user_id)
+		VALUES ($1, $2, $3)`, coordID, assignedCategory, adminID); err != nil {
+		t.Fatalf("seed category assignment: %v", err)
 	}
 
 	policy := marking.NewPolicy(marking.NewEventReader(eventsvc.NewSQLCReader(runtime)))

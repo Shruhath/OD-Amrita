@@ -201,6 +201,8 @@ func TestTeacherCreateConservesExactlyOneAuditRowPerElevation(t *testing.T) {
 	seedUser(t, ctx, migrator, "already-teacher@amrita.edu", "teacher")
 	branchOne := seedBranch(t, ctx, migrator, "CSE", "Computer Science")
 	branchTwo := seedBranch(t, ctx, migrator, "ECE", "Electronics")
+	categoryOne := seedTeacherCategory(t, ctx, migrator, "Teacher Category One")
+	categoryTwo := seedTeacherCategory(t, ctx, migrator, "Teacher Category Two")
 
 	actor := teachersvc.Actor{UserID: adminID.String(), Email: "TEACHER-ADMIN@amrita.edu", Role: "admin"}
 	newService := func() *teachersvc.Service {
@@ -208,8 +210,9 @@ func TestTeacherCreateConservesExactlyOneAuditRowPerElevation(t *testing.T) {
 	}
 
 	created, err := newService().Create(ctx, actor, teachersvc.CreateInput{
-		Email:     "elevate-me@amrita.edu",
-		BranchIDs: []string{branchOne.String(), branchTwo.String()},
+		Email:       "elevate-me@amrita.edu",
+		BranchIDs:   []string{branchOne.String(), branchTwo.String()},
+		CategoryIDs: []string{categoryOne.String(), categoryTwo.String()},
 	})
 	if err != nil {
 		t.Fatalf("create teacher profile: %v", err)
@@ -224,13 +227,14 @@ func TestTeacherCreateConservesExactlyOneAuditRowPerElevation(t *testing.T) {
 		name      string
 		email     string
 		branchIDs []string
+		catIDs    []string
 	}{
-		{name: "unknown email", email: "never-signed-in@amrita.edu", branchIDs: []string{branchOne.String()}},
-		{name: "already elevated", email: "already-teacher@amrita.edu", branchIDs: []string{branchOne.String()}},
-		{name: "unknown branch", email: "elevate-me@amrita.edu", branchIDs: []string{uuid.NewString()}},
+		{name: "unknown email", email: "never-signed-in@amrita.edu", branchIDs: []string{branchOne.String()}, catIDs: []string{categoryOne.String()}},
+		{name: "already elevated", email: "already-teacher@amrita.edu", branchIDs: []string{branchOne.String()}, catIDs: []string{categoryOne.String()}},
+		{name: "unknown branch", email: "elevate-me@amrita.edu", branchIDs: []string{uuid.NewString()}, catIDs: []string{categoryOne.String()}},
 	}
 	for _, tc := range rejections {
-		if _, err := newService().Create(ctx, actor, teachersvc.CreateInput{Email: tc.email, BranchIDs: tc.branchIDs}); err == nil {
+		if _, err := newService().Create(ctx, actor, teachersvc.CreateInput{Email: tc.email, BranchIDs: tc.branchIDs, CategoryIDs: tc.catIDs}); err == nil {
 			t.Errorf("%s: create was accepted, want a rejection", tc.name)
 		}
 	}
@@ -310,6 +314,7 @@ func TestRacedConcurrentElevationOfTheSameUserYieldsExactlyOneWinner(t *testing.
 	adminID := seedUser(t, ctx, migrator, "race-admin@amrita.edu", "admin")
 	seedUser(t, ctx, migrator, "race-fixture@amrita.edu", "student")
 	branchID := seedBranch(t, ctx, migrator, "CSE", "Computer Science")
+	categoryID := seedTeacherCategory(t, ctx, migrator, "Race Teacher Category")
 	actor := teachersvc.Actor{UserID: adminID.String(), Email: "race-admin@amrita.edu", Role: "admin"}
 
 	var wg sync.WaitGroup
@@ -320,7 +325,7 @@ func TestRacedConcurrentElevationOfTheSameUserYieldsExactlyOneWinner(t *testing.
 			defer wg.Done()
 			svc := teachersvc.NewService(teachersvc.NewSQLCReader(runtime), store.New(runtime), teachersvc.NewSQLCWriter())
 			_, err := svc.Create(ctx, actor, teachersvc.CreateInput{
-				Email: "race-fixture@amrita.edu", BranchIDs: []string{branchID.String()},
+				Email: "race-fixture@amrita.edu", BranchIDs: []string{branchID.String()}, CategoryIDs: []string{categoryID.String()},
 			})
 			errs[i] = err
 		}(i)
@@ -344,7 +349,7 @@ func TestRacedConcurrentElevationOfTheSameUserYieldsExactlyOneWinner(t *testing.
 		t.Fatalf("[P0] successes=%d conflicts=%d, want exactly one winner and one ROLE_ALREADY_ASSIGNED", successes, conflicts)
 	}
 
-	var teachers, auditRows, branchAssociations int
+	var teachers, auditRows, branchAssociations, categoryAssociations int
 	if err := runtime.QueryRow(ctx, `SELECT count(*) FROM users WHERE role = 'teacher'`).Scan(&teachers); err != nil {
 		t.Fatalf("count teacher-role users: %v", err)
 	}
@@ -355,9 +360,12 @@ func TestRacedConcurrentElevationOfTheSameUserYieldsExactlyOneWinner(t *testing.
 	if err := runtime.QueryRow(ctx, `SELECT count(*) FROM user_branches`).Scan(&branchAssociations); err != nil {
 		t.Fatalf("count branch associations: %v", err)
 	}
-	if teachers != 1 || auditRows != 1 || branchAssociations != 1 {
-		t.Fatalf("[P0] teachers=%d audit=%d branches=%d, want exactly 1 of each — the loser must write nothing",
-			teachers, auditRows, branchAssociations)
+	if err := runtime.QueryRow(ctx, `SELECT count(*) FROM user_category_assignments`).Scan(&categoryAssociations); err != nil {
+		t.Fatalf("count category associations: %v", err)
+	}
+	if teachers != 1 || auditRows != 1 || branchAssociations != 1 || categoryAssociations != 1 {
+		t.Fatalf("[P0] teachers=%d audit=%d branches=%d categories=%d, want exactly 1 of each — the loser must write nothing",
+			teachers, auditRows, branchAssociations, categoryAssociations)
 	}
 }
 
@@ -500,6 +508,22 @@ func seedBranch(t *testing.T, ctx context.Context, migrator *pgxpool.Pool, code,
 		t.Fatalf("seed branch: %v", err)
 	}
 	return id
+}
+
+func seedTeacherCategory(t *testing.T, ctx context.Context, migrator *pgxpool.Pool, name string) uuid.UUID {
+	t.Helper()
+	eventID := uuid.New()
+	categoryID := uuid.New()
+	if _, err := migrator.Exec(ctx,
+		`INSERT INTO events (id, name, event_date, end_date, status)
+		 VALUES ($1, $2, CURRENT_DATE, CURRENT_DATE, 'active')`, eventID, name+" Event"); err != nil {
+		t.Fatalf("seed teacher category event: %v", err)
+	}
+	if _, err := migrator.Exec(ctx,
+		`INSERT INTO categories (id, event_id, name) VALUES ($1, $2, $3)`, categoryID, eventID, name); err != nil {
+		t.Fatalf("seed teacher category: %v", err)
+	}
+	return categoryID
 }
 
 func assertTableExists(t *testing.T, ctx context.Context, pool *pgxpool.Pool, table string, want bool) {

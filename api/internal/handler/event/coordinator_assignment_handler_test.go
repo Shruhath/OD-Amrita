@@ -93,7 +93,8 @@ func TestCreateCoordinatorAssignmentHandlerRendersEveryOutcomeThroughTheErrorEnv
 					}
 				}
 			}
-			recorder := request(eventRouter(svc), http.MethodPost, "/events/"+eventID+"/coordinators", `{"email":"candidate@amrita.edu"}`)
+			categoryID := uuid.NewString()
+			recorder := request(eventRouter(svc), http.MethodPost, "/events/"+eventID+"/coordinators", `{"email":"candidate@amrita.edu","category_ids":["`+categoryID+`"]}`)
 			if recorder.Code != row.wantStatus {
 				t.Fatalf("status=%d body=%s, want %d", recorder.Code, recorder.Body.String(), row.wantStatus)
 			}
@@ -130,8 +131,10 @@ func TestCreateCoordinatorAssignmentHandlerRejectsMalformedAndOversizedBodiesBef
 	}{
 		{name: "malformed json", body: `{"email":`, code: "invalid_json"},
 		{name: "missing email", body: `{}`, code: "required"},
-		{name: "email is not string", body: `{"email":123}`, code: "invalid_format"},
-		{name: "too large", body: `{"email":"` + strings.Repeat("x", int(maxCreateRequestBytes)) + `"}`, code: "maximum"},
+		{name: "email is not string", body: `{"email":123,"category_ids":["` + uuid.NewString() + `"]}`, code: "invalid_format"},
+		{name: "missing category ids", body: `{"email":"candidate@amrita.edu"}`, code: "required"},
+		{name: "category id is not uuid", body: `{"email":"candidate@amrita.edu","category_ids":["bad"]}`, code: "invalid_format"},
+		{name: "too large", body: `{"email":"` + strings.Repeat("x", int(maxCreateRequestBytes)) + `","category_ids":["` + uuid.NewString() + `"]}`, code: "maximum"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			svc := &fakeService{}
@@ -165,7 +168,7 @@ func TestCreateCoordinatorAssignmentHandlerTakesTheEventIdFromThePathNotTheBody(
 	}
 	svc := &fakeService{assignments: []eventsvc.CoordinatorAssignment{assignment}}
 	recorder := request(eventRouter(svc), http.MethodPost, "/events/"+pathEventID+"/coordinators",
-		`{"email":"candidate@amrita.edu","event_id":"`+bodyEventID+`"}`)
+		`{"email":"candidate@amrita.edu","event_id":"`+bodyEventID+`","category_ids":["`+uuid.NewString()+`"]}`)
 	if recorder.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}

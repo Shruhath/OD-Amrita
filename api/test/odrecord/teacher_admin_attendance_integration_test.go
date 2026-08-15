@@ -254,7 +254,10 @@ func TestAdminAttendanceIntegration_NullActorStillRendersRecord(t *testing.T) {
 	}
 
 	// user_branches.user_id is ON DELETE RESTRICT (0008_teacher_branches.sql), so
-	// the branch association must go first or the user delete itself fails.
+	// the associations must go first or the user delete itself fails.
+	if _, err := migrator.Exec(ctx, `DELETE FROM user_category_assignments WHERE user_id = $1`, teacherID); err != nil {
+		t.Fatalf("clear teacher category association: %v", err)
+	}
 	if _, err := migrator.Exec(ctx, `DELETE FROM user_branches WHERE user_id = $1`, teacherID); err != nil {
 		t.Fatalf("clear teacher branch association: %v", err)
 	}
@@ -318,6 +321,12 @@ func seedTeacherAndBranch(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 		VALUES ($1, '91000000-0000-4000-8000-000000000001')
 		ON CONFLICT DO NOTHING`, teacherID); err != nil {
 		t.Fatalf("associate teacher branch: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO user_category_assignments (user_id, category_id, created_by_user_id)
+		VALUES ($1, $2, $3)
+		ON CONFLICT DO NOTHING`, teacherID, fixture.categoryID, fixture.adminID); err != nil {
+		t.Fatalf("associate teacher category: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO event_branches (event_id, branch_id)

@@ -10,13 +10,14 @@ export type CreateEventInput = components['schemas']['CreateEventRequest']
 export type CategoryRecord = components['schemas']['Category']
 export type CategoryCollection = components['schemas']['CategoryCollection']
 export type CreateCategoryInput = components['schemas']['CreateCategoryRequest']
+export type UpdateCategoryVisibilityInput = components['schemas']['UpdateCategoryVisibilityRequest']
 export type CoordinatorAssignment = components['schemas']['CoordinatorAssignment']
 export type CoordinatorAssignmentCollection = components['schemas']['CoordinatorAssignmentCollection']
 export type CreateCoordinatorAssignmentInput = components['schemas']['CreateCoordinatorAssignmentRequest']
-export type CaptureCreditConfig = components['schemas']['CaptureCreditConfig']
+export type UpdateCategoryAccessInput = components['schemas']['UpdateCategoryAccessRequest']
 export type CaptureCreditUsage = components['schemas']['CaptureCreditUsage']
 export type CaptureCreditSummary = components['schemas']['CaptureCreditSummary']
-export type UpdateCaptureCreditConfigInput = components['schemas']['UpdateCaptureCreditConfigRequest']
+export type UpdateCaptureCreditLimitInput = components['schemas']['UpdateCaptureCreditLimitRequest']
 export type TeacherProfile = components['schemas']['TeacherProfile']
 export type TeacherProfileCollection = components['schemas']['TeacherProfileCollection']
 export type CreateTeacherProfileInput = components['schemas']['CreateTeacherProfileRequest']
@@ -306,6 +307,12 @@ export function createEventApi(session: SessionPort) {
         body: input,
       }))
     },
+    async updateCategoryVisibility(eventID: string, categoryID: string, input: UpdateCategoryVisibilityInput) {
+      return unwrap(await client.PUT('/api/v1/admin/events/{event_id}/categories/{category_id}/visibility', {
+        params: { path: { event_id: eventID, category_id: categoryID } },
+        body: input,
+      }))
+    },
     async coordinators(eventID: string) {
       return unwrap(await client.GET('/api/v1/admin/events/{event_id}/coordinators', {
         params: { path: { event_id: eventID } },
@@ -317,14 +324,20 @@ export function createEventApi(session: SessionPort) {
         body: input,
       }))
     },
+    async updateCoordinatorCategoryAccess(eventID: string, userID: string, input: UpdateCategoryAccessInput) {
+      return unwrap(await client.PUT('/api/v1/admin/events/{event_id}/coordinators/{user_id}/categories', {
+        params: { path: { event_id: eventID, user_id: userID } },
+        body: input,
+      }))
+    },
     async captureCredits(eventID: string) {
       return unwrap(await client.GET('/api/v1/admin/events/{event_id}/capture-credits', {
         params: { path: { event_id: eventID } },
       }))
     },
-    async updateCaptureCreditConfig(eventID: string, input: UpdateCaptureCreditConfigInput) {
-      return unwrap(await client.PUT('/api/v1/admin/events/{event_id}/capture-credits/config', {
-        params: { path: { event_id: eventID } },
+    async updateCaptureCreditLimit(eventID: string, userID: string, input: UpdateCaptureCreditLimitInput) {
+      return unwrap(await client.PUT('/api/v1/admin/events/{event_id}/capture-credits/coordinators/{user_id}/limit', {
+        params: { path: { event_id: eventID, user_id: userID } },
         body: input,
       }))
     },
@@ -338,6 +351,12 @@ export function createEventApi(session: SessionPort) {
     },
     async createTeacher(input: CreateTeacherProfileInput) {
       return unwrap(await client.POST('/api/v1/admin/teachers', { body: input }))
+    },
+    async updateTeacherCategoryAccess(userID: string, input: UpdateCategoryAccessInput) {
+      return unwrap(await client.PUT('/api/v1/admin/teachers/{user_id}/categories', {
+        params: { path: { user_id: userID } },
+        body: input,
+      }))
     },
     async importStudents(file: File) {
       const body = new FormData()
@@ -388,7 +407,7 @@ export function createEventApi(session: SessionPort) {
     },
 
     // -----------------------------------------------------------------------
-    // Coordinator marking surface.
+    // Live marking surface.
     //
     // These call the SCOPED endpoints, never an `/admin/` one. The admin reads
     // are admin-gated by design, so calling one from `/mark` produces a 403 that
@@ -396,7 +415,7 @@ export function createEventApi(session: SessionPort) {
     // boundary it is.
     // -----------------------------------------------------------------------
 
-    /** The active events this coordinator may mark for. */
+    /** The active events this coordinator/admin may mark for. */
     async markableEvents() {
       return unwrap(await client.GET('/api/v1/events'))
     },

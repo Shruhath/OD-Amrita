@@ -102,7 +102,7 @@ func TestPreflightAdvertisesEveryMethodTheRouterServes(t *testing.T) {
 	noop := func(c *gin.Context) { c.Status(http.StatusOK) }
 	router.GET("/api/v1/admin/events", noop)
 	router.POST("/api/v1/admin/events", noop)
-	router.PUT("/api/v1/admin/events/:event_id/capture-credits/config", noop)
+	router.PUT("/api/v1/admin/events/:event_id/capture-credits/coordinators/:user_id/limit", noop)
 	router.DELETE("/api/v1/admin/events/:event_id", noop)
 
 	recorder := httptest.NewRecorder()

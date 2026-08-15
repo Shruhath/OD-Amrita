@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { fulfilPreflight, installPortalSession, json, portalOrigin } from './support/portal-session'
+import { AA_CONTRAST, labelContrast } from './support/contrast'
 import { publicEmptyDayAttendance, publicSearchResults } from '../support/factories/public-attendance'
 
 /**
@@ -65,6 +66,38 @@ test.describe('the front door', () => {
 
   // FRONT-E2E-002 — the public dashboard is one click away, and it is a real
   // navigation to a real URL.
+  /**
+   * THE SIGN-IN BUTTON IS ACTUALLY READABLE, in both themes.
+   *
+   * This is a contrast assertion rather than a colour one on purpose. The button
+   * lost its fill to a one-character CSS mistake — a `:not()` written without
+   * `:where()`, which raised an element rule above the class that paints it —
+   * and what reached the screen was white text on white in the light theme and
+   * black on black in the dark one, on the primary action of the first screen
+   * anybody opens. Nothing else in the suite noticed: the button was present,
+   * named, focusable and clickable throughout.
+   *
+   * Naming the expected colour would only pin today's palette. WCAG AA for
+   * ordinary text is 4.5:1, and that is the property that was actually broken.
+   */
+  for (const theme of ['light', 'dark'] as const) {
+    test(`[P0] the sign-in button is legible against its own fill (${theme})`, async ({ page }) => {
+      await installFrontDoor(page)
+      await page.addInitScript((value) => localStorage.setItem('od-amrita-theme', value), theme)
+      await page.goto('/')
+
+      const signIn = page.getByRole('button', { name: /sign in with microsoft/i })
+      await expect(signIn).toBeVisible()
+
+      const contrast = await labelContrast(signIn)
+
+      expect(
+        contrast,
+        `the sign-in button's label is unreadable against its own background in the ${theme} theme`,
+      ).toBeGreaterThanOrEqual(AA_CONTRAST)
+    })
+  }
+
   test('[P0] the public dashboard choice lands on /attendance', async ({ page }) => {
     await installFrontDoor(page)
 

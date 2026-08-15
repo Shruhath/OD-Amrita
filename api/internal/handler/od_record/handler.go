@@ -62,6 +62,7 @@ type markRequestShape struct {
 	StudentID     *json.RawMessage `json:"student_id"`
 	Card          *json.RawMessage `json:"card"`
 	Slot          *json.RawMessage `json:"slot"`
+	ODDate        *json.RawMessage `json:"od_date"`
 	ReasonNote    *json.RawMessage `json:"reason_note"`
 }
 
@@ -95,7 +96,7 @@ func bindMarkRequest(c *gin.Context, actor odsvc.Actor) (contracts.MarkAttendanc
 	if actor.Role == "coordinator" && shape.Slot != nil {
 		return contracts.MarkAttendanceRequest{}, requestValidation("slot", "forbidden", "coordinator marks use server-derived slot only.")
 	}
-	if (actor.Role == "teacher" || actor.Role == "admin") && !rawProvided(shape.ReasonNote) {
+	if actor.Role == "teacher" && !rawProvided(shape.ReasonNote) {
 		return contracts.MarkAttendanceRequest{}, requestValidation("reason_note", "required", "reason_note is required for teacher and admin marks.")
 	}
 
@@ -131,6 +132,10 @@ func serviceInput(body contracts.MarkAttendanceRequest) odsvc.MarkInput {
 		CaptureMethod: odsvc.CaptureMethod(body.CaptureMethod),
 		Slot:          body.Slot,
 		ReasonNote:    body.ReasonNote,
+	}
+	if body.OdDate != nil {
+		odDate := body.OdDate.Time
+		input.ODDate = &odDate
 	}
 	if body.StudentId != nil {
 		studentID := body.StudentId.String()

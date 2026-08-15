@@ -88,6 +88,8 @@ func SubmitPublicDisputeHandler(svc PublicService) gin.HandlerFunc {
 			{"category_id", body.CategoryId != nil},
 			{"od_date", body.OdDate != nil},
 			{"slot", body.Slot != nil},
+			{"claimed_coordinator_name", body.ClaimedCoordinatorName != nil},
+			{"student_note", body.StudentNote != nil},
 		} {
 			if !required.present {
 				fail(c, validation(required.name, "required", required.name+" is required."))

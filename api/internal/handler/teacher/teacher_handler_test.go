@@ -34,16 +34,19 @@ import (
 )
 
 const teacherBranchOne = "10000000-0000-4000-8000-000000000001"
+const teacherCategoryOne = "10000000-0000-4000-8000-000000000011"
 
 // fakeTeacherService is the transport-layer double: it never validates, it
 // only records what it was called with and returns whatever failWith/teachers
 // dictates — real validation behavior belongs to service/teacher's own tests.
 type fakeTeacherService struct {
-	failWith    string
-	teachers    []teachersvc.TeacherProfile
-	createCalls int
-	lastEmail   string
-	lastBranch  []string
+	failWith       string
+	teachers       []teachersvc.TeacherProfile
+	createCalls    int
+	updateCalls    int
+	lastEmail      string
+	lastBranch     []string
+	lastCategories []string
 }
 
 func (f *fakeTeacherService) List(context.Context, teachersvc.Actor, teachersvc.ListInput) (teachersvc.Page, error) {
@@ -65,6 +68,21 @@ func (f *fakeTeacherService) Create(_ context.Context, _ teachersvc.Actor, input
 		Email:     input.Email,
 		Branches:  []teachersvc.Branch{{ID: teacherBranchOne, Code: "CSE", Name: "Computer Science"}},
 		CreatedAt: time.Date(2026, 7, 23, 3, 0, 0, 0, time.UTC),
+	}, nil
+}
+
+func (f *fakeTeacherService) UpdateCategoryAccess(_ context.Context, _ teachersvc.Actor, input teachersvc.UpdateCategoryAccessInput) (teachersvc.TeacherProfile, error) {
+	f.updateCalls++
+	f.lastCategories = input.CategoryIDs
+	if f.failWith != "" {
+		return teachersvc.TeacherProfile{}, teacherFailure(f.failWith)
+	}
+	return teachersvc.TeacherProfile{
+		UserID:     input.UserID,
+		Email:      "teacher@amrita.edu",
+		Branches:   []teachersvc.Branch{{ID: teacherBranchOne, Code: "CSE", Name: "Computer Science"}},
+		Categories: []teachersvc.Category{{ID: teacherCategoryOne, EventID: uuid.NewString(), Name: "Procession", CreatedAt: time.Now()}},
+		CreatedAt:  time.Date(2026, 7, 23, 3, 0, 0, 0, time.UTC),
 	}, nil
 }
 
@@ -167,7 +185,7 @@ func TestCreateTeacherHandlerRendersEveryOutcomeThroughTheErrorEnvelope(t *testi
 		t.Run(tc.name, func(t *testing.T) {
 			svc := &fakeTeacherService{failWith: tc.serviceCode}
 			recorder := performTeacherRequest(t, svc, http.MethodPost, "/api/v1/admin/teachers",
-				`{"email":"new-teacher@amrita.edu","branch_ids":["`+teacherBranchOne+`"]}`)
+				`{"email":"new-teacher@amrita.edu","branch_ids":["`+teacherBranchOne+`"],"category_ids":["`+teacherCategoryOne+`"]}`)
 
 			if recorder.Code != tc.wantStatus {
 				t.Fatalf("status = %d body = %s, want %d", recorder.Code, recorder.Body.String(), tc.wantStatus)
@@ -213,9 +231,10 @@ func TestCreateTeacherHandlerRendersEveryOutcomeThroughTheErrorEnvelope(t *testi
 func TestCreateTeacherHandlerRejectsMalformedAndOversizedBodiesBeforeTheService(t *testing.T) {
 	for _, tc := range []struct{ name, body, wantField, wantCode string }{
 		{name: "malformed json", body: `{"email":`, wantField: "$", wantCode: "invalid_json"},
-		{name: "missing email", body: `{"branch_ids":["` + teacherBranchOne + `"]}`, wantField: "email", wantCode: "required"},
-		{name: "email is not a string", body: `{"email":42,"branch_ids":["` + teacherBranchOne + `"]}`, wantField: "email", wantCode: "invalid_format"},
-		{name: "missing branch_ids", body: `{"email":"new-teacher@amrita.edu"}`, wantField: "branch_ids", wantCode: "required"},
+		{name: "missing email", body: `{"branch_ids":["` + teacherBranchOne + `"],"category_ids":["` + teacherCategoryOne + `"]}`, wantField: "email", wantCode: "required"},
+		{name: "email is not a string", body: `{"email":42,"branch_ids":["` + teacherBranchOne + `"],"category_ids":["` + teacherCategoryOne + `"]}`, wantField: "email", wantCode: "invalid_format"},
+		{name: "missing branch_ids", body: `{"email":"new-teacher@amrita.edu","category_ids":["` + teacherCategoryOne + `"]}`, wantField: "branch_ids", wantCode: "required"},
+		{name: "missing category_ids", body: `{"email":"new-teacher@amrita.edu","branch_ids":["` + teacherBranchOne + `"]}`, wantField: "category_ids", wantCode: "required"},
 		{name: "oversized body", body: `{"email":"` + strings.Repeat("a", 1<<20) + `"}`, wantField: "$", wantCode: "maximum"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -266,15 +285,13 @@ func TestBothTeacherRoutesAreMountedOnTheGuardedAdminGroup(t *testing.T) {
 	for _, route := range router.Routes() {
 		mounted[route.Method+" "+route.Path] = true
 	}
-	for _, want := range []string{"GET /api/v1/admin/teachers", "POST /api/v1/admin/teachers"} {
+	for _, want := range []string{
+		"GET /api/v1/admin/teachers",
+		"POST /api/v1/admin/teachers",
+		"PUT /api/v1/admin/teachers/:user_id/categories",
+	} {
 		if !mounted[want] {
 			t.Errorf("route %q is not mounted; the browser journey would see a 404", want)
-		}
-	}
-	// Scope is create + list only: no route may address a teacher by id.
-	for path := range mounted {
-		if strings.Contains(path, "/teachers/") {
-			t.Errorf("unexpected per-teacher route %q", path)
 		}
 	}
 }

@@ -87,10 +87,9 @@ test.describe('Card populator journey', () => {
 
     await loadSection(page)
 
-    await expect(page.getByRole('alert')).toContainText(/cannot use NFC/i)
-    await expect(page.getByRole('button', { name: /Write card for Ananya Rao/i })).toBeDisabled()
-    await expect(page.getByRole('button', { name: /Verify card for Ananya Rao/i })).toBeDisabled()
-    // Roster loading is fine without NFC; only card-token calls must not happen.
+    await expect(page.getByText(/cannot use NFC/i).first()).toBeVisible()
+    await expect(page.getByRole('table', { name: 'Students to write' })).toHaveCount(0)
+    // Roster and card-token calls must not happen until NFC permission is available.
     expect(cardRequests).toHaveLength(0)
   })
 

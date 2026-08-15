@@ -60,6 +60,10 @@ func (r *recordingEvents) ListCoordinatorAssignments(context.Context, uuid.UUID)
 	panic("marking read service must not list coordinator assignments directly")
 }
 
+func (r *recordingEvents) GetCoordinatorAssignment(context.Context, uuid.UUID, uuid.UUID) (svcevent.CoordinatorAssignment, error) {
+	panic("marking read service must not read coordinator assignments directly")
+}
+
 func (r *recordingEvents) GetCoordinatorCandidateByEmail(context.Context, string) (svcevent.CoordinatorCandidate, error) {
 	panic("marking read service must not read coordinator candidates")
 }
@@ -70,6 +74,10 @@ func (r *recordingEvents) CoordinatorAssignmentExists(context.Context, uuid.UUID
 
 func (r *recordingEvents) ListAssignedActiveEvents(context.Context, uuid.UUID) ([]svcevent.Event, error) {
 	panic("marking read service must not list assigned events directly")
+}
+
+func (r *recordingEvents) ListActiveEventsForMarking(context.Context) ([]svcevent.Event, error) {
+	panic("marking read service must not list active events directly")
 }
 
 func (r *recordingEvents) CoordinatorAssignedToEvent(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
@@ -106,18 +114,18 @@ func newReadFixture(t *testing.T) (*ReadService, *fakeReader, *recordingEvents, 
 	return NewReadService(NewPolicy(reader), events, searcher, status), reader, events, searcher, status
 }
 
-// 0.6-READSEAM-001a — a non-coordinator is refused by every COORDINATOR-scoped
+// 0.6-READSEAM-001a — a non-live-marker is refused by every live-marker-scoped
 // read, and no downstream dependency is touched. SearchStudents is excluded
 // here since 0.9 widens it to admit teacher/admin too — see
 // TestReadService_SearchStudentsAdmitsCoordinatorTeacherAndAdminOnly below.
-func TestReadService_RefusesNonCoordinatorsBeforeReadingAnything(t *testing.T) {
-	for _, role := range []string{"admin", "teacher", "student", "", "COORDINATOR"} {
+func TestReadService_RefusesNonLiveMarkersBeforeReadingAnything(t *testing.T) {
+	for _, role := range []string{"teacher", "student", "", "COORDINATOR"} {
 		t.Run(role, func(t *testing.T) {
 			svc, reader, events, _, status := newReadFixture(t)
 			actor := Actor{UserID: "u", Role: role}
 
 			if _, err := svc.VisibleEvents(context.Background(), actor); err == nil {
-				t.Errorf("[P0] VisibleEvents admitted role %q — the marking surface is coordinator-only (C2)", role)
+				t.Errorf("[P0] VisibleEvents admitted role %q — live marking is coordinator/admin only", role)
 			}
 			if _, err := svc.Categories(context.Background(), actor, activeEventID); err == nil {
 				t.Errorf("[P0] Categories admitted role %q", role)
@@ -137,6 +145,30 @@ func TestReadService_RefusesNonCoordinatorsBeforeReadingAnything(t *testing.T) {
 				t.Errorf("[P0] the event reader was reached %d times for a refused actor", reader.activeEventsCalls)
 			}
 		})
+	}
+}
+
+func TestReadService_AdminUsesLiveMarkingReads(t *testing.T) {
+	svc, reader, events, _, status := newReadFixture(t)
+	actor := Actor{UserID: "u-admin", Role: "admin"}
+
+	if _, err := svc.VisibleEvents(context.Background(), actor); err != nil {
+		t.Fatalf("VisibleEvents(admin) = %v, want nil", err)
+	}
+	if _, err := svc.Categories(context.Background(), actor, activeEventID); err != nil {
+		t.Fatalf("Categories(admin) = %v, want nil", err)
+	}
+	if _, err := svc.MarkStatus(context.Background(), actor, activeEventID, categoryID); err != nil {
+		t.Fatalf("MarkStatus(admin) = %v, want nil", err)
+	}
+	if events.listCategoriesCalls != 1 {
+		t.Errorf("[P0] admin category read reached repository %d times, want 1", events.listCategoriesCalls)
+	}
+	if status.calls != 1 {
+		t.Errorf("[P0] admin status read reached counter %d times, want 1", status.calls)
+	}
+	if len(reader.assignmentCalls) != 0 {
+		t.Errorf("[P0] admin live marking used coordinator assignment checks: %+v", reader.assignmentCalls)
 	}
 }
 

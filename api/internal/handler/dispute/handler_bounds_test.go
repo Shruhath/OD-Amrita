@@ -66,12 +66,14 @@ func postBody(t *testing.T, router *gin.Engine, body string) *httptest.ResponseR
 func completeBody(t *testing.T, mutate func(map[string]any)) string {
 	t.Helper()
 	body := map[string]any{
-		"student_id":      "95000000-0000-4000-8000-000000000101",
-		"submitted_email": "cb.sc.u4cse24101@cb.students.amrita.edu",
-		"event_id":        "93000000-0000-4000-8000-000000000001",
-		"category_id":     "94000000-0000-4000-8000-000000000001",
-		"od_date":         "2026-08-03",
-		"slot":            3,
+		"student_id":               "95000000-0000-4000-8000-000000000101",
+		"submitted_email":          "cb.sc.u4cse24101@cb.students.amrita.edu",
+		"event_id":                 "93000000-0000-4000-8000-000000000001",
+		"category_id":              "94000000-0000-4000-8000-000000000001",
+		"od_date":                  "2026-08-03",
+		"slot":                     3,
+		"claimed_coordinator_name": "Priya Menon",
+		"student_note":             "I was present in the queue but my slot was missed.",
 	}
 	mutate(body)
 	raw, err := json.Marshal(body)
@@ -82,7 +84,7 @@ func completeBody(t *testing.T, mutate func(map[string]any)) string {
 }
 
 func TestSubmitPublicDispute_AbsentOrNullRequiredFieldIsTypedValidationFailed(t *testing.T) {
-	fields := []string{"student_id", "submitted_email", "event_id", "category_id", "od_date", "slot"}
+	fields := []string{"student_id", "submitted_email", "event_id", "category_id", "od_date", "slot", "claimed_coordinator_name", "student_note"}
 
 	for _, field := range fields {
 		for _, shape := range []string{"absent", "null"} {

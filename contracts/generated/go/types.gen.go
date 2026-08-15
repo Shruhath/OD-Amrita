@@ -998,15 +998,15 @@ type PublicDisputeReceiptStatus string
 type PublicDisputeRequest struct {
 	CategoryId openapi_types.UUID `json:"category_id"`
 
-	// ClaimedCoordinatorName Optional free text; no public coordinator roster is exposed.
-	ClaimedCoordinatorName *string            `json:"claimed_coordinator_name,omitempty"`
+	// ClaimedCoordinatorName Required free text; no public coordinator roster is exposed.
+	ClaimedCoordinatorName string             `json:"claimed_coordinator_name"`
 	EventId                openapi_types.UUID `json:"event_id"`
 
 	// OdDate The day the disputed OD belongs to, not the row write time.
 	OdDate      openapi_types.Date `json:"od_date"`
 	Slot        int                `json:"slot"`
 	StudentId   openapi_types.UUID `json:"student_id"`
-	StudentNote *string            `json:"student_note,omitempty"`
+	StudentNote string             `json:"student_note"`
 
 	// SubmittedEmail Lowercased for storage after domain validation; never echoed on public responses.
 	SubmittedEmail string `json:"submitted_email"`

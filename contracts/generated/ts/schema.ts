@@ -1262,9 +1262,9 @@ export interface components {
              */
             od_date: string;
             slot: number;
-            /** @description Optional free text; no public coordinator roster is exposed. */
-            claimed_coordinator_name?: string | null;
-            student_note?: string | null;
+            /** @description Required free text; no public coordinator roster is exposed. */
+            claimed_coordinator_name: string;
+            student_note: string;
         };
         /** @description Public creation receipt. It proves server-side roster auto-population by returning the resolved public student display shape, but deliberately never echoes submitted_email, user ids, card material, dispute content or resolution fields. */
         PublicDisputeReceipt: {

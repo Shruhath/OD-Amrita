@@ -121,6 +121,12 @@ async function openDisputeFormForSlotThree(user: ReturnType<typeof userEvent.set
   return form
 }
 
+async function fillRequiredDisputeFields(user: ReturnType<typeof userEvent.setup>, form: HTMLElement, email = disputeEmail) {
+  await user.type(within(form).getByRole('textbox', { name: /email/i }), email)
+  await user.type(within(form).getByRole('textbox', { name: /coordinator name/i }), 'Priya Menon')
+  await user.type(within(form).getByRole('textbox', { name: /student note/i }), 'I was present in the queue but my slot was missed.')
+}
+
 describe('public dispute form', () => {
   // 0.11-WEB-001 — the affordance is always reachable, and the form opens with
   // personal fields READ-ONLY from the already-loaded records response (AC 1, T4).
@@ -191,7 +197,7 @@ describe('public dispute form', () => {
     await screen.findAllByText(/Onam Celebrations/i)
     const form = await openDisputeFormForSlotThree(user)
 
-    await user.type(within(form).getByRole('textbox', { name: /email/i }), disputeEmail)
+    await fillRequiredDisputeFields(user, form)
     await user.click(within(form).getByRole('button', { name: /submit|send|report/i }))
 
     // Scoped to the receipt panel. This assertion previously used a bare
@@ -213,6 +219,8 @@ describe('public dispute form', () => {
       submitted_email: disputeEmail,
       student_id: publicStudentID,
       slot: 3,
+      claimed_coordinator_name: 'Priya Menon',
+      student_note: 'I was present in the queue but my slot was missed.',
       // The day the OD belongs to (amended 2026-08-06). Today it is the event's
       // only date; under 0.12a it is one of up to thirty in the range, which is
       // why it is sent explicitly rather than inferred server-side from the
@@ -228,6 +236,32 @@ describe('public dispute form', () => {
     // whether or not the form was still on screen.
     expect(screen.queryByRole('button', { name: /submit dispute/i })).not.toBeInTheDocument()
     expect(installed.submitCalls).toBe(1)
+  })
+
+  test('[P0] coordinator name and student note are required before submit', async () => {
+    const user = userEvent.setup()
+    installDisputeBackend()
+
+    renderDashboard()
+    await screen.findAllByText(/Onam Celebrations/i)
+    const form = await openDisputeFormForSlotThree(user)
+
+    const submit = within(form).getByRole('button', { name: /submit dispute/i })
+    expect(submit).toBeDisabled()
+
+    await user.type(within(form).getByRole('textbox', { name: /email/i }), disputeEmail)
+    expect(submit).toBeDisabled()
+
+    const coordinator = within(form).getByRole('textbox', { name: /coordinator name/i })
+    const note = within(form).getByRole('textbox', { name: /student note/i })
+    expect(coordinator).toBeRequired()
+    expect(note).toBeRequired()
+
+    await user.type(coordinator, 'Priya Menon')
+    expect(submit).toBeDisabled()
+
+    await user.type(note, 'I was present in the queue but my slot was missed.')
+    expect(submit).toBeEnabled()
   })
 
   // 0.11-WEB-003 — the submit button is disabled while the request is in flight
@@ -257,7 +291,7 @@ describe('public dispute form', () => {
     await openDisputeFormForSlotThree(user)
     const form = await screen.findByRole('form', { name: /report a missed slot|dispute/i })
 
-    await user.type(within(form).getByRole('textbox', { name: /email/i }), disputeEmail)
+    await fillRequiredDisputeFields(user, form)
     const submit = within(form).getByRole('button', { name: /submit|send|report/i })
     await user.click(submit)
 
@@ -310,7 +344,7 @@ describe('public dispute form', () => {
     await openDisputeFormForSlotThree(user)
     const form = await screen.findByRole('form', { name: /report a missed slot|dispute/i })
 
-    await user.type(within(form).getByRole('textbox', { name: /email/i }), disputeEmail)
+    await fillRequiredDisputeFields(user, form)
     await user.click(within(form).getByRole('button', { name: /submit|send|report/i }))
 
     const alert = await screen.findByRole('alert')
@@ -336,7 +370,7 @@ describe('public dispute form', () => {
     await openDisputeFormForSlotThree(user)
     const form = await screen.findByRole('form', { name: /report a missed slot|dispute/i })
 
-    await user.type(within(form).getByRole('textbox', { name: /email/i }), 'someone@gmail.com')
+    await fillRequiredDisputeFields(user, form, 'someone@gmail.com')
     await user.click(within(form).getByRole('button', { name: /submit|send|report/i }))
 
     const alert = await screen.findByRole('alert')
@@ -374,7 +408,7 @@ describe('public dispute form', () => {
     await openDisputeFormForSlotThree(user)
     const form = await screen.findByRole('form', { name: /report a missed slot|dispute/i })
 
-    await user.type(within(form).getByRole('textbox', { name: /email/i }), disputeEmail)
+    await fillRequiredDisputeFields(user, form)
     await user.click(within(form).getByRole('button', { name: /submit|send|report/i }))
     await screen.findByRole('region', { name: /dispute receipt/i })
 
@@ -409,7 +443,7 @@ describe('public dispute form', () => {
     await openDisputeFormForSlotThree(user)
     const form = await screen.findByRole('form', { name: /report a missed slot|dispute/i })
 
-    await user.type(within(form).getByRole('textbox', { name: /email/i }), disputeEmail)
+    await fillRequiredDisputeFields(user, form)
     await user.click(within(form).getByRole('button', { name: /submit|send|report/i }))
 
     await screen.findByRole('alert')
@@ -588,7 +622,7 @@ describe('public dispute form across several events', () => {
     await screen.findAllByText(/Onam Celebrations/i)
 
     const form = await openDisputeFormForSlotThree(user)
-    await user.type(within(form).getByRole('textbox', { name: /email/i }), disputeEmail)
+    await fillRequiredDisputeFields(user, form)
     await user.click(within(form).getByRole('button', { name: /submit dispute/i }))
 
     await screen.findByRole('region', { name: /dispute receipt/i })
@@ -621,7 +655,7 @@ describe('public dispute form across several events', () => {
     await screen.findByText(/Sports Day Relay/i)
 
     const form = await openDisputeFormForSlotThree(user)
-    await user.type(within(form).getByRole('textbox', { name: /email/i }), disputeEmail)
+    await fillRequiredDisputeFields(user, form)
     await user.click(within(form).getByRole('button', { name: /submit dispute/i }))
 
     await screen.findByRole('region', { name: /dispute receipt/i })
@@ -644,7 +678,7 @@ describe('public dispute form across several events', () => {
     await screen.findAllByText(/Onam Celebrations/i)
 
     const form = await openDisputeFormForSlotThree(user)
-    await user.type(within(form).getByRole('textbox', { name: /email/i }), disputeEmail)
+    await fillRequiredDisputeFields(user, form)
     await user.click(within(form).getByRole('button', { name: /submit dispute/i }))
 
     const receipt = await screen.findByRole('region', { name: /dispute receipt/i })
@@ -663,7 +697,7 @@ describe('public dispute form across several events', () => {
     await user.click(await screen.findByRole('button', { name: /report a missed slot/i }))
     const second = await screen.findByRole('form', { name: /report a missed slot/i })
     await selectByValue(user, within(second).getByRole('combobox', { name: /slot/i }), '5')
-    await user.type(within(second).getByRole('textbox', { name: /email/i }), disputeEmail)
+    await fillRequiredDisputeFields(user, second)
     await user.click(within(second).getByRole('button', { name: /submit dispute/i }))
 
     await screen.findByRole('region', { name: /dispute receipt/i })

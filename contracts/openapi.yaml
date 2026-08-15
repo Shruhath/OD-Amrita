@@ -3627,7 +3627,7 @@ components:
         any mismatch with the same non-disclosing identity envelope. This public
         input must never carry student display fields, user ids, card material,
         resolution notes or another dispute's content.
-      required: [student_id, submitted_email, event_id, category_id, od_date, slot]
+      required: [student_id, submitted_email, event_id, category_id, od_date, slot, claimed_coordinator_name, student_note]
       properties:
         student_id:
           type: string
@@ -3652,12 +3652,12 @@ components:
           maximum: 20
         claimed_coordinator_name:
           type: string
-          nullable: true
+          minLength: 1
           maxLength: 200
-          description: Optional free text; no public coordinator roster is exposed.
+          description: Required free text; no public coordinator roster is exposed.
         student_note:
           type: string
-          nullable: true
+          minLength: 1
           maxLength: 1000
 
     PublicDisputeReceipt:

@@ -791,8 +791,8 @@ function PublicDisputeForm({
         category_id: categoryID,
         od_date: odDate,
         slot: Number(slot),
-        claimed_coordinator_name: coordinator.trim() === '' ? null : coordinator.trim(),
-        student_note: note.trim() === '' ? null : note.trim(),
+        claimed_coordinator_name: coordinator.trim(),
+        student_note: note.trim(),
       }),
     onSuccess(result) {
       setFailure(null)
@@ -803,7 +803,7 @@ function PublicDisputeForm({
     },
   })
 
-  const submitDisabled = submit.isPending || !email.trim() || !eventID || !categoryID || !odDate
+  const submitDisabled = submit.isPending || !email.trim() || !eventID || !categoryID || !odDate || !slot || !coordinator.trim() || !note.trim()
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault()
@@ -947,24 +947,26 @@ function PublicDisputeForm({
         </label>
 
         <label className="flex flex-col gap-2" htmlFor="public-dispute-coordinator">
-          <span className="font-semibold text-sm">Coordinator name (optional)</span>
+          <span className="font-semibold text-sm">Coordinator name</span>
           <input
             className="w-full bg-canvas border border-border focus:border-foreground focus:ring-1 focus:ring-foreground rounded-xl p-3 transition-all outline-none"
             id="public-dispute-coordinator"
             value={coordinator}
             maxLength={200}
+            required
             onChange={(event) => setCoordinator(event.target.value)}
           />
         </label>
       </div>
 
       <label className="flex flex-col gap-2" htmlFor="public-dispute-note">
-        <span className="font-semibold text-sm">Student note (optional)</span>
+        <span className="font-semibold text-sm">Student note</span>
         <textarea
           className="w-full bg-canvas border border-border focus:border-foreground focus:ring-1 focus:ring-foreground rounded-xl p-3 transition-all outline-none resize-none"
           id="public-dispute-note"
           value={note}
           maxLength={1000}
+          required
           onChange={(event) => setNote(event.target.value)}
           rows={3}
         />

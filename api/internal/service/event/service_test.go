@@ -73,18 +73,18 @@ func (f *fakeReader) GetCaptureCreditUsageForCoordinator(context.Context, uuid.U
 }
 
 type fakeWriter struct {
-	createID            uuid.UUID
-	createChanged       bool
-	archiveChange       bool
-	err                 error
-	createInput         CreateWrite
-	archiveCalls        int
+	createID           uuid.UUID
+	createChanged      bool
+	archiveChange      bool
+	err                error
+	createInput        CreateWrite
+	archiveCalls       int
 	captureLimitResult CaptureCreditLimitWriteResult
 	captureLimitCalls  int
 	captureLimitInput  CaptureCreditLimitWrite
-	captureResetResult  CaptureCreditResetWriteResult
-	captureResetCalls   int
-	captureResetInput   CaptureCreditResetWrite
+	captureResetResult CaptureCreditResetWriteResult
+	captureResetCalls  int
+	captureResetInput  CaptureCreditResetWrite
 }
 
 func (f *fakeWriter) Create(_ context.Context, _ pgx.Tx, input CreateWrite) (uuid.UUID, bool, error) {

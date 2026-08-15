@@ -7,7 +7,7 @@ import type { SessionPort } from '../../../features/auth/session'
 import { createPortalMemoryRouter } from '../../../router'
 import { server } from '../../../test/server'
 import { attendanceRecord } from '../../../../tests/support/factories/teacher-admin-marking'
-import type { AttendanceRecord } from '../../../api/client'
+import type { AttendanceRecord, CategoryRecord } from '../../../api/client'
 import type { ExportFile } from '../../../features/export/attendanceExport'
 
 /**
@@ -34,6 +34,9 @@ vi.mock('../../../features/export/attendanceExport', async (importOriginal) => {
 
 const eventID = '11111111-1111-4111-8111-111111111111'
 const day = '2026-07-28'
+const culturalID = '33333333-3333-4333-8333-333333333331'
+const sportsID = '33333333-3333-4333-8333-333333333332'
+const technicalID = '33333333-3333-4333-8333-333333333333'
 
 function sessionPort(): SessionPort {
   return {
@@ -51,6 +54,7 @@ function row(
   name: string,
   category: string,
   status: 'present' | 'removed' = 'present',
+  categoryID = '33333333-3333-4333-8333-333333333333',
 ): AttendanceRecord {
   const base = attendanceRecord({ slot, status, od_date: day })
   return {
@@ -58,22 +62,46 @@ function row(
     record_id: `${slot}-${rollNo}`,
     event_id: eventID,
     student: { ...base.student, roll_no: rollNo, display_name: name },
-    category: { ...base.category, name: category },
+    category: { ...base.category, id: categoryID, name: category },
   }
 }
 
 const dayRecords: AttendanceRecord[] = [
-  row(1, 'CB.SC.U4ECE24007', 'Vikram Nair', 'Sports Meet'),
-  row(1, 'CB.SC.U4CSE24101', 'Ananya Rao', 'Cultural Programme'),
-  row(2, 'CB.SC.U4CSE24102', 'Meera Suresh', 'Procession'),
-  row(3, 'CB.SC.U4CSE24103', 'Rahul Menon', 'Technical Expo'),
+  row(1, 'CB.SC.U4ECE24007', 'Vikram Nair', 'Sports Meet', 'present', sportsID),
+  row(1, 'CB.SC.U4CSE24101', 'Ananya Rao', 'Cultural Programme', 'present', culturalID),
+  row(2, 'CB.SC.U4CSE24102', 'Meera Suresh', 'Procession', 'present', culturalID),
+  row(3, 'CB.SC.U4CSE24103', 'Rahul Menon', 'Technical Expo', 'present', technicalID),
   // Taken back. It must reach no file.
-  row(3, 'CB.SC.U4CSE24999', 'Withdrawn Student', 'Technical Expo', 'removed'),
+  row(3, 'CB.SC.U4CSE24999', 'Withdrawn Student', 'Technical Expo', 'removed', technicalID),
   // Present so the picker has a slot to leave out.
-  row(7, 'CB.SC.U4CSE24104', 'Nikhil Das', 'Cultural Programme'),
+  row(7, 'CB.SC.U4CSE24104', 'Nikhil Das', 'Cultural Programme', 'present', culturalID),
 ]
 
-function install(role: 'admin' | 'teacher', records: AttendanceRecord[] = dayRecords) {
+const categories: CategoryRecord[] = [
+  {
+    id: culturalID,
+    event_id: eventID,
+    name: 'Cultural Programme',
+    visible_on_public_dashboard: true,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: sportsID,
+    event_id: eventID,
+    name: 'Sports Meet',
+    visible_on_public_dashboard: true,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: technicalID,
+    event_id: eventID,
+    name: 'Technical Expo',
+    visible_on_public_dashboard: true,
+    created_at: new Date().toISOString(),
+  },
+]
+
+function install(role: 'admin' | 'teacher', records: AttendanceRecord[] = dayRecords, categoryRows: CategoryRecord[] = []) {
   const recordQueries: URL[] = []
   server.use(
     http.get('*/api/v1/auth/me', () =>
@@ -97,14 +125,18 @@ function install(role: 'admin' | 'teacher', records: AttendanceRecord[] = dayRec
         }],
       }),
     ),
-    http.get('*/api/v1/portal/mark/events/:eventID/categories', () => HttpResponse.json({ data: [] })),
+    http.get('*/api/v1/portal/mark/events/:eventID/categories', () => HttpResponse.json({ data: categoryRows })),
     http.get('*/api/v1/portal/events/:eventID/records', ({ request }) => {
       const url = new URL(request.url)
       recordQueries.push(url)
       const odDate = url.searchParams.get('od_date')
+      const categoryID = url.searchParams.get('category_id')
       const page = Number(url.searchParams.get('page') ?? '1')
       const pageSize = Number(url.searchParams.get('page_size') ?? '50')
-      const matching = odDate === null ? records : records.filter((record) => record.od_date === odDate)
+      const matching = records.filter((record) => (
+        (odDate === null || record.od_date === odDate) &&
+        (categoryID === null || record.category.id === categoryID)
+      ))
       return HttpResponse.json({
         data: matching.slice((page - 1) * pageSize, page * pageSize),
         page,
@@ -177,6 +209,48 @@ beforeEach(() => {
 })
 
 describe('the on-duty export', () => {
+  test('[P0] export opens before the records page has an event selected', async () => {
+    const user = userEvent.setup()
+    install('admin')
+    render(<Application session={sessionPort()} router={createPortalMemoryRouter(['/portal/od-records'])} />)
+
+    await user.click(await screen.findByRole('button', { name: /export on-duty lists/i }))
+    const dialog = within(await screen.findByRole('dialog', { name: /export on-duty lists/i }))
+
+    expect(dialog.getByLabelText('Day')).toBeInTheDocument()
+    expect(dialog.getByLabelText('Event')).toBeInTheDocument()
+    expect(dialog.getByText(/choose an event to see its categories/i)).toBeInTheDocument()
+  })
+
+  test('[P0] selected categories are read separately and merged into the chosen slot files', async () => {
+    const user = userEvent.setup()
+    const { recordQueries } = install('admin', dayRecords, categories)
+    render(<Application session={sessionPort()} router={createPortalMemoryRouter(['/portal/od-records'])} />)
+
+    await screen.findByRole('option', { name: 'Amritotsavam 2026' })
+    await user.selectOptions(screen.getByLabelText('Event'), eventID)
+    await user.click(await screen.findByRole('button', { name: /export on-duty lists/i }))
+    const dialog = within(await screen.findByRole('dialog', { name: /export on-duty lists/i }))
+
+    await waitFor(() => expect(dialog.getByLabelText('Category Technical Expo')).toBeChecked())
+    await user.click(dialog.getByLabelText('Category Technical Expo'))
+    fireEvent.change(dialog.getByLabelText('Day'), { target: { value: day } })
+
+    await waitFor(() => expect(dialog.getByLabelText(/slot 1, 2 students/i)).toBeInTheDocument())
+    expect(dialog.queryByLabelText(/slot 3,/i)).toBeNull()
+    await user.click(dialog.getByLabelText(/slot 1,/i))
+    await user.click(dialog.getByRole('button', { name: /^download$/i }))
+
+    await waitFor(() => expect(saved).toHaveLength(1))
+    expect(sheetRows(saved[0])).toEqual([
+      ['Roll number', 'Name', 'Slot', 'Category'],
+      ['CB.SC.U4CSE24101', 'Ananya Rao', '1', 'Cultural Programme'],
+      ['CB.SC.U4ECE24007', 'Vikram Nair', '1', 'Sports Meet'],
+    ])
+    const exportQueries = recordQueries.filter((url) => url.searchParams.get('od_date') === day)
+    expect(exportQueries.map((url) => url.searchParams.get('category_id')).sort()).toEqual([culturalID, sportsID].sort())
+  })
+
   test('[P0] three slots ticked downloads three files, named by day then slot', async () => {
     // The request, verbatim: choose the day, tick slots 1, 2 and 3, press
     // download, and receive three files called <date>-slot-<n>.xlsx.

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ApiFailure, type AttendanceRecord } from '../../../api/client'
+import { ApiFailure, type AttendanceRecord, type CategoryRecord, type EventRecord } from '../../../api/client'
 import { useAuth } from '../../../features/auth/context'
 import { Button } from '../../../components/ui/button'
 import {
@@ -64,6 +64,8 @@ export function AttendanceExportDialog({
   const { api } = useAuth()
   const [open, setOpen] = useState(false)
   const [odDate, setODDate] = useState(defaultDate ?? '')
+  const [selectedEventID, setSelectedEventID] = useState(eventID)
+  const [selectedCategoryIDs, setSelectedCategoryIDs] = useState<string[]>([])
   const [chosen, setChosen] = useState<number[]>([])
   const [failure, setFailure] = useState<string | null>(null)
   const [downloaded, setDownloaded] = useState<string[]>([])
@@ -73,22 +75,60 @@ export function AttendanceExportDialog({
   useEffect(() => {
     if (open) {
       setODDate(defaultDate ?? '')
+      setSelectedEventID(eventID)
+      setSelectedCategoryIDs([])
       setChosen([])
       setFailure(null)
       setDownloaded([])
     }
-  }, [open, defaultDate])
+  }, [open, defaultDate, eventID])
+
+  const events = useQuery({
+    queryKey: ['portal', 'records', 'export', 'events'],
+    queryFn: () => api.portalMarkEvents(1, 200),
+    enabled: open,
+  })
+
+  const categories = useQuery({
+    queryKey: ['portal', 'records', 'export', 'categories', selectedEventID],
+    queryFn: () => api.portalMarkCategories(selectedEventID),
+    enabled: open && selectedEventID !== '',
+  })
 
   const day = useQuery<AttendanceRecord[]>({
-    queryKey: ['portal', 'records', 'export', eventID, odDate],
-    queryFn: () => readDay((page, pageSize) => api.portalRecords(eventID, { odDate, page, pageSize })),
-    enabled: open && eventID !== '' && odDate !== '',
+    queryKey: ['portal', 'records', 'export', selectedEventID, odDate, selectedCategoryIDs],
+    queryFn: async () => {
+      const ids = categories.data?.data.length === 0 ? [] : selectedCategoryIDs
+      if (ids.length === 0) return readDay((page, pageSize) => api.portalRecords(selectedEventID, { odDate, page, pageSize }))
+
+      const seen = new Set<string>()
+      const collected: AttendanceRecord[] = []
+      for (const categoryID of ids) {
+        const records = await readDay((page, pageSize) => api.portalRecords(selectedEventID, { categoryID, odDate, page, pageSize }))
+        for (const record of records) {
+          if (seen.has(record.record_id)) continue
+          seen.add(record.record_id)
+          collected.push(record)
+        }
+      }
+      return collected
+    },
+    enabled: open && selectedEventID !== '' && odDate !== '' && categories.isSuccess && (categories.data.data.length === 0 || selectedCategoryIDs.length > 0),
     retry: false,
   })
 
+  const eventOptions = useMemo(() => events.data?.data ?? [], [events.data])
+  const categoryOptions = useMemo(() => categories.data?.data ?? [], [categories.data])
   const records = useMemo(() => day.data ?? [], [day.data])
   const availableSlots = useMemo(() => slotsWithRecords(records), [records])
   const counts = useMemo(() => slotCounts(records), [records])
+
+  const selectedEventName = eventOptions.find((event) => event.id === selectedEventID)?.name ?? eventName
+
+  useEffect(() => {
+    if (!open || !categories.isSuccess) return
+    setSelectedCategoryIDs(categories.data.data.map((category) => category.id))
+  }, [open, selectedEventID, categories.isSuccess, categories.data])
 
   // A slot that stopped existing when the day changed must not stay ticked, or
   // the button offers to download a file that cannot be built.
@@ -102,7 +142,19 @@ export function AttendanceExportDialog({
     setChosen((current) => (current.includes(slot) ? current.filter((value) => value !== slot) : [...current, slot]))
   }
 
+  const toggleCategory = (categoryID: string) => {
+    setFailure(null)
+    setDownloaded([])
+    setChosen([])
+    setSelectedCategoryIDs((current) => (
+      current.includes(categoryID)
+        ? current.filter((value) => value !== categoryID)
+        : [...current, categoryID]
+    ))
+  }
+
   const allChosen = availableSlots.length > 0 && chosen.length === availableSlots.length
+  const allCategoriesChosen = categoryOptions.length > 0 && selectedCategoryIDs.length === categoryOptions.length
 
   const startDownload = () => {
     setFailure(null)
@@ -131,7 +183,6 @@ export function AttendanceExportDialog({
         variant="outline"
         size="sm"
         onClick={() => setOpen(true)}
-        disabled={eventID === ''}
         // Named for what it produces. "Export" alone leaves an administrator
         // guessing whether it is the page, the filters or the event.
         aria-label="Export on-duty lists"
@@ -145,8 +196,7 @@ export function AttendanceExportDialog({
             <DialogHeader>
               <DialogTitle>Export on-duty lists</DialogTitle>
               <DialogDescription>
-                One Excel file per slot for {eventName || 'this event'}, holding the roll number, name, slot and
-                category of every student marked present in the categories visible to your account.
+                Choose a day, event, categories and slots. Each selected slot downloads as one Excel file.
               </DialogDescription>
             </DialogHeader>
 
@@ -165,6 +215,85 @@ export function AttendanceExportDialog({
                 }}
                 className="rounded-[10px] border border-border bg-canvas px-3 py-2 text-sm outline-none transition-all focus:border-foreground focus:ring-1 focus:ring-foreground"
               />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label htmlFor="export-event" className="text-xs font-semibold uppercase tracking-wider text-foreground-muted">
+                Event
+              </label>
+              <select
+                id="export-event"
+                aria-label="Event"
+                value={selectedEventID}
+                onChange={(event) => {
+                  setSelectedEventID(event.target.value)
+                  setSelectedCategoryIDs([])
+                  setChosen([])
+                  setDownloaded([])
+                  setFailure(null)
+                }}
+                className="rounded-[10px] border border-border bg-canvas px-3 py-2 text-sm outline-none transition-all focus:border-foreground focus:ring-1 focus:ring-foreground"
+              >
+                <option value="">Choose an event</option>
+                {eventOptions.map((event: EventRecord) => (
+                  <option key={event.id} value={event.id}>{event.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-semibold uppercase tracking-wider text-foreground-muted">Categories</span>
+                {categoryOptions.length > 0 && (
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-primary underline-offset-4 hover:underline"
+                    onClick={() => {
+                      setSelectedCategoryIDs(allCategoriesChosen ? [] : categoryOptions.map((category) => category.id))
+                      setChosen([])
+                      setDownloaded([])
+                      setFailure(null)
+                    }}
+                  >
+                    {allCategoriesChosen ? 'Clear all' : 'Select all'}
+                  </button>
+                )}
+              </div>
+
+              {selectedEventID === '' && (
+                <p className="text-sm text-foreground-muted">Choose an event to see its categories.</p>
+              )}
+
+              {selectedEventID !== '' && categories.isPending && (
+                <p className="flex items-center gap-2 text-sm text-status-info-fg" role="status">
+                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />
+                  Reading categories…
+                </p>
+              )}
+
+              {selectedEventID !== '' && categories.isSuccess && categoryOptions.length === 0 && (
+                <p className="text-sm text-foreground-muted">
+                  No categories are configured for {selectedEventName || 'this event'}.
+                </p>
+              )}
+
+              {categoryOptions.length > 0 && (
+                <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {categoryOptions.map((category: CategoryRecord) => (
+                    <li key={category.id}>
+                      <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-[10px] border border-border bg-canvas px-3 py-2 text-sm has-[:checked]:border-primary has-[:checked]:bg-accent">
+                        <input
+                          type="checkbox"
+                          checked={selectedCategoryIDs.includes(category.id)}
+                          onChange={() => toggleCategory(category.id)}
+                          aria-label={`Category ${category.name}`}
+                        />
+                        <span className="font-semibold">{category.name}</span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
             <div className="flex flex-col gap-3">
@@ -188,7 +317,15 @@ export function AttendanceExportDialog({
                 <p className="text-sm text-foreground-muted">Choose a day to see which slots were marked.</p>
               )}
 
-              {odDate !== '' && day.isPending && (
+              {odDate !== '' && selectedEventID === '' && (
+                <p className="text-sm text-foreground-muted">Choose an event to see which slots were marked.</p>
+              )}
+
+              {odDate !== '' && selectedEventID !== '' && categoryOptions.length > 0 && selectedCategoryIDs.length === 0 && (
+                <p className="text-sm text-foreground-muted">Choose at least one category to see which slots were marked.</p>
+              )}
+
+              {odDate !== '' && day.isFetching && (
                 <p className="flex items-center gap-2 text-sm text-status-info-fg" role="status">
                   <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />
                   Reading this day, {EXPORT_PAGE_SIZE} records at a time…

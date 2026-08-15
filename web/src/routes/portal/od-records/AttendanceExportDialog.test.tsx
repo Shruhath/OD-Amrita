@@ -103,6 +103,7 @@ const categories: CategoryRecord[] = [
 
 function install(role: 'admin' | 'teacher', records: AttendanceRecord[] = dayRecords, categoryRows: CategoryRecord[] = []) {
   const recordQueries: URL[] = []
+  const eventQueries: URL[] = []
   server.use(
     http.get('*/api/v1/auth/me', () =>
       HttpResponse.json({
@@ -112,8 +113,9 @@ function install(role: 'admin' | 'teacher', records: AttendanceRecord[] = dayRec
         role,
       }),
     ),
-    http.get('*/api/v1/portal/mark/events', () =>
-      HttpResponse.json({
+    http.get('*/api/v1/portal/mark/events', ({ request }) => {
+      eventQueries.push(new URL(request.url))
+      return HttpResponse.json({
         data: [{
           id: eventID,
           name: 'Amritotsavam 2026',
@@ -123,8 +125,8 @@ function install(role: 'admin' | 'teacher', records: AttendanceRecord[] = dayRec
           branches: [],
           created_at: new Date().toISOString(),
         }],
-      }),
-    ),
+      })
+    }),
     http.get('*/api/v1/portal/mark/events/:eventID/categories', () => HttpResponse.json({ data: categoryRows })),
     http.get('*/api/v1/portal/events/:eventID/records', ({ request }) => {
       const url = new URL(request.url)
@@ -145,7 +147,7 @@ function install(role: 'admin' | 'teacher', records: AttendanceRecord[] = dayRec
       })
     }),
   )
-  return { recordQueries }
+  return { eventQueries, recordQueries }
 }
 
 /** Reads a STORED-entry ZIP back into `{ path: text }`. */
@@ -211,12 +213,13 @@ beforeEach(() => {
 describe('the on-duty export', () => {
   test('[P0] export opens before the records page has an event selected', async () => {
     const user = userEvent.setup()
-    install('admin')
+    const { eventQueries } = install('admin')
     render(<Application session={sessionPort()} router={createPortalMemoryRouter(['/portal/od-records'])} />)
 
     await user.click(await screen.findByRole('button', { name: /export on-duty lists/i }))
     const dialog = within(await screen.findByRole('dialog', { name: /export on-duty lists/i }))
 
+    await waitFor(() => expect(eventQueries.some((url) => url.searchParams.get('page_size') === '100')).toBe(true))
     expect(dialog.getByLabelText('Day')).toBeInTheDocument()
     expect(dialog.getByLabelText('Event')).toBeInTheDocument()
     expect(dialog.getByText(/choose an event to see its categories/i)).toBeInTheDocument()

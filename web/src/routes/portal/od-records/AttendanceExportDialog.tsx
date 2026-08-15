@@ -22,6 +22,8 @@ import {
 } from '../../../features/export/attendanceExport'
 import { DownloadSimple } from '@phosphor-icons/react/dist/icons/DownloadSimple'
 
+const exportEventPageSize = 100
+
 /**
  * The on-duty export: pick a day, tick the slots, get one workbook per slot.
  *
@@ -85,7 +87,7 @@ export function AttendanceExportDialog({
 
   const events = useQuery({
     queryKey: ['portal', 'records', 'export', 'events'],
-    queryFn: () => api.portalMarkEvents(1, 200),
+    queryFn: () => api.portalMarkEvents(1, exportEventPageSize),
     enabled: open,
   })
 
@@ -177,6 +179,12 @@ export function AttendanceExportDialog({
         ? day.error.body.message
         : 'The records for this day could not be read.'
 
+  const eventFailure = events.error === null || events.error === undefined
+    ? null
+    : events.error instanceof ApiFailure
+      ? events.error.body.message
+      : 'Events could not be read.'
+
   return (
     <>
       <Button
@@ -239,6 +247,17 @@ export function AttendanceExportDialog({
                   <option key={event.id} value={event.id}>{event.name}</option>
                 ))}
               </select>
+              {events.isFetching && (
+                <p className="flex items-center gap-2 text-sm text-status-info-fg" role="status">
+                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />
+                  Reading events…
+                </p>
+              )}
+              {eventFailure !== null && (
+                <p className="rounded-[10px] border border-status-error-fg/20 bg-status-error-bg p-3 text-sm text-status-error-fg" role="alert">
+                  {eventFailure}
+                </p>
+              )}
             </div>
 
             <div className="flex flex-col gap-3">

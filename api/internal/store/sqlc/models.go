@@ -106,7 +106,7 @@ type EventCaptureCreditUsage struct {
 	UserID    pgtype.UUID        `json:"user_id"`
 	Consumed  int32              `json:"consumed"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
-	// Campus-local day this pool belongs to. The cap on event_capture_credit_config stays per event.
+	// Campus-local day this pool belongs to. The coordinator assignment cap is independent of usage_date.
 	UsageDate pgtype.Date `json:"usage_date"`
 }
 

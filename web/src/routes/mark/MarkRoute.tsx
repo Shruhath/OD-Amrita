@@ -1,8 +1,10 @@
 import { rolesFor } from '../access'
 import { lazyRoute } from '../lazyRoute'
 import { Suspense } from 'react'
+import { PortalShell } from '../../components/PortalShell'
 import { LoadingScreen } from '../../components/ui/Spinner'
 import { SessionBoundary } from '../../features/auth/AuthGate'
+import { useAuth } from '../../features/auth/context'
 
 const MarkScreen = lazyRoute(() => import('./MarkScreen'))
 
@@ -17,9 +19,20 @@ const MarkScreen = lazyRoute(() => import('./MarkScreen'))
 export default function MarkRoute() {
   return (
     <SessionBoundary allowedRoles={rolesFor('/mark')}>
-      <Suspense fallback={<LoadingScreen label="Loading marking screen" />}>
-        <MarkScreen />
-      </Suspense>
+      <MarkRouteContent />
     </SessionBoundary>
   )
+}
+
+function MarkRouteContent() {
+  const { identity } = useAuth()
+  const screen = (
+    <Suspense fallback={<LoadingScreen label="Loading marking screen" />}>
+      <MarkScreen embeddedInPortal={identity?.role === 'admin'} />
+    </Suspense>
+  )
+
+  return identity?.role === 'admin'
+    ? <PortalShell>{screen}</PortalShell>
+    : screen
 }

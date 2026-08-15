@@ -55,7 +55,13 @@ const SEARCH_DEBOUNCE_MS = 250
 const MIN_SEARCH_RUNES = 3
 const MAX_SEARCH_RUNES = 64
 
-export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) {
+export default function MarkScreen({
+  ports,
+  embeddedInPortal = false,
+}: {
+  ports?: MarkScreenPorts
+  embeddedInPortal?: boolean
+} = {}) {
   const { api, identity } = useAuth()
   const queryClient = useQueryClient()
 
@@ -400,17 +406,21 @@ export default function MarkScreen({ ports }: { ports?: MarkScreenPorts } = {}) 
 
   return (
     <main className="mark-screen">
-      <header className="mark-header">
-        {/* Presentational only — aria-hidden, so the heading below is still the
-            first thing announced on this screen. */}
-        <span className="brand-mark" aria-hidden="true">OD</span>
-        <h1>Mark attendance</h1>
-        <ThemeToggle />
-        {/* This screen had no way to sign out at all — a coordinator marking on
-            a shared phone could not hand it over. The same control as the
-            portal, so the account lives in one place on every surface. */}
-        <AccountMenu />
-      </header>
+      {embeddedInPortal ? (
+        <h1 className="sr-only">Mark attendance</h1>
+      ) : (
+        <header className="mark-header">
+          {/* Presentational only — aria-hidden, so the heading below is still the
+              first thing announced on this screen. */}
+          <span className="brand-mark" aria-hidden="true">OD</span>
+          <h1>Mark attendance</h1>
+          <ThemeToggle />
+          {/* This screen had no way to sign out at all — a coordinator marking on
+              a shared phone could not hand it over. The same control as the
+              portal, so the account lives in one place on every surface. */}
+          <AccountMenu />
+        </header>
+      )}
 
       <section className="mark-scope" aria-label="Event and category">
         <label className="mark-field">

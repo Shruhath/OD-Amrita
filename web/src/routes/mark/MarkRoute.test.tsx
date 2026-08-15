@@ -107,6 +107,26 @@ function renderMarkRoute(ports: { camera?: ReturnType<typeof fakeCamera> } = {})
   )
 }
 
+test('[P0] admin NFC marking keeps the portal header and navigation', async () => {
+  installMarkingBackend({ role: 'admin' })
+  renderMarkRoute()
+
+  expect(await screen.findByRole('link', { name: /od-amrita home/i })).toBeInTheDocument()
+  expect(screen.getByRole('navigation', { name: /administration sections/i })).toBeInTheDocument()
+  expect(screen.getAllByRole('link', { name: /nfc marking/i }).length).toBeGreaterThan(0)
+  expect(await screen.findByRole('heading', { name: /mark attendance/i })).toBeInTheDocument()
+})
+
+test('[P0] coordinator NFC marking remains a focused full-screen surface', async () => {
+  installMarkingBackend({ role: 'coordinator' })
+  renderMarkRoute()
+
+  expect(await screen.findByRole('heading', { name: /mark attendance/i })).toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: /od-amrita home/i })).toBeNull()
+  expect(screen.queryByRole('navigation', { name: /administration sections/i })).toBeNull()
+  expect(screen.queryByRole('button', { name: /open navigation/i })).toBeNull()
+})
+
 /**
  * A fake `BarcodeDetector` + `getUserMedia` pair, installed on the real globals.
  *

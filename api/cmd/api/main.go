@@ -44,6 +44,7 @@ import (
 	svcdispute "github.com/Shruhath/OD-Amrita/api/internal/service/dispute"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
 	svcmarking "github.com/Shruhath/OD-Amrita/api/internal/service/marking"
+	"github.com/Shruhath/OD-Amrita/api/internal/service/markingcache"
 	svcodrecord "github.com/Shruhath/OD-Amrita/api/internal/service/od_record"
 	svcpublicattendance "github.com/Shruhath/OD-Amrita/api/internal/service/publicattendance"
 	"github.com/Shruhath/OD-Amrita/api/internal/service/publiccache"
@@ -204,10 +205,28 @@ func run() error {
 	// surface — the scoped reads are siblings of the admin reads, not a fork.
 	eventReader := svcevent.NewSQLCReader(pool)
 	creditLedger := svcodrecord.NewSQLCCreditLedger(pool)
-	// The scope seam. Every marking read AND the mark write go through this one
-	// policy, so a scope the reads refuse can never be reached by posting to
-	// /api/v1/mark directly (NFR11). Story 0.7 replaces only its policy body.
-	markingPolicy := svcmarking.NewPolicy(svcmarking.NewEventReader(eventReader))
+	// The scope seam. Every marking read AND the mark write ask the SAME policy
+	// body, so a scope the reads refuse can never be reached by posting to
+	// /api/v1/mark directly (NFR11).
+	//
+	// TWO POLICIES OVER ONE POLICY BODY, and the split is load-bearing.
+	//
+	// The reads are polled — a marking screen asks all four scope questions every
+	// ten seconds — so they are served from markingScopeCache. The WRITE keeps the
+	// plain reader and asks the database every time. It runs a few hundred times
+	// against the reads' many thousands, so caching it would save nothing and cost
+	// the gate its exactness.
+	//
+	// What this buys is that the two can only ever disagree in ONE direction. For
+	// up to the cache lifetime a read may still offer an event an administrator has
+	// just archived, and the write then refuses it correctly. A write admitted on a
+	// stale permission is impossible, because the write never consults the cache.
+	// routes_test.go pins that, because it is a one-token slip in this file.
+	plainScopeReader := svcmarking.NewEventReader(eventReader)
+	markingPolicy := svcmarking.NewPolicy(plainScopeReader)
+	markingScopeCache := markingcache.NewReader(
+		plainScopeReader, time.Duration(cfg.MarkingScopeCacheTTLSeconds)*time.Second)
+	readPolicy := svcmarking.NewPolicy(markingScopeCache)
 	portalMarkReads := svcmarking.NewPortalMarkReadService(pool)
 	markSvc := svcodrecord.NewService(
 		svcodrecord.NewSQLCReader(pool),
@@ -267,12 +286,22 @@ func run() error {
 		submitter: disputeSvc,
 		events:    cachedEvents,
 	}, publicDisputeLimiter.Middleware())
+	// The POLLED reads. readPolicy (cached) rather than markingPolicy (exact) —
+	// see the note where the two are built.
+	//
+	// The status service gets its own cached event reader for the same reason and
+	// with the same safety argument: it re-reads the event row on every poll, and
+	// this SQLCReader instance is distinct from the one markSvc holds, so the mark
+	// write's own event lookup is untouched by construction rather than by care.
 	handlerodrecord.RegisterMarkingReadRoutes(markAPI, svcmarking.NewReadService(
-		markingPolicy,
+		readPolicy,
 		eventReader,
 		studentSvc,
 		svcodrecord.NewStatusService(
-			svcodrecord.NewSQLCReader(pool), svcodrecord.NewSQLCCounter(pool), creditLedger, nil,
+			svcodrecord.NewCachedEventReader(
+				svcodrecord.NewSQLCReader(pool),
+				time.Duration(cfg.MarkingScopeCacheTTLSeconds)*time.Second),
+			svcodrecord.NewSQLCCounter(pool), creditLedger, nil,
 		).WithSlotCeiling(settingsSvc),
 	))
 	handlerdispute.RegisterRoutes(markAPI, disputeSvc)
@@ -291,7 +320,14 @@ func run() error {
 			principals: principalCache,
 		}))
 	eventSvc := svcevent.NewService(eventReader, st, svcevent.NewSQLCWriter())
-	handlerevent.RegisterAdminRoutes(admin, eventSvc)
+	// Wrapped for the same reason the revoke handler is: an administrator who
+	// archives an event or moves an assignment should not then watch the marking
+	// screen keep offering the old answer for a minute. Peer machines expire on
+	// their own inside the cache lifetime.
+	handlerevent.RegisterAdminRoutes(admin, eventEditsDroppingScopeCache{
+		Service: eventSvc,
+		scope:   markingScopeCache,
+	})
 	handlerodrecord.RegisterAdminAttendanceRoutes(admin, portalMarkReads)
 	teacherSvc := svcteacher.NewService(svcteacher.NewSQLCReader(pool), st, svcteacher.NewSQLCWriter())
 	handlerteacher.RegisterAdminRoutes(admin, teacherSvc)
@@ -431,6 +467,66 @@ func (r revokeDroppingCaches) RevokeUserSessions(
 	r.revocation.Clear()
 	r.principals.Clear()
 	return revocation, nil
+}
+
+// eventEditsDroppingScopeCache is the event admin service, with every mutation
+// followed by a drop of this machine's cached marking scope.
+//
+// It EMBEDS the service rather than listing all fifteen methods, so the reads and
+// the credit endpoints pass straight through and a method added to the service
+// later is carried automatically instead of failing to compile here. Only the six
+// calls that can change what a coordinator may mark are overridden.
+//
+// The order matches revokeDroppingCaches for the same reasons: write first, drop
+// second, and only on success. Dropping first would leave a window in which a
+// concurrent poll re-cached the pre-edit answer.
+type eventEditsDroppingScopeCache struct {
+	*svcevent.Service
+	scope interface{ Clear() }
+}
+
+func (e eventEditsDroppingScopeCache) Create(ctx context.Context, actor svcevent.Actor, input svcevent.CreateInput) (svcevent.Event, error) {
+	return dropScopeAfter(e.scope, func() (svcevent.Event, error) { return e.Service.Create(ctx, actor, input) })
+}
+
+func (e eventEditsDroppingScopeCache) Archive(ctx context.Context, actor svcevent.Actor, eventID string) (svcevent.Event, error) {
+	return dropScopeAfter(e.scope, func() (svcevent.Event, error) { return e.Service.Archive(ctx, actor, eventID) })
+}
+
+func (e eventEditsDroppingScopeCache) CreateCategory(ctx context.Context, actor svcevent.Actor, input svcevent.CreateCategoryInput) (svcevent.Category, error) {
+	return dropScopeAfter(e.scope, func() (svcevent.Category, error) { return e.Service.CreateCategory(ctx, actor, input) })
+}
+
+func (e eventEditsDroppingScopeCache) UpdateCategoryVisibility(ctx context.Context, actor svcevent.Actor, input svcevent.UpdateCategoryVisibilityInput) (svcevent.Category, error) {
+	return dropScopeAfter(e.scope, func() (svcevent.Category, error) {
+		return e.Service.UpdateCategoryVisibility(ctx, actor, input)
+	})
+}
+
+func (e eventEditsDroppingScopeCache) CreateCoordinatorAssignment(ctx context.Context, actor svcevent.Actor, input svcevent.CreateCoordinatorAssignmentInput) (svcevent.CoordinatorAssignment, error) {
+	return dropScopeAfter(e.scope, func() (svcevent.CoordinatorAssignment, error) {
+		return e.Service.CreateCoordinatorAssignment(ctx, actor, input)
+	})
+}
+
+func (e eventEditsDroppingScopeCache) UpdateCoordinatorCategoryAccess(ctx context.Context, actor svcevent.Actor, input svcevent.UpdateCoordinatorCategoryAccessInput) (svcevent.CoordinatorAssignment, error) {
+	return dropScopeAfter(e.scope, func() (svcevent.CoordinatorAssignment, error) {
+		return e.Service.UpdateCoordinatorCategoryAccess(ctx, actor, input)
+	})
+}
+
+// dropScopeAfter runs the write and clears the cache only when it SUCCEEDED.
+//
+// A closure rather than a (value, error) pair because Go cannot spread a
+// multi-value call alongside another argument — and it lands better anyway: the
+// rule that a failed edit must not throw away good entries lives in exactly one
+// place instead of being restated in six.
+func dropScopeAfter[T any](scope interface{ Clear() }, write func() (T, error)) (T, error) {
+	value, err := write()
+	if err == nil {
+		scope.Clear()
+	}
+	return value, err
 }
 
 type publicDisputeSurface struct {

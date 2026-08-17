@@ -85,6 +85,15 @@ type Config struct {
 	// Defaults apply when unset, for the same reason the rate limits have them:
 	// the deployed app carries no such secret and must keep booting.
 	PublicCacheTTL PublicCacheTTL
+	// MarkingScopeCacheTTLSeconds is how long the AUTHENTICATED marking surface
+	// may serve a scope answer — the event, its categories, and the coordinator's
+	// assignments — from memory.
+	//
+	// It bounds one visible thing: how long after an administrator archives an
+	// event or moves an assignment a coordinator's screen may still offer the old
+	// scope. The mark WRITE never reads this cache, so a stale screen can only be
+	// over-permissive, never an over-permissive mark. Zero switches it off.
+	MarkingScopeCacheTTLSeconds int
 }
 
 // PublicCacheTTL is the lifetime of each cached public read, in seconds on the
@@ -207,6 +216,14 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	cfg.PublicCacheTTL = publicCacheTTL
+	// Sixty seconds, for the same reason the public events cache is longer than
+	// the public records cache: this data changes only when an administrator
+	// edits it, and the poll that reads it runs every ten seconds.
+	markingScopeTTL, err := nonNegativeIntDefault("MARKING_SCOPE_CACHE_TTL_SECONDS", 60)
+	if err != nil {
+		return nil, err
+	}
+	cfg.MarkingScopeCacheTTLSeconds = markingScopeTTL
 	if err := validateAuth(cfg.Auth, cfg.AppEnv); err != nil {
 		return nil, err
 	}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 import { motion } from 'motion/react'
 import type { Identity } from '../../api/client'
@@ -69,9 +69,51 @@ export function AuthProvider({ children, session }: { children: ReactNode; sessi
     }
   }, [api, session])
 
+  /**
+   * Mirrors `identity` for the subscription below, which must read the CURRENT
+   * value without re-subscribing every time it changes. A ref rather than a
+   * dependency: putting `identity` in the effect's deps would tear down and
+   * rebuild the Supabase subscription on every sign-in.
+   */
+  const identityRef = useRef<Identity | null>(null)
+  identityRef.current = identity
+
   useEffect(() => {
     void load()
-    return session.subscribe(() => void load({ background: true }))
+
+    /**
+     * A TOKEN REFRESH IS NOT A SIGN-IN, AND MUST NOT COST A ROUND TRIP.
+     *
+     * This used to call `load({ background: true })` on every Supabase auth
+     * event. Supabase fires one on every token refresh and every time a phone
+     * returns from the background, so a person working through a morning
+     * produced dozens of `/auth/me` calls — and each of those was, on the
+     * server, a row update plus an audit insert plus two transactions. It was
+     * measured in production as the single most expensive query in the
+     * database.
+     *
+     * The only two transitions that can change who the user is are:
+     *
+     *   token gone      -> signed out, or the session expired. Re-resolve, which
+     *                      clears the identity and returns to the sign-in card.
+     *   token, no identity -> a fresh sign-in (or a first resolve that failed).
+     *                      Re-resolve to learn the role.
+     *
+     * A new token while an identity is already held is a REFRESH of the session
+     * we already resolved. The subject cannot change without a sign-out first,
+     * so there is nothing to learn and the call is skipped.
+     *
+     * What this gives up: a role changed by an admin mid-session no longer
+     * lands on the next token refresh — it lands on the next page load or
+     * sign-in. The server-side guards are unaffected; every protected request
+     * still loads the principal and still checks the revocation deny-list, so a
+     * demoted user is refused by the API regardless of what this screen shows.
+     */
+    return session.subscribe((token) => {
+      if (!token || !identityRef.current) {
+        void load({ background: true })
+      }
+    })
   }, [load, session])
 
   const value: AuthState = {

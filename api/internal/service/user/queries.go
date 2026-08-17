@@ -2,9 +2,12 @@ package user
 
 import (
 	"context"
+	"errors"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Shruhath/OD-Amrita/api/internal/store/sqlc"
 )
@@ -37,6 +40,41 @@ func (sqlcProvisioner) ProvisionUser(ctx context.Context, tx pgx.Tx, arg Provisi
 		Role:            Role(row.Role),
 		Inserted:        row.Inserted,
 	}, nil
+}
+
+// sqlcCurrentReader is the production CurrentReader. It binds the POOL, not a
+// transaction, and that is the whole point: this read exists to avoid opening a
+// transaction at all on the ~95% of logins that change nothing.
+type sqlcCurrentReader struct{ queries *sqlc.Queries }
+
+// NewSQLCCurrentReader returns the production CurrentReader over the runtime pool.
+func NewSQLCCurrentReader(pool *pgxpool.Pool) CurrentReader {
+	return sqlcCurrentReader{queries: sqlc.New(pool)}
+}
+
+func (r sqlcCurrentReader) CurrentUser(ctx context.Context, subject string) (Current, error) {
+	row, err := r.queries.GetUserBySubject(ctx, subject)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Current{}, ErrNotProvisioned
+		}
+		return Current{}, err
+	}
+	if !row.ID.Valid {
+		return Current{}, errors.New("user: provisioned row has invalid id")
+	}
+	current := Current{
+		ID:    uuid.UUID(row.ID.Bytes).String(),
+		Email: row.Email,
+		// "" when SQL NULL — matches how ProvisionUser maps it, so the comparison
+		// in needsWrite comes out equal for a genuinely-absent name.
+		Name: row.Name.String,
+		Role: Role(row.Role),
+	}
+	if row.LastLoginAt.Valid {
+		current.LastLoginAt = row.LastLoginAt.Time
+	}
+	return current, nil
 }
 
 // textOrNull maps an empty display name to SQL NULL (absent) rather than an

@@ -34,10 +34,19 @@ type Auditor interface {
 // the application user + role on the way (Story 1.5b). Provisioning runs HERE —
 // the /auth/me login round-trip — not in the per-request auth middleware, so an
 // authenticated call never carries a DB write-path. Provisioning itself is
-// idempotent: a returning identity writes no user.provisioned row. The
-// auth.login_succeeded audit, however, fires on EVERY successful call (Story 1.7,
-// per-call cadence), returning users included. The provisioned role is echoed so
-// the mobile client can route by role.
+// idempotent: a returning identity writes no user.provisioned row, and since the
+// cost work it no longer writes AT ALL unless something actually changed (see
+// service/user.Service.WithCurrentReader).
+//
+// The auth.login_succeeded audit used to fire on EVERY successful call. It is
+// now throttled to one row per Supabase session per window — this endpoint is
+// called on every token refresh, not once per sign-in, and the duplicate rows
+// were 79% of the entire audit ledger. See
+// service/auth.ThrottledLoginAuditor for what that preserves and what it gives
+// up; the wiring lives in cmd/api/main.go. This handler is unchanged in shape:
+// it still fails closed if the audit write it is given returns an error.
+//
+// The provisioned role is echoed so the mobile client can route by role.
 func MeHandler(provisioner Provisioner, auditor Auditor) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// The auth middleware always sets the identity ahead of this handler; a

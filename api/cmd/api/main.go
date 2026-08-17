@@ -144,13 +144,24 @@ func run() error {
 	// 5xx until a live DB is present (D6). Provisioning is never reached anyway
 	// until Supabase auth is configured (RejectingVerifier 401s every call).
 	st := store.New(pool)
-	userSvc := svcuser.NewService(st, cfg.Auth.BootstrapAdmins, svcuser.NewSQLCProvisioner())
+	// WithCurrentReader is what stops /auth/me writing on every call. Without it
+	// the service keeps its original behaviour — an upsert per login — which
+	// production measured as the most expensive query in the database (2,157
+	// calls, 8ms each, 17s total) for a column almost nothing reads.
+	userSvc := svcuser.NewService(st, cfg.Auth.BootstrapAdmins, svcuser.NewSQLCProvisioner()).
+		WithCurrentReader(svcuser.NewSQLCCurrentReader(pool))
 
 	// Auth-event auditor (Story 1.7): co-commits auth.login_succeeded (from
 	// /auth/me, after provisioning) and auth.domain_rejected (from the auth
 	// middleware's EnforceDomain failure branch) through the same store.WithAudit
 	// boundary. One value serves both the middleware and the handler.
 	eventAuditor := svcauth.NewEventAuditor(st)
+	// The LOGIN audit is throttled per session; the domain-rejection audit is not.
+	// They are separated here because their cadences are genuinely different: a
+	// rejection is rare and every one matters, while /auth/me is called on every
+	// token refresh and wrote a duplicate row each time (79% of the whole audit
+	// ledger in production). The middleware keeps the unthrottled auditor.
+	loginAuditor := svcauth.NewThrottledLoginAuditor(eventAuditor)
 
 	// Forced-logout (Story 1.5c): the revocation checker the auth middleware
 	// consults on every protected request, and the admin-only revocation service.
@@ -169,7 +180,7 @@ func run() error {
 	// Reject revoked-but-still-valid tokens on the NEXT request, immediately after
 	// verify+domain and before any protected handler runs (DoD 6).
 	api.Use(mwauth.RevocationGuard(revChecker))
-	api.GET("/auth/me", handlerauth.MeHandler(userSvc, eventAuditor))
+	api.GET("/auth/me", handlerauth.MeHandler(userSvc, loginAuditor))
 
 	principalLoader := rbac.NewSQLCPrincipalLoader(pool)
 	cardKeyring, err := svccardtoken.NewKeyring(cfg.CardSeal.ActiveVersion, cfg.CardSeal.HMACKeys)

@@ -216,7 +216,7 @@ func attendanceHandler(svc AttendanceService, actorOf func(*gin.Context) (markin
 			fail(c, err)
 			return
 		}
-		pageSize, err := boundedQueryInt(c, "page_size", 20, 1, maxEventPageSize)
+		pageSize, err := boundedQueryInt(c, "page_size", 20, 1, maxAttendancePageSize)
 		if err != nil {
 			fail(c, err)
 			return

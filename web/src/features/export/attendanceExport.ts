@@ -121,8 +121,20 @@ export function buildSlotWorkbooks(
 /** The most rows one export will read before it stops and says so. */
 export const MAX_EXPORT_RECORDS = 20_000
 
-/** The page size the reader asks for. The contract caps this at 100. */
-export const EXPORT_PAGE_SIZE = 100
+/**
+ * The page size the reader asks for. The contract caps the attendance endpoints
+ * at 1000.
+ *
+ * This was 100, which was the contract's ceiling at the time. At that size a
+ * full day could take 200 sequential requests, and each one made the server
+ * re-count the whole filtered set alongside the page — roughly 800 queries for
+ * one download, all of it round trips to a database on another continent.
+ *
+ * A tenth of the requests for the same rows. The interactive screens are
+ * untouched and still ask for 20 or 50; only this deliberate bulk read takes the
+ * larger page.
+ */
+export const EXPORT_PAGE_SIZE = 1_000
 
 export class ExportTooLarge extends Error {
   readonly total: number
@@ -151,15 +163,31 @@ export async function readDay(
 ): Promise<AttendanceRecord[]> {
   void options
   const collected: AttendanceRecord[] = []
+  // The FIRST page's total is the one that decides how far to read.
+  //
+  // Every page carries a `total`, and each one costs the server a full re-count
+  // of the filtered set — the same count, recomputed, once per page. Reading it
+  // from page one and not looking again removes half the export's queries.
+  //
+  // The risk this trades away is a day that grows mid-export. It is bounded on
+  // both sides: the short-page check below is what actually terminates the loop,
+  // so extra rows appearing cannot cut the read short, and rows landing after
+  // page one simply arrive in a later page. A day that SHRINKS mid-export
+  // (a correction removing a record) ends the loop early on a short page, which
+  // is the same answer re-reading the count would have given.
+  let total = Number.POSITIVE_INFINITY
   let page = 1
   for (;;) {
     const result = await fetchPage(page, EXPORT_PAGE_SIZE)
-    if (result.total > MAX_EXPORT_RECORDS) throw new ExportTooLarge(result.total)
+    if (page === 1) {
+      if (result.total > MAX_EXPORT_RECORDS) throw new ExportTooLarge(result.total)
+      total = result.total
+    }
     collected.push(...result.data)
     // Stop on a short page as well as on the count: a page that comes back
     // smaller than asked for is the last one, and trusting only `total` turns a
     // server that disagrees with itself into an endless loop.
-    if (result.data.length < EXPORT_PAGE_SIZE || collected.length >= result.total) break
+    if (result.data.length < EXPORT_PAGE_SIZE || collected.length >= total) break
     page += 1
   }
   return collected

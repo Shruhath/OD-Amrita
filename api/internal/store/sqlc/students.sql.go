@@ -393,3 +393,121 @@ func (q *Queries) UpsertStudent(ctx context.Context, arg UpsertStudentParams) (U
 	err := row.Scan(&i.ID, &i.Inserted)
 	return i, err
 }
+
+const upsertStudentsBulk = `-- name: UpsertStudentsBulk :many
+WITH input AS (
+    SELECT
+        roll.roll_no,
+        nm.name,
+        br.branch_id,
+        sec.section,
+        bat.batch,
+        roll.ordinality
+    FROM unnest($1::text[])   WITH ORDINALITY AS roll(roll_no, ordinality)
+    JOIN unnest($2::text[])      WITH ORDINALITY AS nm(name, ordinality)       ON nm.ordinality = roll.ordinality
+    JOIN unnest($3::uuid[]) WITH ORDINALITY AS br(branch_id, ordinality)  ON br.ordinality = roll.ordinality
+    JOIN unnest($4::text[])   WITH ORDINALITY AS sec(section, ordinality)   ON sec.ordinality = roll.ordinality
+    JOIN unnest($5::text[])    WITH ORDINALITY AS bat(batch, ordinality)     ON bat.ordinality = roll.ordinality
+),
+upsert AS (
+    INSERT INTO students (roll_no, name, branch_id, section, batch)
+    SELECT input.roll_no, input.name, input.branch_id, input.section, input.batch
+    FROM input
+    ON CONFLICT (roll_no) DO UPDATE
+    SET name = EXCLUDED.name,
+        branch_id = EXCLUDED.branch_id,
+        section = EXCLUDED.section,
+        batch = EXCLUDED.batch,
+        updated_at = now()
+    WHERE students.name IS DISTINCT FROM EXCLUDED.name
+       OR students.branch_id IS DISTINCT FROM EXCLUDED.branch_id
+       OR students.section IS DISTINCT FROM EXCLUDED.section
+       OR students.batch IS DISTINCT FROM EXCLUDED.batch
+    RETURNING id, roll_no, (xmax = 0) AS inserted
+)
+SELECT input.ordinality::bigint AS ordinality, upsert.id, upsert.inserted
+FROM upsert
+JOIN input ON input.roll_no = upsert.roll_no
+ORDER BY ordinality
+`
+
+type UpsertStudentsBulkParams struct {
+	RollNos   []string      `json:"roll_nos"`
+	Names     []string      `json:"names"`
+	BranchIds []pgtype.UUID `json:"branch_ids"`
+	Sections  []string      `json:"sections"`
+	Batches   []string      `json:"batches"`
+}
+
+type UpsertStudentsBulkRow struct {
+	Ordinality int64       `json:"ordinality"`
+	ID         pgtype.UUID `json:"id"`
+	Inserted   bool        `json:"inserted"`
+}
+
+// The ROSTER IMPORT's write, as ONE statement instead of one per student.
+//
+// WHY THIS EXISTS ALONGSIDE UpsertStudent
+//
+//	The import ran UpsertStudent in a Go loop, so a 2,000-row roster was 2,000
+//	sequential round trips inside one transaction. Against a database on another
+//	continent — the API is in Singapore, the database in Virginia, roughly 480ms
+//	each way — that is not a slow import, it is a sixteen-minute one, and it
+//	holds a transaction open for all of it.
+//
+//	UpsertStudent is kept because it is still the right shape for a single-row
+//	caller; this is the same upsert driven by arrays.
+//
+// THE SEMANTICS ARE IDENTICAL, DELIBERATELY
+//
+//	Same conflict target, same DO UPDATE, same IS DISTINCT FROM guard, and the
+//	same `(xmax = 0) AS inserted` discriminator. The guard is what makes an
+//	unchanged row report NO row back at all, which is how the caller counts
+//	unchanged rows — so `ordinality` is returned too, letting the caller map
+//	each returned row to the input it came from and infer the unchanged ones
+//	from the gaps. A loop knew which row it was on; a single statement has to
+//	say.
+//
+//	Rows arrive in input order and are applied in one statement, so a file
+//	containing the same roll twice would self-conflict. Postgres refuses that
+//	with 21000 ("ON CONFLICT DO UPDATE command cannot affect row a second
+//	time") rather than silently keeping one — the loop's behaviour was
+//	last-write-wins, so the caller de-duplicates before calling.
+//
+// ONE unnest PER COLUMN, joined on ordinality — not the multi-argument form.
+//
+// `unnest(a, b, c, ...)` is the natural way to write this and sqlc cannot
+// generate from it: its analyzer resolves the call as
+// unnest(unknown, unknown, ...), which matches no signature, and generation
+// fails outright. Single-argument unnest is understood, and joining the five on
+// their ordinality is exactly equivalent — the arrays are positional, built
+// together from the same slice of rows, so position i of each is one student.
+//
+// The caller guarantees equal lengths. An INNER join is what enforces it: if the
+// arrays ever disagreed, the short one would silently drop the tail rather than
+// pairing a name with the wrong roll number.
+func (q *Queries) UpsertStudentsBulk(ctx context.Context, arg UpsertStudentsBulkParams) ([]UpsertStudentsBulkRow, error) {
+	rows, err := q.db.Query(ctx, upsertStudentsBulk,
+		arg.RollNos,
+		arg.Names,
+		arg.BranchIds,
+		arg.Sections,
+		arg.Batches,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UpsertStudentsBulkRow
+	for rows.Next() {
+		var i UpsertStudentsBulkRow
+		if err := rows.Scan(&i.Ordinality, &i.ID, &i.Inserted); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

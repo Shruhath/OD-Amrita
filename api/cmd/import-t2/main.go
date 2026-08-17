@@ -47,50 +47,104 @@ func main() {
 	}
 	defer tx.Rollback(ctx)
 
-	branchIDs := map[string]string{}
-	inserted, updated, unchanged := 0, 0, 0
+	// Branches first, in ONE query for the whole file rather than one per distinct
+	// code. There are a handful of branches and the map already cached them, so
+	// this is a small win — but it is the same round-trip-per-row shape, and
+	// leaving one instance of it here is how it comes back.
+	branchCodes := make([]string, 0, len(rows))
+	seenCodes := map[string]struct{}{}
 	for _, row := range rows {
-		branchID, ok := branchIDs[row.Branch]
-		if !ok {
-			if err := tx.QueryRow(ctx, `
-				SELECT id::text
-				FROM branches
-				WHERE lower(code) = lower($1)
-				ORDER BY id
-				LIMIT 1
-			`, row.Branch).Scan(&branchID); err != nil {
-				panic(fmt.Sprintf("resolve branch %s: %v", row.Branch, err))
-			}
-			branchIDs[row.Branch] = branchID
+		if _, seen := seenCodes[row.Branch]; !seen {
+			seenCodes[row.Branch] = struct{}{}
+			branchCodes = append(branchCodes, row.Branch)
 		}
+	}
+	branchIDs := map[string]string{}
+	branchRows, err := tx.Query(ctx, `
+		SELECT lower(code), id::text
+		FROM branches
+		WHERE lower(code) = ANY($1::text[])
+	`, lowered(branchCodes))
+	if err != nil {
+		panic(fmt.Sprintf("resolve branches: %v", err))
+	}
+	for branchRows.Next() {
+		var code, id string
+		if err := branchRows.Scan(&code, &id); err != nil {
+			branchRows.Close()
+			panic(fmt.Sprintf("scan branch: %v", err))
+		}
+		branchIDs[code] = id
+	}
+	branchRows.Close()
+	if err := branchRows.Err(); err != nil {
+		panic(fmt.Sprintf("resolve branches: %v", err))
+	}
 
-		var studentID string
-		var wasInserted bool
-		err := tx.QueryRow(ctx, `
-			WITH upsert AS (
-				INSERT INTO students (roll_no, name, branch_id, section, batch)
-				VALUES ($1, $2, $3::uuid, $4, $5)
-				ON CONFLICT (roll_no) DO UPDATE
-				SET name = EXCLUDED.name,
-					branch_id = EXCLUDED.branch_id,
-					section = EXCLUDED.section,
-					batch = EXCLUDED.batch,
-					updated_at = now()
-				WHERE students.name IS DISTINCT FROM EXCLUDED.name
-				   OR students.branch_id IS DISTINCT FROM EXCLUDED.branch_id
-				   OR students.section IS DISTINCT FROM EXCLUDED.section
-				   OR students.batch IS DISTINCT FROM EXCLUDED.batch
-				RETURNING id::text, (xmax = 0) AS inserted
-			)
-			SELECT id, inserted
-			FROM upsert
-		`, row.Roll, row.Name, branchID, row.Section, row.Batch).Scan(&studentID, &wasInserted)
-		if err == pgx.ErrNoRows {
-			unchanged++
-			continue
+	// Build the five positional arrays. Position i of each is one student, so
+	// they must stay the same length and in the same order.
+	rollNos := make([]string, 0, len(rows))
+	names := make([]string, 0, len(rows))
+	rowBranchIDs := make([]string, 0, len(rows))
+	sections := make([]string, 0, len(rows))
+	batches := make([]string, 0, len(rows))
+	for _, row := range rows {
+		branchID, ok := branchIDs[strings.ToLower(row.Branch)]
+		if !ok {
+			panic(fmt.Sprintf("resolve branch %s: no such branch", row.Branch))
 		}
-		if err != nil {
-			panic(fmt.Sprintf("upsert %s: %v", row.Roll, err))
+		rollNos = append(rollNos, row.Roll)
+		names = append(names, row.Name)
+		rowBranchIDs = append(rowBranchIDs, branchID)
+		sections = append(sections, row.Section)
+		batches = append(batches, row.Batch)
+	}
+
+	// THE WHOLE FILE IN ONE STATEMENT. This was one round trip per student, which
+	// against the production database — on another continent, roughly half a
+	// second away — made a 2,000-row import a sixteen-minute one that held this
+	// transaction open throughout.
+	//
+	// Deliberately the same shape as the UpsertStudentsBulk query the API's own
+	// roster import uses; this tool is a one-off, so it carries its SQL inline
+	// rather than through sqlc, but the semantics must not diverge.
+	//
+	// An unchanged row returns nothing (the IS DISTINCT FROM guard), so unchanged
+	// is counted as the gap between what was sent and what came back.
+	inserted, updated := 0, 0
+	upsertRows, err := tx.Query(ctx, `
+		WITH input AS (
+			SELECT
+				roll.roll_no, nm.name, br.branch_id, sec.section, bat.batch
+			FROM unnest($1::text[]) WITH ORDINALITY AS roll(roll_no, ord)
+			JOIN unnest($2::text[]) WITH ORDINALITY AS nm(name, ord)      ON nm.ord = roll.ord
+			JOIN unnest($3::uuid[]) WITH ORDINALITY AS br(branch_id, ord) ON br.ord = roll.ord
+			JOIN unnest($4::text[]) WITH ORDINALITY AS sec(section, ord)  ON sec.ord = roll.ord
+			JOIN unnest($5::text[]) WITH ORDINALITY AS bat(batch, ord)    ON bat.ord = roll.ord
+		)
+		INSERT INTO students (roll_no, name, branch_id, section, batch)
+		SELECT input.roll_no, input.name, input.branch_id, input.section, input.batch
+		FROM input
+		ON CONFLICT (roll_no) DO UPDATE
+		SET name = EXCLUDED.name,
+			branch_id = EXCLUDED.branch_id,
+			section = EXCLUDED.section,
+			batch = EXCLUDED.batch,
+			updated_at = now()
+		WHERE students.name IS DISTINCT FROM EXCLUDED.name
+		   OR students.branch_id IS DISTINCT FROM EXCLUDED.branch_id
+		   OR students.section IS DISTINCT FROM EXCLUDED.section
+		   OR students.batch IS DISTINCT FROM EXCLUDED.batch
+		RETURNING (xmax = 0) AS inserted
+	`, rollNos, names, rowBranchIDs, sections, batches)
+	if err != nil {
+		panic(fmt.Sprintf("bulk upsert: %v", err))
+	}
+	for upsertRows.Next() {
+		var wasInserted bool
+		if err := upsertRows.Scan(&wasInserted); err != nil {
+			upsertRows.Close()
+			panic(fmt.Sprintf("scan upsert: %v", err))
 		}
 		if wasInserted {
 			inserted++
@@ -98,6 +152,11 @@ func main() {
 			updated++
 		}
 	}
+	upsertRows.Close()
+	if err := upsertRows.Err(); err != nil {
+		panic(fmt.Sprintf("bulk upsert: %v", err))
+	}
+	unchanged := len(rows) - inserted - updated
 
 	var databaseCount int
 	if err := tx.QueryRow(ctx, `SELECT count(*)::int FROM students`).Scan(&databaseCount); err != nil {
@@ -179,4 +238,14 @@ func readRows(path string) ([]rosterRow, error) {
 		rows = append(rows, row)
 	}
 	return rows, nil
+}
+
+// lowered returns the codes lowercased, matching the branches lookup's
+// lower(code) comparison so the map key and the query agree.
+func lowered(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, strings.ToLower(value))
+	}
+	return out
 }

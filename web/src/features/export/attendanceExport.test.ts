@@ -157,11 +157,15 @@ describe('the per-slot export', () => {
 
 describe('reading the whole day', () => {
   test('[P0] follows every page, so a big day is not silently truncated', async () => {
-    // The contract caps a page at 100. Reading one page and exporting it would
-    // produce a plausible-looking file missing everybody after the hundredth
-    // mark, with nothing on screen saying so.
-    const total = 250
-    const all = Array.from({ length: total }, (_, index) => record({ slot: 3, rollNo: `R-${String(index).padStart(3, '0')}` }))
+    // Reading one page and exporting it would produce a plausible-looking file
+    // missing everybody after the first page, with nothing on screen saying so.
+    //
+    // Sized FROM EXPORT_PAGE_SIZE rather than from a literal, so raising the page
+    // size keeps this test asserting what it is named for. Written against a
+    // hardcoded 250 it silently became a one-page test the moment the page size
+    // passed 250, which is exactly the truncation it exists to catch.
+    const total = EXPORT_PAGE_SIZE * 2 + 50
+    const all = Array.from({ length: total }, (_, index) => record({ slot: 3, rollNo: `R-${String(index).padStart(5, '0')}` }))
     const fetchPage = vi.fn(async (page: number, pageSize: number) => ({
       data: all.slice((page - 1) * pageSize, page * pageSize),
       total,
@@ -173,6 +177,26 @@ describe('reading the whole day', () => {
     expect(fetchPage).toHaveBeenCalledTimes(3)
     expect(fetchPage).toHaveBeenNthCalledWith(1, 1, EXPORT_PAGE_SIZE)
     expect(fetchPage).toHaveBeenNthCalledWith(3, 3, EXPORT_PAGE_SIZE)
+  })
+
+  test('[P0] reads the total once, not on every page', async () => {
+    // Every page carries a `total`, and producing it costs the server a full
+    // re-count of the filtered set. Trusting page one's removes half the
+    // export's queries; this pins that the later pages' counts are ignored
+    // rather than accidentally load-bearing.
+    const total = EXPORT_PAGE_SIZE + 10
+    const all = Array.from({ length: total }, (_, index) => record({ slot: 3, rollNo: `R-${String(index).padStart(5, '0')}` }))
+    const fetchPage = vi.fn(async (page: number, pageSize: number) => ({
+      data: all.slice((page - 1) * pageSize, page * pageSize),
+      // A wildly different count on page two must change nothing: the loop is
+      // terminated by the short page, and the first total already bounded it.
+      total: page === 1 ? total : 999_999,
+    }))
+
+    const records = await readDay(fetchPage)
+
+    expect(records).toHaveLength(total)
+    expect(fetchPage).toHaveBeenCalledTimes(2)
   })
 
   test('[P0] a short page ends the read even if the total disagrees', async () => {

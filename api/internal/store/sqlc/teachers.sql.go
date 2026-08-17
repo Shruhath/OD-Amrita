@@ -29,6 +29,35 @@ func (q *Queries) AddUserBranch(ctx context.Context, arg AddUserBranchParams) (i
 	return result.RowsAffected(), nil
 }
 
+const addUserBranchesBulk = `-- name: AddUserBranchesBulk :execrows
+INSERT INTO user_branches (user_id, branch_id)
+SELECT $1, branch_id
+FROM unnest($2::uuid[]) AS branch_id
+`
+
+type AddUserBranchesBulkParams struct {
+	UserID    pgtype.UUID   `json:"user_id"`
+	BranchIds []pgtype.UUID `json:"branch_ids"`
+}
+
+// Every branch for one teacher in ONE statement.
+//
+// The caller used to loop AddUserBranch, which is a round trip per branch. The
+// counts are small — a teacher covers a handful of branches — but this runs
+// inside the transaction that creates the teacher, on a database roughly half a
+// second away, so each one is felt directly by an administrator waiting on a
+// form.
+//
+// :execrows so the caller can still assert every branch landed, exactly as the
+// loop did per row: the expected count is len(branch_ids).
+func (q *Queries) AddUserBranchesBulk(ctx context.Context, arg AddUserBranchesBulkParams) (int64, error) {
+	result, err := q.db.Exec(ctx, addUserBranchesBulk, arg.UserID, arg.BranchIds)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const assignTeacherRole = `-- name: AssignTeacherRole :one
 UPDATE users
 SET role = 'teacher', updated_at = now()

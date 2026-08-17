@@ -46,6 +46,20 @@ const (
 	defaultEventPage     = 1
 	defaultEventPageSize = 20
 	maxEventPageSize     = 100
+	// maxAttendancePageSize is the ATTENDANCE list's own, higher ceiling.
+	//
+	// Separate from maxEventPageSize rather than raising that one, because the
+	// two are bounded in the contract independently and only the attendance
+	// endpoints were raised: the event and category lists are picker-sized and
+	// still cap at 100 in contracts/openapi.yaml. Sharing one constant would put
+	// the server out of step with the spec for every list that was not raised.
+	//
+	// The number exists for the per-slot export, which reads a whole day and
+	// pages until it has it. At 100, a day of 20,000 records was 200 sequential
+	// requests, each dragging a full re-count of the filtered set alongside its
+	// page — around 800 queries for one download. The screens still ask for 20
+	// or 50; this only raises what a deliberate bulk reader may choose.
+	maxAttendancePageSize = 1_000
 	// maxEventPage is a real ceiling, not decoration. Without one, `page` was
 	// unbounded while `page_size` was capped, and `(page-1)*pageSize` in
 	// pageWindow overflowed int64 and wrapped NEGATIVE — `events[-16:1]` panics.

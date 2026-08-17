@@ -954,12 +954,19 @@ paths:
             type: integer
             minimum: 1
             default: 1
+          # 1000, not 100, BECAUSE OF THE EXPORT. The per-slot workbook download
+          # reads a whole day through this endpoint and pages until it has
+          # everything. At 100 a day of 20,000 records was 200 sequential
+          # requests, and every one of them dragged a full re-count of the
+          # filtered set alongside the page - roughly 800 queries for one
+          # download. The screens still ask for 20 or 50; this raises only the
+          # ceiling a deliberate bulk reader may choose.
         - name: page_size
           in: query
           schema:
             type: integer
             minimum: 1
-            maximum: 100
+            maximum: 1000
             default: 20
       responses:
         "200":
@@ -1045,12 +1052,19 @@ paths:
             type: integer
             minimum: 1
             default: 1
+          # 1000, not 100, BECAUSE OF THE EXPORT. The per-slot workbook download
+          # reads a whole day through this endpoint and pages until it has
+          # everything. At 100 a day of 20,000 records was 200 sequential
+          # requests, and every one of them dragged a full re-count of the
+          # filtered set alongside the page - roughly 800 queries for one
+          # download. The screens still ask for 20 or 50; this raises only the
+          # ceiling a deliberate bulk reader may choose.
         - name: page_size
           in: query
           schema:
             type: integer
             minimum: 1
-            maximum: 100
+            maximum: 1000
             default: 20
       responses:
         "200":

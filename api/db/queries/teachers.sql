@@ -26,6 +26,21 @@ RETURNING id, email, name, role;
 INSERT INTO user_branches (user_id, branch_id)
 VALUES (@user_id, @branch_id);
 
+-- name: AddUserBranchesBulk :execrows
+-- Every branch for one teacher in ONE statement.
+--
+-- The caller used to loop AddUserBranch, which is a round trip per branch. The
+-- counts are small — a teacher covers a handful of branches — but this runs
+-- inside the transaction that creates the teacher, on a database roughly half a
+-- second away, so each one is felt directly by an administrator waiting on a
+-- form.
+--
+-- :execrows so the caller can still assert every branch landed, exactly as the
+-- loop did per row: the expected count is len(branch_ids).
+INSERT INTO user_branches (user_id, branch_id)
+SELECT @user_id, branch_id
+FROM unnest(@branch_ids::uuid[]) AS branch_id;
+
 -- name: GetTeacherProfile :one
 SELECT
     u.id,

@@ -6,12 +6,29 @@ import { InstallPrompt } from './components/InstallPrompt'
 import { AuthProvider } from './features/auth/AuthGate'
 import type { SessionPort } from './features/auth/session'
 import type { PortalRouter } from './router'
-import './App.css'
+// App.css is imported from index.css, INTO the base layer — see the note there.
+// Importing it here would make it unlayered again and put it back above every
+// utility in the app.
 import './styles/system.css'
 
 export function Application({ session, router }: { session: SessionPort; router: PortalRouter }) {
   const [queryClient] = useState(() => new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: 15_000 }, mutations: { retry: false } },
+    defaultOptions: {
+      queries: {
+        retry: false,
+        staleTime: 15_000,
+        // Tab focus is not a reason to re-ask the server. The screens that need
+        // fresh data poll on their own timers, and the ones that do not are
+        // reading things that change on an administrator's action rather than
+        // on the minute. Leaving this on meant every alt-tab back into the
+        // browser fired a burst of requests across every mounted query.
+        //
+        // refetchIntervalInBackground is left at its default (false), so a
+        // hidden tab already stops polling — this closes the other half.
+        refetchOnWindowFocus: false,
+      },
+      mutations: { retry: false },
+    },
   }))
   return (
     <QueryClientProvider client={queryClient}>

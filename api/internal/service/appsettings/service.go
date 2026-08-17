@@ -43,11 +43,18 @@ const ExtendedSlotsKey = "extended_slots_enabled"
 
 // cacheTTL bounds how stale the switch may be.
 //
-// Ten seconds: long enough that a burst of scans costs one read, short enough
-// that an administrator who flips the toggle and walks to a coordinator's phone
-// finds it already applied. It is NOT configurable — a knob here would only
-// invite somebody to set it high enough to make the toggle look broken.
-const cacheTTL = 10 * time.Second
+// A minute: long enough that a burst of scans costs one read, short enough that
+// an administrator who flips the toggle and walks to a coordinator's phone finds
+// it already applied. It is NOT configurable — a knob here would only invite
+// somebody to set it high enough to make the toggle look broken.
+//
+// Raised from ten seconds as part of the query-volume work. The switch is
+// consulted on the marking path AND on the status poll behind it, so even a
+// ten-second window let 4,884 reads through in one production window. Nothing
+// about correctness changes: SetExtendedSlots still invalidates the entry
+// immediately on the machine that took the write, so the lag applies only to
+// the peer machine, and only until it expires.
+const cacheTTL = 60 * time.Second
 
 // Service reads and writes the runtime switches.
 type Service struct {

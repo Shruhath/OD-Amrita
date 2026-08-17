@@ -49,7 +49,22 @@ export type MarkScreenPorts = {
   camera?: ReturnType<typeof createBarcodeScanner>
 }
 
-const STATUS_POLL_MS = 5_000
+/**
+ * How often the counters and the slot clock refresh.
+ *
+ * The TIGHTEST of the three polling screens, deliberately: this is the one a
+ * coordinator watches while a student stands in front of them, and it carries
+ * the remaining fallback credit and whether the slot is still open. Ten seconds
+ * rather than five halves its cost while staying well inside the time it takes
+ * to mark the next person.
+ *
+ * It was the most expensive poll of the three, because one call fans out into
+ * several server queries — the event, the counters and the credit pool. In
+ * production those showed up as 8,862 / 6,818 / 6,798 calls against 319 actual
+ * marks. The `enabled` guard below is what stops it entirely when there is no
+ * scope selected; the countdown ticker further down is local and costs nothing.
+ */
+const STATUS_POLL_MS = 10_000
 const SEARCH_DEBOUNCE_MS = 250
 /** Matches the server's bounds exactly — see student.MinSearchRunes/MaxSearchRunes. */
 const MIN_SEARCH_RUNES = 3
@@ -150,7 +165,10 @@ export default function MarkScreen({
     queryKey: ['mark-status', eventID, categoryID],
     queryFn: () => api.markStatus(eventID, categoryID),
     enabled: scopeReady,
-    refetchInterval: STATUS_POLL_MS,
+    // Stop on error rather than hammering a server that just refused — the same
+    // guard the other polling screens carry. It was missing here, so a screen
+    // left open against a failing endpoint retried every five seconds forever.
+    refetchInterval: (query) => (query.state.error ? false : STATUS_POLL_MS),
   })
   const fallbackCredit = status.data?.fallback_credit
   const fallbackExhausted = fallbackCredit?.exhausted ?? false

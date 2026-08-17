@@ -562,6 +562,43 @@ returns with it.
 The `grace_period` in the health check is unrelated and still useful: the connection pool
 connects lazily, so a machine needs a moment after boot before it serves anything.
 
+### 7.2 What may be stale, and for how long
+
+Four things are now served from memory on each machine. **All of them are read caches — no write
+path consults any of them**, so the worst a stale entry can do is show somebody an answer that is
+up to one window old. None can admit a write that should have been refused.
+
+| What | Window | Setting | What a stale entry looks like |
+|---|---|---|---|
+| Marking scope — the event, its categories, a coordinator's assignments | **60 s** | `MARKING_SCOPE_CACHE_TTL_SECONDS` | A coordinator's screen still offers an event an admin just archived. **The mark itself is still refused**, because the write gate reads live. |
+| Principal (role) | 30 s | — | A role change takes up to 30 s to bite. |
+| Token revocation | 10 s | — | A forced logout takes up to 10 s to bite. |
+| Public reads (records, board, events, search) | 30/60/300/60 s | `PUBLIC_CACHE_*_TTL_SECONDS` | A student's "was I marked?" lags by up to 30 s. |
+
+**Every one of these accepts `0`, which switches that cache off** without a redeploy — a secret
+change and a restart. That is the escape hatch if staleness ever costs more than the query.
+
+An administrator's own edits do not wait out the window: archiving an event, adding a category or
+changing an assignment clears the scope cache **on the machine that served the edit**, and a forced
+logout clears the auth caches the same way. The *other* machine still expires on its own, so 60 s
+remains the honest number to quote.
+
+### 7.3 Screens stop polling when nobody is watching
+
+Every polling screen stops after **30 minutes** with no interaction, and resumes — with an
+immediate refetch — on any tap, keypress, or return to the tab. The marking screen also drops from
+10 s to 60 s whenever no slot is open.
+
+**This is a hosting-cost mechanism, not a UI preference.** A single tab left open on the marking
+screen polls 8,640 times a night, which keeps the Neon compute awake around the clock and undoes
+the `/health` fix in §7.1 entirely. Nothing changes during an event: a slot is open and somebody is
+touching the screen, so the idle timer is never reached.
+
+**The trade it accepts:** the first request after a quiet period pays Neon's cold start, measured at
+**~2.6 s** (most of which is the `us-east-1` round trip — see **H7**). One person, once, per idle
+period. If you ever need that gone, warm the compute on a schedule rather than polling to keep it
+awake.
+
 ---
 
 ## 8. Operator checklist (human-only steps — tracked, not dropped)

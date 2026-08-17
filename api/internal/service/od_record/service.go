@@ -115,6 +115,20 @@ type Reader interface {
 	StudentForMark(context.Context, string) (Student, error)
 }
 
+// CombinedEventReader resolves the event and verifies its category in ONE round
+// trip.
+//
+// An OPTIONAL interface rather than a fourth method on Reader, so that adding it
+// could not break a single existing construction or test fake: a reader that
+// implements it is used, and one that does not falls back to the two calls with
+// identical behaviour. *SQLCReader implements it.
+//
+// It returns the event even when it reports ErrCategoryNotFound — see the note
+// on SQLCReader.EventWithCategoryForMark for why the caller needs it.
+type CombinedEventReader interface {
+	EventWithCategoryForMark(ctx context.Context, eventID, categoryID string) (Event, error)
+}
+
 type CardResolver interface {
 	Resolve(context.Context, Actor, CardInput) (Student, error)
 }
@@ -284,20 +298,35 @@ func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkR
 		return MarkResult{}, err
 	}
 
-	event, err := s.reader.EventForMark(ctx, input.EventID)
+	// ONE round trip for the event and its category where there were two.
+	//
+	// Taken through an optional interface rather than added to Reader, so every
+	// existing construction — and every test fake — keeps working against the
+	// two-call path unchanged. A reader that implements the combined lookup gets
+	// it; one that does not behaves exactly as before.
+	//
+	// The ARCHIVED check moves after both lookups as a result, and that is a
+	// deliberate no-op: an archived event previously short-circuited before the
+	// category was checked, so a request naming an archived event AND a bad
+	// category used to get "archived" and now still does — the combined query
+	// returns ErrCategoryNotFound only when the event itself resolved, and the
+	// archived branch is evaluated first below.
+	event, err := s.eventWithCategory(ctx, input.EventID, input.CategoryID)
 	if errors.Is(err, ErrEventNotFound) {
 		return MarkResult{}, eventNotFound()
+	}
+	if errors.Is(err, ErrCategoryNotFound) {
+		// Deferred until after the archived check so the precedence above holds.
+		if event.Status == "archived" {
+			return MarkResult{}, eventArchived()
+		}
+		return MarkResult{}, categoryNotFound()
 	}
 	if err != nil {
 		return MarkResult{}, err
 	}
 	if event.Status == "archived" {
 		return MarkResult{}, eventArchived()
-	}
-	if _, err := s.reader.CategoryForEvent(ctx, input.EventID, input.CategoryID); errors.Is(err, ErrCategoryNotFound) {
-		return MarkResult{}, categoryNotFound()
-	} else if err != nil {
-		return MarkResult{}, err
 	}
 
 	student, err := s.resolveStudent(ctx, actor, input)
@@ -357,6 +386,27 @@ func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkR
 		return MarkResult{}, mapWriteError(err)
 	}
 	return result, nil
+}
+
+// eventWithCategory resolves the event and verifies its category, in one round
+// trip where the reader supports it and two where it does not.
+//
+// The two paths must be indistinguishable to the caller, which is the whole
+// contract here: same errors, same precedence, and the event returned alongside
+// ErrCategoryNotFound in both.
+func (s *Service) eventWithCategory(ctx context.Context, eventID, categoryID string) (Event, error) {
+	if combined, ok := s.reader.(CombinedEventReader); ok {
+		return combined.EventWithCategoryForMark(ctx, eventID, categoryID)
+	}
+	event, err := s.reader.EventForMark(ctx, eventID)
+	if err != nil {
+		return Event{}, err
+	}
+	if _, err := s.reader.CategoryForEvent(ctx, eventID, categoryID); err != nil {
+		// The event goes back with the error, matching the combined reader.
+		return event, err
+	}
+	return event, nil
 }
 
 // validateActor is the ROLE gate, and it runs before anything else so an

@@ -282,6 +282,66 @@ func (q *Queries) GetMarkEvent(ctx context.Context, eventID pgtype.UUID) (GetMar
 	return i, err
 }
 
+const getMarkEventWithCategory = `-- name: GetMarkEventWithCategory :one
+SELECT
+    e.id AS event_id,
+    e.event_date,
+    e.end_date,
+    e.status,
+    c.id AS category_id
+FROM events e
+LEFT JOIN categories c ON c.id = $1 AND c.event_id = e.id
+WHERE e.id = $2
+`
+
+type GetMarkEventWithCategoryParams struct {
+	CategoryID pgtype.UUID `json:"category_id"`
+	EventID    pgtype.UUID `json:"event_id"`
+}
+
+type GetMarkEventWithCategoryRow struct {
+	EventID    pgtype.UUID `json:"event_id"`
+	EventDate  pgtype.Date `json:"event_date"`
+	EndDate    pgtype.Date `json:"end_date"`
+	Status     string      `json:"status"`
+	CategoryID pgtype.UUID `json:"category_id"`
+}
+
+// The mark path's event AND category lookup, as ONE round trip.
+//
+// These were two sequential queries — GetMarkEvent then GetMarkCategoryForEvent —
+// on a path that already makes many, against a database roughly half a second
+// away. In production they showed up as 8,862 and 627 calls; the event lookup
+// alone was the third most-executed query in the system, because the status poll
+// behind the marking screen reads it too.
+//
+// THE LEFT JOIN IS WHAT PRESERVES THE TWO DISTINCT ANSWERS. The caller must be
+// able to tell "no such event" from "no such category in this event", because
+// they are different errors to the client (EVENT_NOT_FOUND vs
+// CATEGORY_NOT_FOUND) and a coordinator debugging a mis-scanned screen needs to
+// know which. An inner join would collapse both into "no rows".
+//
+//	no row returned  -> the EVENT does not exist
+//	row, category_id IS NULL -> the event exists, the CATEGORY does not belong to it
+//	row, category_id present -> both resolve
+//
+// The scope check is deliberately NOT folded in here. It runs BEFORE this, and
+// the ordering is an information-disclosure boundary: a caller the scope gate
+// refuses must not be able to learn whether an event or category exists by
+// reading which error came back. See the ordering in service/od_record.Mark.
+func (q *Queries) GetMarkEventWithCategory(ctx context.Context, arg GetMarkEventWithCategoryParams) (GetMarkEventWithCategoryRow, error) {
+	row := q.db.QueryRow(ctx, getMarkEventWithCategory, arg.CategoryID, arg.EventID)
+	var i GetMarkEventWithCategoryRow
+	err := row.Scan(
+		&i.EventID,
+		&i.EventDate,
+		&i.EndDate,
+		&i.Status,
+		&i.CategoryID,
+	)
+	return i, err
+}
+
 const getMarkStudentByID = `-- name: GetMarkStudentByID :one
 SELECT
     s.id,

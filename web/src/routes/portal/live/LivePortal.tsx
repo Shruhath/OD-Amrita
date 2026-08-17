@@ -1,6 +1,7 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ApiFailure } from '../../../api/client'
+import { useIdleAwareInterval } from '../../../features/polling/useIdleAwareInterval'
 import { PortalShell } from '../../../components/PortalShell'
 import { Select } from '../../../components/ui/Select'
 // Icons are imported ONE PER MODULE rather than from the package barrel.
@@ -88,6 +89,12 @@ export default function LivePortal() {
     return days
   }, [selectedEvent])
 
+  const attendanceRefetchRef = useRef<(() => unknown) | null>(null)
+  const attendedInterval = useIdleAwareInterval({
+    activeMs: LIVE_POLL_MS,
+    onResume: () => void attendanceRefetchRef.current?.(),
+  })
+
   const attendance = useQuery({
     queryKey: ['portal', 'live', eventID, odDate],
     queryFn: () => api.portalAttendance(eventID, { odDate, pageSize: 100 }),
@@ -99,11 +106,16 @@ export default function LivePortal() {
     //
     // The error guard is unchanged: a failed request stops the timer rather than
     // hammering a server that just refused.
+    // The third reason is the idle stop: a live board left open on an unattended
+    // screen polls all night otherwise, and that alone prevents the database from
+    // ever suspending. Any tap or a return to the tab resumes it and refetches.
     refetchInterval: (query) => {
       if (query.state.error) return false
+      if (attendedInterval === false) return false
       return odDate === campusToday() ? LIVE_POLL_MS : false
     },
   })
+  attendanceRefetchRef.current = attendance.refetch
 
   const rows = attendance.data?.data ?? []
 

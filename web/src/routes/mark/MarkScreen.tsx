@@ -8,6 +8,7 @@ import { ThemeToggle } from '../../components/ThemeToggle'
 import { Select } from '../../components/ui/Select'
 import { useAuth } from '../../features/auth/context'
 import { createBarcodeScanner, type BarcodeScannerStatus } from '../../features/marking/barcodeScanner'
+import { useIdleAwareInterval } from '../../features/polling/useIdleAwareInterval'
 import { CardNfcError, createWebNfcAdapter, type WebNfcStatus } from '../../features/nfc/webNfc'
 
 /**
@@ -65,6 +66,16 @@ export type MarkScreenPorts = {
  * scope selected; the countdown ticker further down is local and costs nothing.
  */
 const STATUS_POLL_MS = 10_000
+/**
+ * The cadence once the server says no slot is open.
+ *
+ * Nothing this endpoint reports can change while every slot is closed: no mark
+ * can be accepted, so the counters are frozen and the credit pool cannot move.
+ * The only thing still worth watching for is the NEXT slot opening, and a minute
+ * is a fine resolution for that — the countdown itself is rendered from a local
+ * ticker, not from these responses.
+ */
+const CLOSED_SLOT_POLL_MS = 60_000
 const SEARCH_DEBOUNCE_MS = 250
 /** Matches the server's bounds exactly — see student.MinSearchRunes/MaxSearchRunes. */
 const MIN_SEARCH_RUNES = 3
@@ -161,15 +172,36 @@ export default function MarkScreen({
   // Counters and the slot clock — one server endpoint, polled.
   // ---------------------------------------------------------------------
 
+  // Declared before the query so the idle timer can gate it, and refetched
+  // through a ref because waking must re-read a query that does not exist yet at
+  // this point in the render.
+  const statusRefetchRef = useRef<(() => unknown) | null>(null)
+  const attendedInterval = useIdleAwareInterval({
+    activeMs: STATUS_POLL_MS,
+    onResume: () => void statusRefetchRef.current?.(),
+  })
+
   const status = useQuery({
     queryKey: ['mark-status', eventID, categoryID],
     queryFn: () => api.markStatus(eventID, categoryID),
     enabled: scopeReady,
-    // Stop on error rather than hammering a server that just refused — the same
-    // guard the other polling screens carry. It was missing here, so a screen
-    // left open against a failing endpoint retried every five seconds forever.
-    refetchInterval: (query) => (query.state.error ? false : STATUS_POLL_MS),
+    // THREE reasons this timer slows or stops, in order of severity.
+    refetchInterval: (query) => {
+      // 1. A refusal. Stop rather than hammer a server that just said no.
+      if (query.state.error) return false
+      // 2. Nobody is here. This is the most expensive poll in the app — one call
+      //    fans out into the event, the counters and the credit pool — so a
+      //    screen forgotten overnight is what keeps the database from ever
+      //    suspending. Any tap resumes it and refetches immediately.
+      if (attendedInterval === false) return false
+      // 3. Every slot is closed, so nothing this endpoint reports can change: no
+      //    mark can be accepted, the counters are frozen and the credit pool
+      //    cannot move. `slot: null` is the server's explicit closed state, so
+      //    this reads the answer rather than re-deriving the timetable here.
+      return query.state.data?.slot ? STATUS_POLL_MS : CLOSED_SLOT_POLL_MS
+    },
   })
+  statusRefetchRef.current = status.refetch
   const fallbackCredit = status.data?.fallback_credit
   const fallbackExhausted = fallbackCredit?.exhausted ?? false
   const fallbackWarningThreshold = fallbackCredit?.warning_threshold ?? 1

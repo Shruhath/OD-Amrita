@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useIdleAwareInterval } from '../../../features/polling/useIdleAwareInterval'
 import type { CategoryRecord, AttendanceRecordCollection } from '../../../api/client'
 import { Select } from '../../../components/ui/Select'
 import { asString, usePersistentState } from '../../../features/persistence/sessionState'
@@ -53,6 +54,12 @@ export function EventAttendanceSection({
     }
   }, [categoryID, categories, setCategoryID])
 
+  const attendanceRefetchRef = useRef<(() => unknown) | null>(null)
+  const attendedInterval = useIdleAwareInterval({
+    activeMs: ATTENDANCE_POLL_MS,
+    onResume: () => void attendanceRefetchRef.current?.(),
+  })
+
   const attendance = useQuery({
     queryKey: ['admin', 'attendance', eventID, categoryID || 'all', slot || 'all', odDate || 'all', page],
     queryFn: () => api.adminAttendance(eventID, {
@@ -72,13 +79,18 @@ export function EventAttendanceSection({
     // Corrections and dispute approvals do write to past days, which is why the
     // query is not made permanently static — any filter change, navigation or
     // remount refetches it. What stops is only the unattended timer.
+    // And the idle stop, for the administrator's tab left open on this table
+    // overnight — an unattended screen is the one thing that stops the database
+    // suspending. Any tap or return to the tab resumes it and refetches.
     refetchInterval: (query) => {
       if (query.state.error) return false
+      if (attendedInterval === false) return false
       const today = campusToday()
       const live = today >= eventDate && today <= (endDate || eventDate)
       return live ? ATTENDANCE_POLL_MS : false
     },
   })
+  attendanceRefetchRef.current = attendance.refetch
 
   const rows = attendance.data?.data ?? []
   const total = attendance.data?.total ?? 0

@@ -13,6 +13,7 @@ import {
 import { ThemeToggle } from '../../components/ThemeToggle'
 import { Select } from '../../components/ui/Select'
 import { campusToday, defaultDay, enumerateDays } from './days'
+import { useIdleAwareInterval } from '../../features/polling/useIdleAwareInterval'
 
 /**
  * The public attendance dashboard — the only screen in this app that a visitor
@@ -298,6 +299,12 @@ function DayBoard() {
   const [slot, setSlot] = useState('')
   const [categoryID, setCategoryID] = useState('')
 
+  const boardRefetchRef = useRef<(() => unknown) | null>(null)
+  const attendedInterval = useIdleAwareInterval({
+    activeMs: BOARD_POLL_MS,
+    onResume: () => void boardRefetchRef.current?.(),
+  })
+
   const board = useQuery({
     queryKey: ['public', 'board', slot, categoryID],
     queryFn: () => api.publicDayAttendance({
@@ -307,9 +314,19 @@ function DayBoard() {
     // The board is a live list during an event, and it is the same answer for
     // everybody, so the server caches it too — this interval decides how stale
     // a screen left open goes, not how hard the database is hit.
-    refetchInterval: (query) => (query.state.error ? false : BOARD_POLL_MS),
+    //
+    // The idle stop still matters, and this is the least obvious of the four
+    // screens for it: the server's cache of this board lasts sixty seconds and
+    // this poll is sixty seconds, so EVERY poll is a cache miss and reaches the
+    // database. One public board left up on an unattended display keeps the
+    // compute awake exactly as effectively as a marking screen would.
+    refetchInterval: (query) => {
+      if (query.state.error) return false
+      return attendedInterval === false ? false : BOARD_POLL_MS
+    },
     gcTime: 0,
   })
+  boardRefetchRef.current = board.refetch
 
   const students = board.data?.students ?? []
   // Memoised because the effect below depends on it: a fresh [] every render

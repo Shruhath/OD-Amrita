@@ -85,3 +85,8 @@ old-od-app
 # It was committed by accident on 2026-08-09 and untracked again; docs/deployment-runbook.md
 # is the reference that belongs here.
 docs/deploy-walkthrough.md
+
+# Vercel CLI project linkage. Local-only: it names the project a machine is
+# linked to, and committing it makes every clone deploy to whatever project the
+# last person happened to be linked to.
+.vercel/

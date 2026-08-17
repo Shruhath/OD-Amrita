@@ -40,11 +40,35 @@ SELECT
 FROM effective, usage;
 
 -- name: DebitCaptureCredit :one
+-- ── NO `FOR UPDATE` HERE, DELIBERATELY ──────────────────────────────────────
+--
+-- This CTE used to take a row lock on the assignment. It was the slowest query
+-- in the system by a wide margin: production measured it at 28.8ms average over
+-- 185 calls, with a further 13 calls averaging 190ms — around 300x the median
+-- query, and 7 seconds of database time for 198 debits. That 190ms bucket is a
+-- coordinator marking quickly, waiting on their own previous debit.
+--
+-- The lock bought nothing. Serialization comes from the INSERT below: the unique
+-- key on (event_id, user_id, usage_date) means two concurrent debits for the
+-- same coordinator-day contend on THAT row, and the loser takes the ON CONFLICT
+-- path, re-reads `consumed` under its own row lock and re-evaluates the
+-- `consumed < credit_limit` guard. The limit cannot be overspent whether or not
+-- the assignment row is locked, because the assignment row is not what is being
+-- incremented.
+--
+-- What locking the assignment DID do was add a second row every debit had to
+-- queue behind, held for the whole statement — so two credits for one
+-- coordinator serialized twice over instead of once.
+--
+-- If an operator's edit to fallback_credit_limit lands between this read and the
+-- insert, the debit uses the limit that was in force when it started. That was
+-- already true — the lock never covered the config row that
+-- ListCaptureCreditUsageByEvent reports from — and it is the correct reading: a
+-- capture already in flight is judged by the rules it began under.
 WITH assignment AS (
     SELECT eca.event_id, eca.user_id, eca.fallback_credit_limit
     FROM event_coordinator_assignments eca
     WHERE eca.event_id = @event_id AND eca.user_id = @user_id
-    FOR UPDATE
 ),
 effective AS (
     SELECT assignment.fallback_credit_limit::integer AS credit_limit

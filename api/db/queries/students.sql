@@ -122,6 +122,22 @@ SELECT
 FROM students s
 JOIN branches b ON b.id = s.branch_id
 WHERE lower(s.roll_no || ' ' || s.name) ~~ ALL (@patterns::text[])
+  -- REDUNDANT BY DESIGN — this is what makes the index usable.
+  --
+  -- @seed_pattern is one of @patterns (the longest), so this predicate cannot
+  -- change which rows match: `ALL` already requires it. What it changes is the
+  -- PLAN. Postgres cannot drive an index from `~~ ALL (array)` — that is a
+  -- ScalarArrayOpExpr with AND semantics, which no access method implements — so
+  -- with the ALL form alone the query plans a sequential scan even with
+  -- students_search_trgm_idx present. A plain `~~` against the identical
+  -- expression uses it as a bitmap index scan.
+  --
+  -- Verified by EXPLAIN ANALYZE on 5,000 rows: seq scan on ~4,200 rows filtered
+  -- before, bitmap index scan after.
+  --
+  -- If the trigram index is ever dropped, this predicate stays correct and the
+  -- query simply plans as it always did.
+  AND lower(s.roll_no || ' ' || s.name) ~~ @seed_pattern::text
 ORDER BY
     (s.roll_no = @exact_roll::text) DESC,
     -- Then whoever the query STARTS a word of, so typing a first name still

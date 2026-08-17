@@ -46,6 +46,24 @@ type SearchQuery struct {
 	// true and returns the entire roster, which is precisely the dump the
 	// minimum-length guard exists to prevent.
 	Patterns []string
+	// SeedPattern is the LONGEST of Patterns, repeated as its own predicate so
+	// the trigram index can be used.
+	//
+	// IT IS LOGICALLY REDUNDANT, AND THAT IS THE POINT. `~~ ALL (array)` already
+	// requires every pattern to match, so requiring one of them again changes no
+	// result — but Postgres cannot drive a GIN index from the `ALL (array)` form
+	// (it is a ScalarArrayOpExpr with AND semantics, which no index access method
+	// supports), while a plain `~~` against the same expression uses
+	// students_search_trgm_idx directly. Verified by EXPLAIN: the ALL form plans
+	// a sequential scan even with the index present; the plain form plans a
+	// bitmap index scan.
+	//
+	// So this narrows the candidate rows through the index, and the ALL predicate
+	// then filters the remainder. The LONGEST term is chosen because trigram
+	// selectivity grows with length — and a pattern under three characters yields
+	// no trigrams at all, in which case the planner simply falls back to the scan
+	// it would have done anyway.
+	SeedPattern string
 	// HeadPattern ranks word-start matches above mid-word ones, so typing a first
 	// name still puts that person first. It is matched against the haystack with
 	// a space prepended, which is what lets a match at position one count as the
@@ -161,8 +179,19 @@ func buildSearchQuery(input SearchInput) (SearchQuery, error) {
 	for _, term := range terms {
 		patterns = append(patterns, "%"+escapeLikePattern(strings.ToLower(term))+"%")
 	}
+	// The longest pattern seeds the index scan. Compared on runes rather than
+	// bytes so a multi-byte name is not judged longer than it reads — the
+	// comparison only picks which redundant predicate to add, so being wrong is
+	// slow rather than incorrect, but there is no reason to be wrong.
+	seed := patterns[0]
+	for _, pattern := range patterns[1:] {
+		if len([]rune(pattern)) > len([]rune(seed)) {
+			seed = pattern
+		}
+	}
 	return SearchQuery{
-		Patterns: patterns,
+		Patterns:    patterns,
+		SeedPattern: seed,
 		// Joined from the split terms rather than taken from `trimmed`, so runs of
 		// whitespace between words do not stop the ranking from matching.
 		HeadPattern: "% " + escapeLikePattern(strings.ToLower(strings.Join(terms, " "))) + "%",

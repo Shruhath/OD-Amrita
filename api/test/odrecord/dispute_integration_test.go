@@ -71,14 +71,27 @@ func disputeSubmitInput(studentID, email, eventID, categoryID string, slot int) 
 
 // disputeSubmitInputOn is the same thing with an explicit day, for the tests that
 // turn on which day is being disputed.
+//
+// claimed_coordinator_name and student_note are BOTH REQUIRED — the public form
+// asks for them and validateSubmitInput refuses a submission without them. They
+// are filled here rather than at each call site because not one of these tests is
+// about those two fields: they are all about uniqueness, scope, privileges and
+// the co-committed audit row, and a fixture missing a required field turns every
+// one of them into the same VALIDATION_FAILED for the wrong reason. The tests
+// that ARE about the fields' own rules live in service/dispute's unit suite and
+// set them explicitly.
 func disputeSubmitInputOn(studentID, email, eventID, categoryID, odDate string, slot int) dispute.SubmitInput {
+	coordinatorName := "Fixture Coordinator"
+	studentNote := "I was marked present at this slot but the record is missing."
 	return dispute.SubmitInput{
-		StudentID:      studentID,
-		SubmittedEmail: email,
-		EventID:        eventID,
-		CategoryID:     categoryID,
-		ODDate:         odDate,
-		Slot:           slot,
+		StudentID:              studentID,
+		SubmittedEmail:         email,
+		EventID:                eventID,
+		CategoryID:             categoryID,
+		ODDate:                 odDate,
+		Slot:                   slot,
+		ClaimedCoordinatorName: &coordinatorName,
+		StudentNote:            &studentNote,
 	}
 }
 

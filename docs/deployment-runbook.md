@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-08-09
 **Status:** 🟢 **Live and verified end to end.** API on Fly (two machines, both healthy), web on
-Vercel served from **`odamrita.in`**, schema on Neon at version **24**, Supabase brokering sign-in.
+Vercel served from **`odamrita.in`**, schema on Neon at version **25**, Supabase brokering sign-in.
 Verified 2026-08-09 by `api/scripts/smoke.sh`, a browser run against the production origin, and a
 direct read of the live schema. §8 records exactly what is done and what still needs a human.
 
@@ -173,9 +173,28 @@ unset PGPASSWORD
 psql "$DATABASE_URL_MIGRATOR" -c 'SELECT max(version_id) FROM goose_db_version;'
 ```
 
-Expect **24** — migrations `0001`–`0024`. A lower number, or a missing table, means the
+Expect **25** — migrations `0001`–`0025`. A lower number, or a missing table, means the
 migrations did not all apply; stop and fix that before deploying, because the API will fail at
 runtime rather than at boot.
+
+> **⚠️ `0025` needs `pg_trgm`, and only the OWNER role can install it.**
+>
+> `0025` creates the trigram index behind the roster search. `CREATE EXTENSION` requires
+> `CREATE` on the **database**, which `od_migrator` deliberately does not have — it owns the
+> schema and nothing above it, so a leaked migrator credential cannot install extensions.
+>
+> The extension is created by **step 1 above** (`db/init/00_roles.sql`), which runs as the
+> owner role `neondb_owner`. **If you bootstrapped this database before that line was added,
+> `0025` will fail** with a message naming this section. Fix it by running one statement as the
+> owner and re-running `migrate-up`:
+>
+> ```bash
+> psql "$SUPERUSER_DSN" -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'
+> ```
+>
+> The migration is not silently skippable on purpose: a missing index leaves the search
+> returning perfectly correct answers while planning a sequential scan, which nobody would
+> notice until the roster grew.
 
 > **⚠️ `0016` is a one-way door once a multi-day event has been marked.**
 >
@@ -509,17 +528,39 @@ Then verify the browser path by hand, which the script cannot do:
 - Open a deep link directly (e.g. `<vercel-origin>/portal/events`). It must load the app, not a
   Vercel 404 — that is the `vercel.json` rewrite working.
 
-### 7.1 `/health` is fail-closed — know this before you debug an outage
+### 7.1 `/health` is fail-OPEN on the database — know this before you debug an outage
 
-`/health` returns **503** when Neon is unreachable, and `api/fly.toml` health-checks that path.
-So an unreachable database causes Fly to **pull the machine out of rotation**.
+**This reverses what this section said before, and the reversal was deliberate.**
 
-That is the behaviour we want: a mark must never be routed to an instance that cannot write it.
-But it has a consequence worth stating plainly — **Neon is a hard dependency of availability.**
-There is no offline queue and no degraded read-only mode. If every machine reports unhealthy,
-look at the database first, not at Fly. The `grace_period` in the health check exists for a
-different reason: the connection pool connects lazily, so a machine needs a few seconds after
-boot before it can honestly answer `db:"up"`.
+`/health` no longer touches the database. It answers **200 `{"status":"ok","db":"up"}`**
+whether or not Neon is reachable, so an unreachable database **does not** pull a machine out of
+rotation. Marks will fail with 5xx on a machine that cannot write, and Fly will keep sending
+traffic to it.
+
+**Why it was changed.** The probe used to ping the connection pool on every request, and
+`api/fly.toml` health-checks it every **15 s** across **two** machines. That is **5,760 database
+touches per day at zero traffic**, and every one of them reset Neon's five-minute idle timer —
+so the compute never suspended and billed around the clock for an app used a few hours a week.
+It was the largest single line on the bill.
+
+**What to do instead when you suspect the database:**
+
+- `curl https://od-amrita-api.fly.dev/api/v1/public/events` — a real read. A 5xx here is the
+  database; a 200 is not.
+- Neon's console → Monitoring, which is authoritative about whether the compute is up.
+- `flyctl logs` — a failing pool logs on every request it cannot serve.
+
+**Neon remains a hard dependency of availability.** There is no offline queue and no degraded
+read-only mode; that has not changed. What changed is only that Fly can no longer detect it.
+
+**To restore the old fail-closed behaviour:** uncomment the ping block in
+`api/internal/handler/health/health.go` and the db-down phase in
+`.github/workflows/api-ci.yml`. Both are commented, not deleted, and reference each other. If
+you do, raise `api/fly.toml`'s `interval` well past Neon's suspend window first, or the bill
+returns with it.
+
+The `grace_period` in the health check is unrelated and still useful: the connection pool
+connects lazily, so a machine needs a moment after boot before it serves anything.
 
 ---
 

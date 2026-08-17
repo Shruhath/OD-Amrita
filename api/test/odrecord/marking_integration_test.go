@@ -49,7 +49,7 @@ func TestMarkStatusCountersSeparateOwnMarksFromTheCategoryTotal(t *testing.T) {
 	fixture := seedMarkFixture(t, ctx, migrator)
 
 	coordinatorA := fixture.coordinatorID
-	coordinatorB := seedSecondCoordinator(t, ctx, migrator)
+	coordinatorB := seedSecondCoordinator(t, ctx, migrator, fixture)
 
 	// Real rows through raw SQL: this test is about the COUNTING query, not about
 	// the write path (which TestCameraMarkWritesTruthfulRecordAndOneAuditRow owns).
@@ -286,7 +286,7 @@ func TestStudentSearchUsesCanonicalRollAndStaysBounded(t *testing.T) {
 // Scaffold helpers — real bodies, no logic of their own.
 // ---------------------------------------------------------------------------
 
-func seedSecondCoordinator(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
+func seedSecondCoordinator(t *testing.T, ctx context.Context, pool *pgxpool.Pool, fixture markFixture) string {
 	t.Helper()
 	id := uuid.NewString()
 	if _, err := pool.Exec(ctx, `
@@ -295,6 +295,26 @@ func seedSecondCoordinator(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 		ON CONFLICT (supabase_subject) DO UPDATE SET role = EXCLUDED.role`,
 		id, "atdd-coordinator2-"+id); err != nil {
 		t.Fatalf("seed second coordinator: %v", err)
+	}
+	// THE ASSIGNMENT IS NOT OPTIONAL. This helper used to create the user and
+	// stop there, which was survivable while the fallback credit limit lived in
+	// its own config table — a coordinator with no assignment simply read the
+	// default. Migration 0024 moved that limit onto the assignment ROW, so
+	// GetCaptureCreditState now starts from event_coordinator_assignments and
+	// returns NO ROWS for a coordinator who has none. MarkStatus reads the credit
+	// state, so it failed with a bare "no rows in result set".
+	//
+	// Seeding it is the honest fix rather than making the query tolerate a
+	// missing assignment: in production a coordinator cannot mark in an event
+	// they are not assigned to — the scope guard refuses it — so a coordinator
+	// holding marks in a category necessarily has this row. The fixture writes
+	// od_records through raw SQL to isolate the counting query from the write
+	// path, and in doing so had skipped a row the write path would have required.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO event_coordinator_assignments (user_id, event_id, created_by_user_id)
+		VALUES ($1, $2, $3)
+		ON CONFLICT DO NOTHING`, id, fixture.eventID, fixture.adminID); err != nil {
+		t.Fatalf("seed second coordinator assignment: %v", err)
 	}
 	return id
 }

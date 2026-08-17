@@ -44,7 +44,35 @@ func TestNewPool_ValidDSNConstructsLazily(t *testing.T) {
 // deadline together and redials the hosted database as a herd, which is what
 // made the Fly health check fail and recover roughly hourly on both machines.
 // Asserted on the config rather than by waiting an hour, so it is a real test.
-func TestNewPool_SpreadsConnectionRetirementAndKeepsConnectionsWarm(t *testing.T) {
+func TestNewPool_SpreadsConnectionRetirement(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	pool, err := NewPool(ctx, "postgres://od_runtime:x@localhost:1/od_amrita?sslmode=disable")
+	if err != nil {
+		t.Fatalf("NewPool: %v", err)
+	}
+	defer pool.Close()
+
+	if cfg := pool.Config(); cfg.MaxConnLifetimeJitter <= 0 {
+		t.Error("connections retire on an unjittered deadline, so the whole pool redials at once")
+	}
+}
+
+// The pool must hold NOTHING open when the app is idle.
+//
+// This assertion is the inverse of the one it replaced, and the reversal is the
+// point. The old test required MinConns >= 1 so a warm connection was always in
+// hand for the /health probe's dial. That probe no longer touches the database
+// at all (see internal/handler/health), and against a database that suspends
+// when idle the warm connection stopped being a courtesy and became the bill:
+// Neon drops every connection on suspend, pgx's health-check ticker sees the
+// pool below MinConns and reopens them, and reopening WAKES THE COMPUTE. The
+// database could never stay suspended, so it billed around the clock.
+//
+// Guarding it here means the cost fix cannot be undone by someone restoring a
+// "sensible" warm floor without reading why it went.
+func TestNewPool_HoldsNoIdleConnectionsSoTheDatabaseCanSuspend(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -55,11 +83,15 @@ func TestNewPool_SpreadsConnectionRetirementAndKeepsConnectionsWarm(t *testing.T
 	defer pool.Close()
 
 	cfg := pool.Config()
-	if cfg.MaxConnLifetimeJitter <= 0 {
-		t.Error("connections retire on an unjittered deadline, so the whole pool redials at once")
+	if cfg.MinConns != 0 {
+		t.Errorf("MinConns = %d, want 0 — a non-zero floor makes pgx redial on every "+
+			"suspend and keeps the database awake around the clock", cfg.MinConns)
 	}
-	if cfg.MinConns < 1 {
-		t.Error("no connection is kept warm, so the health probe pays for the first dial itself")
+	// The ticker is what performs that redial, so a short period reintroduces the
+	// problem from the other side.
+	if cfg.HealthCheckPeriod < time.Minute {
+		t.Errorf("HealthCheckPeriod = %s, want at least 1m — a fast ticker is a heartbeat "+
+			"that keeps a suspending database awake", cfg.HealthCheckPeriod)
 	}
 }
 

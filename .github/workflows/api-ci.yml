@@ -248,21 +248,42 @@ jobs:
         run: |
           API_BASE_URL=https://localhost:8443 \
             go test -tags integration ./test/health/... -v
-      - name: Stop Postgres (server keeps running)
-        # Reference the service container by its GitHub-assigned id — robust
-        # against image-filter mismatches / empty matches that would silently
-        # skip the teardown the db-down gate depends on.
-        run: |
-          docker stop "${{ job.services.postgres.id }}"
-      - name: /health — db-down phase (503 degraded/down)
-        working-directory: api
-        run: |
-          # Let the pool observe the dropped DB before asserting: poll until
-          # /health flips to 503 so the gate isn't racing the TCP teardown.
-          for i in $(seq 1 15); do
-            code="$(curl -sk -o /dev/null -w '%{http_code}' https://localhost:8443/health || true)"
-            [ "$code" = "503" ] && break
-            sleep 1
-          done
-          API_BASE_URL=https://localhost:8443 HEALTH_EXPECT_DB_DOWN=1 \
-            go test -tags integration ./test/health/... -v
+      # Stopping Postgres existed ONLY to set up the db-down gate below, which is
+      # disabled with the probe it asserted on. Left commented beside it so the
+      # two are restored together.
+      #
+      # - name: Stop Postgres (server keeps running)
+      #   # Reference the service container by its GitHub-assigned id — robust
+      #   # against image-filter mismatches / empty matches that would silently
+      #   # skip the teardown the db-down gate depends on.
+      #   run: |
+      #     docker stop "${{ job.services.postgres.id }}"
+      # ── /health db-down phase — DISABLED ALONGSIDE THE PROBE ITSELF ──────────
+      #
+      # This gate asserted that /health flips to 503 when the database is gone.
+      # That behaviour was deliberately removed: the probe used to ping the pool
+      # on every request, and api/fly.toml checks it every 15s on two machines —
+      # 5,760 database touches a day at zero traffic, which is why the Neon
+      # compute never scaled to zero and billed around the clock.
+      #
+      # The gate is disabled, NOT deleted, and it is disabled by the same switch
+      # that turns the probe back on: uncomment the ping block in
+      # api/internal/handler/health/health.go and uncomment this step, and the
+      # old fail-closed behaviour and its gate both return together. The
+      # db-UP phase above still runs and still proves the server serves.
+      #
+      # api/test/health/health_test.go is untouched — its db-down case is
+      # already opt-in behind HEALTH_EXPECT_DB_DOWN and skips by default.
+      #
+      # - name: /health — db-down phase (503 degraded/down)
+      #   working-directory: api
+      #   run: |
+      #     # Let the pool observe the dropped DB before asserting: poll until
+      #     # /health flips to 503 so the gate isn't racing the TCP teardown.
+      #     for i in $(seq 1 15); do
+      #       code="$(curl -sk -o /dev/null -w '%{http_code}' https://localhost:8443/health || true)"
+      #       [ "$code" = "503" ] && break
+      #       sleep 1
+      #     done
+      #     API_BASE_URL=https://localhost:8443 HEALTH_EXPECT_DB_DOWN=1 \
+      #       go test -tags integration ./test/health/... -v

@@ -30,8 +30,13 @@ func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	if !strings.Contains(dsn, "pool_max_conns") {
 		cfg.MaxConns = 10
 	}
+	// The health-check ticker is what re-creates connections. On a database that
+	// suspends when idle, every tick is a chance to wake it, so this is a cost
+	// knob as much as a liveness one. A minute is frequent enough to prune a
+	// dead connection before a request finds it and rare enough not to be a
+	// heartbeat.
 	if !strings.Contains(dsn, "pool_health_check_period") {
-		cfg.HealthCheckPeriod = 30 * time.Second
+		cfg.HealthCheckPeriod = 1 * time.Minute
 	}
 	// Spread connection retirement out. pgx retires a connection at
 	// MaxConnLifetime (one hour by default) and, with no jitter, EVERY connection
@@ -48,13 +53,32 @@ func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	//
 	// Jitter makes pgx retire each connection somewhere in the five minutes BEFORE
 	// its deadline instead of exactly on it, so the pool always keeps live
-	// connections while the rest cycle. MinConns then keeps a warm connection in
-	// hand rather than making the health probe itself pay for the first dial.
+	// connections while the rest cycle.
 	if !strings.Contains(dsn, "pool_max_conn_lifetime_jitter") {
 		cfg.MaxConnLifetimeJitter = 5 * time.Minute
 	}
+	// ── MinConns MUST STAY ZERO AGAINST A SUSPENDING DATABASE ──────────────────
+	//
+	// This used to be 2, to keep a warm connection so the /health probe would not
+	// pay for the first dial. That justification died with the probe's ping (see
+	// internal/handler/health), and what it left behind was a bill.
+	//
+	// The mechanism: Neon closes every connection when it suspends. pgx's
+	// health-check ticker then sees the pool below MinConns and IMMEDIATELY opens
+	// replacements — which wakes the compute straight back up. The database can
+	// never stay suspended, so it is billed around the clock no matter how quiet
+	// the app is. It is a well-known pgx-on-serverless-Postgres failure mode, and
+	// it is why silencing /health alone would have changed nothing.
+	//
+	// Zero means the pool holds nothing open when nobody is asking. The cost is
+	// that the first request after an idle period pays a dial — and, if the
+	// database had suspended, its ~300-500ms resume. That is the trade, and it is
+	// paid by a background poll far more often than by a person.
+	//
+	// A DSN that sets pool_min_conns still wins, so this is overridable in an
+	// emergency without a deploy.
 	if !strings.Contains(dsn, "pool_min_conns") {
-		cfg.MinConns = 2
+		cfg.MinConns = 0
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

@@ -167,6 +167,22 @@ func (c *TTL[V]) Forget(key string) {
 	delete(c.entries, key)
 }
 
+// Clear drops every entry, so the next read of any key reloads it.
+//
+// For the case where a change invalidates entries the caller cannot NAME. The
+// revocation cache is the one that forced this: its keys carry a session id and
+// an issue time, so "every cached verdict for this subject" is not something the
+// holder can enumerate — and after an administrator deliberately forces a
+// logout, reloading a handful of entries once is plainly the right price for
+// being certain none of them is stale.
+//
+// Prefer Forget when the key IS known; this is the blunt instrument.
+func (c *TTL[V]) Clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	clear(c.entries)
+}
+
 // Len reports how many entries are held, expired ones included. For tests and
 // for a future metric; not part of the read path.
 func (c *TTL[V]) Len() int {

@@ -167,7 +167,13 @@ func run() error {
 	// consults on every protected request, and the admin-only revocation service.
 	// Supabase exposes no supported server-side target-user revoke API, so the
 	// Supabase adapter is the disabled no-op — the local deny-list is authoritative.
-	revChecker := svcauth.NewSQLCRevocationChecker(pool)
+	// Cached, because this runs on EVERY protected request and was the single
+	// most-executed query in the database (15,766 calls against 319 actual
+	// marks). The TTL is short — this is the forced-logout boundary, not merely
+	// an authorization read — and the admin revoke path below drops the cache
+	// so the machine taking the revocation never serves a stale verdict.
+	revCache := svcauth.NewCachedRevocationChecker(svcauth.NewSQLCRevocationChecker(pool))
+	var revChecker svcauth.RevocationChecker = revCache
 	revSvc := svcauth.NewRevocationService(
 		st,
 		svcauth.NewSQLCRevocationWriter(),
@@ -182,7 +188,12 @@ func run() error {
 	api.Use(mwauth.RevocationGuard(revChecker))
 	api.GET("/auth/me", handlerauth.MeHandler(userSvc, loginAuditor))
 
-	principalLoader := rbac.NewSQLCPrincipalLoader(pool)
+	// Cached for the same reason as the revocation check: this ran on every
+	// authenticated request (13,571 calls) to answer a question that changes a
+	// handful of times in the life of an event. See rbac.CachedPrincipalLoader
+	// for what the staleness window costs.
+	principalCache := rbac.NewCachedPrincipalLoader(rbac.NewSQLCPrincipalLoader(pool))
+	var principalLoader rbac.PrincipalLoader = principalCache
 	cardKeyring, err := svccardtoken.NewKeyring(cfg.CardSeal.ActiveVersion, cfg.CardSeal.HMACKeys)
 	if err != nil {
 		return err
@@ -268,7 +279,17 @@ func run() error {
 
 	admin := newAdminGroup(api, principalLoader)
 	handlerappsettings.RegisterAdminRoutes(admin, settingsSvc)
-	admin.POST("/users/:user_id/sessions/revoke", handleradmin.RevokeSessionsHandler(revSvc))
+	// Wrapped so a successful revoke drops the cached verdicts on THIS machine
+	// immediately, rather than leaving the administrator to watch a revoked
+	// session keep working for the length of the cache window. Peer machines
+	// expire on their own inside RevocationCacheTTL — the same shape the public
+	// read cache already has.
+	admin.POST("/users/:user_id/sessions/revoke",
+		handleradmin.RevokeSessionsHandler(revokeDroppingCaches{
+			inner:      revSvc,
+			revocation: revCache,
+			principals: principalCache,
+		}))
 	eventSvc := svcevent.NewService(eventReader, st, svcevent.NewSQLCWriter())
 	handlerevent.RegisterAdminRoutes(admin, eventSvc)
 	handlerodrecord.RegisterAdminAttendanceRoutes(admin, portalMarkReads)
@@ -370,6 +391,46 @@ func tlsMinVersion(v string) uint16 {
 		return tls.VersionTLS13
 	}
 	return tls.VersionTLS12
+}
+
+// revokeDroppingCaches performs a revocation and then invalidates the caches
+// that would otherwise keep answering from before it.
+//
+// It lives here rather than inside either cache because neither of them should
+// know what a revocation is: the caches are general, and the ORDER — write
+// first, invalidate second, invalidate only on success — is a property of this
+// composition. Invalidating first would leave a window where a reload could
+// re-cache the pre-revocation answer; invalidating on failure would throw away
+// good entries for nothing.
+type revokeDroppingCaches struct {
+	inner interface {
+		RevokeUserSessions(ctx context.Context, actor svcauth.VerifiedIdentity, targetUserID string, req svcauth.RevokeRequest) (svcauth.Revocation, error)
+	}
+	revocation interface{ Clear() }
+	principals interface{ Clear() }
+}
+
+func (r revokeDroppingCaches) RevokeUserSessions(
+	ctx context.Context,
+	actor svcauth.VerifiedIdentity,
+	targetUserID string,
+	req svcauth.RevokeRequest,
+) (svcauth.Revocation, error) {
+	revocation, err := r.inner.RevokeUserSessions(ctx, actor, targetUserID, req)
+	if err != nil {
+		return revocation, err
+	}
+	// Both caches are cleared ENTIRELY rather than by key, and that is deliberate
+	// rather than lazy. The service's result reports the row it wrote, not the
+	// subject it wrote it for, and the revocation cache's keys carry a session id
+	// and an issue time that cannot be reconstructed from a subject anyway.
+	//
+	// The cost is one reload per active caller, once, at the moment an
+	// administrator deliberately forced somebody out — which is rare, and is
+	// exactly the moment to prefer certainty over cleverness.
+	r.revocation.Clear()
+	r.principals.Clear()
+	return revocation, nil
 }
 
 type publicDisputeSurface struct {

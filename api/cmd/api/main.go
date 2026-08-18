@@ -21,7 +21,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Shruhath/OD-Amrita/api/internal/cachebus"
 	"github.com/Shruhath/OD-Amrita/api/internal/config"
+	"github.com/Shruhath/OD-Amrita/api/internal/eventstream"
 	handleradmin "github.com/Shruhath/OD-Amrita/api/internal/handler/admin"
 	handlerappsettings "github.com/Shruhath/OD-Amrita/api/internal/handler/appsettings"
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
@@ -74,6 +76,20 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
+
+	// The domain event stream. OFF unless KAFKA_BROKERS is set, in which case
+	// every value below is the same no-op it has always been — see package
+	// eventstream. A malformed Kafka setting fails the boot here; an UNREACHABLE
+	// broker deliberately does not.
+	stream, err := eventstream.New(context.Background())
+	if err != nil {
+		return err
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		stream.Close(ctx)
+	}()
 
 	if cfg.AppEnv != "development" {
 		gin.SetMode(gin.ReleaseMode)
@@ -144,7 +160,14 @@ func run() error {
 	// and /health reports db:down — provisioning simply fails with a centralized
 	// 5xx until a live DB is present (D6). Provisioning is never reached anyway
 	// until Supabase auth is configured (RejectingVerifier 401s every call).
-	st := store.New(pool)
+	//
+	// WithPublisher mirrors every COMMITTED audit event onto the stream. It is the
+	// only publish site in the codebase, and it covers everything: every state
+	// change in this system already passes through this store's WithAudit, so the
+	// stream cannot miss an event without the ledger missing it too. See
+	// store/publish.go for why the publish happens after the commit and why it
+	// cannot fail the write.
+	st := store.New(pool, store.WithPublisher(stream.Publisher))
 	// WithCurrentReader is what stops /auth/me writing on every call. Without it
 	// the service keeps its original behaviour — an upsert per login — which
 	// production measured as the most expensive query in the database (2,157
@@ -313,20 +336,34 @@ func run() error {
 	// session keep working for the length of the cache window. Peer machines
 	// expire on their own inside RevocationCacheTTL — the same shape the public
 	// read cache already has.
+	// The two revocation caches join the invalidation bus. What changes is the
+	// REACH of a clear, not its meaning: revokeDroppingCaches still calls Clear()
+	// on a value it knows nothing else about, but that value now drops the entry
+	// on every machine instead of only this one. With no broker configured the
+	// bus clears locally and publishes to events.Nop, which is byte-for-byte the
+	// behaviour this line had before the bus existed.
+	stream.Cache.Register(cachebus.ScopeRevocation, revCache)
+	stream.Cache.Register(cachebus.ScopePrincipal, principalCache)
 	admin.POST("/users/:user_id/sessions/revoke",
 		handleradmin.RevokeSessionsHandler(revokeDroppingCaches{
 			inner:      revSvc,
-			revocation: revCache,
-			principals: principalCache,
+			revocation: stream.Cache.Clearing("session revoked", cachebus.ScopeRevocation),
+			principals: stream.Cache.Clearing("session revoked", cachebus.ScopePrincipal),
 		}))
 	eventSvc := svcevent.NewService(eventReader, st, svcevent.NewSQLCWriter())
 	// Wrapped for the same reason the revoke handler is: an administrator who
 	// archives an event or moves an assignment should not then watch the marking
 	// screen keep offering the old answer for a minute. Peer machines expire on
 	// their own inside the cache lifetime.
+	stream.Cache.Register(cachebus.ScopeMarkingScope, markingScopeCache)
 	handlerevent.RegisterAdminRoutes(admin, eventEditsDroppingScopeCache{
 		Service: eventSvc,
-		scope:   markingScopeCache,
+		// Fleet-wide now, for the reason given at the revoke handler above. This
+		// is the case an administrator actually notices: archive an event, and
+		// before the bus the OTHER machine kept offering it to coordinators for
+		// the rest of the cache window — so whether the change appeared depended
+		// on which machine a poll happened to land on.
+		scope: stream.Cache.Clearing("event scope edited", cachebus.ScopeMarkingScope),
 	})
 	handlerodrecord.RegisterAdminAttendanceRoutes(admin, portalMarkReads)
 	teacherSvc := svcteacher.NewService(svcteacher.NewSQLCReader(pool), st, svcteacher.NewSQLCWriter())

@@ -581,7 +581,8 @@ change and a restart. That is the escape hatch if staleness ever costs more than
 An administrator's own edits do not wait out the window: archiving an event, adding a category or
 changing an assignment clears the scope cache **on the machine that served the edit**, and a forced
 logout clears the auth caches the same way. The *other* machine still expires on its own, so 60 s
-remains the honest number to quote.
+remains the honest number to quote — **unless the event stream is on**, in which case the
+invalidation is broadcast and every machine drops the entry within milliseconds. See §7.4.
 
 ### 7.3 Screens stop polling when nobody is watching
 
@@ -598,6 +599,71 @@ touching the screen, so the idle timer is never reached.
 **~2.6 s** (most of which is the `us-east-1` round trip — see **H7**). One person, once, per idle
 period. If you ever need that gone, warm the compute on a schedule rather than polling to keep it
 awake.
+
+### 7.4 The domain event stream (Kafka) — OFF unless you turn it on
+
+**`KAFKA_BROKERS` unset means the whole feature is inert.** No client is constructed, no connection
+is attempted, every publish is a no-op, and the api behaves exactly as it did before the stream
+existed. That is the current production configuration, and it is the state to leave it in unless
+you have a reason not to.
+
+**What it is.** Every audit event is mirrored onto Kafka **after its transaction commits**. Postgres
+stays the system of record; the stream is a notification, never an authority. It exists because the
+audit ledger is a *table*, so every consumer of it has to poll — and polling Postgres is what cost
+this system ~51,000 reads against 319 marks and an always-awake Neon compute.
+
+| Topic | Carries | Partitions | Retention |
+|---|---|---|---|
+| `od.audit.v1` | every committed domain event | 3 | 30 days |
+| `od.marks.v1` | attendance events only (`od.*`) | 3 | 7 days |
+| `od.cache.v1` | cross-machine cache invalidations | 1 | **1 hour** |
+
+**What it changes when on, today:** §7.2's "the other machine still expires on its own" stops being
+true. Archive an event and *both* Fly machines drop the scope cache immediately, instead of one
+serving the pre-change answer for up to a minute — which was intermittent and depended on which
+machine a poll happened to land on.
+
+**Failure behaviour, by design:**
+
+- A broker that is **down or unreachable** costs nothing: events are dropped and counted, the write
+  path is untouched, and caches fall back to expiring on their TTL exactly as they do today.
+- Publishing **cannot fail or slow a request**. The buffer never blocks; when it is full it drops
+  and logs, because an event mirror is never worth a second of the marking path.
+- A **malformed** `KAFKA_*` setting fails the boot loudly. An unreachable broker deliberately does
+  not — that would turn an optional dependency into a hard one.
+
+**Turning it on:**
+
+```bash
+flyctl secrets set --app od-amrita-api \
+  KAFKA_BROKERS="seed-1.example.com:9092,seed-2.example.com:9092" \
+  KAFKA_TLS=true \
+  KAFKA_SASL_MECHANISM=scram-sha-256 \
+  KAFKA_SASL_USER=od-amrita \
+  KAFKA_SASL_PASSWORD='...'
+```
+
+Then create the topics **once**, from a machine that can reach the broker, so they get the
+retention and partition counts above rather than the broker's auto-creation defaults (the one-hour
+retention on the cache topic especially):
+
+```bash
+cd api && KAFKA_BROKERS=... KAFKA_TLS=true ... go run ./cmd/streamctl -provision
+```
+
+To turn it off again, unset `KAFKA_BROKERS` and restart. There is nothing to drain: the events are
+a mirror of rows already committed.
+
+**Watching it:** `go run ./cmd/streamctl -tail` prints events as they arrive. It joins **no consumer
+group**, so it cannot take partitions away from the worker — a tail left open in a terminal is safe.
+
+**Locally:** `make kafka-up` starts a single-node Redpanda on `127.0.0.1:19092`, `make kafka-topics`
+provisions, `make kafka-tail` follows, `make test-stream` runs the broker-backed round trip, and
+`make kafka-down` removes it. None of it is needed to run the API.
+
+**The worker** (`cmd/worker`) consumes `od.audit.v1` and `od.marks.v1` as a consumer group and today
+only logs what it sees. It exits 0 immediately when `KAFKA_BROKERS` is unset, so a deploy that has
+not turned the stream on is not a crash loop. It is **not deployed** as of this writing.
 
 ---
 

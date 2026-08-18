@@ -47,12 +47,28 @@ SUPERUSER_DSN         ?= postgres://od_amrita:ci_only_password@$(DB_HOST):$(DB_P
 DATABASE_URL_MIGRATOR ?= postgres://od_migrator:migrator_dev_only_change_me@$(DB_HOST):$(DB_PORT)/od_amrita?sslmode=disable
 DATABASE_URL_RUNTIME  ?= postgres://od_runtime:runtime_dev_only_change_me@$(DB_HOST):$(DB_PORT)/od_amrita?sslmode=disable
 
+# Local Kafka for development, as a single-node Redpanda. Redpanda rather than
+# Kafka+ZooKeeper/KRaft because it is ONE container with no coordinator to keep
+# alive, speaks the same protocol franz-go talks to a real cluster, and starts in
+# a couple of seconds — the local broker exists so a developer can watch events
+# flow, and anything heavier than that would simply not get run.
+#
+# Pinned by tag for the same reason every other tool here is: a broker that
+# changes under you is a debugging trap.
+KAFKA_IMAGE     := docker.io/redpandadata/redpanda:v24.2.18
+KAFKA_CONTAINER ?= od-redpanda
+# 19092 rather than 9092 on the host, so this cannot collide with any other
+# broker a developer happens to be running.
+KAFKA_PORT      ?= 19092
+KAFKA_ADMIN_PORT ?= 19644
+
 # The integration packages share one database and are serialized with -p 1, the
 # same way api-ci runs them.
 INTEGRATION_PKGS := ./test/db/... ./test/store/... ./test/event/... ./test/roundtrip/... ./test/teacher/... ./test/student/... ./test/cardtoken/... ./test/odrecord/...
 
 .PHONY: build test lint sqlc sqlc-check migrate-up migrate-down run-api run-worker \
-        db-up db-down db-reset db-psql db-studio db-studio-down test-integration
+        db-up db-down db-reset db-psql db-studio db-studio-down test-integration \
+        kafka-up kafka-down kafka-topics kafka-tail test-stream
 
 build: ## Compile all packages
 	go build ./...
@@ -191,3 +207,45 @@ run-api: ## Run the HTTP server entrypoint
 
 run-worker: ## Run the persistent River worker entrypoint
 	go run ./cmd/worker
+
+# ── Local event stream (Kafka / Redpanda) ────────────────────────────────────
+#
+# NONE of this is needed to run the API. With KAFKA_BROKERS unset the stream is
+# off and every publish is a no-op, which is how production runs today. These
+# targets exist for developing against it.
+
+kafka-up: ## Start the local single-node Redpanda broker
+	@if [ -n "$$($(CONTAINER_ENGINE) ps -aq --filter name=^$(KAFKA_CONTAINER)$$)" ]; then \
+		$(CONTAINER_ENGINE) start $(KAFKA_CONTAINER) >/dev/null; \
+	else \
+		$(CONTAINER_ENGINE) run -d --name $(KAFKA_CONTAINER) \
+			-p $(KAFKA_PORT):19092 -p $(KAFKA_ADMIN_PORT):9644 \
+			$(KAFKA_IMAGE) redpanda start \
+			--overprovisioned --smp 1 --memory 1G --reserve-memory 0M \
+			--node-id 0 --check=false \
+			--kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092 \
+			--advertise-kafka-addr internal://$(KAFKA_CONTAINER):9092,external://127.0.0.1:$(KAFKA_PORT) >/dev/null; \
+	fi
+	@echo "waiting for the broker..."
+	@for i in $$(seq 1 60); do \
+		if $(CONTAINER_ENGINE) exec $(KAFKA_CONTAINER) rpk cluster info >/dev/null 2>&1; then \
+			echo "broker ready on 127.0.0.1:$(KAFKA_PORT)"; exit 0; \
+		fi; \
+		sleep 1; \
+	done; \
+	echo "broker did not become ready" >&2; exit 1
+
+kafka-down: ## Stop and remove the local broker (all messages are discarded)
+	-$(CONTAINER_ENGINE) rm -f $(KAFKA_CONTAINER)
+
+kafka-topics: ## Create the topics with their intended retention (idempotent)
+	KAFKA_BROKERS=127.0.0.1:$(KAFKA_PORT) KAFKA_TLS=false \
+		go run ./cmd/streamctl -provision
+
+kafka-tail: ## Follow the event stream in this terminal
+	KAFKA_BROKERS=127.0.0.1:$(KAFKA_PORT) KAFKA_TLS=false \
+		go run ./cmd/streamctl -tail
+
+test-stream: ## Run the broker-backed round trip (needs kafka-up)
+	KAFKA_BROKERS=127.0.0.1:$(KAFKA_PORT) KAFKA_TLS=false \
+		go test -count=1 -tags stream ./test/stream/...

@@ -9,9 +9,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Shruhath/OD-Amrita/api/internal/events"
 )
 
 // ErrUnregisteredAction is returned by WithAudit when the event's Action is empty
@@ -28,6 +31,22 @@ var ErrUnregisteredAction = errors.New("store: unregistered audit action")
 type Store struct {
 	pool          *pgxpool.Pool
 	auditInserter AuditInserter
+	// publisher mirrors committed events onto the domain event stream. It is
+	// events.Nop unless WithPublisher was passed, so the write path is unchanged
+	// for every existing construction and every test. See publish.go.
+	publisher events.Publisher
+
+	// pending holds the EXTRA audit events an in-flight transaction has recorded
+	// via Audit, so they can be published after that transaction commits rather
+	// than at the moment they were written.
+	//
+	// Keyed on the transaction because that is exactly the scope the question is
+	// asked at: "did the tx these belong to commit?". A field on the Store would
+	// be wrong under concurrency — two coordinators marking at once would publish
+	// each other's events — and passing a collector down through the write
+	// callback would change the signature every service implements.
+	pendingMu sync.Mutex
+	pending   map[pgx.Tx][]AuditEvent
 }
 
 // Option configures a Store at construction (functional-options pattern).
@@ -47,6 +66,8 @@ func New(pool *pgxpool.Pool, opts ...Option) *Store {
 	s := &Store{
 		pool:          pool,
 		auditInserter: defaultAuditInserter,
+		publisher:     events.Nop{},
+		pending:       make(map[pgx.Tx][]AuditEvent),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -92,7 +113,14 @@ func (s *Store) Audit(ctx context.Context, tx pgx.Tx, evt AuditEvent) error {
 		}
 		evt.Payload = payload
 	}
-	return s.auditInserter(ctx, tx, evt)
+	if err := s.auditInserter(ctx, tx, evt); err != nil {
+		return err
+	}
+	// Held, not published: this row is inside a transaction that has not
+	// committed and may still roll back. WithAudit publishes it if and when the
+	// commit succeeds.
+	s.holdPending(tx, evt)
+	return nil
 }
 
 func (s *Store) WithAudit(
@@ -118,8 +146,11 @@ func (s *Store) WithAudit(
 		return fmt.Errorf("store: begin tx: %w", err)
 	}
 	// Safe no-op once the tx is committed; guarantees rollback on every error
-	// path below (including a panic in write).
+	// path below (including a panic in write). The pending drop is paired with it
+	// for the same reason: on any path out of this function that is not a
+	// successful commit, the held events describe writes that never happened.
 	defer tx.Rollback(ctx)
+	defer s.dropPending(tx)
 
 	changed, err := write(ctx, tx)
 	if err != nil {
@@ -148,5 +179,50 @@ func (s *Store) WithAudit(
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("store: commit: %w", err)
 	}
+
+	// COMMITTED. Only now does anything leave this process. The events are
+	// facts about durable rows, and publishing them cannot fail the write that
+	// already succeeded — see publish.go for why that ordering is not optional.
+	if changed {
+		s.publish(ctx, evt)
+	}
+	for _, extra := range s.takePending(tx) {
+		s.publish(ctx, extra)
+	}
 	return nil
+}
+
+// holdPending records an extra audit event against its transaction.
+func (s *Store) holdPending(tx pgx.Tx, evt AuditEvent) {
+	if s.publisher == nil || s.pending == nil {
+		return
+	}
+	s.pendingMu.Lock()
+	defer s.pendingMu.Unlock()
+	s.pending[tx] = append(s.pending[tx], evt)
+}
+
+// takePending removes and returns a transaction's held events.
+func (s *Store) takePending(tx pgx.Tx) []AuditEvent {
+	if s.pending == nil {
+		return nil
+	}
+	s.pendingMu.Lock()
+	defer s.pendingMu.Unlock()
+	held := s.pending[tx]
+	delete(s.pending, tx)
+	return held
+}
+
+// dropPending discards a transaction's held events without publishing them. It
+// runs on EVERY exit from WithAudit, so a rolled-back transaction leaves nothing
+// behind — both because those events did not happen, and because a map keyed on
+// transactions that is only cleaned on the success path is a slow leak.
+func (s *Store) dropPending(tx pgx.Tx) {
+	if s.pending == nil {
+		return
+	}
+	s.pendingMu.Lock()
+	defer s.pendingMu.Unlock()
+	delete(s.pending, tx)
 }

@@ -207,6 +207,15 @@ func (v *Verifier) verify(ctx context.Context, token string) (VerifiedIdentity, 
 		jwt.WithIssuer(v.issuer),
 		jwt.WithAudience(v.audience),
 		jwt.WithExpirationRequired(),
+		// One minute of clock leeway on exp/nbf/iat.
+		//
+		// The token is minted by Supabase and checked here, on a Fly machine, and
+		// nothing keeps those two clocks in step. Without leeway a token that the
+		// client believes has ~0s left is rejected outright, and the client reads
+		// that 401 as "signed out" — mid-mark, on a phone, for a session that is
+		// in fact still valid. A minute is the usual allowance and is far shorter
+		// than the token's own lifetime, so it widens no real window.
+		jwt.WithLeeway(1*time.Minute),
 	)
 	if err != nil || !parsed.Valid {
 		return VerifiedIdentity{}, errors.New("jwt validation failed")

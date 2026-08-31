@@ -90,3 +90,68 @@ describe('authorized API client', () => {
     expect(session.signOut).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('concurrent 401s', () => {
+  test('refreshes ONCE for simultaneous 401s across separate clients', async () => {
+    // The real shape of the bug: four screens poll on timers, hold tokens minted
+    // at the same moment, and therefore all see their first 401 together. Each
+    // used to call session.refresh() on its own — and Supabase ROTATES the
+    // refresh token, so the first call invalidated the token the others were
+    // still holding. They got "invalid refresh token" back, read it as a dead
+    // session, and signed a coordinator out mid-event.
+    //
+    // Two separate API clients on purpose: the racing callers are different
+    // clients built from the same session, so a per-client guard would not have
+    // caught this.
+    let refreshes = 0
+    const session = sessionPort({
+      refresh: vi.fn(async () => {
+        refreshes += 1
+        // A real refresh is a network call. Without the await there is no window
+        // for the race, and the test would pass with the guard removed.
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        return 'fresh-token'
+      }),
+    })
+    server.use(
+      http.get('*/api/v1/auth/me', ({ request }) => {
+        if ((request.headers.get('authorization') ?? '') === 'Bearer expired-token') {
+          return HttpResponse.json({ code: 'AUTH_TOKEN_INVALID', message: 'Expired.' }, { status: 401 })
+        }
+        return HttpResponse.json({ subject: 'admin-subject', email: 'admin@amrita.edu', role: 'admin' })
+      }),
+    )
+
+    const results = await Promise.all([
+      createEventApi(session).identity(),
+      createEventApi(session).identity(),
+      createEventApi(session).identity(),
+      createEventApi(session).identity(),
+    ])
+
+    expect(refreshes).toBe(1)
+    expect(session.signOut).not.toHaveBeenCalled()
+    for (const identity of results) {
+      expect(identity).toMatchObject({ subject: 'admin-subject' })
+    }
+  })
+
+  test('a later 401 starts a NEW refresh once the first has settled', async () => {
+    // The shared flight must be a flight, not a latch: clearing it when it
+    // settles is what keeps the next genuine expiry refreshable.
+    const session = sessionPort()
+    server.use(
+      http.get('*/api/v1/auth/me', ({ request }) => {
+        if ((request.headers.get('authorization') ?? '') === 'Bearer expired-token') {
+          return HttpResponse.json({ code: 'AUTH_TOKEN_INVALID', message: 'Expired.' }, { status: 401 })
+        }
+        return HttpResponse.json({ subject: 'admin-subject', email: 'admin@amrita.edu', role: 'admin' })
+      }),
+    )
+
+    await createEventApi(session).identity()
+    await createEventApi(session).identity()
+
+    expect(session.refresh).toHaveBeenCalledTimes(2)
+  })
+})

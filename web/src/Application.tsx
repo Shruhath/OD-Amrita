@@ -37,7 +37,7 @@ export function Application({ session, router }: { session: SessionPort; router:
       {/* Painted once, behind everything. Every shell above it is transparent,
           so it is the ground for all seven surfaces, not just sign-in. */}
       <AppBackdrop />
-      <AuthProvider session={session}>
+      <AuthProvider session={session} onSignOut={() => queryClient.clear()}>
         <RouterProvider router={router} />
         {/* At the root, not on one screen: the browser fires its install offer
             once, early, on whichever page the visitor happened to land on —

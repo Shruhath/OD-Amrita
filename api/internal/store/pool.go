@@ -80,6 +80,23 @@ func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	if !strings.Contains(dsn, "pool_min_conns") {
 		cfg.MinConns = 0
 	}
+	// ── AND AN IDLE CONNECTION MUST NOT OUTLIVE THE IDLE PERIOD ────────────────
+	//
+	// MinConns = 0 says the pool need not KEEP a connection. It does not say the
+	// pool will let go of one it already has: pgx retires an idle connection at
+	// MaxConnIdleTime, which defaults to THIRTY MINUTES. Neon suspends after five
+	// of no client activity, so a single request at any point in a quiet half hour
+	// left an open connection sitting across the whole suspend window — and an
+	// open connection is activity. The compute stayed awake and billed, and the
+	// MinConns work above bought nothing on its own.
+	//
+	// Two minutes is comfortably inside Neon's five-minute idle timeout, so the
+	// pool is empty well before the compute decides to suspend, and comfortably
+	// longer than any burst of marking, so a coordinator working steadily never
+	// redials. Overridable through the DSN like the rest.
+	if !strings.Contains(dsn, "pool_max_conn_idle_time") {
+		cfg.MaxConnIdleTime = 2 * time.Minute
+	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("store: create pgx pool: %w", err)

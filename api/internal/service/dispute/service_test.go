@@ -55,6 +55,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
 
@@ -602,8 +603,13 @@ func TestSubmit_RefusesOutOfBoundsFieldsBeforeAnyQuery(t *testing.T) {
 		wantErr contracts.ErrorCode
 	}{
 		{"slot 0", func(i *SubmitInput) { i.Slot = 0 }, contracts.ErrorCodeVALIDATIONFAILED},
-		{"slot 13", func(i *SubmitInput) { i.Slot = 13 }, contracts.ErrorCodeVALIDATIONFAILED},
+		{"slot 21", func(i *SubmitInput) { i.Slot = 21 }, contracts.ErrorCodeVALIDATIONFAILED},
 		{"slot -1", func(i *SubmitInput) { i.Slot = -1 }, contracts.ErrorCodeVALIDATIONFAILED},
+		// The case that was missing, and the reason the bound stayed at 12 for so
+		// long after 0019 widened slots to 20: every slot row above tests a value
+		// the OLD bound also rejected, so a legal slot the validator refused had
+		// nothing asserting otherwise. This row asserts the bound ADMITS.
+		{"slot 20 is accepted", func(i *SubmitInput) { i.Slot = maxSlot }, ""},
 		{"missing coordinator name", func(i *SubmitInput) { i.ClaimedCoordinatorName = nil }, contracts.ErrorCodeVALIDATIONFAILED},
 		{"blank coordinator name", func(i *SubmitInput) {
 			name := "   "
@@ -1006,5 +1012,37 @@ func TestResolve_AFailedCreditFailsTheWholeResolution(t *testing.T) {
 	}
 	if len(audited.events) != 0 {
 		t.Errorf("[P0] a failed credit still left %d dispute.resolved audit rows behind", len(audited.events))
+	}
+}
+
+// Approving a dispute over an ARCHIVED event answers EVENT_ARCHIVED, not 500.
+//
+// Disputes on archived events are deliberately submittable (0014). The approval,
+// though, writes an od_records row, and od_records carries the archived-event
+// guard — so the write is refused with 55000 and the admin used to be told
+// nothing but "Internal server error."
+func TestResolvePgError_MapsTheArchivedEventGuard(t *testing.T) {
+	err := mapResolvePgError(&pgconn.PgError{Code: sqlstateObjectNotInPrerequisiteState})
+
+	var de domain.DomainError
+	if !errors.As(err, &de) {
+		t.Fatalf("error = %v (%T), want a domain.DomainError", err, err)
+	}
+	if de.Code != contracts.ErrorCodeEVENTARCHIVED {
+		t.Fatalf("code = %s, want %s", de.Code, contracts.ErrorCodeEVENTARCHIVED)
+	}
+}
+
+// Anything else passes through untouched — the mapping must not swallow errors
+// it has no answer for, which is how the 500 above became invisible in the first
+// place.
+func TestResolvePgError_LeavesEveryOtherErrorAlone(t *testing.T) {
+	cause := errors.New("connection reset")
+	if got := mapResolvePgError(cause); !errors.Is(got, cause) {
+		t.Fatalf("mapResolvePgError(%v) = %v, want the cause unchanged", cause, got)
+	}
+	other := &pgconn.PgError{Code: "23505"}
+	if got := mapResolvePgError(other); !errors.Is(got, other) {
+		t.Fatalf("mapResolvePgError(unique violation) = %v, want the cause unchanged", got)
 	}
 }

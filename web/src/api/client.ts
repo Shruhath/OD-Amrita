@@ -129,6 +129,35 @@ const apiBaseURL = import.meta.env.VITE_API_BASE_URL ?? window.location.origin
 // header (which forces a CORS preflight on every call) off the production origin.
 const isNgrokTunnel = /\bngrok\b/.test(apiBaseURL)
 
+/**
+ * The refresh in flight, if one is. Shared across every call this module makes.
+ *
+ * WHY. Four screens poll on timers, and they all hold tokens minted at the same
+ * moment — so they all see their first 401 at very nearly the same moment too.
+ * Each one then called `session.refresh()` on its own. Supabase ROTATES the
+ * refresh token, so the first of those calls invalidates the token the others
+ * are still holding: they get back "invalid refresh token", conclude the session
+ * is gone, and call `signOut()` — signing a coordinator out mid-event because
+ * their token expired normally while several tabs were open.
+ *
+ * One flight, shared, cleared when it settles. Followers await the same promise
+ * and every one of them gets the same real answer.
+ *
+ * Module-scoped on purpose: it must be shared by every client this module hands
+ * out, not per-client, because the racing callers are different API clients
+ * built from the same session.
+ */
+let refreshInFlight: Promise<string | null> | null = null
+
+function refreshOnce(session: SessionPort): Promise<string | null> {
+  if (!refreshInFlight) {
+    refreshInFlight = session.refresh().finally(() => {
+      refreshInFlight = null
+    })
+  }
+  return refreshInFlight
+}
+
 function createAuthorizedFetch(session: SessionPort): typeof fetch {
   return async (input, init) => {
     const initial = new Request(input, init)
@@ -149,7 +178,7 @@ function createAuthorizedFetch(session: SessionPort): typeof fetch {
     let response = await invoke(initial.clone(), await session.accessToken())
     if (response.status !== 401) return response
 
-    const refreshed = await session.refresh()
+    const refreshed = await refreshOnce(session)
     if (!refreshed) {
       await session.signOut()
       return response

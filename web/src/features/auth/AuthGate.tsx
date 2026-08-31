@@ -10,7 +10,23 @@ import { clearPersistedState } from '../persistence/sessionState'
 import { LoadingScreen } from '../../components/ui/Spinner'
 import { AuthContext, useAuth, type AuthState } from './context'
 
-export function AuthProvider({ children, session }: { children: ReactNode; session: SessionPort }) {
+export function AuthProvider({
+  children,
+  session,
+  onSignOut,
+}: {
+  children: ReactNode
+  session: SessionPort
+  /**
+   * Run after the session is torn down, before the identity is dropped.
+   *
+   * Passed in rather than reached for with useQueryClient() so this component
+   * keeps working where it is mounted without a QueryClientProvider — which is
+   * how several of its own tests mount it, and which a hook would turn into a
+   * throw. Application.tsx supplies the real one.
+   */
+  onSignOut?: () => void
+}) {
   const api = useMemo(() => createEventApi(session), [session])
   const [identity, setIdentity] = useState<Identity | null>(null)
   const [loading, setLoading] = useState(true)
@@ -135,6 +151,14 @@ export function AuthProvider({ children, session }: { children: ReactNode; sessi
       // person to sign in must not inherit the previous one's screen — including
       // the card populator's per-student progress.
       clearPersistedState()
+      // The same rule, for the half of the screen that never touched storage.
+      // clearPersistedState only reaches what this app wrote to sessionStorage;
+      // every answer the API gave — rosters, marks, disputes, the live board —
+      // lives in TanStack's in-memory cache, which survives a sign-out untouched.
+      // The next person to sign in on the same phone would be handed the
+      // previous coordinator's data on screen, from cache, before their own
+      // first request came back.
+      onSignOut?.()
       setIdentity(null)
     },
     reload: load,

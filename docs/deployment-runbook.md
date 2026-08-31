@@ -167,6 +167,53 @@ make -C api migrate-up
 unset PGPASSWORD
 ```
 
+#### 3.1 When you have no network with 5432 open — migrate from a Fly machine
+
+Campus wifi permits 80/443 outbound only, and `db-migrate.yml` — the workflow that exists precisely
+for this — cannot run while GitHub Actions is billing-blocked. That combination left **no way at all
+to apply a migration**, which is how the schema sat two versions behind the deployed code without
+anyone being able to do anything about it.
+
+A Fly machine has open egress. `api/Dockerfile.migrate` is the pinned goose binary plus
+`db/migrations` and nothing else, so it runs as a one-off machine on Fly's network:
+
+```bash
+# 1. Stage the migrator credential. --stage keeps it encrypted in Fly's secret
+#    store and applies it only to machines created AFTERWARDS, so the running API
+#    is neither restarted nor handed a credential it has no use for.
+flyctl secrets set GOOSE_DBSTRING='<the migrator DSN>' --stage -a od-amrita-api
+
+# 2. LOOK FIRST. This prints every migration and whether it is applied.
+flyctl machine run . --dockerfile api/Dockerfile.migrate -a od-amrita-api \
+    --region sin --rm --restart no --vm-memory 512 status
+flyctl logs -a od-amrita-api -i <the machine id it printed> --no-tail
+
+# 3. Apply, and read the log the same way. Machines are ephemeral (--rm), so the
+#    log is the only record — read it before you do anything else.
+flyctl machine run . --dockerfile api/Dockerfile.migrate -a od-amrita-api \
+    --region sin --rm --restart no --vm-memory 512 up
+
+# 4. Take the credential away again.
+flyctl secrets unset GOOSE_DBSTRING --stage -a od-amrita-api
+```
+
+Then confirm with `api/scripts/schema_check.sh`, which reads the deployed schema over Neon's HTTPS
+SQL endpoint and therefore works from a network that blocks 5432. It reports the version, `pg_trgm`,
+the trigram index and the live-capture constraint. **It is read-only and must stay that way** —
+hand-running DDL over an HTTP endpoint has no transaction boundary of goose's choosing and no version
+bookkeeping, and a half-applied schema on the database holding real attendance is a much worse
+afternoon than not migrating today.
+
+> **The one exception, and why it is safe.** `CREATE EXTENSION IF NOT EXISTS pg_trgm` must run as
+> `neondb_owner`, which the migrator deliberately is not, so it cannot go through goose at all. It is
+> a single idempotent statement with nothing to half-apply and no version to record — the same
+> statement this section already tells you to run — so it goes over the HTTPS endpoint with the owner
+> DSN. Nothing else does.
+
+**No `down` is wired into any of this**, matching `db-migrate.yml` and for the same reason: `0016`'s
+Down is a one-way door once a multi-day event has been marked. Nothing stops you passing `down` as
+the argument; it is a decision someone makes with this runbook open, not a button.
+
 **4. Confirm the schema is at the expected version:**
 
 ```bash

@@ -1,0 +1,52 @@
+# api/Dockerfile.migrate — run goose against Neon from a network that can reach it.
+#
+# WHY THIS IMAGE EXISTS
+#   Neon speaks Postgres on 5432 and nothing else. The network this project is
+#   developed on permits 80/443 outbound only, so `make -C api migrate-up` simply
+#   cannot reach production from a laptop here — and .github/workflows/db-migrate.yml,
+#   which exists for exactly that reason, cannot run while GitHub Actions is
+#   billing-blocked. That left no way at all to apply a migration.
+#
+#   A Fly machine has open egress. This image is the pinned goose binary plus the
+#   migration directory and nothing else, so it can be run as a ONE-OFF machine:
+#
+#     fly secrets set GOOSE_DBSTRING='<the migrator DSN>' --stage -a od-amrita-api
+#     fly machine run . --dockerfile api/Dockerfile.migrate -a od-amrita-api \
+#         --region sin --rm --restart no status
+#     ... same again with `up` once status reads as expected ...
+#     fly secrets unset GOOSE_DBSTRING --stage -a od-amrita-api
+#
+#   `--stage` keeps the credential encrypted in Fly's secret store and applies it
+#   only to machines created afterwards, so the running API is neither restarted
+#   nor handed a credential it has no use for. Unset it when you are done.
+#
+# WHY GOOSE AND NOT A SCRIPT
+#   Because the alternative — hand-running the DDL over Neon's HTTPS SQL endpoint
+#   — has no transaction boundary of goose's choosing and no version bookkeeping,
+#   and a half-applied schema on the database holding real attendance is a far
+#   worse afternoon than not migrating today. This runs the SAME binary, at the
+#   SAME pinned version, over the SAME migration files as CI and as a laptop on an
+#   unrestricted network.
+#
+# NO `down` IS WIRED ANYWHERE
+#   Deliberately, matching db-migrate.yml: 0016's Down is a documented one-way
+#   door once a multi-day event has been marked. Roll back by hand, with
+#   docs/deployment-runbook.md open. Nothing stops you passing `down` as the
+#   argument — that is a decision someone makes, not a button.
+
+# Keep in sync with api/Makefile GOOSE_VERSION and the pinned install in
+# .github/workflows/api-ci.yml. A migrator running a different goose than CI
+# proved the migrations with is not the same gate.
+FROM golang:1.26 AS build
+RUN GOWORK=off CGO_ENABLED=0 go install github.com/pressly/goose/v3/cmd/goose@v3.27.2
+
+FROM gcr.io/distroless/static-debian12 AS runtime
+COPY --from=build /go/bin/goose /goose
+COPY api/db/migrations /migrations
+# GOOSE_DRIVER and GOOSE_DBSTRING are goose's own environment interface, so the
+# connection string never appears in a command line, a machine config, or this
+# file. GOOSE_DBSTRING comes from a Fly secret.
+ENV GOOSE_DRIVER=postgres
+USER 65532:65532
+ENTRYPOINT ["/goose", "-dir", "/migrations"]
+CMD ["status"]

@@ -120,6 +120,17 @@ func mapPgError(err error) error {
 		if pgErr.ConstraintName == "od_records_od_date_event_range_ck" {
 			return validation("od_date", "outside_event_range", "The OD date must fall inside the event's date range.")
 		}
+		// The manual-entry reason guard. Unreachable while the service and the
+		// schema agree on what "manual" means — the service already refuses a
+		// note-free search mark from a teacher or admin — so reaching it means
+		// they have drifted apart, exactly as they did when admins were given
+		// the live marking screen and 0026 had not yet been written.
+		//
+		// Mapped so that drift costs a 400 naming the field instead of the bare
+		// 500 the caller got for every admin card tap until 0026.
+		if pgErr.ConstraintName == "od_records_manual_reason_note_ck" {
+			return validation("reason_note", "required", "reason_note is required for a manually entered record.")
+		}
 	case sqlstateObjectNotInPrerequisiteState:
 		return ErrEventArchived
 	case sqlstateForeignKeyViolation:

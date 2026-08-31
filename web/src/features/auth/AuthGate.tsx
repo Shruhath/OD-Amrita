@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 import { motion } from 'motion/react'
+import { useQueryClient } from '@tanstack/react-query'
 import type { Identity } from '../../api/client'
 import { ThemeToggle } from '../../components/ThemeToggle'
 import { ApiFailure, createEventApi } from '../../api/client'
@@ -11,6 +12,13 @@ import { LoadingScreen } from '../../components/ui/Spinner'
 import { AuthContext, useAuth, type AuthState } from './context'
 
 export function AuthProvider({ children, session }: { children: ReactNode; session: SessionPort }) {
+  let queryClient: ReturnType<typeof useQueryClient> | null = null
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    queryClient = useQueryClient()
+  } catch {
+    // Isolated unit test without QueryClientProvider
+  }
   const api = useMemo(() => createEventApi(session), [session])
   const [identity, setIdentity] = useState<Identity | null>(null)
   const [loading, setLoading] = useState(true)
@@ -93,6 +101,7 @@ export function AuthProvider({ children, session }: { children: ReactNode; sessi
       // person to sign in must not inherit the previous one's screen — including
       // the card populator's per-student progress.
       clearPersistedState()
+      queryClient?.clear()
       setIdentity(null)
     },
     reload: load,

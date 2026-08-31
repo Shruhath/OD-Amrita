@@ -157,7 +157,7 @@ export default function MarkScreen({
     queryKey: ['mark-status', eventID, categoryID],
     queryFn: () => api.markStatus(eventID, categoryID),
     enabled: scopeReady,
-    refetchInterval: (query) => (query.state.error ? false : pollInterval),
+    refetchInterval: pollInterval,
     refetchIntervalInBackground: false,
   })
   const fallbackCredit = status.data?.fallback_credit

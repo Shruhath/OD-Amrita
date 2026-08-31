@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
 
@@ -462,7 +463,7 @@ func (s *Service) Resolve(ctx context.Context, actor Actor, disputeID, note, out
 		return true, nil
 	})
 	if err != nil {
-		return Record{}, err
+		return Record{}, mapDisputePgError(err)
 	}
 	if !changed {
 		if lockedFound && lockedStatus == "resolved" {
@@ -537,8 +538,8 @@ func validateSubmitInput(input SubmitInput, now time.Time) error {
 			return validation(id.field, "invalid_format", id.field+" must be a non-nil UUID.")
 		}
 	}
-	if input.Slot < 1 || input.Slot > 12 {
-		return validation("slot", "out_of_range", "Slot must be between 1 and 12.")
+	if input.Slot < 1 || input.Slot > 20 {
+		return validation("slot", "out_of_range", "Slot must be between 1 and 20.")
 	}
 	if input.ClaimedCoordinatorName == nil || strings.TrimSpace(*input.ClaimedCoordinatorName) == "" || !hasVisibleCharacter(*input.ClaimedCoordinatorName) {
 		return validation("claimed_coordinator_name", "required", "Coordinator name is required.")
@@ -691,6 +692,20 @@ func disputeAlreadyResolved() domain.DomainError {
 
 func forbidden() domain.DomainError {
 	return domain.DomainError{Code: contracts.ErrorCodeRBACFORBIDDEN, Message: "Teacher or admin role required."}
+}
+
+func eventArchived() domain.DomainError {
+	return domain.DomainError{Code: contracts.ErrorCodeEVENTARCHIVED, Message: "The event is archived."}
+}
+
+func mapDisputePgError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		if pgErr.Code == "55000" {
+			return eventArchived()
+		}
+	}
+	return err
 }
 
 func validation(field, code, message string) domain.DomainError {

@@ -1,4 +1,4 @@
-﻿package health
+package health
 
 import (
 	"context"
@@ -41,10 +41,13 @@ func (c *CachedPinger) Ping(ctx context.Context) error {
 
 	// Coalesce concurrent probes to a single DB ping
 	_, err, _ := c.group.Do("db_ping", func() (any, error) {
+		pingCtx, pingCancel := context.WithTimeout(context.WithoutCancel(ctx), 4*time.Second)
+		defer pingCancel()
+
 		var lastErr error
 		for attempt := 1; attempt <= 2; attempt++ {
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
+			if pingCtx.Err() != nil {
+				return nil, pingCtx.Err()
 			}
 
 			attemptTimeout := 2 * time.Second
@@ -52,7 +55,7 @@ func (c *CachedPinger) Ping(ctx context.Context) error {
 				attemptTimeout = 1500 * time.Millisecond
 			}
 
-			attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
+			attemptCtx, cancel := context.WithTimeout(pingCtx, attemptTimeout)
 			lastErr = c.pinger.Ping(attemptCtx)
 			cancel()
 
@@ -64,8 +67,8 @@ func (c *CachedPinger) Ping(ctx context.Context) error {
 			if attempt < 2 {
 				select {
 				case <-time.After(150 * time.Millisecond):
-				case <-ctx.Done():
-					return nil, ctx.Err()
+				case <-pingCtx.Done():
+					return nil, pingCtx.Err()
 				}
 			}
 		}

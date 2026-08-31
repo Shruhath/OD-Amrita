@@ -314,7 +314,7 @@ function DayBoard() {
     // The board is a live list during an event, and it is the same answer for
     // everybody, so the server caches it too — this interval decides how stale
     // a screen left open goes, not how hard the database is hit.
-    refetchInterval: (query) => (query.state.error ? false : pollInterval),
+    refetchInterval: pollInterval,
     refetchIntervalInBackground: false,
     gcTime: 0,
   })

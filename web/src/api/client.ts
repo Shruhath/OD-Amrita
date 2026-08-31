@@ -129,9 +129,13 @@ const apiBaseURL = import.meta.env.VITE_API_BASE_URL ?? window.location.origin
 // header (which forces a CORS preflight on every call) off the production origin.
 const isNgrokTunnel = /\bngrok\b/.test(apiBaseURL)
 
-function createAuthorizedFetch(session: SessionPort): typeof fetch {
-  return async (input, init) => {
+let ongoingRefresh: Promise<string | null> | null = null
+
+export function createAuthorizedFetch(session: SessionPort) {
+  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const initial = new Request(input, init)
+    const isNgrokTunnel = initial.url.includes('.ngrok-free.app') || initial.url.includes('.ngrok.io')
+
     const invoke = async (request: Request, token: string | null) => {
       const headers = new Headers(request.headers)
       if (token) headers.set('Authorization', `Bearer ${token}`)
@@ -149,7 +153,12 @@ function createAuthorizedFetch(session: SessionPort): typeof fetch {
     let response = await invoke(initial.clone(), await session.accessToken())
     if (response.status !== 401) return response
 
-    const refreshed = await session.refresh()
+    if (!ongoingRefresh) {
+      ongoingRefresh = session.refresh().finally(() => {
+        ongoingRefresh = null
+      })
+    }
+    const refreshed = await ongoingRefresh
     if (!refreshed) {
       await session.signOut()
       return response

@@ -115,7 +115,7 @@ export default function DisputesPortal() {
             <p className="text-sm font-medium text-foreground-muted">
               <span className="font-bold text-foreground">{total}</span> open dispute{total !== 1 ? 's' : ''}
             </p>
-            <p className="text-xs text-foreground-muted">Resolving records the decision — it does not correct the OD record itself.</p>
+            <p className="text-xs text-foreground-muted">Approving automatically marks the student present for the disputed slot.</p>
           </div>
 
           <ul className="flex flex-col gap-3">

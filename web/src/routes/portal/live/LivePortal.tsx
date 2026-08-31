@@ -88,7 +88,7 @@ export default function LivePortal() {
     queryKey: ['portal', 'live', eventID, odDate],
     queryFn: () => api.portalAttendance(eventID, { odDate, pageSize: 100 }),
     enabled: eventID !== '',
-    refetchInterval: (query) => (query.state.error ? false : pollInterval),
+    refetchInterval: pollInterval,
     refetchIntervalInBackground: false,
   })
 

@@ -602,7 +602,7 @@ func TestSubmit_RefusesOutOfBoundsFieldsBeforeAnyQuery(t *testing.T) {
 		wantErr contracts.ErrorCode
 	}{
 		{"slot 0", func(i *SubmitInput) { i.Slot = 0 }, contracts.ErrorCodeVALIDATIONFAILED},
-		{"slot 13", func(i *SubmitInput) { i.Slot = 13 }, contracts.ErrorCodeVALIDATIONFAILED},
+		{"slot 21", func(i *SubmitInput) { i.Slot = 21 }, contracts.ErrorCodeVALIDATIONFAILED},
 		{"slot -1", func(i *SubmitInput) { i.Slot = -1 }, contracts.ErrorCodeVALIDATIONFAILED},
 		{"missing coordinator name", func(i *SubmitInput) { i.ClaimedCoordinatorName = nil }, contracts.ErrorCodeVALIDATIONFAILED},
 		{"blank coordinator name", func(i *SubmitInput) {

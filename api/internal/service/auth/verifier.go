@@ -207,6 +207,7 @@ func (v *Verifier) verify(ctx context.Context, token string) (VerifiedIdentity, 
 		jwt.WithIssuer(v.issuer),
 		jwt.WithAudience(v.audience),
 		jwt.WithExpirationRequired(),
+		jwt.WithLeeway(1*time.Minute),
 	)
 	if err != nil || !parsed.Valid {
 		return VerifiedIdentity{}, errors.New("jwt validation failed")

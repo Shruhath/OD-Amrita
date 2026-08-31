@@ -61,7 +61,7 @@ export function EventAttendanceSection({
       pageSize: 20,
     }),
     enabled: eventID !== '',
-    refetchInterval: (query) => (query.state.error ? false : pollInterval),
+    refetchInterval: pollInterval,
     refetchIntervalInBackground: false,
   })
 

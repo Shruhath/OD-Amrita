@@ -96,7 +96,9 @@ func (c *TTL[V]) Do(ctx context.Context, key string, load func(context.Context) 
 		if value, ok := c.lookup(key); ok {
 			return value, nil
 		}
-		value, loadErr := load(ctx)
+		loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		value, loadErr := load(loadCtx)
 		if loadErr != nil {
 			return value, loadErr
 		}

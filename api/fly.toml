@@ -78,29 +78,30 @@ primary_region = "sin"
 [[services]]
   internal_port = 8443
   protocol = "tcp"
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [services.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
 
   [[services.ports]]
     port = 443
     handlers = ["tls", "http"]
 
-  # /health pings the od_runtime pool and answers 200 {"status":"ok","db":"up"}
-  # or 503 {"status":"degraded","db":"down"}.
-  #
-  # FAIL-CLOSED, DELIBERATELY: when Neon is unreachable the check fails and Fly
-  # pulls the machine out of rotation. That is the behaviour we want — a mark
-  # must never be routed to an instance that cannot write it — but it does make
-  # Neon a hard dependency of availability, which is the accepted no-offline
-  # posture. The deployment runbook says so where an operator will read it.
-  #
-  # grace_period covers first boot: pgxpool connects lazily, so a machine needs
-  # a moment to answer db:up. Without it a healthy machine gets killed before it
-  # can ever report healthy.
+  # ── Liveness Probe for Fly Edge Routing ───────────────────────────────────
+  # /live validates that the Go process is responsive without touching Neon.
+  # Eliminates 11,520 background queries/day and prevents false cold-start 503s.
+  # /health remains available for synthetic monitoring (e.g. Uptime Robot @ 5m)
+  # and deployment smoke verification.
   [[services.http_checks]]
-    path = "/health"
+    path = "/live"
     method = "get"
-    interval = "15s"
-    timeout = "5s"
-    grace_period = "10s"
+    interval = "30s"
+    timeout = "3s"
+    grace_period = "5s"
 
 # Machine size. The COUNT is not expressible here — it is set once at deploy
 # time with `flyctl scale count 2 --region bom` and recorded in the deployment

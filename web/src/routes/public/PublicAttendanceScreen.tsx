@@ -12,6 +12,7 @@ import {
 } from '../../api/client'
 import { ThemeToggle } from '../../components/ThemeToggle'
 import { Select } from '../../components/ui/Select'
+import { useSmartPollInterval } from '../../features/marking/useSmartPollInterval'
 import { campusToday, defaultDay, enumerateDays } from './days'
 
 /**
@@ -298,6 +299,12 @@ function DayBoard() {
   const [slot, setSlot] = useState('')
   const [categoryID, setCategoryID] = useState('')
 
+  const pollInterval = useSmartPollInterval({
+    activeInterval: BOARD_POLL_MS,
+    idleInterval: 180_000, // 3 minutes when idle
+    maxIdleTimeoutMs: 300_000, // Stop polling after 5 minutes of total inactivity
+  })
+
   const board = useQuery({
     queryKey: ['public', 'board', slot, categoryID],
     queryFn: () => api.publicDayAttendance({
@@ -307,7 +314,8 @@ function DayBoard() {
     // The board is a live list during an event, and it is the same answer for
     // everybody, so the server caches it too — this interval decides how stale
     // a screen left open goes, not how hard the database is hit.
-    refetchInterval: (query) => (query.state.error ? false : BOARD_POLL_MS),
+    refetchInterval: (query) => (query.state.error ? false : pollInterval),
+    refetchIntervalInBackground: false,
     gcTime: 0,
   })
 

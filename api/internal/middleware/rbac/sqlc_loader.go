@@ -3,11 +3,13 @@ package rbac
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Shruhath/OD-Amrita/api/internal/cache"
 	"github.com/Shruhath/OD-Amrita/api/internal/store/sqlc"
 )
 
@@ -40,4 +42,27 @@ func (l *SQLCPrincipalLoader) Load(ctx context.Context, subject string) (Princip
 		principal.Name = row.Name.String
 	}
 	return principal, nil
+}
+
+// CachedPrincipalLoader wraps a PrincipalLoader with an in-memory singleflight TTL cache.
+type CachedPrincipalLoader struct {
+	inner PrincipalLoader
+	cache *cache.TTL[Principal]
+}
+
+// NewCachedPrincipalLoader returns a PrincipalLoader with in-memory TTL caching.
+func NewCachedPrincipalLoader(inner PrincipalLoader, ttl time.Duration) PrincipalLoader {
+	if ttl <= 0 {
+		return inner
+	}
+	return &CachedPrincipalLoader{
+		inner: inner,
+		cache: cache.New[Principal](ttl),
+	}
+}
+
+func (l *CachedPrincipalLoader) Load(ctx context.Context, subject string) (Principal, error) {
+	return l.cache.Do(ctx, subject, func(ctx context.Context) (Principal, error) {
+		return l.inner.Load(ctx, subject)
+	})
 }

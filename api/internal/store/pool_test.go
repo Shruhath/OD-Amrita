@@ -58,8 +58,8 @@ func TestNewPool_SpreadsConnectionRetirementAndKeepsConnectionsWarm(t *testing.T
 	if cfg.MaxConnLifetimeJitter <= 0 {
 		t.Error("connections retire on an unjittered deadline, so the whole pool redials at once")
 	}
-	if cfg.MinConns < 1 {
-		t.Error("no connection is kept warm, so the health probe pays for the first dial itself")
+	if cfg.MaxConnIdleTime <= 0 {
+		t.Error("idle connections are not pruned, preventing serverless database from autosuspending")
 	}
 }
 

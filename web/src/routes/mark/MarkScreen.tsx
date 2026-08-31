@@ -9,6 +9,7 @@ import { Select } from '../../components/ui/Select'
 import { useAuth } from '../../features/auth/context'
 import { createBarcodeScanner, type BarcodeScannerStatus } from '../../features/marking/barcodeScanner'
 import { CardNfcError, createWebNfcAdapter, type WebNfcStatus } from '../../features/nfc/webNfc'
+import { useSmartPollInterval } from '../../features/marking/useSmartPollInterval'
 
 /**
  * The live NFC/camera marking surface.
@@ -142,6 +143,12 @@ export default function MarkScreen({
 
   const scopeReady = eventID !== '' && categoryID !== ''
 
+  const pollInterval = useSmartPollInterval({
+    activeInterval: STATUS_POLL_MS,
+    idleInterval: 30_000,
+    enabled: scopeReady,
+  })
+
   // ---------------------------------------------------------------------
   // Counters and the slot clock — one server endpoint, polled.
   // ---------------------------------------------------------------------
@@ -150,7 +157,8 @@ export default function MarkScreen({
     queryKey: ['mark-status', eventID, categoryID],
     queryFn: () => api.markStatus(eventID, categoryID),
     enabled: scopeReady,
-    refetchInterval: STATUS_POLL_MS,
+    refetchInterval: (query) => (query.state.error ? false : pollInterval),
+    refetchIntervalInBackground: false,
   })
   const fallbackCredit = status.data?.fallback_credit
   const fallbackExhausted = fallbackCredit?.exhausted ?? false

@@ -4,6 +4,7 @@ import type { CategoryRecord, AttendanceRecordCollection } from '../../../api/cl
 import { Select } from '../../../components/ui/Select'
 import { asString, usePersistentState } from '../../../features/persistence/sessionState'
 import { useAuth } from '../../../features/auth/context'
+import { useSmartPollInterval } from '../../../features/marking/useSmartPollInterval'
 import { enumerateDays, formatDate, messageOf } from './format'
 
 const ATTENDANCE_POLL_MS = 5_000
@@ -44,6 +45,12 @@ export function EventAttendanceSection({
     }
   }, [categoryID, categories, setCategoryID])
 
+  const pollInterval = useSmartPollInterval({
+    activeInterval: ATTENDANCE_POLL_MS,
+    idleInterval: 30_000,
+    enabled: eventID !== '',
+  })
+
   const attendance = useQuery({
     queryKey: ['admin', 'attendance', eventID, categoryID || 'all', slot || 'all', odDate || 'all', page],
     queryFn: () => api.adminAttendance(eventID, {
@@ -54,7 +61,8 @@ export function EventAttendanceSection({
       pageSize: 20,
     }),
     enabled: eventID !== '',
-    refetchInterval: (query) => (query.state.error ? false : ATTENDANCE_POLL_MS),
+    refetchInterval: (query) => (query.state.error ? false : pollInterval),
+    refetchIntervalInBackground: false,
   })
 
   const rows = attendance.data?.data ?? []

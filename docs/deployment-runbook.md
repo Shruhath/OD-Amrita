@@ -1,8 +1,8 @@
 # Deployment runbook — OD-Amrita
 
-**Last updated:** 2026-08-09
+**Last updated:** 2026-08-31
 **Status:** 🟢 **Live and verified end to end.** API on Fly (two machines, both healthy), web on
-Vercel served from **`odamrita.in`**, schema on Neon at version **24**, Supabase brokering sign-in.
+Vercel served from **`odamrita.in`**, schema on Neon at version **25**, Supabase brokering sign-in.
 Verified 2026-08-09 by `api/scripts/smoke.sh`, a browser run against the production origin, and a
 direct read of the live schema. §8 records exactly what is done and what still needs a human.
 
@@ -173,7 +173,7 @@ unset PGPASSWORD
 psql "$DATABASE_URL_MIGRATOR" -c 'SELECT max(version_id) FROM goose_db_version;'
 ```
 
-Expect **24** — migrations `0001`–`0024`. A lower number, or a missing table, means the
+Expect **25** — migrations `0001`–`0025`. A lower number, or a missing table, means the
 migrations did not all apply; stop and fix that before deploying, because the API will fail at
 runtime rather than at boot.
 

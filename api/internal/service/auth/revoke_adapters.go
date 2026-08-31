@@ -8,11 +8,14 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Shruhath/OD-Amrita/api/internal/cache"
 	"github.com/Shruhath/OD-Amrita/api/internal/store/sqlc"
 )
 
@@ -128,6 +131,30 @@ func (c sqlcRevocationChecker) IsRevoked(ctx context.Context, id VerifiedIdentit
 		SupabaseSubject: id.Subject,
 		SessionID:       sessionID,
 		IssuedAt:        pgtype.Timestamptz{Time: id.IssuedAt, Valid: true},
+	})
+}
+
+// CachedRevocationChecker decorates RevocationChecker with an in-memory singleflight TTL cache.
+type CachedRevocationChecker struct {
+	inner RevocationChecker
+	cache *cache.TTL[bool]
+}
+
+// NewCachedRevocationChecker returns a cached RevocationChecker with the specified TTL.
+func NewCachedRevocationChecker(inner RevocationChecker, ttl time.Duration) RevocationChecker {
+	if ttl <= 0 {
+		return inner
+	}
+	return &CachedRevocationChecker{
+		inner: inner,
+		cache: cache.New[bool](ttl),
+	}
+}
+
+func (c *CachedRevocationChecker) IsRevoked(ctx context.Context, id VerifiedIdentity) (bool, error) {
+	key := fmt.Sprintf("%s|%s|%d", id.Subject, id.SessionID, id.IssuedAt.Unix())
+	return c.cache.Do(ctx, key, func(ctx context.Context) (bool, error) {
+		return c.inner.IsRevoked(ctx, id)
 	})
 }
 

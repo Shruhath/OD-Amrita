@@ -2,6 +2,7 @@ package errormw
 
 import (
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -33,6 +34,7 @@ func Handler() gin.HandlerFunc {
 			c.AbortWithStatusJSON(domain.HTTPStatus(de.Code), contracts.Error{Code: de.Code, Message: de.Message})
 			return
 		}
+		log.Printf("[500 Internal Server Error] method=%s path=%s err=%v", c.Request.Method, c.Request.URL.Path, err)
 		c.AbortWithStatusJSON(http.StatusInternalServerError, contracts.Error{
 			Code:    contracts.ErrorCodeINTERNAL,
 			Message: "Internal server error.",

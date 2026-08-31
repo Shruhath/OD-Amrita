@@ -120,6 +120,9 @@ func mapPgError(err error) error {
 		if pgErr.ConstraintName == "od_records_od_date_event_range_ck" {
 			return validation("od_date", "outside_event_range", "The OD date must fall inside the event's date range.")
 		}
+		if pgErr.ConstraintName == "od_records_manual_reason_note_ck" {
+			return validation("reason_note", "required", "A reason note is required for manual search marks.")
+		}
 	case sqlstateObjectNotInPrerequisiteState:
 		return ErrEventArchived
 	case sqlstateForeignKeyViolation:

@@ -12,6 +12,7 @@ import { ClipboardText } from '@phosphor-icons/react/dist/icons/ClipboardText'
 import { Hourglass } from '@phosphor-icons/react/dist/icons/Hourglass'
 import { useAuth } from '../../../features/auth/context'
 import { asString, usePersistentState } from '../../../features/persistence/sessionState'
+import { useSmartPollInterval } from '../../../features/marking/useSmartPollInterval'
 import { campusToday } from './campusDay'
 
 /** How often the list refreshes. Matches the admin attendance view. */
@@ -76,11 +77,19 @@ export default function LivePortal() {
     return days
   }, [selectedEvent])
 
+  const isToday = odDate === campusToday()
+  const pollInterval = useSmartPollInterval({
+    activeInterval: LIVE_POLL_MS,
+    idleInterval: 30_000,
+    enabled: isToday && eventID !== '',
+  })
+
   const attendance = useQuery({
     queryKey: ['portal', 'live', eventID, odDate],
     queryFn: () => api.portalAttendance(eventID, { odDate, pageSize: 100 }),
     enabled: eventID !== '',
-    refetchInterval: (query) => (query.state.error ? false : LIVE_POLL_MS),
+    refetchInterval: (query) => (query.state.error ? false : pollInterval),
+    refetchIntervalInBackground: false,
   })
 
   const rows = attendance.data?.data ?? []

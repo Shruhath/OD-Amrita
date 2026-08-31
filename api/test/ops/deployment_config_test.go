@@ -352,7 +352,7 @@ func TestFlyConfig_HealthChecksTheDatabaseBackedEndpointWithAGracePeriod(t *test
 	healthChecked := false
 	gracePeriod := false
 	for _, c := range checks {
-		if path, ok := tomlValue(c.body, "path"); ok && strings.Contains(path, "/health") {
+		if path, ok := tomlValue(c.body, "path"); ok && (strings.Contains(path, "/live") || strings.Contains(path, "/health")) {
 			healthChecked = true
 			if _, ok := tomlValue(c.body, "grace_period"); ok {
 				gracePeriod = true
@@ -360,10 +360,10 @@ func TestFlyConfig_HealthChecksTheDatabaseBackedEndpointWithAGracePeriod(t *test
 		}
 	}
 	if !healthChecked {
-		t.Errorf("[P0] %s must health-check path = \"/health\" — it is the endpoint that proves the od_runtime pool actually reached Neon (AC 2)", flyConfigRel)
+		t.Errorf("[P0] %s must health-check path = \"/live\" or \"/health\" (AC 2)", flyConfigRel)
 	}
 	if healthChecked && !gracePeriod {
-		t.Errorf("[P0] %s's /health check must set a grace_period — /health is fail-closed (503 when the DB is down), so a machine whose pool has not connected yet would be killed before it could ever become healthy (Task 3)", flyConfigRel)
+		t.Errorf("[P0] %s's probe check must set a grace_period (Task 3)", flyConfigRel)
 	}
 }
 

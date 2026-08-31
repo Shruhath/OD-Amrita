@@ -79,8 +79,18 @@ VALUES ($1, lower($2), $3, $4, now())
 ON CONFLICT (supabase_subject) DO UPDATE
     SET email         = lower(excluded.email),
         name          = excluded.name,
-        last_login_at = now(),
-        updated_at    = now()
+        last_login_at = CASE
+                            WHEN users.last_login_at IS NULL
+                              OR users.last_login_at < now() - INTERVAL '15 minutes'
+                            THEN now()
+                            ELSE users.last_login_at
+                        END,
+        updated_at    = CASE
+                            WHEN users.email IS DISTINCT FROM lower(excluded.email)
+                              OR users.name IS DISTINCT FROM excluded.name
+                            THEN now()
+                            ELSE users.updated_at
+                        END
 RETURNING id::text, supabase_subject, email, name, role, (xmax = 0) AS inserted
 `
 

@@ -84,6 +84,7 @@ func run() error {
 	// header is read back off the routes actually registered below, so a method
 	// this API serves can never go unadvertised to the browser.
 	router.Use(corsmw.Middleware(cfg.PortalAllowedOrigins, router))
+	router.GET("/live", health.LiveHandler())
 	router.GET("/health", health.Handler(pool))
 
 	// The UNAUTHENTICATED public dashboard (Story 0.10). Built here, BEFORE the
@@ -156,7 +157,8 @@ func run() error {
 	// consults on every protected request, and the admin-only revocation service.
 	// Supabase exposes no supported server-side target-user revoke API, so the
 	// Supabase adapter is the disabled no-op — the local deny-list is authoritative.
-	revChecker := svcauth.NewSQLCRevocationChecker(pool)
+	rawRevChecker := svcauth.NewSQLCRevocationChecker(pool)
+	revChecker := svcauth.NewCachedRevocationChecker(rawRevChecker, 15*time.Second)
 	revSvc := svcauth.NewRevocationService(
 		st,
 		svcauth.NewSQLCRevocationWriter(),
@@ -171,7 +173,8 @@ func run() error {
 	api.Use(mwauth.RevocationGuard(revChecker))
 	api.GET("/auth/me", handlerauth.MeHandler(userSvc, eventAuditor))
 
-	principalLoader := rbac.NewSQLCPrincipalLoader(pool)
+	rawPrincipalLoader := rbac.NewSQLCPrincipalLoader(pool)
+	principalLoader := rbac.NewCachedPrincipalLoader(rawPrincipalLoader, 60*time.Second)
 	cardKeyring, err := svccardtoken.NewKeyring(cfg.CardSeal.ActiveVersion, cfg.CardSeal.HMACKeys)
 	if err != nil {
 		return err

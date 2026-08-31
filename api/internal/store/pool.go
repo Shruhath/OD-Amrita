@@ -31,30 +31,23 @@ func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 		cfg.MaxConns = 10
 	}
 	if !strings.Contains(dsn, "pool_health_check_period") {
-		cfg.HealthCheckPeriod = 30 * time.Second
+		cfg.HealthCheckPeriod = 1 * time.Minute
+	}
+	// Prune idle connections after 2 minutes of inactivity so the database
+	// can safely suspend when traffic stops.
+	if !strings.Contains(dsn, "pool_max_conn_idle_time") {
+		cfg.MaxConnIdleTime = 2 * time.Minute
 	}
 	// Spread connection retirement out. pgx retires a connection at
 	// MaxConnLifetime (one hour by default) and, with no jitter, EVERY connection
 	// in the pool is opened within a moment of the first request and therefore
 	// expires within a moment of the others. All of them then redial the database
 	// at once.
-	//
-	// This is not hypothetical: the Fly health check failed and recovered on very
-	// close to an hourly cycle, on both machines, offset from each other by their
-	// boot times. Against a hosted database each redial is a fresh TLS handshake
-	// and authentication over the open internet, so the herd routinely outran the
-	// probe's 5s timeout — and a failed probe pulls the machine out of rotation,
-	// which on a two-machine deployment is half the capacity for marking.
-	//
-	// Jitter makes pgx retire each connection somewhere in the five minutes BEFORE
-	// its deadline instead of exactly on it, so the pool always keeps live
-	// connections while the rest cycle. MinConns then keeps a warm connection in
-	// hand rather than making the health probe itself pay for the first dial.
 	if !strings.Contains(dsn, "pool_max_conn_lifetime_jitter") {
 		cfg.MaxConnLifetimeJitter = 5 * time.Minute
 	}
 	if !strings.Contains(dsn, "pool_min_conns") {
-		cfg.MinConns = 2
+		cfg.MinConns = 0
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

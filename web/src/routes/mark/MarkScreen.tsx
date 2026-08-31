@@ -116,10 +116,14 @@ export default function MarkScreen({
   // up. Keeping them apart means a failure is never lost to a race.
   // ---------------------------------------------------------------------
   const [failure, setFailure] = useState<string | null>(null)
+  // The server's id for the request that failed, shown only when the failure is
+  // one nobody on this screen can act on. See markFailureReference.
+  const [failureReference, setFailureReference] = useState<string>('')
   const [success, setSuccess] = useState<MarkAttendanceResult | null>(null)
 
-  const reportFailure = useCallback((message: string) => {
+  const reportFailure = useCallback((message: string, reference = '') => {
     setFailure(message)
+    setFailureReference(reference)
     setSuccess(null)
   }, [])
 
@@ -237,7 +241,7 @@ export default function MarkScreen({
       })
     },
     onError(error, variables) {
-      reportFailure(markFailureMessage(error))
+      reportFailure(markFailureMessage(error), markFailureReference(error))
       if (error instanceof ApiFailure && error.body.code === 'CAPTURE_CREDIT_LIMIT_REACHED') {
         void queryClient.invalidateQueries({
           queryKey: ['mark-status', variables.scope.eventID, variables.scope.categoryID],
@@ -277,6 +281,7 @@ export default function MarkScreen({
 
   const retryCapture = useCallback(() => {
     setFailure(null)
+    setFailureReference('')
     setSuccess(null)
     setCaptureEpoch((epoch) => epoch + 1)
   }, [])
@@ -364,7 +369,7 @@ export default function MarkScreen({
       }
       submit({ studentID: exact[0].student_id }, 'camera', scope)
     } catch (error) {
-      reportFailure(markFailureMessage(error))
+      reportFailure(markFailureMessage(error), markFailureReference(error))
     }
   }, [api, submit, reportFailure])
 
@@ -575,9 +580,11 @@ export default function MarkScreen({
 
       <MarkBanner
         failure={failure}
+        failureReference={failureReference}
         success={success}
         onDismiss={() => {
           setFailure(null)
+          setFailureReference('')
           setSuccess(null)
         }}
         onRetry={retryCapture}
@@ -605,6 +612,7 @@ export default function MarkScreen({
             onClick={() => {
               setMode(candidate)
               setFailure(null)
+              setFailureReference('')
               setSuccess(null)
             }}
           >
@@ -685,11 +693,13 @@ type MarkIdentity = { card: CardPayload } | { studentID: string }
  */
 function MarkBanner({
   failure,
+  failureReference,
   success,
   onDismiss,
   onRetry,
 }: {
   failure: string | null
+  failureReference: string
   success: MarkAttendanceResult | null
   onDismiss: () => void
   onRetry: () => void
@@ -699,6 +709,12 @@ function MarkBanner({
       <p role="alert" className="mark-banner is-red">
         <strong>Not recorded</strong>
         <span>{failure}</span>
+        {/*
+          Present only for a server fault, and deliberately quiet. It is the one
+          thing a coordinator can read out that lets the failure be found in the
+          logs at all — see markFailureReference.
+        */}
+        {failureReference ? <span className="mark-banner-reference">Reference {failureReference}</span> : null}
         {/*
           This RE-ARMS the capture session rather than only clearing the banner.
           After a refused permission or a switched-off radio the session is torn
@@ -798,6 +814,22 @@ const FAILURE_REASON: Record<string, string> = {
 }
 
 /** Turns any failure into the specific reason the coordinator needs to act on. */
+/**
+ * The reference to print under an unrecoverable failure, or '' for one the
+ * person in front of the screen can do something about.
+ *
+ * Only 5xx. A duplicate, a closed slot, an unrecognised card — those are answers,
+ * and printing an opaque id under them would turn a clear message into a support
+ * ticket. A 500 is the opposite: the screen has nothing true to say beyond "it
+ * broke", and the id is the only thing that makes the report actionable. When an
+ * admin said "it shows internal server error", this is what they could not tell
+ * us, and finding it instead took an afternoon of reading production backwards.
+ */
+function markFailureReference(error: unknown): string {
+  if (error instanceof ApiFailure && error.status >= 500) return error.requestId
+  return ''
+}
+
 function markFailureMessage(error: unknown): string {
   if (error instanceof ApiFailure) {
     // `body` is normalised into a real envelope by the API client, so `code` and

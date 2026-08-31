@@ -631,6 +631,52 @@ describe('the coordinator marking screen', () => {
     expect(banner).toHaveTextContent(/unreadable|failed|404/i)
   })
 
+  test('[P0] a 500 prints the server reference a coordinator can read out', async () => {
+    // The exact failure that was reported: "Not recorded / Internal server
+    // error." with nothing else on screen and nothing in the server's logs. The
+    // reason text is all the screen honestly knows, so the reference is the only
+    // thing that makes the report findable afterwards.
+    installMarkingBackend()
+    server.use(
+      http.post('*/api/v1/mark', () =>
+        HttpResponse.json(markError('INTERNAL', 'Internal server error.'), {
+          status: 500,
+          headers: { 'X-Request-Id': '01M1B7MN2H272C84WNN7E06110-fra' },
+        }),
+      ),
+    )
+
+    await renderMarkRoute()
+    await simulateTap(markCardPayload({ token: 'server-fault' }))
+
+    const banner = await screen.findByRole('alert')
+    expect(banner).toHaveTextContent(/not recorded/i)
+    expect(banner).toHaveTextContent(/01M1B7MN2H272C84WNN7E06110-fra/)
+  })
+
+  test('[P0] an answer the coordinator can act on gets NO reference', async () => {
+    // A duplicate is not a fault, it is an answer. Printing an opaque id under a
+    // clear message turns "already marked" into something that looks like it
+    // needs reporting.
+    installMarkingBackend()
+    server.use(
+      http.post('*/api/v1/mark', () =>
+        HttpResponse.json(markError('OD_RECORD_DUPLICATE', 'Already marked.'), {
+          status: 409,
+          headers: { 'X-Request-Id': 'should-not-be-shown' },
+        }),
+      ),
+    )
+
+    await renderMarkRoute()
+    await simulateTap(markCardPayload({ token: 'duplicate' }))
+
+    const banner = await screen.findByRole('alert')
+    expect(banner).toHaveTextContent(/not recorded/i)
+    expect(banner).not.toHaveTextContent(/should-not-be-shown/)
+    expect(banner).not.toHaveTextContent(/reference/i)
+  })
+
   test('[P0] a failed event read is stated, not rendered as "no markable events"', async () => {
     installMarkingBackend()
     server.use(

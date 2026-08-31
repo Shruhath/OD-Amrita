@@ -40,6 +40,7 @@ import (
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/ratelimit"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
+	requestid "github.com/Shruhath/OD-Amrita/api/internal/middleware/request_id"
 	svcappsettings "github.com/Shruhath/OD-Amrita/api/internal/service/appsettings"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	svccardtoken "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
@@ -95,6 +96,10 @@ func run() error {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	router := gin.New()
+	// FIRST, ahead of Recovery and the error renderer both: the request that most
+	// needs an id is the one that panics or fails, and a middleware registered
+	// after those two would not have run by the time either logs.
+	router.Use(requestid.Middleware())
 	router.Use(gin.Recovery())
 	router.Use(errormw.Handler())
 	// The router is passed to itself on purpose: the preflight's allowed-methods

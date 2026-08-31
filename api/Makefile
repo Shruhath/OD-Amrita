@@ -68,7 +68,7 @@ INTEGRATION_PKGS := ./test/db/... ./test/store/... ./test/event/... ./test/round
 
 .PHONY: build test lint sqlc sqlc-check migrate-up migrate-down run-api run-worker \
         db-up db-down db-reset db-psql db-studio db-studio-down test-integration \
-        kafka-up kafka-down kafka-topics kafka-tail test-stream
+        kafka-up kafka-down kafka-topics kafka-tail test-stream ci-local
 
 build: ## Compile all packages
 	go build ./...
@@ -81,6 +81,9 @@ lint: ## gofmt + golangci-lint (golangci-lint added in CI)
 
 sqlc: ## Generate typed Go into internal/store/sqlc from db/queries (pinned)
 	$(SQLC) generate
+
+ci-local: ## Run the api-ci workflow locally with act (Actions is billing-blocked)
+	@./scripts/ci_local.sh $(JOBS)
 
 sqlc-check: ## CI compile-check: regenerate and fail if committed output is stale
 	$(SQLC) generate

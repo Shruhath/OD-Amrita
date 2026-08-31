@@ -105,6 +105,11 @@ func newReadFixture(t *testing.T) (*ReadService, *fakeReader, *recordingEvents, 
 		events:       map[string]Event{activeEventID: {EventID: activeEventID, Status: "active"}},
 		categories:   map[string]string{categoryID: activeEventID},
 		assignments:  map[string]bool{"u-coord|" + activeEventID: true},
+		// The coordinator holds the category as well as the event. Category
+		// scope is a hard part of Reader now, so a fixture that omits this is a
+		// coordinator assigned to an event and to none of its categories — which
+		// the policy correctly refuses.
+		categoryAssignments: map[string]bool{"u-coord|" + activeEventID + "|" + categoryID: true},
 	}
 	events := &recordingEvents{categories: []svcevent.Category{{
 		ID: categoryID, EventID: activeEventID, Name: "Procession", CreatedAt: time.Now(),

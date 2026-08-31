@@ -80,16 +80,23 @@ func coordinator() marking.Actor {
 // The trap. This is the test that earns the package.
 // ---------------------------------------------------------------------------
 
-// marking.Policy finds category-level scope through a type assertion, and ALLOWS
-// when the assertion fails. A decorator that dropped
-// CoordinatorAssignedToEventCategory would still satisfy marking.Reader, still
-// compile, and silently let every coordinator mark in categories they were never
-// assigned to.
+// marking.Policy USED to find category-level scope through a type assertion that
+// returned nil — allowed — when it failed, so a decorator that dropped
+// CoordinatorAssignedToEventCategory still satisfied marking.Reader, still
+// compiled, and silently let every coordinator mark in categories they were
+// never assigned to. This test was the only thing standing between that and
+// production. The method is part of marking.Reader now, so dropping it is a
+// build failure and the trap is gone.
 //
-// So this asserts the refusal THROUGH A REAL POLICY rather than asserting the
-// method exists: it is the only form of the test that fails if the assertion
-// inside scope.go stops finding what it is looking for.
-func TestCachedReader_CategoryScopeSurvivesTheTypeAssertion(t *testing.T) {
+// The test stays, because it never really tested the assertion. It tests that
+// the decorator FORWARDS the question and honours the answer — that a cache in
+// front of a scope check does not turn a refusal into an admission, whether by
+// caching the wrong key, returning a zero value on a miss, or answering from a
+// neighbouring coordinator's entry. A compiler cannot check any of that.
+//
+// Asserted through a REAL policy rather than by calling the method directly, so
+// it fails if any layer between the two stops asking.
+func TestCachedReader_CategoryScopeSurvivesTheCache(t *testing.T) {
 	inner := &fakeReader{event: activeEvent(), assigned: true, catAssigned: false}
 	policy := marking.NewPolicy(NewReader(inner, ttl))
 
@@ -97,7 +104,7 @@ func TestCachedReader_CategoryScopeSurvivesTheTypeAssertion(t *testing.T) {
 
 	if !errors.Is(err, marking.ErrCategoryNotFound) {
 		t.Fatalf("a coordinator unassigned to the category was ADMITTED through the cached reader: err = %v, want %v"+
-			"\nthe decorator has stopped satisfying marking's categoryScopedReader, so the policy is failing OPEN",
+			"\nthe cache is answering a scope question the inner reader would have refused",
 			err, marking.ErrCategoryNotFound)
 	}
 	if inner.catAssignCalls == 0 {

@@ -600,6 +600,39 @@ touching the screen, so the idle timer is never reached.
 period. If you ever need that gone, warm the compute on a schedule rather than polling to keep it
 awake.
 
+### 7.4 Diagnosing a 500 — ask for the reference first
+
+Every response carries **`X-Request-Id`**. It reuses Fly's `Fly-Request-Id` when the edge supplies
+one, so a line in our logs and a line in Fly's name the same request; otherwise the API mints a uuid,
+so the handle survives leaving Fly.
+
+**On the marking screen a server fault prints it under the reason** — `Reference 01M1B7…` — and only
+for a 5xx. An answer the coordinator can act on (duplicate, closed slot, unrecognised card) prints no
+reference on purpose, because an opaque id under a clear message reads as "report this".
+
+So the first question to a person reporting "Internal server error" is **"what reference does it
+show?"**, and then:
+
+```bash
+flyctl logs -a od-amrita-api | grep '<the reference>'
+```
+
+The line looks like:
+
+```
+api: unhandled error: POST /api/v1/mark request_id="01M1B7MN2H272C84WNN7E06110-fra": <the cause>
+```
+
+**Only unmapped errors are logged.** A 4xx is a deliberate answer and is not a log line; there is no
+access log at all, because `fly.toml` probes `/health` every 15 s on two machines and an access log
+would be ~11,500 lines a day of probe traffic burying the one line that matters.
+
+> **This is what a 500 used to look like: nothing.** The error renderer dropped the cause, the router
+> installed no logger, and `internal/middleware/request_id` was an empty placeholder package. When
+> admins could not mark from a card on 31-Aug-2026, the diagnosis was done by reading production's
+> schema and audit log backwards for an afternoon. Do not remove the log line or the id to reduce
+> noise — the noise is one line per genuine fault.
+
 ### 7.4 The domain event stream (Kafka) — OFF unless you turn it on
 
 **`KAFKA_BROKERS` unset means the whole feature is inert.** No client is constructed, no connection

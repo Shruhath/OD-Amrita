@@ -1589,6 +1589,17 @@ tbody tr:hover {
   color: var(--foreground);
 }
 
+/* The server's reference for a failed request. Quiet on purpose: it is there to
+   be read out when someone reports the failure, not to compete with the reason
+   above it. Monospace because it is read aloud character by character. */
+.mark-banner-reference {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  opacity: 0.7;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
 .mark-banner button {
   align-self: flex-start;
   min-height: 38px;

@@ -29,17 +29,14 @@ type fakeReader struct {
 	categories   map[string]string // categoryID -> owning eventID
 	assignments  map[string]bool
 
-	activeEventsCalls int
-	eventByIDCalls    []string
-	assignmentCalls   [][2]string
-	categoryCalls     [][2]string
-	err               error
-}
+	categoryAssignments map[string]bool
 
-type scopedFakeReader struct {
-	*fakeReader
-	categoryAssignments     map[string]bool
+	activeEventsCalls       int
+	eventByIDCalls          []string
+	assignmentCalls         [][2]string
+	categoryCalls           [][2]string
 	categoryAssignmentCalls [][3]string
+	err                     error
 }
 
 func (f *fakeReader) AssignedActiveEvents(_ context.Context, userID string) ([]Event, error) {
@@ -93,7 +90,7 @@ func (f *fakeReader) CategoryForEvent(_ context.Context, eventID, categoryID str
 	return nil
 }
 
-func (f *scopedFakeReader) CoordinatorAssignedToEventCategory(_ context.Context, userID, eventID, categoryID string) (bool, error) {
+func (f *fakeReader) CoordinatorAssignedToEventCategory(_ context.Context, userID, eventID, categoryID string) (bool, error) {
 	f.categoryAssignmentCalls = append(f.categoryAssignmentCalls, [3]string{userID, eventID, categoryID})
 	if f.err != nil {
 		return false, f.err
@@ -120,6 +117,12 @@ func newFixture() *fakeReader {
 			foreignCatID: archivedEventID,
 		},
 		assignments: map[string]bool{"u-coord|" + activeEventID: true},
+		// Assigned to the category too. This line is not decoration: before
+		// CoordinatorAssignedToEventCategory was part of Reader, this fixture did
+		// not implement it, the policy's type assertion failed, and the admit
+		// tests below passed BECAUSE category scoping was switched off. They now
+		// pass because the coordinator genuinely holds the category.
+		categoryAssignments: map[string]bool{"u-coord|" + activeEventID + "|" + categoryID: true},
 	}
 }
 
@@ -163,10 +166,8 @@ func TestAssertCanMark_AllowsAdminForActiveEventAndOwnedCategory(t *testing.T) {
 }
 
 func TestAssertCanMark_AdminMayUseAnyEventCategoryWithoutCoordinatorCategoryAssignment(t *testing.T) {
-	reader := &scopedFakeReader{
-		fakeReader:          newFixture(),
-		categoryAssignments: map[string]bool{},
-	}
+	reader := newFixture()
+	reader.categoryAssignments = map[string]bool{}
 	policy := NewPolicy(reader)
 
 	if err := policy.AssertCanMark(context.Background(), admin(), activeEventID, categoryID); err != nil {
@@ -181,10 +182,8 @@ func TestAssertCanMark_AdminMayUseAnyEventCategoryWithoutCoordinatorCategoryAssi
 }
 
 func TestAssertCanMark_CoordinatorStillNeedsCategoryAssignment(t *testing.T) {
-	reader := &scopedFakeReader{
-		fakeReader:          newFixture(),
-		categoryAssignments: map[string]bool{},
-	}
+	reader := newFixture()
+	reader.categoryAssignments = map[string]bool{}
 	policy := NewPolicy(reader)
 
 	err := policy.AssertCanMark(context.Background(), coordinator(), activeEventID, categoryID)

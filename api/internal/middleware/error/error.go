@@ -10,6 +10,7 @@ import (
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
 
 	"github.com/Shruhath/OD-Amrita/api/internal/domain"
+	requestid "github.com/Shruhath/OD-Amrita/api/internal/middleware/request_id"
 )
 
 // Handler is the single renderer for domain errors. Upstream code should push
@@ -43,12 +44,13 @@ func Handler() gin.HandlerFunc {
 		// router installs no gin.Logger, so a 500 left no trace anywhere, and
 		// diagnosing one meant reconstructing it from the database afterwards.
 		//
-		// Logged: method, path and the upstream request id, which is what ties
-		// a line here to the failure a user is reporting. NOT logged: the query
-		// string, any body, or any header — an unmapped error is not a reason to
-		// start recording card tokens and bearer tokens.
+		// Logged: method, path and the request id, which is what ties a line here
+		// to the failure a user is reporting — the same id the response carries
+		// in X-Request-Id, so they can read it off their own browser. NOT logged:
+		// the query string, any body, or any header — an unmapped error is not a
+		// reason to start recording card tokens and bearer tokens.
 		log.Printf("api: unhandled error: %s %s request_id=%q: %v",
-			c.Request.Method, c.Request.URL.Path, c.GetHeader("Fly-Request-Id"), err)
+			c.Request.Method, c.Request.URL.Path, requestid.FromGin(c), err)
 		c.AbortWithStatusJSON(http.StatusInternalServerError, contracts.Error{
 			Code:    contracts.ErrorCodeINTERNAL,
 			Message: "Internal server error.",

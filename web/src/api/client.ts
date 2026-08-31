@@ -82,11 +82,26 @@ export type MarkCaptureMethod = components['schemas']['MarkAttendanceRequest']['
 export class ApiFailure extends Error {
   readonly status: number
   readonly body: ErrorEnvelope | ValidationError
+  /**
+   * The server's id for the request that failed, from the X-Request-Id response
+   * header. Empty when the failure never reached the API.
+   *
+   * WHY IT IS CARRIED. An admin reported "Internal server error." on the marking
+   * screen and there was nothing to go on: the API logged nothing, and the only
+   * handle on that one request was a header buried in their browser's network
+   * tab. The server names every request now; this is the half that puts the name
+   * where a person can read it out over a phone call.
+   *
+   * It is a correlation token and nothing else. It is never sent back, never
+   * branched on, and says nothing about the request it names.
+   */
+  readonly requestId: string
 
-  constructor(status: number, body: ErrorEnvelope | ValidationError) {
+  constructor(status: number, body: ErrorEnvelope | ValidationError, requestId = '') {
     super(body.message)
     this.status = status
     this.body = body
+    this.requestId = requestId
   }
 }
 
@@ -226,7 +241,11 @@ export function createPublicApi() {
 
   const unwrap = <T>(result: { data?: T; error?: ErrorEnvelope | ValidationError; response: Response }): T => {
     if (result.data !== undefined) return result.data
-    throw new ApiFailure(result.response.status, errorEnvelope(result.error, result.response))
+    throw new ApiFailure(
+      result.response.status,
+      errorEnvelope(result.error, result.response),
+      result.response.headers.get('X-Request-Id') ?? '',
+    )
   }
 
   return {
@@ -289,7 +308,11 @@ export function createEventApi(session: SessionPort) {
 
   const unwrap = <T>(result: { data?: T; error?: ErrorEnvelope | ValidationError; response: Response }): T => {
     if (result.data !== undefined) return result.data
-    throw new ApiFailure(result.response.status, errorEnvelope(result.error, result.response))
+    throw new ApiFailure(
+      result.response.status,
+      errorEnvelope(result.error, result.response),
+      result.response.headers.get('X-Request-Id') ?? '',
+    )
   }
 
   return {

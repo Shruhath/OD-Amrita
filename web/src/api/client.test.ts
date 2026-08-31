@@ -155,3 +155,38 @@ describe('concurrent 401s', () => {
     expect(session.refresh).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('failure correlation', () => {
+  test('carries the server request id off a 500', async () => {
+    // The whole reason the id exists. An admin reporting "Internal server error"
+    // could give us nothing to search for; the API logs the id it puts in this
+    // header, so carrying it here is what makes the report findable.
+    const session = sessionPort({ accessToken: vi.fn(async () => 'fresh-token') })
+    server.use(
+      http.get('*/api/v1/auth/me', () =>
+        HttpResponse.json(
+          { code: 'INTERNAL', message: 'Internal server error.' },
+          { status: 500, headers: { 'X-Request-Id': '01M1B7MN2H272C84WNN7E06110-fra' } },
+        ),
+      ),
+    )
+
+    await expect(createEventApi(session).identity()).rejects.toMatchObject({
+      status: 500,
+      requestId: '01M1B7MN2H272C84WNN7E06110-fra',
+    })
+  })
+
+  test('is empty rather than undefined when the header is absent', async () => {
+    // A failure that never reached the API — a proxy, a tunnel, an unmatched
+    // route — has no id, and every reader of this field renders it directly.
+    const session = sessionPort({ accessToken: vi.fn(async () => 'fresh-token') })
+    server.use(
+      http.get('*/api/v1/auth/me', () =>
+        HttpResponse.json({ code: 'INTERNAL', message: 'Internal server error.' }, { status: 500 }),
+      ),
+    )
+
+    await expect(createEventApi(session).identity()).rejects.toMatchObject({ requestId: '' })
+  })
+})

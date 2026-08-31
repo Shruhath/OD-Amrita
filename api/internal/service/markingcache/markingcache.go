@@ -37,22 +37,20 @@ import (
 
 // ScopeReader is what the decorator needs from the reader beneath it.
 //
-// It is marking.Reader PLUS CoordinatorAssignedToEventCategory, and that addition
-// is deliberate rather than incidental. marking.Policy reaches category-level
-// scope through an OPTIONAL interface it discovers with a type assertion, and
-// when that assertion fails the policy ALLOWS:
+// It is exactly marking.Reader, spelled out rather than embedded so this package
+// states its own requirement instead of inheriting whatever the other one grows.
 //
-//	scoped, ok := p.reader.(categoryScopedReader)
-//	if !ok {
-//	    return nil        // <- allows
-//	}
+// It used to be marking.Reader PLUS CoordinatorAssignedToEventCategory, because
+// marking.Policy reached category-level scope through an OPTIONAL interface
+// found with a type assertion and ALLOWED when the assertion failed — so a
+// decorator that dropped the method compiled, satisfied marking.Reader, and
+// switched category scoping off for every coordinator in the system. Requiring
+// it here was the guard against building exactly that.
 //
-// A decorator that quietly dropped that method would still satisfy
-// marking.Reader, still compile, still pass every existing test, and silently
-// switch off category scoping for every coordinator in the system. Requiring the
-// method on the way IN makes that mistake impossible to construct: you cannot
-// build this decorator over a reader that lacks it, and the compile-time
-// assertion below refuses to let this type lose it either.
+// The method is part of marking.Reader itself now and the fail-open branch is
+// gone, so the guard is the compiler's rather than this comment's. The list is
+// still written out in full: it is the honest statement of what a scope cache
+// must be able to answer.
 type ScopeReader interface {
 	AssignedActiveEvents(ctx context.Context, userID string) ([]marking.Event, error)
 	ActiveEventsForAdminMarking(ctx context.Context) ([]marking.Event, error)

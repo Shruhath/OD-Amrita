@@ -81,9 +81,19 @@ type Reader interface {
 	// CategoryForEvent returns ErrCategoryNotFound unless the category belongs to
 	// the event.
 	CategoryForEvent(ctx context.Context, eventID, categoryID string) error
-}
-
-type categoryScopedReader interface {
+	// CoordinatorAssignedToEventCategory reports whether userID holds THIS
+	// category on THIS event. It is the narrowest question the policy asks and
+	// the one it is least able to do without.
+	//
+	// It is part of Reader — a hard, compile-time requirement — because it used
+	// to be optional. The policy reached it through a type assertion and, when
+	// the assertion failed, RETURNED NIL: a reader that simply did not have the
+	// method switched category scoping off for every coordinator in the system,
+	// compiled cleanly, satisfied Reader, and said nothing. The one decorator
+	// that could have tripped it needed a bespoke test to prove it had not.
+	//
+	// Nothing here is optional now. A reader missing this method is a build
+	// failure, which is the only form of this guarantee that cannot rot.
 	CoordinatorAssignedToEventCategory(ctx context.Context, userID, eventID, categoryID string) (bool, error)
 }
 
@@ -137,11 +147,7 @@ func (p *Policy) AssertCanMark(ctx context.Context, actor Actor, eventID, catego
 		return err
 	}
 	if actor.Role != roleAdmin {
-		scoped, ok := p.reader.(categoryScopedReader)
-		if !ok {
-			return nil
-		}
-		assigned, err := scoped.CoordinatorAssignedToEventCategory(ctx, strings.TrimSpace(actor.UserID), strings.TrimSpace(eventID), strings.TrimSpace(categoryID))
+		assigned, err := p.reader.CoordinatorAssignedToEventCategory(ctx, strings.TrimSpace(actor.UserID), strings.TrimSpace(eventID), strings.TrimSpace(categoryID))
 		if err != nil {
 			return err
 		}

@@ -11,6 +11,102 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countAuditLog = `-- name: CountAuditLog :one
+SELECT count(*)::bigint
+FROM audit_log
+WHERE ($1::text = '' OR action = $1::text)
+  AND ($2::text = '' OR actor_account = $2::text)
+  AND ($3::text = '' OR target_table = $3::text)
+  AND ($4::text = '' OR target_id = $4::text)
+`
+
+type CountAuditLogParams struct {
+	Action       string `json:"action"`
+	ActorAccount string `json:"actor_account"`
+	TargetTable  string `json:"target_table"`
+	TargetID     string `json:"target_id"`
+}
+
+func (q *Queries) CountAuditLog(ctx context.Context, arg CountAuditLogParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAuditLog,
+		arg.Action,
+		arg.ActorAccount,
+		arg.TargetTable,
+		arg.TargetID,
+	)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const listAuditLog = `-- name: ListAuditLog :many
+SELECT id, action, actor_account, actor_role, target_table, target_id, created_at, payload
+FROM audit_log
+WHERE ($1::text = '' OR action = $1::text)
+  AND ($2::text = '' OR actor_account = $2::text)
+  AND ($3::text = '' OR target_table = $3::text)
+  AND ($4::text = '' OR target_id = $4::text)
+ORDER BY created_at DESC, id DESC
+LIMIT $6::bigint
+OFFSET $5::bigint
+`
+
+type ListAuditLogParams struct {
+	Action       string `json:"action"`
+	ActorAccount string `json:"actor_account"`
+	TargetTable  string `json:"target_table"`
+	TargetID     string `json:"target_id"`
+	RowOffset    int64  `json:"row_offset"`
+	RowLimit     int64  `json:"row_limit"`
+}
+
+type ListAuditLogRow struct {
+	ID           pgtype.UUID        `json:"id"`
+	Action       string             `json:"action"`
+	ActorAccount pgtype.Text        `json:"actor_account"`
+	ActorRole    pgtype.Text        `json:"actor_role"`
+	TargetTable  pgtype.Text        `json:"target_table"`
+	TargetID     pgtype.Text        `json:"target_id"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	Payload      []byte             `json:"payload"`
+}
+
+func (q *Queries) ListAuditLog(ctx context.Context, arg ListAuditLogParams) ([]ListAuditLogRow, error) {
+	rows, err := q.db.Query(ctx, listAuditLog,
+		arg.Action,
+		arg.ActorAccount,
+		arg.TargetTable,
+		arg.TargetID,
+		arg.RowOffset,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAuditLogRow
+	for rows.Next() {
+		var i ListAuditLogRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Action,
+			&i.ActorAccount,
+			&i.ActorRole,
+			&i.TargetTable,
+			&i.TargetID,
+			&i.CreatedAt,
+			&i.Payload,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAuditLogForRecord = `-- name: ListAuditLogForRecord :many
 SELECT action, actor_account, actor_role, created_at, payload
 FROM audit_log

@@ -29,6 +29,7 @@ export type RecordCorrectionInput = components['schemas']['RecordCorrectionReque
 export type RecordRemovalInput = components['schemas']['RecordRemovalRequest']
 export type ODRecordMutationResult = components['schemas']['ODRecordMutationResult']
 export type AuditLogEntryCollection = components['schemas']['AuditLogEntryCollection']
+export type AuditLogPage = components['schemas']['AuditLogPage']
 export type StudentRosterImportResult = components['schemas']['StudentRosterImportResult']
 export type StudentRosterImportError = components['schemas']['StudentRosterImportError']
 export type StudentCollection = components['schemas']['StudentCollection']
@@ -560,6 +561,20 @@ export function createEventApi(session: SessionPort) {
 
     async odRecordAudit(recordID: string) {
       return unwrap(await client.GET('/api/v1/portal/records/{record_id}/audit', { params: { path: { record_id: recordID } } }))
+    },
+
+    async adminAuditLog(
+      filters: { action?: string; actorAccount?: string; targetTable?: string; targetID?: string; page?: number; pageSize?: number } = {},
+    ) {
+      const query: Record<string, string | number> = {
+        page: filters.page ?? 1,
+        page_size: filters.pageSize ?? 50,
+      }
+      if (filters.action) query.action = filters.action
+      if (filters.actorAccount) query.actor_account = filters.actorAccount
+      if (filters.targetTable) query.target_table = filters.targetTable
+      if (filters.targetID) query.target_id = filters.targetID
+      return unwrap(await client.GET('/api/v1/admin/audit-log', { params: { query } }))
     },
 
     /** The evening-slots switch. Administrator only. */

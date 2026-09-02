@@ -26,6 +26,7 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/eventstream"
 	handleradmin "github.com/Shruhath/OD-Amrita/api/internal/handler/admin"
 	handlerappsettings "github.com/Shruhath/OD-Amrita/api/internal/handler/appsettings"
+	handleraudit "github.com/Shruhath/OD-Amrita/api/internal/handler/audit"
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
 	handlercardtoken "github.com/Shruhath/OD-Amrita/api/internal/handler/cardtoken"
 	handlerdispute "github.com/Shruhath/OD-Amrita/api/internal/handler/dispute"
@@ -42,6 +43,7 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
 	requestid "github.com/Shruhath/OD-Amrita/api/internal/middleware/request_id"
 	svcappsettings "github.com/Shruhath/OD-Amrita/api/internal/service/appsettings"
+	svcauditlog "github.com/Shruhath/OD-Amrita/api/internal/service/audit"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	svccardtoken "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
 	svcdispute "github.com/Shruhath/OD-Amrita/api/internal/service/dispute"
@@ -335,6 +337,7 @@ func run() error {
 	handlerdispute.RegisterRoutes(markAPI, disputeSvc)
 
 	admin := newAdminGroup(api, principalLoader)
+	handleraudit.RegisterAdminRoutes(admin, svcauditlog.NewService(pool))
 	handlerappsettings.RegisterAdminRoutes(admin, settingsSvc)
 	// Wrapped so a successful revoke drops the cached verdicts on THIS machine
 	// immediately, rather than leaving the administrator to watch a revoked

@@ -556,16 +556,27 @@ type AttendanceRecordCollection struct {
 
 // AuditLogEntry defines model for AuditLogEntry.
 type AuditLogEntry struct {
-	Action     string                  `json:"action"`
-	ActorEmail *openapi_types.Email    `json:"actor_email"`
-	ActorRole  *string                 `json:"actor_role"`
-	OccurredAt time.Time               `json:"occurred_at"`
-	Payload    *map[string]interface{} `json:"payload"`
+	Action      string                  `json:"action"`
+	ActorEmail  *openapi_types.Email    `json:"actor_email"`
+	ActorRole   *string                 `json:"actor_role"`
+	Id          *openapi_types.UUID     `json:"id,omitempty"`
+	OccurredAt  time.Time               `json:"occurred_at"`
+	Payload     *map[string]interface{} `json:"payload"`
+	TargetId    *string                 `json:"target_id,omitempty"`
+	TargetTable *string                 `json:"target_table,omitempty"`
 }
 
 // AuditLogEntryCollection defines model for AuditLogEntryCollection.
 type AuditLogEntryCollection struct {
 	Data []AuditLogEntry `json:"data"`
+}
+
+// AuditLogPage defines model for AuditLogPage.
+type AuditLogPage struct {
+	Data     []AuditLogEntry `json:"data"`
+	Page     int             `json:"page"`
+	PageSize int             `json:"page_size"`
+	Total    int             `json:"total"`
 }
 
 // AuthenticatedIdentity Identity claims verified from the Supabase JWT and accepted by the backend amrita.edu domain-family gate.
@@ -1310,6 +1321,16 @@ type ValidationErrorDetail struct {
 
 // bearerAuthContextKey is the context key for bearerAuth security scheme
 type bearerAuthContextKey string
+
+// ListAdminAuditLogParams defines parameters for ListAdminAuditLog.
+type ListAdminAuditLogParams struct {
+	Action       *string `form:"action,omitempty" json:"action,omitempty"`
+	ActorAccount *string `form:"actor_account,omitempty" json:"actor_account,omitempty"`
+	TargetTable  *string `form:"target_table,omitempty" json:"target_table,omitempty"`
+	TargetId     *string `form:"target_id,omitempty" json:"target_id,omitempty"`
+	Page         *int    `form:"page,omitempty" json:"page,omitempty"`
+	PageSize     *int    `form:"page_size,omitempty" json:"page_size,omitempty"`
+}
 
 // ListSectionCardStatusParams defines parameters for ListSectionCardStatus.
 type ListSectionCardStatusParams struct {

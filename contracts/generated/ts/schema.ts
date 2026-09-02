@@ -593,6 +593,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/audit-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the immutable audit ledger
+         * @description Admin-only ledger read for operational investigation. Results are newest first and include actor, target and payload fields so administrators can inspect security/admin/business state changes without direct database access. Filters are exact-match and applied before pagination.
+         */
+        get: operations["listAdminAuditLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/events/{event_id}/categories": {
         parameters: {
             query?: never;
@@ -1497,6 +1517,10 @@ export interface components {
             total: number;
         };
         AuditLogEntry: {
+            /** Format: uuid */
+            id?: string;
+            target_table?: string | null;
+            target_id?: string | null;
             action: string;
             /** Format: email */
             actor_email: string | null;
@@ -1509,6 +1533,12 @@ export interface components {
         };
         AuditLogEntryCollection: {
             data: components["schemas"]["AuditLogEntry"][];
+        };
+        AuditLogPage: {
+            data: components["schemas"]["AuditLogEntry"][];
+            page: number;
+            page_size: number;
+            total: number;
         };
         /** @description Health probe shape — overall service status plus database connectivity. */
         HealthStatus: {
@@ -3687,6 +3717,69 @@ export interface operations {
                 };
             };
             /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listAdminAuditLog: {
+        parameters: {
+            query?: {
+                action?: string;
+                actor_account?: string;
+                target_table?: string;
+                target_id?: string;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Audit entries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditLogPage"];
+                };
+            };
+            /** @description Invalid query */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error */
             500: {
                 headers: {
                     [name: string]: unknown;

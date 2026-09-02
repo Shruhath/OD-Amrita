@@ -1719,6 +1719,48 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/admin/audit-log:
+    get:
+      operationId: listAdminAuditLog
+      summary: List the immutable audit ledger
+      description: >-
+        Admin-only ledger read for operational investigation. Results are newest
+        first and include actor, target and payload fields so administrators can
+        inspect security/admin/business state changes without direct database
+        access. Filters are exact-match and applied before pagination.
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: action
+          in: query
+          required: false
+          schema: {type: string, minLength: 1, maxLength: 120}
+        - name: actor_account
+          in: query
+          required: false
+          schema: {type: string, minLength: 1, maxLength: 320}
+        - name: target_table
+          in: query
+          required: false
+          schema: {type: string, minLength: 1, maxLength: 120}
+        - name: target_id
+          in: query
+          required: false
+          schema: {type: string, minLength: 1, maxLength: 200}
+        - name: page
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, default: 1}
+        - name: page_size
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      responses:
+        "200": {description: Audit entries, content: {application/json: {schema: {$ref: "#/components/schemas/AuditLogPage"}}}}
+        "400": {description: Invalid query, content: {application/json: {schema: {$ref: "#/components/schemas/ValidationError"}}}}
+        "401": {description: Unauthenticated, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "403": {description: Admin access required, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "500": {description: Internal error, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+
   /api/v1/admin/events/{event_id}/categories:
     parameters:
       - name: event_id
@@ -4263,6 +4305,15 @@ components:
       type: object
       required: [action, actor_email, actor_role, occurred_at, payload]
       properties:
+        id:
+          type: string
+          format: uuid
+        target_table:
+          type: string
+          nullable: true
+        target_id:
+          type: string
+          nullable: true
         action:
           type: string
         actor_email:
@@ -4288,6 +4339,25 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AuditLogEntry"
+
+    AuditLogPage:
+      type: object
+      required: [data, page, page_size, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditLogEntry"
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
 
     HealthStatus:
       type: object

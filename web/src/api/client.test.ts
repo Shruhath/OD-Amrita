@@ -52,6 +52,33 @@ describe('authorized API client', () => {
     expect(queries).toEqual(['?page=1&page_size=100', '?page=1&page_size=100'])
   })
 
+  test('requests the admin audit ledger with exact-match filters', async () => {
+    const session = sessionPort({ accessToken: vi.fn(async () => 'fresh-token') })
+    let query = ''
+    server.use(
+      http.get('*/api/v1/admin/audit-log', ({ request }) => {
+        query = new URL(request.url).search
+        return HttpResponse.json({ data: [], page: 2, page_size: 25, total: 51 })
+      }),
+    )
+
+    await expect(createEventApi(session).adminAuditLog({
+      action: 'app_setting.updated',
+      actorAccount: 'admin@amrita.edu',
+      targetTable: 'app_settings',
+      targetID: 'extended_slots_enabled',
+      page: 2,
+      pageSize: 25,
+    })).resolves.toMatchObject({ page: 2, total: 51 })
+
+    expect(query).toContain('action=app_setting.updated')
+    expect(query).toContain('actor_account=admin%40amrita.edu')
+    expect(query).toContain('target_table=app_settings')
+    expect(query).toContain('target_id=extended_slots_enabled')
+    expect(query).toContain('page=2')
+    expect(query).toContain('page_size=25')
+  })
+
   test('refreshes once after 401 and retries with the new access token', async () => {
     const session = sessionPort()
     const authorizations: string[] = []

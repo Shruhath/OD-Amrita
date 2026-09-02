@@ -15,6 +15,7 @@ import (
 type cardTokenQueries interface {
 	UpsertStudentCardToken(context.Context, sqlc.UpsertStudentCardTokenParams) (sqlc.UpsertStudentCardTokenRow, error)
 	ResolveStudentCardToken(context.Context, sqlc.ResolveStudentCardTokenParams) (sqlc.ResolveStudentCardTokenRow, error)
+	MarkStudentCardTokenVerified(context.Context, sqlc.MarkStudentCardTokenVerifiedParams) (int64, error)
 }
 
 type queryFactory func(pgx.Tx) cardTokenQueries
@@ -65,24 +66,23 @@ func (l *SQLCLedger) Resolve(ctx context.Context, version string, fingerprint [s
 }
 
 // MarkVerified records that an admin read this card back.
-//
-// On the pool rather than a transaction: it is a progress note about a read that
-// has already happened and has already been answered, not part of any write the
-// caller is composing. Nothing else in the request depends on it.
-func (l *SQLCLedger) MarkVerified(ctx context.Context, version string, fingerprint [sha256.Size]byte, actorUserID string) error {
+func (l *SQLCLedger) MarkVerified(ctx context.Context, tx pgx.Tx, version string, fingerprint [sha256.Size]byte, actorUserID string) (bool, error) {
 	actor, err := uuid.Parse(actorUserID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	// Zero rows is not an error: the row can only be missing if the token was
 	// re-sealed between the resolve and this update, and the newer seal is the
 	// truth in that race — silently doing nothing is the correct outcome.
-	_, err = l.poolQueries.MarkStudentCardTokenVerified(ctx, sqlc.MarkStudentCardTokenVerifiedParams{
+	rows, err := l.txQueries(tx).MarkStudentCardTokenVerified(ctx, sqlc.MarkStudentCardTokenVerifiedParams{
 		VerifiedByUserID: dbUUID(actor),
 		Version:          version,
 		TokenSha256:      fingerprint[:],
 	})
-	return err
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
 }
 
 // SectionStatus reads one section's durable progress.

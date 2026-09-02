@@ -53,10 +53,12 @@ const (
 	ActionTeacherCategoryAccessUpdated     Action = "teacher.category_access_updated"
 	ActionStudentRosterImported            Action = "student_roster.imported"
 	ActionCardTokenSealed                  Action = "card_token.sealed"
+	ActionCardTokenVerified                Action = "card_token.verified"
 	ActionCoordinatorAssigned              Action = "coordinator.assigned"
 	ActionCoordinatorCategoryAccessUpdated Action = "coordinator.category_access_updated"
 	ActionCaptureCreditCapChanged          Action = "capture_credit.cap_changed"
 	ActionCaptureCreditReset               Action = "capture_credit.reset"
+	ActionAppSettingUpdated                Action = "app_setting.updated"
 )
 
 // AllActions is the canonical registry-of-record: every declared Action, in
@@ -83,10 +85,12 @@ var AllActions = []Action{
 	ActionTeacherCategoryAccessUpdated,
 	ActionStudentRosterImported,
 	ActionCardTokenSealed,
+	ActionCardTokenVerified,
 	ActionCoordinatorAssigned,
 	ActionCoordinatorCategoryAccessUpdated,
 	ActionCaptureCreditCapChanged,
 	ActionCaptureCreditReset,
+	ActionAppSettingUpdated,
 }
 
 // registeredActions is the O(1) lookup set DERIVED from AllActions, so it can

@@ -21,6 +21,7 @@ package appsettings
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -35,6 +36,7 @@ import (
 
 	"github.com/Shruhath/OD-Amrita/api/internal/cache"
 	"github.com/Shruhath/OD-Amrita/api/internal/domain"
+	"github.com/Shruhath/OD-Amrita/api/internal/store"
 	"github.com/Shruhath/OD-Amrita/api/internal/store/sqlc"
 )
 
@@ -59,11 +61,22 @@ const cacheTTL = 60 * time.Second
 // Service reads and writes the runtime switches.
 type Service struct {
 	queries *sqlc.Queries
+	audited AuditStore
 	cache   *cache.TTL[bool]
 }
 
+type Actor struct {
+	UserID string
+	Email  string
+	Role   string
+}
+
+type AuditStore interface {
+	WithAudit(context.Context, store.AuditEvent, func(context.Context, pgx.Tx) (bool, error)) error
+}
+
 func NewService(pool *pgxpool.Pool) *Service {
-	return &Service{queries: sqlc.New(pool), cache: cache.New[bool](cacheTTL)}
+	return &Service{queries: sqlc.New(pool), audited: store.New(pool), cache: cache.New[bool](cacheTTL)}
 }
 
 // ExtendedSlotsEnabled reports whether slots 13..20 are currently admitted.
@@ -95,9 +108,9 @@ func (s *Service) ExtendedSlotsEnabled(ctx context.Context) (bool, error) {
 }
 
 // SetExtendedSlots writes the switch and returns the value now in force.
-func (s *Service) SetExtendedSlots(ctx context.Context, enabled bool, actorUserID string) (bool, time.Time, error) {
-	actor := pgtype.UUID{}
-	if trimmed := strings.TrimSpace(actorUserID); trimmed != "" {
+func (s *Service) SetExtendedSlots(ctx context.Context, enabled bool, actor Actor) (bool, time.Time, error) {
+	actorID := pgtype.UUID{}
+	if trimmed := strings.TrimSpace(actor.UserID); trimmed != "" {
 		parsed, err := uuid.Parse(trimmed)
 		if err != nil {
 			return false, time.Time{}, domain.DomainError{
@@ -108,13 +121,45 @@ func (s *Service) SetExtendedSlots(ctx context.Context, enabled bool, actorUserI
 				}},
 			}
 		}
-		actor = pgtype.UUID{Bytes: parsed, Valid: true}
+		actorID = pgtype.UUID{Bytes: parsed, Valid: true}
 	}
 
-	row, err := s.queries.UpsertAppSetting(ctx, sqlc.UpsertAppSettingParams{
-		Key:       ExtendedSlotsKey,
-		Value:     strconv.FormatBool(enabled),
-		UpdatedBy: actor,
+	previous, err := s.ExtendedSlotsEnabled(ctx)
+	if err != nil {
+		return false, time.Time{}, err
+	}
+
+	actorAccount := strings.ToLower(strings.TrimSpace(actor.Email))
+	actorRole := strings.TrimSpace(actor.Role)
+	targetTable := "app_settings"
+	targetID := ExtendedSlotsKey
+	var row sqlc.UpsertAppSettingRow
+	evt := store.AuditEvent{
+		Action:       domain.ActionAppSettingUpdated,
+		ActorAccount: stringPtrOrNil(actorAccount),
+		ActorRole:    stringPtrOrNil(actorRole),
+		TargetTable:  &targetTable,
+		TargetID:     &targetID,
+		PayloadFunc: func() ([]byte, error) {
+			return json.Marshal(map[string]any{
+				"key":            ExtendedSlotsKey,
+				"previous_value": previous,
+				"new_value":      enabled,
+			})
+		},
+	}
+
+	err = s.audited.WithAudit(ctx, evt, func(ctx context.Context, tx pgx.Tx) (bool, error) {
+		written, writeErr := sqlc.New(tx).UpsertAppSetting(ctx, sqlc.UpsertAppSettingParams{
+			Key:       ExtendedSlotsKey,
+			Value:     strconv.FormatBool(enabled),
+			UpdatedBy: actorID,
+		})
+		if writeErr != nil {
+			return false, writeErr
+		}
+		row = written
+		return true, nil
 	})
 	if err != nil {
 		return false, time.Time{}, err
@@ -133,4 +178,11 @@ func (s *Service) SetExtendedSlots(ctx context.Context, enabled bool, actorUserI
 		updatedAt = row.UpdatedAt.Time
 	}
 	return enabled, updatedAt, nil
+}
+
+func stringPtrOrNil(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }

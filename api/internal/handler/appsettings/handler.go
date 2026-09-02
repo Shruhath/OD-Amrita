@@ -17,13 +17,14 @@ import (
 
 	"github.com/Shruhath/OD-Amrita/api/internal/domain"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
+	svcappsettings "github.com/Shruhath/OD-Amrita/api/internal/service/appsettings"
 	odrecord "github.com/Shruhath/OD-Amrita/api/internal/service/od_record"
 )
 
 // Service is the narrow surface this handler needs.
 type Service interface {
 	ExtendedSlotsEnabled(ctx context.Context) (bool, error)
-	SetExtendedSlots(ctx context.Context, enabled bool, actorUserID string) (bool, time.Time, error)
+	SetExtendedSlots(ctx context.Context, enabled bool, actor svcappsettings.Actor) (bool, time.Time, error)
 }
 
 func RegisterAdminRoutes(group gin.IRouter, svc Service) {
@@ -65,7 +66,11 @@ func SetExtendedSlotsHandler(svc Service) gin.HandlerFunc {
 		// The acting administrator is recorded on the row. A switch that changes
 		// what the whole campus can do should not be anonymous.
 		principal, _ := rbac.PrincipalFromContext(c)
-		enabled, updatedAt, err := svc.SetExtendedSlots(c.Request.Context(), *body.Enabled, principal.UserID)
+		enabled, updatedAt, err := svc.SetExtendedSlots(c.Request.Context(), *body.Enabled, svcappsettings.Actor{
+			UserID: principal.UserID,
+			Email:  principal.Email,
+			Role:   principal.Role,
+		})
 		if err != nil {
 			fail(c, err)
 			return

@@ -31,6 +31,27 @@ describe('authorized API client', () => {
     expect(query).toContain('page_size=20')
   })
 
+  test('caps portal record reads at the management endpoint page-size contract', async () => {
+    const session = sessionPort({ accessToken: vi.fn(async () => 'fresh-token') })
+    const queries: string[] = []
+    server.use(
+      http.get('*/api/v1/portal/events/:eventID/records', ({ request }) => {
+        queries.push(new URL(request.url).search)
+        return HttpResponse.json({ data: [], page: 1, page_size: 100, total: 0 })
+      }),
+      http.get('*/api/v1/portal/students/:studentID/od-records', ({ request }) => {
+        queries.push(new URL(request.url).search)
+        return HttpResponse.json({ data: [], page: 1, page_size: 100, total: 0 })
+      }),
+    )
+    const api = createEventApi(session)
+
+    await api.portalRecords('11111111-1111-4111-8111-111111111111', { pageSize: 1000 })
+    await api.studentODHistory('55555555-5555-4555-8555-555555555555', 1, 200)
+
+    expect(queries).toEqual(['?page=1&page_size=100', '?page=1&page_size=100'])
+  })
+
   test('refreshes once after 401 and retries with the new access token', async () => {
     const session = sessionPort()
     const authorizations: string[] = []

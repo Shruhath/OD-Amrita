@@ -136,6 +136,11 @@ function errorEnvelope(raw: unknown, response: Response): ErrorEnvelope | Valida
 }
 
 const apiBaseURL = import.meta.env.VITE_API_BASE_URL ?? window.location.origin
+const portalRecordPageSizeMax = 100
+
+function portalRecordPageSize(value: number | undefined, fallback: number): number {
+  return Math.min(Math.max(value ?? fallback, 1), portalRecordPageSizeMax)
+}
 
 // Pre-production only: true while the API is reached through an ngrok tunnel,
 // false the moment VITE_API_BASE_URL points at the API's own domain (Fly). Gating
@@ -530,7 +535,7 @@ export function createEventApi(session: SessionPort) {
       eventID: string,
       filters: { categoryID?: string; slot?: number; odDate?: string; section?: string; actorUserID?: string; page?: number; pageSize?: number } = {},
     ) {
-      const query: Record<string, string | number> = { page: filters.page ?? 1, page_size: filters.pageSize ?? 50 }
+      const query: Record<string, string | number> = { page: filters.page ?? 1, page_size: portalRecordPageSize(filters.pageSize, 50) }
       if (filters.categoryID) query.category_id = filters.categoryID
       if (filters.slot !== undefined) query.slot = filters.slot
       if (filters.odDate) query.od_date = filters.odDate
@@ -541,7 +546,7 @@ export function createEventApi(session: SessionPort) {
 
     async studentODHistory(studentID: string, page = 1, pageSize = 50) {
       return unwrap(await client.GET('/api/v1/portal/students/{student_id}/od-records', {
-        params: { path: { student_id: studentID }, query: { page, page_size: pageSize } },
+        params: { path: { student_id: studentID }, query: { page, page_size: portalRecordPageSize(pageSize, 50) } },
       }))
     },
 

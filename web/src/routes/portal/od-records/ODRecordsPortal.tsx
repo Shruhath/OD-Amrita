@@ -22,7 +22,7 @@ import { AttendanceExportDialog } from './AttendanceExportDialog'
 
 const slots = Array.from({ length: 12 }, (_, index) => index + 1)
 const pageSize = 50
-const filterOptionsPageSize = 200
+const filterOptionsPageSize = 100
 
 function StatusBadge({ status }: { status: string }) {
   const tone = status === 'removed'

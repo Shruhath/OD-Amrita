@@ -122,19 +122,13 @@ export function buildSlotWorkbooks(
 export const MAX_EXPORT_RECORDS = 20_000
 
 /**
- * The page size the reader asks for. The contract caps the attendance endpoints
- * at 1000.
- *
- * This was 100, which was the contract's ceiling at the time. At that size a
- * full day could take 200 sequential requests, and each one made the server
- * re-count the whole filtered set alongside the page — roughly 800 queries for
- * one download, all of it round trips to a database on another continent.
- *
- * A tenth of the requests for the same rows. The interactive screens are
- * untouched and still ask for 20 or 50; only this deliberate bulk read takes the
- * larger page.
+ * The page size the reader asks for. The management record endpoint caps this
+ * at 100, even though the older admin attendance endpoint allows a larger bulk
+ * page. The export reads through the management route so teachers get the same
+ * branch-scoped rows they see on screen; the page size must follow that route's
+ * contract.
  */
-export const EXPORT_PAGE_SIZE = 1_000
+export const EXPORT_PAGE_SIZE = 100
 
 export class ExportTooLarge extends Error {
   readonly total: number

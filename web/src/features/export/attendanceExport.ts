@@ -2,7 +2,7 @@ import type { AttendanceRecord } from '../../api/client'
 import { XLSX_MEDIA_TYPE, buildWorkbook } from './xlsx'
 
 /**
- * The per-slot on-duty export.
+ * The on-duty exports.
  *
  * ONE FILE PER SLOT, because that is the unit the office actually works in: a
  * slot is one period of one day, and the person receiving the list is checking
@@ -21,14 +21,21 @@ import { XLSX_MEDIA_TYPE, buildWorkbook } from './xlsx'
  * people who were excused when the record says they were not.
  */
 
-/** The four columns, in order. */
+/** The per-slot columns, in order. */
 export const EXPORT_COLUMNS = ['Roll number', 'Name', 'Slot', 'Category'] as const
+
+/** The day-wise columns, in order. */
+export const DAY_EXPORT_COLUMNS = ['Serial number', 'Roll number', 'Name', 'Slot', 'Category'] as const
 
 export type ExportRow = {
   rollNo: string
   name: string
   slot: number
   category: string
+}
+
+export type DayExportRow = ExportRow & {
+  serial: number
 }
 
 /**
@@ -42,9 +49,19 @@ export function exportFileName(odDate: string, slot: number): string {
   return `${odDate}-slot-${slot}.xlsx`
 }
 
+/** `2026-07-28-day.xlsx` — one workbook for the whole selected day. */
+export function dayExportFileName(odDate: string): string {
+  return `${odDate}-day.xlsx`
+}
+
 /** The tab inside the workbook. Excel caps this at 31 characters. */
 export function exportSheetName(odDate: string, slot: number): string {
   return `${odDate} slot ${slot}`
+}
+
+/** The tab inside the day-wise workbook. */
+export function dayExportSheetName(odDate: string): string {
+  return `${odDate} day`
 }
 
 /**
@@ -65,6 +82,26 @@ export function rowsForSlot(records: readonly AttendanceRecord[], slot: number):
       category: record.category.name,
     }))
     .sort((left, right) => left.rollNo.localeCompare(right.rollNo, 'en'))
+}
+
+/**
+ * Turns the day's records into one office list.
+ *
+ * Ordered by slot first, then roll number inside each slot. Serial numbers are
+ * assigned after sorting so they match the exact visible order in the workbook.
+ */
+export function rowsForDay(records: readonly AttendanceRecord[]): DayExportRow[] {
+  return records
+    .filter((record) => record.status === 'present')
+    .map((record) => ({
+      serial: 0,
+      rollNo: record.student.roll_no,
+      name: record.student.display_name,
+      slot: record.slot,
+      category: record.category.name,
+    }))
+    .sort((left, right) => left.slot - right.slot || left.rollNo.localeCompare(right.rollNo, 'en'))
+    .map((row, index) => ({ ...row, serial: index + 1 }))
 }
 
 /** The slots that actually have present marks on this day, ascending. */
@@ -103,6 +140,18 @@ export function buildSlotWorkbook(records: readonly AttendanceRecord[], odDate: 
     columnWidths: [22, 30, 8, 26],
   })
   return { fileName: exportFileName(odDate, slot), mediaType: XLSX_MEDIA_TYPE, bytes, rowCount: rows.length }
+}
+
+/** Builds one workbook for the whole selected day. */
+export function buildDayWorkbook(records: readonly AttendanceRecord[], odDate: string): ExportFile {
+  const rows = rowsForDay(records)
+  const bytes = buildWorkbook({
+    name: dayExportSheetName(odDate),
+    header: [...DAY_EXPORT_COLUMNS],
+    rows: rows.map((row) => [row.serial, row.rollNo, row.name, row.slot, row.category]),
+    columnWidths: [14, 22, 30, 8, 26],
+  })
+  return { fileName: dayExportFileName(odDate), mediaType: XLSX_MEDIA_TYPE, bytes, rowCount: rows.length }
 }
 
 /** Builds one workbook per selected slot, in ascending slot order. */

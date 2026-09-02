@@ -13,6 +13,7 @@ import {
 import {
   EXPORT_PAGE_SIZE,
   ExportTooLarge,
+  buildDayWorkbook,
   buildSlotWorkbooks,
   downloadFile,
   readDay,
@@ -25,7 +26,8 @@ import { DownloadSimple } from '@phosphor-icons/react/dist/icons/DownloadSimple'
 const exportEventPageSize = 100
 
 /**
- * The on-duty export: pick a day, tick the slots, get one workbook per slot.
+ * The on-duty export: pick a day, then download one day-wise workbook or tick
+ * slots and get one workbook per slot.
  *
  * THE SHAPE IS THE OFFICE'S, NOT THE DATABASE'S. What gets handed over is a
  * per-slot list — one period, every vertical in it, four columns — because that
@@ -171,6 +173,17 @@ export function AttendanceExportDialog({
     }
   }
 
+  const startDayDownload = () => {
+    setFailure(null)
+    try {
+      const file = buildDayWorkbook(records, odDate)
+      download(file)
+      setDownloaded([file.fileName])
+    } catch (cause) {
+      setFailure(cause instanceof Error ? cause.message : 'The day export could not be built.')
+    }
+  }
+
   const readFailure = day.error === null || day.error === undefined
     ? null
     : day.error instanceof ExportTooLarge
@@ -204,7 +217,7 @@ export function AttendanceExportDialog({
             <DialogHeader>
               <DialogTitle>Export on-duty lists</DialogTitle>
               <DialogDescription>
-                Choose a day, event, categories and slots. Each selected slot downloads as one Excel file.
+                Choose a day, event, categories and slots. Download the whole day as one Excel file or each selected slot as its own file.
               </DialogDescription>
             </DialogHeader>
 
@@ -403,6 +416,10 @@ export function AttendanceExportDialog({
 
             <div className="flex flex-wrap justify-end gap-3">
               <Button variant="secondary" onClick={() => setOpen(false)}>Close</Button>
+              <Button variant="outline" onClick={startDayDownload} disabled={availableSlots.length === 0}>
+                <DownloadSimple size={16} aria-hidden="true" />
+                Download day
+              </Button>
               <Button onClick={startDownload} disabled={chosen.length === 0}>
                 <DownloadSimple size={16} aria-hidden="true" />
                 {chosen.length <= 1 ? 'Download' : `Download ${chosen.length} files`}

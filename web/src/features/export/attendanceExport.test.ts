@@ -6,10 +6,14 @@ import {
   EXPORT_PAGE_SIZE,
   ExportTooLarge,
   MAX_EXPORT_RECORDS,
+  DAY_EXPORT_COLUMNS,
+  buildDayWorkbook,
   buildSlotWorkbook,
   buildSlotWorkbooks,
+  dayExportFileName,
   exportFileName,
   readDay,
+  rowsForDay,
   rowsForSlot,
   slotCounts,
   slotsWithRecords,
@@ -151,6 +155,39 @@ describe('the per-slot export', () => {
 
     expect(file.rowCount).toBe(0)
     expect(file.fileName).toBe('2026-07-28-slot-7.xlsx')
+    expect(file.bytes.byteLength).toBeGreaterThan(0)
+  })
+})
+
+describe('the day-wise export', () => {
+  test('[P0] columns include serial number, roll number, name, slot and category', () => {
+    expect(DAY_EXPORT_COLUMNS).toEqual(['Serial number', 'Roll number', 'Name', 'Slot', 'Category'])
+  })
+
+  test('[P0] rows are grouped by slot, then roll number, with serial numbers in that order', () => {
+    const records = [
+      record({ slot: 3, rollNo: 'CB.SC.U4CSE24103', name: 'Rahul Menon', categoryName: 'Technical Expo' }),
+      record({ slot: 2, rollNo: 'CB.SC.U4CSE24102', name: 'Meera Suresh', categoryName: 'Procession' }),
+      record({ slot: 2, rollNo: 'CB.SC.U4CSE24101', name: 'Ananya Rao', categoryName: 'Cultural Programme' }),
+      record({ slot: 1, rollNo: 'CB.SC.U4CSE24999', status: 'removed' }),
+    ]
+
+    expect(rowsForDay(records)).toEqual([
+      { serial: 1, rollNo: 'CB.SC.U4CSE24101', name: 'Ananya Rao', slot: 2, category: 'Cultural Programme' },
+      { serial: 2, rollNo: 'CB.SC.U4CSE24102', name: 'Meera Suresh', slot: 2, category: 'Procession' },
+      { serial: 3, rollNo: 'CB.SC.U4CSE24103', name: 'Rahul Menon', slot: 3, category: 'Technical Expo' },
+    ])
+  })
+
+  test('[P1] the day file is named by date', () => {
+    expect(dayExportFileName('2026-07-28')).toBe('2026-07-28-day.xlsx')
+  })
+
+  test('[P1] one workbook is built for the whole day', () => {
+    const file = buildDayWorkbook([record({ slot: 2 }), record({ slot: 3 })], day)
+
+    expect(file.fileName).toBe('2026-07-28-day.xlsx')
+    expect(file.rowCount).toBe(2)
     expect(file.bytes.byteLength).toBeGreaterThan(0)
   })
 })

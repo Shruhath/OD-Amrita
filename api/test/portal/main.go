@@ -867,6 +867,13 @@ func seedRecordManagementJourney(ctx context.Context, tx pgx.Tx) error {
 	`, recordMgmtCSECategoryID, recordMgmtECECategoryID, recordMgmtEventID); err != nil {
 		return fmt.Errorf("upsert record management categories: %w", err)
 	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO user_category_assignments (user_id, category_id, created_by_user_id)
+		VALUES ($1, $2, '90000000-0000-4000-8000-000000000001')
+		ON CONFLICT DO NOTHING
+	`, teacherPrincipalID, recordMgmtCSECategoryID); err != nil {
+		return fmt.Errorf("associate teacher principal record management category: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM od_records WHERE event_id = $1`, recordMgmtEventID); err != nil {
 		return fmt.Errorf("clear record management od records: %w", err)
 	}

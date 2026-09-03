@@ -26,7 +26,6 @@ export const ROUTE_ROLES = {
   '/portal/disputes': ['teacher', 'admin'],
   '/portal/teachers': ['admin'],
   '/portal/students': ['admin'],
-  '/portal/audit-log': ['admin'],
   '/portal/card-populator': ['admin'],
   // Live NFC/camera/search marking. Teachers use `/portal/mark` because their
   // correction flow needs an explicit date, slot and reason note.
@@ -51,7 +50,6 @@ const SECTIONS = [
   { to: '/portal/disputes', label: 'Disputes' },
   { to: '/portal/teachers', label: 'Teachers' },
   { to: '/portal/students', label: 'Students' },
-  { to: '/portal/audit-log', label: 'Audit log' },
   { to: '/portal/card-populator', label: 'Card populator' },
 ] as const satisfies readonly { to: GuardedPath; label: string }[]
 

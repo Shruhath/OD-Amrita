@@ -46,7 +46,6 @@ function signedInAs(role: string) {
     http.get('*/api/v1/admin/events', () => HttpResponse.json({ data: [], total: 0, page: 1, page_size: 20 })),
     http.get('*/api/v1/admin/teachers', () => HttpResponse.json({ data: [], total: 0, page: 1, page_size: 20 })),
     http.get('*/api/v1/admin/students', () => HttpResponse.json({ data: [], total: 0, page: 1, page_size: 20 })),
-    http.get('*/api/v1/admin/audit-log', () => HttpResponse.json({ data: [], total: 0, page: 1, page_size: 50 })),
     http.get('*/api/v1/events', () => HttpResponse.json({ data: [] })),
     http.get('*/api/v1/portal/mark/events', () => HttpResponse.json({ data: [] })),
     http.get('*/api/v1/disputes', () => HttpResponse.json({ data: [], total: 0, page: 1, page_size: 20 })),
@@ -78,7 +77,6 @@ describe('what each role is offered', () => {
       'Disputes',
       'Teachers',
       'Students',
-      'Audit log',
       'Card populator',
     ])
   })

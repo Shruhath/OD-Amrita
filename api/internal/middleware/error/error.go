@@ -34,8 +34,14 @@ func Handler() gin.HandlerFunc {
 			c.AbortWithStatusJSON(domain.HTTPStatus(de.Code), contracts.Error{Code: de.Code, Message: de.Message})
 			return
 		}
-		reqID, _ := c.Get("request_id")
-		log.Printf("api: unhandled error: %s %s request_id=\"%v\": %v",
+		reqID := ""
+		if val, exists := c.Get("request_id"); exists {
+			reqID, _ = val.(string)
+		}
+		if reqID == "" {
+			reqID = c.GetHeader("X-Request-ID")
+		}
+		log.Printf("api: unhandled error: %s %s request_id=%q: %v",
 			c.Request.Method, c.Request.URL.Path, reqID, err)
 		c.AbortWithStatusJSON(http.StatusInternalServerError, contracts.Error{
 			Code:    contracts.ErrorCodeINTERNAL,

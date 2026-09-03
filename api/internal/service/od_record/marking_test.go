@@ -314,7 +314,6 @@ func TestStatusService_AdminExemptFromCredits(t *testing.T) {
 	}
 }
 
-
 // ---------------------------------------------------------------------------
 // Shared stubs. These are deliberately minimal: the real behaviour they stand in
 // for is proven against Postgres in api/test/odrecord.

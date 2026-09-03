@@ -11,7 +11,7 @@
 
 **Tech Stack:** Go 1.24, Gin Web Framework, Jackc PGX v5, PostgreSQL.
 
-**Spec:** [`docs/admin-live-marking-investigation-report.md`](file:///C:/My-Files/Github/OD-Amrita/docs/admin-live-marking-investigation-report.md)
+**Spec:** [`docs/admin-live-marking-investigation-report.md`](../admin-live-marking-investigation-report.md)
 
 ## Global Constraints
 

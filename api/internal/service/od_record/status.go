@@ -119,7 +119,7 @@ func (s *StatusService) MarkStatus(ctx context.Context, actor Actor, eventID, ca
 			Consumed:         0,
 			Remaining:        100,
 			Exhausted:        false,
-			WarningThreshold: 1,
+			WarningThreshold: fallbackCreditWarningThreshold,
 		}
 	} else {
 		credit, err := s.credits.State(ctx, eventID, actor.UserID, today)

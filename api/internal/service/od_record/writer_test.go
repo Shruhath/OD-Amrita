@@ -51,6 +51,26 @@ func TestMapPgErrorMapsTheEventRangeGuardToAFieldValidation(t *testing.T) {
 	}
 }
 
+func TestMapPgError_ManualReasonNoteCheck(t *testing.T) {
+	cause := &pgconn.PgError{
+		Code:           "23514",
+		ConstraintName: "od_records_manual_reason_note_ck",
+		Message:        "check constraint violation",
+	}
+	err := mapPgError(cause)
+
+	var de domain.DomainError
+	if !errors.As(err, &de) {
+		t.Fatalf("error = %v (%T), want a domain.DomainError", err, err)
+	}
+	if de.Code != contracts.ErrorCodeVALIDATIONFAILED {
+		t.Fatalf("code = %s, want %s", de.Code, contracts.ErrorCodeVALIDATIONFAILED)
+	}
+	if len(de.Details) != 1 || de.Details[0].Field != "reason_note" || de.Details[0].Code != "required" {
+		t.Fatalf("details = %#v, want exactly one field detail for reason_note with code required", de.Details)
+	}
+}
+
 // A check violation this service does NOT own must stay a 500 rather than being
 // dressed up as a field error on od_date. Without this, the branch above could
 // be widened to "any 23514" and nothing would notice.

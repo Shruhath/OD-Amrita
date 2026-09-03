@@ -290,6 +290,30 @@ func TestMarkStatus_ReturnsNilSlotOnADayThatIsNotTheEventDate(t *testing.T) {
 	}
 }
 
+func TestStatusService_AdminExemptFromCredits(t *testing.T) {
+	reader := stubReader()
+	counts := &stubCounts{}
+	failingLedger := &fixedCreditLedger{err: errors.New("no rows in result set")}
+	svc := NewStatusService(reader, counts, failingLedger, scaffoldClock{})
+
+	status, err := svc.MarkStatus(
+		context.Background(),
+		Actor{UserID: scaffoldActorID, Role: "admin", Email: "admin@amrita.edu"},
+		scaffoldEventID,
+		scaffoldCategoryID,
+	)
+	if err != nil {
+		t.Fatalf("MarkStatus returned error for admin: %v", err)
+	}
+	if status.FallbackCredit.Exhausted {
+		t.Errorf("expected FallbackCredit.Exhausted to be false, got true")
+	}
+	if status.FallbackCredit.Remaining <= status.FallbackCredit.WarningThreshold {
+		t.Errorf("expected FallbackCredit.Remaining (%d) > WarningThreshold (%d)",
+			status.FallbackCredit.Remaining, status.FallbackCredit.WarningThreshold)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Shared stubs. These are deliberately minimal: the real behaviour they stand in
 // for is proven against Postgres in api/test/odrecord.

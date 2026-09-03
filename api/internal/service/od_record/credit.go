@@ -94,6 +94,15 @@ func (l *SQLCCreditLedger) State(ctx context.Context, eventID, userID string, us
 		UserID:    dbUUID(parsedUserID),
 		UsageDate: dbDate(usageDate),
 	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return FallbackCreditState{
+			Limit:            0,
+			Consumed:         0,
+			Remaining:        0,
+			Exhausted:        false,
+			WarningThreshold: fallbackCreditWarningThreshold,
+		}, nil
+	}
 	if err != nil {
 		return FallbackCreditState{}, err
 	}

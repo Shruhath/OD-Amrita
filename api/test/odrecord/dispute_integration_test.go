@@ -72,13 +72,17 @@ func disputeSubmitInput(studentID, email, eventID, categoryID string, slot int) 
 // disputeSubmitInputOn is the same thing with an explicit day, for the tests that
 // turn on which day is being disputed.
 func disputeSubmitInputOn(studentID, email, eventID, categoryID, odDate string, slot int) dispute.SubmitInput {
+	coord := "Priya Menon"
+	note := "I was present in the queue but my slot was missed."
 	return dispute.SubmitInput{
-		StudentID:      studentID,
-		SubmittedEmail: email,
-		EventID:        eventID,
-		CategoryID:     categoryID,
-		ODDate:         odDate,
-		Slot:           slot,
+		StudentID:              studentID,
+		SubmittedEmail:         email,
+		EventID:                eventID,
+		CategoryID:             categoryID,
+		ODDate:                 odDate,
+		Slot:                   slot,
+		ClaimedCoordinatorName: &coord,
+		StudentNote:            &note,
 	}
 }
 

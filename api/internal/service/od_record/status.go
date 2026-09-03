@@ -113,10 +113,20 @@ func (s *StatusService) MarkStatus(ctx context.Context, actor Actor, eventID, ca
 		return Status{}, err
 	}
 	status.Counters = Counters{Mine: mine, CategoryTotal: categoryTotal}
-	credit, err := s.credits.State(ctx, eventID, actor.UserID, today)
-	if err != nil {
-		return Status{}, err
+	if actor.Role == "admin" {
+		status.FallbackCredit = FallbackCreditState{
+			Limit:            100,
+			Consumed:         0,
+			Remaining:        100,
+			Exhausted:        false,
+			WarningThreshold: 1,
+		}
+	} else {
+		credit, err := s.credits.State(ctx, eventID, actor.UserID, today)
+		if err != nil {
+			return Status{}, err
+		}
+		status.FallbackCredit = credit
 	}
-	status.FallbackCredit = credit
 	return status, nil
 }

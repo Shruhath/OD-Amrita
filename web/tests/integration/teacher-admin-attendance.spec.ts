@@ -23,10 +23,16 @@ import { expect, test } from '@playwright/test'
 
 const portalAPI = 'http://127.0.0.1:8081'
 const MARKING_EVENT_ID = '93000000-0000-4000-8000-000000000001'
+const MARKING_CATEGORY_ID = '94000000-0000-4000-8000-000000000001'
 
 async function openTeacherMarkScreen(page: import('@playwright/test').Page) {
   await page.goto('/integration.html?role=teacher&path=%2Fportal%2Fmark')
   await expect(page.getByRole('heading', { name: /mark attendance/i })).toBeVisible()
+}
+
+async function selectMarkingScope(page: import('@playwright/test').Page) {
+  await selectValue(page, page.getByRole('combobox', { name: /event/i }), MARKING_EVENT_ID)
+  await selectValue(page, page.getByRole('combobox', { name: /category/i }), MARKING_CATEGORY_ID)
 }
 
 test.describe('real stack teacher/admin search marking', () => {
@@ -55,7 +61,7 @@ test.describe('real stack teacher/admin search marking', () => {
     // attendance view (MARKING_EVENT_ID); leaving the selection implicit made
     // those two the same event only by luck. Selecting it here makes the two
     // ends agree by construction, which is the property the test is really about.
-    await selectValue(page, page.getByRole('combobox', { name: /event/i }), MARKING_EVENT_ID)
+    await selectMarkingScope(page)
 
     await selectValue(page, page.getByRole('combobox', { name: /slot/i }), '4')
     await page.getByRole('searchbox', { name: /student/i }).fill(roll)
@@ -100,6 +106,7 @@ test.describe('real stack teacher/admin search marking', () => {
 
     await openTeacherMarkScreen(page)
 
+    await selectMarkingScope(page)
     await selectValue(page, page.getByRole('combobox', { name: /slot/i }), '7')
     await page.getByRole('searchbox', { name: /student/i }).fill('CB.SC.U4ECE24001')
     await page.getByRole('option', { name: /CB\.SC\.U4ECE24001/i }).click()

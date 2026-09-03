@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator } from '@playwright/test'
 
 // Story 2.3 against the REAL stack — the deterministic portal API in
 // api/test/portal and a real Postgres.
@@ -30,6 +30,10 @@ const portalAPI = 'http://127.0.0.1:8081'
 // those aggregates have no such "already elevated" terminal state.
 const studentFixtureEmail = 'teacher-fixture-student@amrita.edu'
 
+async function selectFirstCategory(dialog: Locator) {
+  await dialog.getByRole('checkbox', { name: /Procession|Exception|Day/i }).first().check()
+}
+
 test('creates a teacher profile through the real API and Postgres, and it persists across reload', async ({ page }) => {
   await page.goto('/integration.html?path=%2Fportal%2Fteachers')
   // exact: true — the empty-state "No teachers yet" heading also contains
@@ -42,6 +46,7 @@ test('creates a teacher profile through the real API and Postgres, and it persis
   const dialog = page.getByRole('dialog', { name: 'New teacher' })
   await dialog.getByLabel('Email').fill(studentFixtureEmail)
   await dialog.getByRole('checkbox', { name: 'Computer Science and Engineering' }).check()
+  await selectFirstCategory(dialog)
   await dialog.getByRole('button', { name: 'Create teacher' }).click()
 
   const row = page.getByRole('row', { name: new RegExp(studentFixtureEmail) })
@@ -61,6 +66,7 @@ test('rejects a second elevation of the same user with the real 409, and writes 
   const dialog = page.getByRole('dialog', { name: 'New teacher' })
   await dialog.getByLabel('Email').fill(studentFixtureEmail)
   await dialog.getByRole('checkbox', { name: 'Computer Science and Engineering' }).check()
+  await selectFirstCategory(dialog)
   await dialog.getByRole('button', { name: 'Create teacher' }).click()
 
   await expect(dialog.getByRole('alert')).toHaveText('This user already has an assigned role.')
@@ -72,6 +78,7 @@ test('rejects an email with no matching users row with the real 404, and writes 
   const dialog = page.getByRole('dialog', { name: 'New teacher' })
   await dialog.getByLabel('Email').fill('never-signed-in-fixture@amrita.edu')
   await dialog.getByRole('checkbox', { name: 'Computer Science and Engineering' }).check()
+  await selectFirstCategory(dialog)
   await dialog.getByRole('button', { name: 'Create teacher' }).click()
 
   await expect(dialog.getByRole('alert')).toHaveText('No user has signed in with this email yet.')

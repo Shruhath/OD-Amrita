@@ -222,6 +222,8 @@ test.describe('real stack student disputes', () => {
     await expect(form).toContainText(new RegExp(DISPUTE_STUDENT_ROLL.replace(/\./g, '\\.'), 'i'))
 
     await form.getByRole('textbox', { name: /email/i }).fill(DISPUTE_EMAIL)
+    await form.getByLabel(/coordinator name/i).fill('Portal Coordinator')
+    await form.getByLabel(/student note/i).fill('Missed by the coordinator during crowd movement.')
     await form.getByRole('button', { name: /submit|send|report/i }).click()
 
     // Scoped to the receipt panel. A bare getByRole('status') also matches

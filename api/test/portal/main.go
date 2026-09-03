@@ -640,17 +640,26 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("associate marking event branch: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO categories (id, event_id, name)
-		VALUES ($1, $2, 'Procession')
-		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
-	`, markingCategoryID, markingEventID); err != nil {
+			INSERT INTO categories (id, event_id, name)
+			VALUES ($1, $2, 'Procession')
+			ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+		`, markingCategoryID, markingEventID); err != nil {
 		return fmt.Errorf("upsert marking category: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO event_coordinator_assignments (user_id, event_id, created_by_user_id)
-		VALUES ('90000000-0000-4000-8000-000000000003', $1, '90000000-0000-4000-8000-000000000001')
-		ON CONFLICT (user_id, event_id) DO NOTHING
-	`, markingEventID); err != nil {
+			INSERT INTO user_category_assignments (user_id, category_id, created_by_user_id)
+			VALUES
+				('90000000-0000-4000-8000-000000000003', $1, '90000000-0000-4000-8000-000000000001'),
+				($2, $1, '90000000-0000-4000-8000-000000000001')
+			ON CONFLICT DO NOTHING
+		`, markingCategoryID, teacherPrincipalID); err != nil {
+		return fmt.Errorf("associate marking principals category: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+			INSERT INTO event_coordinator_assignments (user_id, event_id, created_by_user_id)
+			VALUES ('90000000-0000-4000-8000-000000000003', $1, '90000000-0000-4000-8000-000000000001')
+			ON CONFLICT (user_id, event_id) DO NOTHING
+		`, markingEventID); err != nil {
 		return fmt.Errorf("upsert marking coordinator assignment: %w", err)
 	}
 	// Marks from a previous run would make the counter assertions cumulative, so
@@ -735,11 +744,18 @@ func seedDisputeJourney(ctx context.Context, tx pgx.Tx) error {
 		return fmt.Errorf("associate dispute event branch: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO categories (id, event_id, name)
-		VALUES ($1, $2, 'Procession')
-		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
-	`, disputeCategoryID, disputeEventID); err != nil {
+			INSERT INTO categories (id, event_id, name)
+			VALUES ($1, $2, 'Procession')
+			ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+		`, disputeCategoryID, disputeEventID); err != nil {
 		return fmt.Errorf("upsert dispute category fixture: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+			INSERT INTO user_category_assignments (user_id, category_id, created_by_user_id)
+			VALUES ($1, $2, '90000000-0000-4000-8000-000000000001')
+			ON CONFLICT DO NOTHING
+		`, teacherPrincipalID, disputeCategoryID); err != nil {
+		return fmt.Errorf("associate dispute teacher category: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM disputes WHERE event_id = $1`, disputeEventID); err != nil {
 		return fmt.Errorf("clear dispute rows fixture: %w", err)
@@ -804,11 +820,18 @@ func seedMultiDayJourney(ctx context.Context, tx pgx.Tx, today time.Time) error 
 		return fmt.Errorf("associate multi-day event branch: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO categories (id, event_id, name)
-		VALUES ($1, $2, 'Multi Day Procession')
-		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
-	`, multiDayCategoryID, multiDayEventID); err != nil {
+			INSERT INTO categories (id, event_id, name)
+			VALUES ($1, $2, 'Multi Day Procession')
+			ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+		`, multiDayCategoryID, multiDayEventID); err != nil {
 		return fmt.Errorf("upsert multi-day category: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+			INSERT INTO user_category_assignments (user_id, category_id, created_by_user_id)
+			VALUES ('90000000-0000-4000-8000-000000000003', $1, '90000000-0000-4000-8000-000000000001')
+			ON CONFLICT DO NOTHING
+		`, multiDayCategoryID); err != nil {
+		return fmt.Errorf("associate multi-day coordinator category: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM od_records WHERE event_id = $1`, multiDayEventID); err != nil {
 		return fmt.Errorf("clear multi-day od records: %w", err)

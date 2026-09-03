@@ -144,7 +144,7 @@ func TestCardTokenServiceSealsAuditsIdempotentlyAndRejectsUnknownTokens(t *testi
 		t.Fatalf("keyring: %v", err)
 	}
 	svc := svccardtoken.NewService(svccardtoken.NewSQLCReader(runtime), svccardtoken.NewSQLCLedger(runtime), store.New(runtime), keyring)
-	actor := svccardtoken.Actor{UserID: uuid.NewString(), Email: "admin@amrita.edu", Role: "admin"}
+	actor := svccardtoken.Actor{UserID: seedAdmin(t, ctx, migrator), Email: "admin@amrita.edu", Role: "admin"}
 
 	first, err := svc.Seal(ctx, actor, svccardtoken.SealInput{StudentID: studentID})
 	if err != nil {

@@ -12,6 +12,7 @@ import DisputesRoute from './routes/portal/disputes/DisputesRoute'
 import StudentsRoute from './routes/portal/students/StudentsRoute'
 import TeachersRoute from './routes/portal/teachers/TeachersRoute'
 import ODRecordsRoute from './routes/portal/od-records/ODRecordsRoute'
+import AuditLogRoute from './routes/portal/audit-log/AuditLogRoute'
 
 const routes = [
   { path: '/portal/events', Component: EventsRoute },
@@ -26,6 +27,7 @@ const routes = [
   { path: '/portal/disputes', Component: DisputesRoute },
   { path: '/portal/teachers', Component: TeachersRoute },
   { path: '/portal/students', Component: StudentsRoute },
+  { path: '/portal/audit-log', Component: AuditLogRoute },
   // The pre-event card-writing surface. Admin-only through SessionBoundary,
   // and Chrome-on-Android only at runtime because it needs Web NFC.
   { path: '/portal/card-populator', Component: CardPopulatorRoute },

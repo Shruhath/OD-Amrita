@@ -2,6 +2,7 @@ package user
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -196,6 +197,15 @@ func (s *Service) Provision(ctx context.Context, id auth.VerifiedIdentity) (User
 	// (only on a real change, after write). No client-generated id is needed.
 	var targetID string
 	var provisioned User
+	payload, err := json.Marshal(map[string]string{
+		"email":            email,
+		"name":             name,
+		"resolved_role":    roleStr,
+		"supabase_subject": id.Subject,
+	})
+	if err != nil {
+		return User{}, err
+	}
 
 	evt := store.AuditEvent{
 		Action:       domain.ActionUserProvisioned,
@@ -203,10 +213,10 @@ func (s *Service) Provision(ctx context.Context, id auth.VerifiedIdentity) (User
 		ActorRole:    &roleStr,
 		TargetTable:  &targetTable,
 		TargetID:     &targetID,
-		// Payload deliberately nil → SQL NULL (no free-form context needed).
+		Payload:      payload,
 	}
 
-	err := s.store.WithAudit(ctx, evt, func(ctx context.Context, tx pgx.Tx) (bool, error) {
+	err = s.store.WithAudit(ctx, evt, func(ctx context.Context, tx pgx.Tx) (bool, error) {
 		u, err := s.queries.ProvisionUser(ctx, tx, ProvisionUserParams{
 			SupabaseSubject: id.Subject,
 			Email:           email,

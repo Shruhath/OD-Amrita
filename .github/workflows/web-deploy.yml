@@ -212,13 +212,12 @@ jobs:
             exit 1
           }
       - name: Verify fallback credit audit conservation
-        # THREE cap writes, not two, and the count is now fixed rather than
+        # FIVE cap writes, not three, and the count is fixed rather than
         # conditional. capture-credits.spec.ts sets the cap to 1, then to 0, then
-        # to 2 on every run. It used to make the middle write only when no
-        # teaching slot was open — so this step asserted 2 during the 08:00-18:15
-        # IST window and was wrong outside it, failing for reasons unrelated to
-        # whatever change happened to be pushed that evening. The determinism
-        # belongs in the journey; this number just follows it.
+        # to 2 on every run; coordinator-marking.spec.ts also raises the shared
+        # coordinator cap before its two fallback paths so parallel browser files
+        # cannot exhaust one another. The determinism belongs in the journeys;
+        # this number just follows the exact audited writes they make.
         run: |
           event_id="93000000-0000-4000-8000-000000000001"
           coordinator_id="90000000-0000-4000-8000-000000000003"
@@ -234,8 +233,8 @@ jobs:
             WHERE action = 'capture_credit.reset'
               AND target_table = 'event_capture_credit_usage'
               AND target_id = '$event_id:$coordinator_id'")"
-          [ "$cap_audits" = "3" ] && [ "$reset_audits" = "1" ] || {
-            echo "expected three capture_credit.cap_changed rows and one capture_credit.reset row for marking fixture, got $cap_audits and $reset_audits"
+          [ "$cap_audits" = "5" ] && [ "$reset_audits" = "1" ] || {
+            echo "expected five capture_credit.cap_changed rows and one capture_credit.reset row for marking fixture, got $cap_audits and $reset_audits"
             exit 1
           }
       - name: Verify teacher/admin marking audit conservation

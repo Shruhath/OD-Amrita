@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test, vi } from 'vitest'
@@ -135,7 +135,7 @@ function renderCoordinatorPortal({
 }
 
 function lastPathSegment(rawURL: string) {
-  const segments = new URL(rawURL).pathname.split('/').filter(Boolean)
+  const segments = new URL(rawURL, 'http://localhost').pathname.split('/').filter(Boolean)
   return segments[segments.length - 1] ?? ''
 }
 
@@ -197,18 +197,18 @@ describe('Admin event detail coordinator assignments', () => {
     expect(calls).not.toContain('create-coordinator')
   })
 
-  test('[P0] maps duplicate, unknown user, and ineligible role to distinct messages', async () => {
-    for (const createResponse of ['duplicate', 'missing-user', 'ineligible'] as const) {
+  test.each(['duplicate', 'missing-user', 'ineligible'] as const)(
+    '[P0] maps %s coordinator assignment rejection to a distinct message',
+    async (createResponse) => {
       const user = userEvent.setup()
       renderCoordinatorPortal({ createResponse })
       await openEventDetail(user)
-      await user.type(screen.getByLabelText('Coordinator email'), `${createResponse}@amrita.edu`)
+      fireEvent.change(screen.getByLabelText('Coordinator email'), { target: { value: `${createResponse}@amrita.edu` } })
       await user.click(screen.getByRole('checkbox', { name: /Procession/ }))
       await user.click(screen.getByRole('button', { name: 'Assign coordinator' }))
       expect(await screen.findByRole('alert')).toBeVisible()
-      cleanup()
-    }
-  })
+    },
+  )
 
   test('[P1] clears stale form errors when the email changes', async () => {
     const user = userEvent.setup()

@@ -77,6 +77,8 @@ function submission(overrides: Record<string, unknown> = {}) {
     category_id: DISPUTE_CATEGORY_ID,
     od_date: DISPUTE_OD_DATE,
     slot: DISPUTE_SLOT,
+    claimed_coordinator_name: 'Portal Coordinator',
+    student_note: 'Missed by the coordinator during crowd movement.',
     ...overrides,
   }
 }

@@ -98,7 +98,7 @@ async function installRecordManagementRoutes(page: import('@playwright/test').Pa
     // Existing add reads. Keep the stub narrow so unexpected calls reveal
     // integration drift instead of making an accidental screen pass.
     if (url.pathname.endsWith('/portal/mark/events')) {
-      return json(route, { data: [{ id: eventID, name: 'Onam Celebrations', event_date: '2026-08-09' }] })
+      return json(route, { data: [{ id: eventID, name: 'Onam Celebrations', event_date: '2026-08-09', end_date: '2026-08-09' }] })
     }
     if (url.pathname.includes('/portal/mark/events/') && url.pathname.endsWith('/categories')) {
       return json(route, { data: [
@@ -181,6 +181,10 @@ test.describe('teacher/admin OD record management (ATDD red phase)', () => {
     // the scope at the page until the record-management form exists, rather than
     // creating an impossible prerequisite for the reason-note assertion.
     const form = page
+    await form.getByRole('combobox', { name: /event/i }).click()
+    await page.getByRole('option', { name: /Onam Celebrations/i }).click()
+    await form.getByRole('combobox', { name: /category/i }).click()
+    await page.getByRole('option', { name: /Exception Desk/i }).click()
     await form.getByRole('combobox', { name: /slot/i }).click()
     await page.getByRole('option', { name: '6', exact: true }).click()
     await form.getByRole('searchbox', { name: /student/i }).fill('CB.SC.U4CSE24101')

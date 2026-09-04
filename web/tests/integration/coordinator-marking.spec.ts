@@ -30,6 +30,18 @@ const portalAPI = 'http://127.0.0.1:8081'
 
 /** The harness's marking event — the one seeded dated TODAY in Asia/Kolkata. */
 const MARKING_EVENT_ID = '93000000-0000-4000-8000-000000000001'
+const PORTAL_COORDINATOR_ID = '90000000-0000-4000-8000-000000000003'
+
+async function setPortalCoordinatorLimit(request: import('@playwright/test').APIRequestContext, limit: number) {
+  const response = await request.put(
+    `${portalAPI}/api/v1/admin/events/${MARKING_EVENT_ID}/capture-credits/coordinators/${PORTAL_COORDINATOR_ID}/limit`,
+    {
+      headers: { Authorization: 'Bearer portal-admin-token', 'Content-Type': 'application/json' },
+      data: { limit },
+    },
+  )
+  expect(response.status()).toBe(200)
+}
 
 /**
  * Reads the scope the screen actually settled on.
@@ -102,6 +114,7 @@ test.describe('real stack coordinator marking', () => {
   })
 
   test('[P0] a real mark moves the real counters, and a closed slot moves neither', async ({ page, request }, testInfo) => {
+    await setPortalCoordinatorLimit(request, 10)
     await installFakeWebNfc(page)
     await openMarkingScreen(page)
 
@@ -243,6 +256,7 @@ test.describe('real stack coordinator marking', () => {
   })
 
   test('[P0] a camera decode resolves a real roll number through the real stack', async ({ page, request }) => {
+    await setPortalCoordinatorLimit(request, 10)
     await installFakeBarcodeScanner(page)
     await openMarkingScreen(page)
 

@@ -1,5 +1,5 @@
 import { selectByLabel, selectByValue } from '../../../test/select'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test, vi } from 'vitest'
@@ -19,6 +19,7 @@ import {
 } from '../../../../tests/support/factories/teacher-admin-marking'
 
 const redTest = test
+const studentSearchPath = /\/api\/v1\/students\/search(?:\?.*)?$/
 
 function sessionPort(): SessionPort {
   return {
@@ -58,7 +59,7 @@ function installTeacherBackend(role: 'teacher' | 'admin' = 'teacher') {
     ),
     http.get('*/api/v1/admin/events/:eventID/coordinators', () => HttpResponse.json({ data: [createCoordinatorAssignmentFixture({ event_id: eventID, email: 'coordinator@amrita.edu' })] })),
     http.get('*/api/v1/admin/events/:eventID/capture-credits', () => HttpResponse.json(captureCreditSummary({ data: [] }))),
-    http.get('*/api/v1/students/search', () => HttpResponse.json(reads.students)),
+    http.get(studentSearchPath, () => HttpResponse.json(reads.students)),
     http.post('*/api/v1/mark', async ({ request }) => {
       posts.push(await request.json())
       return HttpResponse.json(teacherSearchMarkResult(4, role), { status: 201 })
@@ -88,11 +89,12 @@ describe('teacher/admin mark route red-phase scaffold', () => {
     await selectByLabel(user, screen.getByRole('combobox', { name: /event/i }), /teacher mark fixture/i)
     await selectByLabel(user, screen.getByRole('combobox', { name: /category/i }), /exception desk/i)
     await selectByValue(user, screen.getByRole('combobox', { name: /slot/i }), '4')
-    await user.clear(screen.getByLabelText(/date/i))
-    await user.type(screen.getByLabelText(/date/i), '2026-08-15')
-    await user.type(screen.getByRole('searchbox', { name: /student/i }), 'CB.SC.U4CSE24')
+    fireEvent.change(screen.getByLabelText(/date/i), { target: { value: '2026-08-15' } })
+    fireEvent.change(screen.getByRole('searchbox', { name: /student/i }), { target: { value: 'CB.SC.U4CSE24' } })
     await user.click(await screen.findByRole('option', { name: /CB\.SC\.U4CSE/i }))
-    await user.type(screen.getByRole('textbox', { name: /reason note/i }), 'Student attended the make-up session.')
+    fireEvent.change(screen.getByRole('textbox', { name: /reason note/i }), {
+      target: { value: 'Student attended the make-up session.' },
+    })
     await user.click(screen.getByRole('button', { name: /mark present/i }))
 
     await waitFor(() => expect(posts).toHaveLength(1))

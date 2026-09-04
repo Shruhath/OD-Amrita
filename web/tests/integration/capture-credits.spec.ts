@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test'
 
 const portalAPI = 'http://127.0.0.1:8081'
 const markingEventID = '93000000-0000-4000-8000-000000000001'
+const portalCoordinatorID = '90000000-0000-4000-8000-000000000003'
 const firstCreditRoll = 'CB.SC.U4CSE24004'
 const secondCreditRoll = 'CB.SC.U4CSE24005'
 
@@ -24,11 +25,7 @@ async function searchMark(page: import('@playwright/test').Page, roll: string) {
 }
 
 async function setFirstCoordinatorLimit(request: import('@playwright/test').APIRequestContext, limit: number) {
-  const summary = await request.get(`${portalAPI}/api/v1/admin/events/${markingEventID}/capture-credits`, {
-    headers: { Authorization: 'Bearer portal-admin-token' },
-  })
-  const first = (await summary.json()).data[0] as { user_id: string }
-  return request.put(`${portalAPI}/api/v1/admin/events/${markingEventID}/capture-credits/coordinators/${first.user_id}/limit`, {
+  return request.put(`${portalAPI}/api/v1/admin/events/${markingEventID}/capture-credits/coordinators/${portalCoordinatorID}/limit`, {
     headers: { Authorization: 'Bearer portal-admin-token', 'Content-Type': 'application/json' },
     data: { limit },
   })

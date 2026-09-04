@@ -18,7 +18,7 @@ import { openOptions, selectByLabel, selectByValue } from '../../test/select'
  * NOT gated behind an env flag or a build tag. 0.9 shipped a suite behind
  * ATDD_ACTIVE_09 that nothing ever set.
  */
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test, vi } from 'vitest'
@@ -122,9 +122,12 @@ async function openDisputeFormForSlotThree(user: ReturnType<typeof userEvent.set
 }
 
 async function fillRequiredDisputeFields(user: ReturnType<typeof userEvent.setup>, form: HTMLElement, email = disputeEmail) {
-  await user.type(within(form).getByRole('textbox', { name: /email/i }), email)
-  await user.type(within(form).getByRole('textbox', { name: /coordinator name/i }), 'Priya Menon')
-  await user.type(within(form).getByRole('textbox', { name: /student note/i }), 'I was present in the queue but my slot was missed.')
+  void user
+  fireEvent.change(within(form).getByRole('textbox', { name: /email/i }), { target: { value: email } })
+  fireEvent.change(within(form).getByRole('textbox', { name: /coordinator name/i }), { target: { value: 'Priya Menon' } })
+  fireEvent.change(within(form).getByRole('textbox', { name: /student note/i }), {
+    target: { value: 'I was present in the queue but my slot was missed.' },
+  })
 }
 
 describe('public dispute form', () => {
@@ -249,7 +252,7 @@ describe('public dispute form', () => {
     const submit = within(form).getByRole('button', { name: /submit dispute/i })
     expect(submit).toBeDisabled()
 
-    await user.type(within(form).getByRole('textbox', { name: /email/i }), disputeEmail)
+    fireEvent.change(within(form).getByRole('textbox', { name: /email/i }), { target: { value: disputeEmail } })
     expect(submit).toBeDisabled()
 
     const coordinator = within(form).getByRole('textbox', { name: /coordinator name/i })
@@ -257,10 +260,10 @@ describe('public dispute form', () => {
     expect(coordinator).toBeRequired()
     expect(note).toBeRequired()
 
-    await user.type(coordinator, 'Priya Menon')
+    fireEvent.change(coordinator, { target: { value: 'Priya Menon' } })
     expect(submit).toBeDisabled()
 
-    await user.type(note, 'I was present in the queue but my slot was missed.')
+    fireEvent.change(note, { target: { value: 'I was present in the queue but my slot was missed.' } })
     expect(submit).toBeEnabled()
   })
 

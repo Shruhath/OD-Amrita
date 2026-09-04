@@ -92,6 +92,12 @@ async function openDisputeForSlotThree(page: import('@playwright/test').Page) {
   return form
 }
 
+async function fillRequiredDisputeFields(form: import('@playwright/test').Locator) {
+  await form.getByRole('textbox', { name: /email/i }).fill(disputeEmail)
+  await form.getByLabel(/coordinator name/i).fill('Portal Coordinator')
+  await form.getByLabel(/student note/i).fill('Missed by the coordinator during crowd movement.')
+}
+
 test.describe('public dispute form', () => {
   // 0.11-E2E-001 — the affordance is reachable, and the form is usable at phone
   // width without the page scrolling sideways (AC 1, AC 15).
@@ -132,7 +138,7 @@ test.describe('public dispute form', () => {
     await page.goto(`${publicAttendanceRoute}?student=${publicStudentID}`)
     await expect(page.getByText(/Onam Celebrations/i).first()).toBeVisible()
     const form = await openDisputeForSlotThree(page)
-    await form.getByRole('textbox', { name: /email/i }).fill(disputeEmail)
+    await fillRequiredDisputeFields(form)
     await form.getByRole('button', { name: /submit|send|report/i }).click()
 
     // Scoped to the receipt panel. A bare getByRole('status') matches 0.10's
@@ -144,7 +150,9 @@ test.describe('public dispute form', () => {
 
     expect(seen.submissions).toHaveLength(1)
     expect(seen.submissions[0]).toMatchObject({
+      claimed_coordinator_name: 'Portal Coordinator',
       submitted_email: disputeEmail,
+      student_note: 'Missed by the coordinator during crowd movement.',
       student_id: publicStudentID,
       slot: 3,
       // The day the OD belongs to — carried explicitly, never inferred from the
@@ -171,7 +179,7 @@ test.describe('public dispute form', () => {
       await page.goto(`${publicAttendanceRoute}?student=${publicStudentID}`)
       await expect(page.getByText(/Onam Celebrations/i).first()).toBeVisible()
       const form = await openDisputeForSlotThree(page)
-      await form.getByRole('textbox', { name: /email/i }).fill(disputeEmail)
+      await fillRequiredDisputeFields(form)
       await form.getByRole('button', { name: /submit|send|report/i }).click()
 
       const alert = page.getByRole('alert')
@@ -192,7 +200,7 @@ test.describe('public dispute form', () => {
     await page.goto(`${publicAttendanceRoute}?student=${publicStudentID}`)
     await expect(page.getByText(/Onam Celebrations/i).first()).toBeVisible()
     const form = await openDisputeForSlotThree(page)
-    await form.getByRole('textbox', { name: /email/i }).fill(disputeEmail)
+    await fillRequiredDisputeFields(form)
     await form.getByRole('button', { name: /submit|send|report/i }).click()
     await expect(
       page.getByRole('region', { name: /dispute receipt/i }).getByRole('status'),

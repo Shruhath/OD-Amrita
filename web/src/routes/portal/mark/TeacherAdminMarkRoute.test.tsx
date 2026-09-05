@@ -76,7 +76,7 @@ function renderRoute(path = teacherMarkRoute) {
 }
 
 describe('teacher/admin mark route red-phase scaffold', () => {
-  redTest('[P0] teacher search-mark posts student_id, capture_method search and explicit slot', async () => {
+  redTest('[P0] teacher search-mark posts student_id, capture_method search and explicit slot, leaving its date to the server', async () => {
     const user = userEvent.setup()
     const posts = installTeacherBackend('teacher')
 
@@ -89,7 +89,7 @@ describe('teacher/admin mark route red-phase scaffold', () => {
     await selectByLabel(user, screen.getByRole('combobox', { name: /event/i }), /teacher mark fixture/i)
     await selectByLabel(user, screen.getByRole('combobox', { name: /category/i }), /exception desk/i)
     await selectByValue(user, screen.getByRole('combobox', { name: /slot/i }), '4')
-    fireEvent.change(screen.getByLabelText(/date/i), { target: { value: '2026-08-15' } })
+    expect(screen.queryByLabelText(/date/i)).not.toBeInTheDocument()
     fireEvent.change(screen.getByRole('searchbox', { name: /student/i }), { target: { value: 'CB.SC.U4CSE24' } })
     await user.click(await screen.findByRole('option', { name: /CB\.SC\.U4CSE/i }))
     fireEvent.change(screen.getByRole('textbox', { name: /reason note/i }), {
@@ -104,9 +104,9 @@ describe('teacher/admin mark route red-phase scaffold', () => {
       student_id: expect.any(String),
       capture_method: 'search',
       slot: 4,
-      od_date: '2026-08-15',
       reason_note: 'Student attended the make-up session.',
     })
+    expect(posts[0]).not.toHaveProperty('od_date')
     expect(await screen.findByText(/Marked .* present on 2026-08-15 in slot 4\./i)).toBeInTheDocument()
   })
 

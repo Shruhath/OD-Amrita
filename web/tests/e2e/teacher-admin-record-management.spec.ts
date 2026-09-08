@@ -107,7 +107,14 @@ async function installRecordManagementRoutes(page: import('@playwright/test').Pa
       ] })
     }
     if (url.pathname.endsWith('/students/search')) {
-      return json(route, { data: [{ student_id: studentID, roll_no: 'CB.SC.U4CSE24101', display_name: 'Ananya Rao' }] })
+      return json(route, { data: [{
+        student_id: studentID,
+        roll_no: 'CB.SC.U4CSE24101',
+        display_name: 'Ananya Rao',
+        branch: 'CSE',
+        section: 'A',
+        batch: '2024',
+      }] })
     }
     if (url.pathname.endsWith('/mark') && request.method() === 'POST') {
       seen.manualAdds.push(request.postDataJSON())
@@ -188,11 +195,11 @@ test.describe('teacher/admin OD record management (ATDD red phase)', () => {
     await form.getByRole('combobox', { name: /slot/i }).click()
     await page.getByRole('option', { name: '6', exact: true }).click()
     await form.getByRole('searchbox', { name: /student/i }).fill('CB.SC.U4CSE24101')
-    await page.getByRole('option', { name: /CB\.SC\.U4CSE24101.*Ananya Rao/i }).click()
+    await page.getByRole('option', { name: /select CB\.SC\.U4CSE24101/i }).click()
     const reasonNote = form.getByLabel(/reason note/i)
     await expect(reasonNote).toBeVisible()
     await reasonNote.fill('')
-    await expect(form.getByRole('button', { name: /mark present/i })).toBeDisabled()
+    await expect(form.getByRole('button', { name: /mark selected students/i })).toBeDisabled()
     expect(seen.manualAdds).toHaveLength(0)
 
     await reasonNote.fill('ID card left at hostel')
@@ -201,7 +208,7 @@ test.describe('teacher/admin OD record management (ATDD red phase)', () => {
       response.url().endsWith('/api/v1/mark') &&
       response.status() === 201,
     )
-    await form.getByRole('button', { name: /mark present/i }).click()
+    await form.getByRole('button', { name: /mark selected students/i }).click()
     await marked
 
     expect(seen.manualAdds).toHaveLength(1)

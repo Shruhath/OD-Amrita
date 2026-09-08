@@ -145,6 +145,47 @@ describe('public attendance dashboard', () => {
     expect(screen.queryByText(/access denied/i)).not.toBeInTheDocument()
   })
 
+  test('[P1] jumps to the student search when a visitor wants to find their name', async () => {
+    const scrollIntoView = vi.fn()
+    const user = userEvent.setup()
+    installPublicBackend()
+    renderPublicRoute()
+
+    const searchBox = await screen.findByRole('searchbox', { name: /roll number|name|student/i })
+    const searchSection = screen.getByRole('region', { name: /find a student/i })
+    Object.defineProperty(searchSection, 'scrollIntoView', { configurable: true, value: scrollIntoView })
+
+    await user.click(screen.getByRole('button', { name: /find my name/i }))
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+    expect(searchBox).toHaveFocus()
+  })
+
+  test('[P1] avoids animated scrolling when a visitor prefers reduced motion', async () => {
+    const scrollIntoView = vi.fn()
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }))
+
+    try {
+      const user = userEvent.setup()
+      installPublicBackend()
+      renderPublicRoute()
+
+      const searchSection = await screen.findByRole('region', { name: /find a student/i })
+      Object.defineProperty(searchSection, 'scrollIntoView', { configurable: true, value: scrollIntoView })
+
+      await user.click(screen.getByRole('button', { name: /find my name/i }))
+
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'start' })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   // 0.10-WEB-002 — the minimum-length gate is a HINT before the user has typed
   // enough, not an error, and no request is sent under 3 characters (AC 10).
   //

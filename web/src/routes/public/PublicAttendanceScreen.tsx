@@ -72,6 +72,8 @@ export default function PublicAttendanceScreen() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
+  const searchSectionRef = useRef<HTMLElement>(null)
+  const studentSearchInputRef = useRef<HTMLInputElement>(null)
   // The selected student lives in the URL rather than in component state so a
   // reload, a back button and a link shared over WhatsApp all reopen the same
   // record — which is exactly what PRD Journey 3's student does with it.
@@ -125,6 +127,12 @@ export default function PublicAttendanceScreen() {
 
   const clearStudent = () => setSearchParams({})
 
+  const scrollToStudentSearch = () => {
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    searchSectionRef.current?.scrollIntoView?.({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' })
+    studentSearchInputRef.current?.focus({ preventScroll: true })
+  }
+
   return (
     <main className="min-h-screen bg-canvas text-foreground flex flex-col items-center p-4 md:p-12 transition-colors duration-200">
       <header className="w-full max-w-3xl flex flex-col items-center text-center mb-10">
@@ -156,6 +164,13 @@ export default function PublicAttendanceScreen() {
         <p className="public-lede text-foreground-muted text-lg">
           Today's on-duty list is below. Search to see your own record in full.
         </p>
+        <button
+          className="mt-3 text-xs font-semibold text-foreground-muted underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2 rounded"
+          type="button"
+          onClick={scrollToStudentSearch}
+        >
+          Find my name
+        </button>
         {/*
           Staff arrive here too — the dashboard is the one link students share,
           so it is the one link that gets forwarded. Naming sign-in explicitly
@@ -171,12 +186,13 @@ export default function PublicAttendanceScreen() {
           question almost everybody opening it has. */}
       <DayBoard />
 
-      <section className="public-search w-full min-w-0 max-w-3xl bg-surface border border-border p-6 md:p-8 rounded-2xl shadow-sm mb-8" aria-label="Find a student">
+      <section ref={searchSectionRef} className="public-search w-full min-w-0 max-w-3xl bg-surface border border-border p-6 md:p-8 rounded-2xl shadow-sm mb-8" aria-label="Find a student">
         <label className="public-field flex flex-col gap-2 mb-4" htmlFor="public-student-search">
           <span className="font-semibold text-sm">Roll number or name</span>
           <input
             className="w-full bg-canvas border border-border focus:border-foreground focus:ring-1 focus:ring-foreground rounded-xl p-4 text-lg transition-all outline-none"
             id="public-student-search"
+            ref={studentSearchInputRef}
             type="search"
             autoComplete="off"
             spellCheck={false}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -22,6 +23,7 @@ const (
 
 type odRecordWriteQueries interface {
 	InsertODPresentRecord(context.Context, sqlc.InsertODPresentRecordParams) (sqlc.InsertODPresentRecordRow, error)
+	ListExistingPresentMarksForBatch(context.Context, sqlc.ListExistingPresentMarksForBatchParams) ([]sqlc.ListExistingPresentMarksForBatchRow, error)
 }
 
 type writeQueryFactory func(pgx.Tx) odRecordWriteQueries
@@ -29,6 +31,41 @@ type writeQueryFactory func(pgx.Tx) odRecordWriteQueries
 type SQLCWriter struct {
 	queries writeQueryFactory
 }
+
+// ExistingPresentForBatch is the transaction-scoped duplicate preflight for a
+// manual batch. The partial unique index remains the concurrency backstop; this
+// read is what gives the portal actionable names before any row is written.
+func (w *SQLCWriter) ExistingPresentForBatch(ctx context.Context, tx pgx.Tx, input BatchMarkInput, odDate time.Time) ([]Student, error) {
+	eventID, err := uuid.Parse(strings.TrimSpace(input.EventID))
+	if err != nil {
+		return nil, err
+	}
+	studentIDs := make([]pgtype.UUID, 0, len(input.StudentIDs))
+	for _, raw := range input.StudentIDs {
+		studentID, parseErr := uuid.Parse(strings.TrimSpace(raw))
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		studentIDs = append(studentIDs, dbUUID(studentID))
+	}
+	rows, err := w.queries(tx).ListExistingPresentMarksForBatch(ctx, sqlc.ListExistingPresentMarksForBatchParams{
+		EventID: eventIDToDB(eventID), StudentIds: studentIDs, Slot: int32(input.Slot), OdDate: pgtype.Date{Time: odDate, Valid: true},
+	})
+	if err != nil {
+		return nil, err
+	}
+	students := make([]Student, 0, len(rows))
+	for _, row := range rows {
+		student, mapErr := mapStudent(row.StudentID, row.RollNo, row.Name, row.Branch, row.Section, row.Batch)
+		if mapErr != nil {
+			return nil, mapErr
+		}
+		students = append(students, student)
+	}
+	return students, nil
+}
+
+func eventIDToDB(id uuid.UUID) pgtype.UUID { return pgtype.UUID{Bytes: id, Valid: true} }
 
 func NewSQLCWriter() *SQLCWriter {
 	return &SQLCWriter{queries: func(tx pgx.Tx) odRecordWriteQueries { return sqlc.New(tx) }}

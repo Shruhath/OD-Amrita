@@ -56,6 +56,23 @@ type MarkInput struct {
 	ReasonNote    *string
 }
 
+// BatchMarkInput is deliberately a shared manual scope, not a list of marks:
+// mixed event/category/date inputs could never be made safely atomic.
+type BatchMarkInput struct {
+	EventID    string
+	CategoryID string
+	StudentIDs []string
+	Slot       int
+	ODDate     time.Time
+	ReasonNote string
+}
+
+// BatchDuplicateError is rendered by the portal handler as an actionable 409.
+// No write from the request has committed when this is returned.
+type BatchDuplicateError struct{ Students []Student }
+
+func (e BatchDuplicateError) Error() string { return "odrecord: batch contains existing present marks" }
+
 type Event struct {
 	EventID string
 	// EventDate is the FIRST day of the range and EndDate the last; they are
@@ -135,6 +152,21 @@ type CardResolver interface {
 
 type Writer interface {
 	InsertPresent(context.Context, pgx.Tx, RecordInput) (MarkResult, error)
+}
+
+type batchWriter interface {
+	ExistingPresentForBatch(context.Context, pgx.Tx, BatchMarkInput, time.Time) ([]Student, error)
+}
+
+// batchDuplicateReader reloads duplicate details after a write transaction has
+// rolled back. A PostgreSQL unique violation aborts its transaction, so the
+// transaction-scoped preflight cannot be reused to produce the actionable 409.
+type batchDuplicateReader interface {
+	ExistingPresentForBatch(context.Context, BatchMarkInput, time.Time) ([]Student, error)
+}
+
+type transactionAuditor interface {
+	Audit(context.Context, pgx.Tx, store.AuditEvent) error
 }
 
 type AuditStore interface {
@@ -386,6 +418,199 @@ func (s *Service) Mark(ctx context.Context, actor Actor, input MarkInput) (MarkR
 		return MarkResult{}, mapWriteError(err)
 	}
 	return result, nil
+}
+
+// MarkBatch creates administrator manual-search records as one database
+// transaction. It intentionally does not call Mark in a loop: that would give
+// each student its own commit and turn a duplicate into a partial batch.
+func (s *Service) MarkBatch(ctx context.Context, actor Actor, input BatchMarkInput) ([]MarkResult, error) {
+	if err := validateActor(actor); err != nil {
+		return nil, err
+	}
+	if actor.Role != "admin" {
+		return nil, forbidden("Administrator access is required for batch manual marks.")
+	}
+	if err := validateActorID(actor); err != nil {
+		return nil, err
+	}
+	if len(input.StudentIDs) == 0 || len(input.StudentIDs) > 100 {
+		return nil, validation("student_ids", "range", "student_ids must contain between 1 and 100 students.")
+	}
+	if strings.TrimSpace(input.ReasonNote) == "" {
+		return nil, validation("reason_note", "required", "reason_note is required for administrator marks.")
+	}
+	input.ReasonNote = strings.TrimSpace(input.ReasonNote)
+	if len([]rune(input.ReasonNote)) > 2000 {
+		return nil, validation("reason_note", "max_length", "reason_note must not exceed 2000 characters.")
+	}
+	if input.Slot < 1 {
+		return nil, validation("slot", "range", "slot must be at least 1.")
+	}
+	if _, err := uuid.Parse(strings.TrimSpace(input.EventID)); err != nil {
+		return nil, validation("event_id", "invalid_format", "event_id must be a UUID.")
+	}
+	if _, err := uuid.Parse(strings.TrimSpace(input.CategoryID)); err != nil {
+		return nil, validation("category_id", "invalid_format", "category_id must be a UUID.")
+	}
+	// The shared scope gate is the authoritative active-event/category policy.
+	// It must run before any event/category/student read, just as it does for
+	// the single-mark path, so batch marking cannot become a second policy.
+	if err := s.scope.AssertCanMark(ctx, actor, input.EventID, input.CategoryID); err != nil {
+		return nil, err
+	}
+
+	// Normalise UUIDs before judging uniqueness, so two textual forms of the
+	// same UUID cannot turn into two records in a single request.
+	seen := make(map[string]struct{}, len(input.StudentIDs))
+	for i, raw := range input.StudentIDs {
+		id, err := uuid.Parse(strings.TrimSpace(raw))
+		if err != nil {
+			return nil, validation(fmt.Sprintf("student_ids[%d]", i), "invalid_format", "student id must be a UUID.")
+		}
+		canonical := id.String()
+		if _, exists := seen[canonical]; exists {
+			return nil, validation(fmt.Sprintf("student_ids[%d]", i), "duplicate", "Each student may appear only once in a batch.")
+		}
+		seen[canonical] = struct{}{}
+		input.StudentIDs[i] = canonical
+	}
+
+	event, err := s.eventWithCategory(ctx, input.EventID, input.CategoryID)
+	if errors.Is(err, ErrEventNotFound) {
+		return nil, eventNotFound()
+	}
+	if errors.Is(err, ErrCategoryNotFound) {
+		if event.Status == "archived" {
+			return nil, eventArchived()
+		}
+		return nil, categoryNotFound()
+	}
+	if err != nil {
+		return nil, err
+	}
+	if event.Status == "archived" {
+		return nil, eventArchived()
+	}
+	ceiling, err := s.maxSlot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if input.Slot > ceiling {
+		return nil, validation("slot", "range", fmt.Sprintf("slot must be between 1 and %d.", ceiling))
+	}
+	odDate := CampusDate(input.ODDate)
+	if odDate.Before(CampusDate(event.EventDate)) || odDate.After(CampusDate(event.EndDate)) {
+		return nil, validation("od_date", "outside_event_range", "The OD date must fall inside the event's date range.")
+	}
+
+	studentScope, ok := s.scope.(StudentScopeGuard)
+	if !ok {
+		return nil, forbidden("Administrator mark authorization is not configured.")
+	}
+	students := make([]Student, 0, len(input.StudentIDs))
+	for _, studentID := range input.StudentIDs {
+		student, readErr := s.reader.StudentForMark(ctx, studentID)
+		if errors.Is(readErr, ErrStudentNotFound) {
+			return nil, studentNotFound()
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+		if scopeErr := studentScope.AssertCanMarkStudent(ctx, actor, input.EventID, input.CategoryID, student); scopeErr != nil {
+			return nil, scopeErr
+		}
+		students = append(students, student)
+	}
+
+	writer, ok := s.writer.(batchWriter)
+	if !ok {
+		return nil, errors.New("odrecord: batch writer is not configured")
+	}
+	auditor, ok := s.audited.(transactionAuditor)
+	if !ok {
+		return nil, errors.New("odrecord: transaction auditor is not configured")
+	}
+	now := s.clock.Now()
+	records := make([]RecordInput, 0, len(students))
+	for _, student := range students {
+		records = append(records, RecordInput{Student: student, StudentID: student.StudentID, EventID: input.EventID, CategoryID: input.CategoryID, Slot: input.Slot, ODDate: odDate, CaptureMethod: CaptureMethodSearch, ActorUserID: actor.UserID, ActorRole: actor.Role, ReasonNote: &input.ReasonNote, ServerReceivedAt: now})
+	}
+	return s.writeBatch(ctx, actor, input, records, writer, auditor)
+}
+
+func (s *Service) writeBatch(ctx context.Context, actor Actor, input BatchMarkInput, records []RecordInput, writer batchWriter, auditor transactionAuditor) ([]MarkResult, error) {
+	results := make([]MarkResult, 0, len(records))
+	targetTable, targetID := "od_records", ""
+	primary := batchAuditEvent(actor, records[0], &targetTable, &targetID)
+	primary.Payload = nil
+	primary.PayloadFunc = func() ([]byte, error) { return batchAuditPayload(actor, records[0], targetID), nil }
+	err := s.audited.WithAudit(ctx, primary, func(ctx context.Context, tx pgx.Tx) (bool, error) {
+		existing, err := writer.ExistingPresentForBatch(ctx, tx, input, records[0].ODDate)
+		if err != nil {
+			return false, err
+		}
+		if len(existing) != 0 {
+			return false, BatchDuplicateError{Students: existing}
+		}
+		for i, record := range records {
+			written, writeErr := s.writer.InsertPresent(ctx, tx, record)
+			if writeErr != nil {
+				return false, writeErr
+			}
+			if i == 0 {
+				targetID = written.RecordID
+			} else {
+				extraTargetID := written.RecordID
+				if auditErr := auditor.Audit(ctx, tx, batchAuditEvent(actor, record, &targetTable, &extraTargetID)); auditErr != nil {
+					return false, auditErr
+				}
+			}
+			results = append(results, written)
+		}
+		return true, nil
+	})
+	if err != nil {
+		var duplicate BatchDuplicateError
+		if errors.As(err, &duplicate) {
+			return nil, duplicate
+		}
+		if errors.Is(err, ErrDuplicatePresentRecord) {
+			duplicates, reloadErr := s.reloadBatchDuplicates(ctx, input, records[0].ODDate)
+			if reloadErr != nil {
+				return nil, reloadErr
+			}
+			if len(duplicates) != 0 {
+				return nil, BatchDuplicateError{Students: duplicates}
+			}
+		}
+		return nil, mapWriteError(err)
+	}
+	return results, nil
+}
+
+func (s *Service) reloadBatchDuplicates(ctx context.Context, input BatchMarkInput, odDate time.Time) ([]Student, error) {
+	reader, ok := s.reader.(batchDuplicateReader)
+	if !ok {
+		return nil, errors.New("odrecord: batch duplicate reader is not configured")
+	}
+	return reader.ExistingPresentForBatch(ctx, input, odDate)
+}
+
+func batchAuditEvent(actor Actor, record RecordInput, targetTable, targetID *string) store.AuditEvent {
+	account, role := strings.ToLower(strings.TrimSpace(actor.Email)), actor.Role
+	return store.AuditEvent{Action: domain.ActionODCreated, ActorAccount: &account, ActorRole: &role, TargetTable: targetTable, TargetID: targetID, Payload: batchAuditPayload(actor, record, *targetID)}
+}
+
+func batchAuditPayload(actor Actor, record RecordInput, targetID string) []byte {
+	account := strings.ToLower(strings.TrimSpace(actor.Email))
+	payload, _ := json.Marshal(map[string]any{
+		"record_id": targetID, "student_id": record.StudentID, "event_id": record.EventID,
+		"category_id": record.CategoryID, "slot": record.Slot, "od_date": record.ODDate.Format(time.DateOnly),
+		"capture_method": string(record.CaptureMethod), "reason_note": record.ReasonNote,
+		"actor_user_id": actor.UserID, "actor_email": account, "actor_role": actor.Role,
+		"server_received_at": record.ServerReceivedAt.Format(time.RFC3339Nano), "context": "portal_manual_batch",
+	})
+	return payload
 }
 
 // eventWithCategory resolves the event and verifies its category, in one round

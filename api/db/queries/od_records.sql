@@ -83,6 +83,27 @@ INSERT INTO od_records (
 )
 RETURNING id, student_id, event_id, category_id, slot, od_date, reason_note, capture_method, server_received_at;
 
+-- name: ListExistingPresentMarksForBatch :many
+-- This is executed inside the batch's single write transaction before its first
+-- INSERT. It deliberately does not use ON CONFLICT DO NOTHING: a manual batch
+-- is all-or-nothing, so an existing mark is a conflict, not an item to skip.
+SELECT
+    r.student_id,
+    s.roll_no,
+    s.name,
+    b.code AS branch,
+    s.section,
+    s.batch
+FROM od_records r
+JOIN students s ON s.id = r.student_id
+JOIN branches b ON b.id = s.branch_id
+WHERE r.event_id = @event_id
+  AND r.od_date = @od_date
+  AND r.slot = @slot
+  AND r.status = 'present'
+  AND r.student_id = ANY(@student_ids::uuid[])
+ORDER BY s.roll_no ASC;
+
 -- name: GetODRecordByID :one
 SELECT
     r.id, r.student_id, s.branch_id, r.event_id, r.category_id, r.slot, r.od_date,

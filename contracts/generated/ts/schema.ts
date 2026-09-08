@@ -266,6 +266,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/mark/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Atomically mark selected students present by manual search
+         * @description Administrator-only manual marking. Every selected student receives the same event, category, slot, OD date and reason. If any selected student is already present for that event, day and slot, no record from the request is committed.
+         */
+        post: operations["batchManualMarkAttendance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/events/{event_id}/records": {
         parameters: {
             query?: never;
@@ -1434,6 +1454,27 @@ export interface components {
             /** Format: date-time */
             server_received_at: string;
         };
+        /** @description A shared manual-mark scope and the distinct students to mark together. */
+        BatchManualMarkAttendanceRequest: {
+            /** Format: uuid */
+            event_id: string;
+            /** Format: uuid */
+            category_id: string;
+            student_ids: string[];
+            slot: number;
+            /** Format: date */
+            od_date: string;
+            reason_note: string;
+        };
+        BatchManualMarkAttendanceResult: {
+            records: components["schemas"]["MarkAttendanceResult"][];
+        };
+        BatchManualMarkConflict: {
+            /** @enum {string} */
+            code: "SCAN_DUPLICATE";
+            message: string;
+            duplicate_students: components["schemas"]["MarkedStudent"][];
+        };
         MarkedStudent: {
             /** Format: uuid */
             student_id: string;
@@ -2479,6 +2520,84 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    batchManualMarkAttendance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchManualMarkAttendanceRequest"];
+            };
+        };
+        responses: {
+            /** @description Every selected attendance mark and its audit row were committed. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchManualMarkAttendanceResult"];
+                };
+            };
+            /** @description Request validation failed. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Unauthenticated. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Administrator access is required. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event, category or student was not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The request conflicts with current state. Duplicate marks include actionable students; other state conflicts use the standard error envelope. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchManualMarkConflict"] | components["schemas"]["Error"];
                 };
             };
             /** @description Internal error. */

@@ -79,6 +79,21 @@ func (e AuthenticatedIdentityRole) Valid() bool {
 	}
 }
 
+// Defines values for BatchManualMarkConflictCode.
+const (
+	BatchManualMarkConflictCodeSCANDUPLICATE BatchManualMarkConflictCode = "SCAN_DUPLICATE"
+)
+
+// Valid indicates whether the value is a known member of the BatchManualMarkConflictCode enum.
+func (e BatchManualMarkConflictCode) Valid() bool {
+	switch e {
+	case BatchManualMarkConflictCodeSCANDUPLICATE:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CaptureMethod.
 const (
 	CaptureMethodCamera  CaptureMethod = "camera"
@@ -596,6 +611,31 @@ type AuthenticatedIdentity struct {
 
 // AuthenticatedIdentityRole The global base role the identity is provisioned with on first login. Always present (provisioning yields exactly one). This is the base role only — per-event coordinator assignment and RBAC enforcement are later epics; the client uses it to route by role.
 type AuthenticatedIdentityRole string
+
+// BatchManualMarkAttendanceRequest A shared manual-mark scope and the distinct students to mark together.
+type BatchManualMarkAttendanceRequest struct {
+	CategoryId openapi_types.UUID   `json:"category_id"`
+	EventId    openapi_types.UUID   `json:"event_id"`
+	OdDate     openapi_types.Date   `json:"od_date"`
+	ReasonNote string               `json:"reason_note"`
+	Slot       int                  `json:"slot"`
+	StudentIds []openapi_types.UUID `json:"student_ids"`
+}
+
+// BatchManualMarkAttendanceResult defines model for BatchManualMarkAttendanceResult.
+type BatchManualMarkAttendanceResult struct {
+	Records []MarkAttendanceResult `json:"records"`
+}
+
+// BatchManualMarkConflict defines model for BatchManualMarkConflict.
+type BatchManualMarkConflict struct {
+	Code              BatchManualMarkConflictCode `json:"code"`
+	DuplicateStudents []MarkedStudent             `json:"duplicate_students"`
+	Message           string                      `json:"message"`
+}
+
+// BatchManualMarkConflictCode defines model for BatchManualMarkConflict.Code.
+type BatchManualMarkConflictCode string
 
 // BranchCollection defines model for BranchCollection.
 type BranchCollection struct {
@@ -1414,6 +1454,11 @@ type ListPortalODRecordsParams struct {
 	PageSize    *int                `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
+// BatchManualMarkAttendance409JSONResponseBody defines parameters for BatchManualMarkAttendance.
+type BatchManualMarkAttendance409JSONResponseBody struct {
+	union json.RawMessage
+}
+
 // ListPortalMarkEventsParams defines parameters for ListPortalMarkEvents.
 type ListPortalMarkEventsParams struct {
 	Page     *int `form:"page,omitempty" json:"page,omitempty"`
@@ -1510,6 +1555,9 @@ type ResolveDisputeJSONRequestBody = DisputeResolutionRequest
 
 // MarkAttendanceJSONRequestBody defines body for MarkAttendance for application/json ContentType.
 type MarkAttendanceJSONRequestBody = MarkAttendanceRequest
+
+// BatchManualMarkAttendanceJSONRequestBody defines body for BatchManualMarkAttendance for application/json ContentType.
+type BatchManualMarkAttendanceJSONRequestBody = BatchManualMarkAttendanceRequest
 
 // CorrectODRecordJSONRequestBody defines body for CorrectODRecord for application/json ContentType.
 type CorrectODRecordJSONRequestBody = RecordCorrectionRequest
@@ -1708,6 +1756,68 @@ func (t *MarkAttendanceRequest) UnmarshalJSON(b []byte) error {
 		}
 	}
 
+	return err
+}
+
+// AsBatchManualMarkConflict returns the union data inside the BatchManualMarkAttendance409JSONResponseBody as a BatchManualMarkConflict
+func (t BatchManualMarkAttendance409JSONResponseBody) AsBatchManualMarkConflict() (BatchManualMarkConflict, error) {
+	var body BatchManualMarkConflict
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromBatchManualMarkConflict overwrites any union data inside the BatchManualMarkAttendance409JSONResponseBody as the provided BatchManualMarkConflict
+func (t *BatchManualMarkAttendance409JSONResponseBody) FromBatchManualMarkConflict(v BatchManualMarkConflict) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeBatchManualMarkConflict performs a merge with any union data inside the BatchManualMarkAttendance409JSONResponseBody, using the provided BatchManualMarkConflict
+func (t *BatchManualMarkAttendance409JSONResponseBody) MergeBatchManualMarkConflict(v BatchManualMarkConflict) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsError returns the union data inside the BatchManualMarkAttendance409JSONResponseBody as a Error
+func (t BatchManualMarkAttendance409JSONResponseBody) AsError() (Error, error) {
+	var body Error
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromError overwrites any union data inside the BatchManualMarkAttendance409JSONResponseBody as the provided Error
+func (t *BatchManualMarkAttendance409JSONResponseBody) FromError(v Error) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeError performs a merge with any union data inside the BatchManualMarkAttendance409JSONResponseBody, using the provided Error
+func (t *BatchManualMarkAttendance409JSONResponseBody) MergeError(v Error) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t BatchManualMarkAttendance409JSONResponseBody) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *BatchManualMarkAttendance409JSONResponseBody) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
 	return err
 }
 

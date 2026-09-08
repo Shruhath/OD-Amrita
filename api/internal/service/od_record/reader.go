@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
 	"github.com/google/uuid"
@@ -141,6 +142,39 @@ func (r *SQLCReader) StudentForMark(ctx context.Context, id string) (Student, er
 		return Student{}, err
 	}
 	return mapStudent(row.ID, row.RollNo, row.Name, row.Branch, row.Section, row.Batch)
+}
+
+// ExistingPresentForBatch runs after a failed batch transaction to turn a
+// unique-index race into the same detailed conflict the preflight returns.
+// It deliberately uses the pool-backed reader, not the failed transaction.
+func (r *SQLCReader) ExistingPresentForBatch(ctx context.Context, input BatchMarkInput, odDate time.Time) ([]Student, error) {
+	eventID, err := uuid.Parse(strings.TrimSpace(input.EventID))
+	if err != nil {
+		return nil, err
+	}
+	studentIDs := make([]pgtype.UUID, 0, len(input.StudentIDs))
+	for _, raw := range input.StudentIDs {
+		studentID, parseErr := uuid.Parse(strings.TrimSpace(raw))
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		studentIDs = append(studentIDs, dbUUID(studentID))
+	}
+	rows, err := r.queries.ListExistingPresentMarksForBatch(ctx, sqlc.ListExistingPresentMarksForBatchParams{
+		EventID: dbUUID(eventID), StudentIds: studentIDs, Slot: int32(input.Slot), OdDate: pgtype.Date{Time: odDate, Valid: true},
+	})
+	if err != nil {
+		return nil, err
+	}
+	students := make([]Student, 0, len(rows))
+	for _, row := range rows {
+		student, mapErr := mapStudent(row.StudentID, row.RollNo, row.Name, row.Branch, row.Section, row.Batch)
+		if mapErr != nil {
+			return nil, mapErr
+		}
+		students = append(students, student)
+	}
+	return students, nil
 }
 
 type CardTokenResolver struct {

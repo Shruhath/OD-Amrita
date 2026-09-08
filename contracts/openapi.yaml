@@ -818,6 +818,72 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/portal/mark/batch:
+    post:
+      operationId: batchManualMarkAttendance
+      summary: Atomically mark selected students present by manual search
+      description: >-
+        Administrator-only manual marking. Every selected student receives the
+        same event, category, slot, OD date and reason. If any selected student
+        is already present for that event, day and slot, no record from the
+        request is committed.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchManualMarkAttendanceRequest"
+      responses:
+        "201":
+          description: Every selected attendance mark and its audit row were committed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchManualMarkAttendanceResult"
+        "400":
+          description: Request validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Administrator access is required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Event, category or student was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: >-
+            The request conflicts with current state. Duplicate marks include
+            actionable students; other state conflicts use the standard error
+            envelope.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/BatchManualMarkConflict"
+                  - $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/portal/events/{event_id}/records:
     get:
       operationId: listPortalODRecords
@@ -4105,6 +4171,62 @@ components:
         server_received_at:
           type: string
           format: date-time
+
+    BatchManualMarkAttendanceRequest:
+      type: object
+      description: A shared manual-mark scope and the distinct students to mark together.
+      required: [event_id, category_id, student_ids, slot, od_date, reason_note]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        category_id:
+          type: string
+          format: uuid
+        student_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        slot:
+          type: integer
+          minimum: 1
+          maximum: 20
+        od_date:
+          type: string
+          format: date
+        reason_note:
+          type: string
+          minLength: 1
+          maxLength: 2000
+
+    BatchManualMarkAttendanceResult:
+      type: object
+      required: [records]
+      properties:
+        records:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/MarkAttendanceResult"
+
+    BatchManualMarkConflict:
+      type: object
+      required: [code, message, duplicate_students]
+      properties:
+        code:
+          type: string
+          enum: [SCAN_DUPLICATE]
+        message:
+          type: string
+        duplicate_students:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/MarkedStudent"
 
     MarkedStudent:
       type: object

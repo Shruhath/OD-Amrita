@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
@@ -210,6 +211,128 @@ func TestODRecordServiceDuplicateRaceAuditAndBlockedSlot(t *testing.T) {
 	if auditRows == 0 {
 		t.Fatal("[P0] slot-closed rejection must write scan.blocked audit")
 	}
+}
+
+// TestBatchMarkCommitsEveryRecordAndAuditOrNone proves the batch's load-bearing
+// transaction property against Postgres. A fake transaction cannot tell us
+// whether the second audit failure rolls back the first inserted OD row.
+func TestBatchMarkCommitsEveryRecordAndAuditOrNone(t *testing.T) {
+	ctx := testCtx(t)
+	migrator := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_MIGRATOR"))
+	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
+	fixture := seedMarkFixture(t, ctx, migrator)
+	secondStudentID := seedBatchStudent(t, ctx, migrator, fixture, "Second")
+	actor := odsvc.Actor{UserID: fixture.adminID, Email: "admin@amrita.edu", Role: "admin"}
+	input := odsvc.BatchMarkInput{
+		EventID: fixture.eventID, CategoryID: fixture.categoryID,
+		StudentIDs: []string{fixture.studentID, secondStudentID}, Slot: 6,
+		ODDate: fixture.eventDate, ReasonNote: "manual batch attendance",
+	}
+	service := odsvc.NewService(
+		odsvc.NewSQLCReader(runtime), nil, odsvc.NewSQLCWriter(), store.New(runtime),
+		fixedClock{now: fixture.slotOneTime}, odsvc.AllowAnyScope{}, odsvc.NewSQLCCreditLedger(runtime),
+	)
+	results, err := service.MarkBatch(ctx, actor, input)
+	if err != nil {
+		t.Fatalf("MarkBatch(success) = %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("MarkBatch results=%d, want 2", len(results))
+	}
+	assertBatchConservation(t, ctx, migrator, fixture.eventID, 2, 2)
+
+	failingStore := store.New(runtime, store.WithAuditInserter(func(context.Context, pgx.Tx, store.AuditEvent) error {
+		return errors.New("injected batch audit failure")
+	}))
+	failingService := odsvc.NewService(
+		odsvc.NewSQLCReader(runtime), nil, odsvc.NewSQLCWriter(), failingStore,
+		fixedClock{now: fixture.slotOneTime}, odsvc.AllowAnyScope{}, odsvc.NewSQLCCreditLedger(runtime),
+	)
+	input.Slot = 7
+	if _, err := failingService.MarkBatch(ctx, actor, input); err == nil {
+		t.Fatal("MarkBatch(audit failure) = nil, want rollback")
+	}
+	assertBatchConservation(t, ctx, migrator, fixture.eventID, 2, 2)
+}
+
+// TestBatchMarkDuplicateRaceReturnsNames exercises the index-race path. Either
+// request may see the preflight conflict, but when both preflights pass the
+// unique-index loser must reload its duplicate details after rollback.
+func TestBatchMarkDuplicateRaceReturnsNames(t *testing.T) {
+	ctx := testCtx(t)
+	migrator := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_MIGRATOR"))
+	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
+	fixture := seedMarkFixture(t, ctx, migrator)
+	actor := odsvc.Actor{UserID: fixture.adminID, Email: "admin@amrita.edu", Role: "admin"}
+	newService := func() *odsvc.Service {
+		return odsvc.NewService(
+			odsvc.NewSQLCReader(runtime), nil, odsvc.NewSQLCWriter(), store.New(runtime),
+			fixedClock{now: fixture.slotOneTime}, odsvc.AllowAnyScope{}, odsvc.NewSQLCCreditLedger(runtime),
+		)
+	}
+	input := odsvc.BatchMarkInput{
+		EventID: fixture.eventID, CategoryID: fixture.categoryID, StudentIDs: []string{fixture.studentID},
+		Slot: 8, ODDate: fixture.eventDate, ReasonNote: "manual race attendance",
+	}
+	services := []*odsvc.Service{newService(), newService()}
+	errs := make(chan error, len(services))
+	var wg sync.WaitGroup
+	for _, service := range services {
+		wg.Add(1)
+		go func(service *odsvc.Service) {
+			defer wg.Done()
+			_, err := service.MarkBatch(ctx, actor, input)
+			errs <- err
+		}(service)
+	}
+	wg.Wait()
+	close(errs)
+
+	var successes, duplicates int
+	for err := range errs {
+		if err == nil {
+			successes++
+			continue
+		}
+		var duplicate odsvc.BatchDuplicateError
+		if !errors.As(err, &duplicate) {
+			t.Fatalf("race error = %v, want BatchDuplicateError", err)
+		}
+		if len(duplicate.Students) != 1 || duplicate.Students[0].StudentID != fixture.studentID {
+			t.Fatalf("race duplicate = %+v, want the conflicting student", duplicate)
+		}
+		duplicates++
+	}
+	if successes != 1 || duplicates != 1 {
+		t.Fatalf("race results=%d successes/%d duplicates, want 1/1", successes, duplicates)
+	}
+	assertBatchConservation(t, ctx, migrator, fixture.eventID, 1, 1)
+}
+
+func assertBatchConservation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID string, wantRecords, wantAudits int) {
+	t.Helper()
+	var records, audits int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM od_records WHERE event_id = $1`, eventID).Scan(&records); err != nil {
+		t.Fatalf("count batch records: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE action = $1 AND target_table = 'od_records' AND payload->>'event_id' = $2`, string(domain.ActionODCreated), eventID).Scan(&audits); err != nil {
+		t.Fatalf("count batch audits: %v", err)
+	}
+	if records != wantRecords || audits != wantAudits {
+		t.Fatalf("record/audit conservation=%d/%d, want %d/%d", records, audits, wantRecords, wantAudits)
+	}
+}
+
+func seedBatchStudent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, fixture markFixture, label string) string {
+	t.Helper()
+	id := uuid.NewString()
+	rollNo := "CB.SC.U4ODR" + strings.ToUpper(strings.ReplaceAll(id, "-", ""))[:8]
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO students (id, roll_no, name, branch_id, section, batch)
+		VALUES ($1, $2, $3, '91000000-0000-4000-8000-000000000001', 'A', '2024')`, id, rollNo, "ATDD Batch "+label); err != nil {
+		t.Fatalf("seed batch student: %v", err)
+	}
+	return id
 }
 
 type markFixture struct {

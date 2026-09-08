@@ -276,6 +276,7 @@ func run() error {
 	// open slot that the mark path then refused.
 	markSvc = markSvc.WithSlotCeiling(settingsSvc)
 	handlerodrecord.RegisterRoutes(markAPI, markSvc)
+	handlerodrecord.RegisterPortalBatchMarkRoutes(markAPI, markSvc)
 	handlerodrecord.RegisterRecordManagementRoutes(
 		markAPI, svcodrecord.NewManagementService(pool, st).WithSlotCeiling(settingsSvc))
 	handlerodrecord.RegisterPortalMarkRoutes(markAPI, portalMarkReads)

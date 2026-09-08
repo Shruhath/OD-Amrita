@@ -16,6 +16,7 @@ import {
   teacherMarkReads,
   teacherMarkRoute,
   teacherSearchMarkResult,
+  teacherMarkStudent,
 } from '../../../../tests/support/factories/teacher-admin-marking'
 
 const redTest = test
@@ -31,11 +32,13 @@ function sessionPort(): SessionPort {
   }
 }
 
-function installTeacherBackend(role: 'teacher' | 'admin' = 'teacher') {
+function installTeacherBackend(role: 'teacher' | 'admin' = 'teacher', batchOutcome: 'success' | 'conflict' = 'success') {
   const reads = teacherMarkReads()
+  reads.students.data.push(teacherMarkStudent(2))
   const eventID = '11111111-1111-4111-8111-111111111111'
   const event = createEventFixture({ id: eventID, name: 'Teacher Mark Fixture', status: 'active' })
-  const posts: unknown[] = []
+  const batchPosts: unknown[] = []
+  const teacherPosts: unknown[] = []
   server.use(
     http.get('*/api/v1/auth/me', () =>
       HttpResponse.json({
@@ -60,13 +63,28 @@ function installTeacherBackend(role: 'teacher' | 'admin' = 'teacher') {
     http.get('*/api/v1/admin/events/:eventID/coordinators', () => HttpResponse.json({ data: [createCoordinatorAssignmentFixture({ event_id: eventID, email: 'coordinator@amrita.edu' })] })),
     http.get('*/api/v1/admin/events/:eventID/capture-credits', () => HttpResponse.json(captureCreditSummary({ data: [] }))),
     http.get(studentSearchPath, () => HttpResponse.json(reads.students)),
+    http.post('*/api/v1/portal/mark/batch', async ({ request }) => {
+      batchPosts.push(await request.json())
+      if (batchOutcome === 'conflict') {
+        return HttpResponse.json({
+          code: 'SCAN_DUPLICATE',
+          message: 'Remove already-marked students and try again.',
+          duplicate_students: [reads.students.data[0]],
+        }, { status: 409 })
+      }
+      return HttpResponse.json({ records: reads.students.data.map((student, index) => ({
+        ...teacherSearchMarkResult(4, role),
+        record_id: `66000000-0000-4000-8000-${String(index + 9).padStart(12, '0')}`,
+        student,
+      })) }, { status: 201 })
+    }),
     http.post('*/api/v1/mark', async ({ request }) => {
-      posts.push(await request.json())
+      teacherPosts.push(await request.json())
       return HttpResponse.json(teacherSearchMarkResult(4, role), { status: 201 })
     }),
     http.get('*/api/v1/admin/events/:eventID/attendance', () => HttpResponse.json(attendanceCollection())),
   )
-  return posts
+  return { batchPosts, teacherPosts }
 }
 
 function renderRoute(path = teacherMarkRoute) {
@@ -76,9 +94,9 @@ function renderRoute(path = teacherMarkRoute) {
 }
 
 describe('teacher/admin mark route red-phase scaffold', () => {
-  redTest('[P0] teacher search-mark posts student_id, capture_method search and explicit slot, leaving its date to the server', async () => {
+  redTest('[P0] admin batch mark posts one shared scope and selected student ids', async () => {
     const user = userEvent.setup()
-    const posts = installTeacherBackend('teacher')
+    const { batchPosts } = installTeacherBackend('admin')
 
     renderRoute()
 
@@ -89,25 +107,81 @@ describe('teacher/admin mark route red-phase scaffold', () => {
     await selectByLabel(user, screen.getByRole('combobox', { name: /event/i }), /teacher mark fixture/i)
     await selectByLabel(user, screen.getByRole('combobox', { name: /category/i }), /exception desk/i)
     await selectByValue(user, screen.getByRole('combobox', { name: /slot/i }), '4')
-    expect(screen.queryByLabelText(/date/i)).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/od date/i)).toBeInTheDocument()
     fireEvent.change(screen.getByRole('searchbox', { name: /student/i }), { target: { value: 'CB.SC.U4CSE24' } })
-    await user.click(await screen.findByRole('option', { name: /CB\.SC\.U4CSE/i }))
+    await user.click(await screen.findByRole('option', { name: /select CB\.SC\.U4CSE24001/i }))
+    await user.click(await screen.findByRole('option', { name: /select CB\.SC\.U4CSE24002/i }))
     fireEvent.change(screen.getByRole('textbox', { name: /reason note/i }), {
       target: { value: 'Student attended the make-up session.' },
     })
-    await user.click(screen.getByRole('button', { name: /mark present/i }))
+    await user.click(screen.getByRole('button', { name: /mark selected students/i }))
 
-    await waitFor(() => expect(posts).toHaveLength(1))
-    expect(posts[0]).toMatchObject({
+    await waitFor(() => expect(batchPosts).toHaveLength(1))
+    expect(batchPosts[0]).toMatchObject({
       event_id: expect.any(String),
       category_id: expect.any(String),
-      student_id: expect.any(String),
+      student_ids: [
+        '95000000-0000-4000-8000-000000000001',
+        '95000000-0000-4000-8000-000000000002',
+      ],
+      slot: 4,
+      od_date: expect.any(String),
+      reason_note: 'Student attended the make-up session.',
+    })
+    expect(await screen.findByText(/Marked 2 students present on 2026-08-15 in slot 4\./i)).toBeInTheDocument()
+  })
+
+  redTest('[P0] teacher retains the single-student manual-search mark path', async () => {
+    const user = userEvent.setup()
+    const { batchPosts, teacherPosts } = installTeacherBackend('teacher')
+
+    renderRoute()
+
+    await screen.findByRole('heading', { name: /mark attendance/i })
+    await selectByLabel(user, screen.getByRole('combobox', { name: /event/i }), /teacher mark fixture/i)
+    await selectByLabel(user, screen.getByRole('combobox', { name: /category/i }), /exception desk/i)
+    await selectByValue(user, screen.getByRole('combobox', { name: /slot/i }), '4')
+    expect(screen.queryByLabelText(/od date/i)).not.toBeInTheDocument()
+    fireEvent.change(screen.getByRole('searchbox', { name: /student/i }), { target: { value: 'CB.SC.U4CSE24001' } })
+    await user.click(await screen.findByRole('option', { name: /select CB\.SC\.U4CSE24001/i }))
+    fireEvent.change(screen.getByRole('textbox', { name: /reason note/i }), { target: { value: 'Student attended the make-up session.' } })
+    await user.click(screen.getByRole('button', { name: /mark selected students/i }))
+
+    await waitFor(() => expect(teacherPosts).toHaveLength(1))
+    expect(batchPosts).toHaveLength(0)
+    expect(teacherPosts[0]).toMatchObject({
+      event_id: expect.any(String),
+      category_id: expect.any(String),
       capture_method: 'search',
+      student_id: '95000000-0000-4000-8000-000000000001',
       slot: 4,
       reason_note: 'Student attended the make-up session.',
     })
-    expect(posts[0]).not.toHaveProperty('od_date')
-    expect(await screen.findByText(/Marked .* present on 2026-08-15 in slot 4\./i)).toBeInTheDocument()
+  })
+
+  redTest('[P0] admin can deselect a selected search result and sees batch conflicts', async () => {
+    const user = userEvent.setup()
+    const { batchPosts } = installTeacherBackend('admin', 'conflict')
+
+    renderRoute()
+
+    await screen.findByRole('heading', { name: /mark attendance/i })
+    await selectByLabel(user, screen.getByRole('combobox', { name: /event/i }), /teacher mark fixture/i)
+    await selectByLabel(user, screen.getByRole('combobox', { name: /category/i }), /exception desk/i)
+    fireEvent.change(screen.getByRole('searchbox', { name: /student/i }), { target: { value: 'CB.SC.U4CSE24001' } })
+    const firstStudent = await screen.findByRole('option', { name: /select CB\.SC\.U4CSE24001/i })
+    await user.click(firstStudent)
+    expect(firstStudent).toHaveAttribute('aria-selected', 'true')
+    expect(firstStudent).toHaveAccessibleName(/deselect CB\.SC\.U4CSE24001/i)
+    await user.click(firstStudent)
+    expect(firstStudent).toHaveAttribute('aria-selected', 'false')
+    await user.click(firstStudent)
+    fireEvent.change(screen.getByRole('textbox', { name: /reason note/i }), { target: { value: 'Student attended the make-up session.' } })
+    await user.click(screen.getByRole('button', { name: /mark selected students/i }))
+
+    await waitFor(() => expect(batchPosts).toHaveLength(1))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Already marked: CB\.SC\.U4CSE24001\. Remove them and try again\./i)
+    expect(screen.getByRole('button', { name: /remove CB\.SC\.U4CSE24001 from selected students/i })).toBeInTheDocument()
   })
 
   redTest('[P0] teacher/admin route has no NFC, camera, or fallback-credit controls', async () => {

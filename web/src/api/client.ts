@@ -68,6 +68,9 @@ export type MarkSlotWindow = components['schemas']['MarkSlotWindow']
 export type MarkCounters = components['schemas']['MarkCounters']
 export type MarkAttendanceInput = components['schemas']['MarkAttendanceRequest']
 export type MarkAttendanceResult = components['schemas']['MarkAttendanceResult']
+export type BatchManualMarkAttendanceInput = components['schemas']['BatchManualMarkAttendanceRequest']
+export type BatchManualMarkAttendanceResult = components['schemas']['BatchManualMarkAttendanceResult']
+export type BatchManualMarkConflict = components['schemas']['BatchManualMarkConflict']
 export type CaptureMethod = components['schemas']['CaptureMethod']
 /**
  * The capture methods a CLIENT may send.
@@ -611,6 +614,10 @@ export function createEventApi(session: SessionPort) {
      */
     async mark(input: MarkAttendanceInput) {
       return unwrap(await client.POST('/api/v1/mark', { body: input }))
+    },
+
+    async batchManualMark(input: BatchManualMarkAttendanceInput) {
+      return unwrap(await client.POST('/api/v1/portal/mark/batch', { body: input }))
     },
 
     async disputes(page = 1, pageSize = 20, status: 'open' | 'resolved' | 'all' = 'open') {

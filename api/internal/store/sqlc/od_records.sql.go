@@ -653,6 +653,76 @@ func (q *Queries) ListAttendanceRecords(ctx context.Context, arg ListAttendanceR
 	return items, nil
 }
 
+const listExistingPresentMarksForBatch = `-- name: ListExistingPresentMarksForBatch :many
+SELECT
+    r.student_id,
+    s.roll_no,
+    s.name,
+    b.code AS branch,
+    s.section,
+    s.batch
+FROM od_records r
+JOIN students s ON s.id = r.student_id
+JOIN branches b ON b.id = s.branch_id
+WHERE r.event_id = $1
+  AND r.od_date = $2
+  AND r.slot = $3
+  AND r.status = 'present'
+  AND r.student_id = ANY($4::uuid[])
+ORDER BY s.roll_no ASC
+`
+
+type ListExistingPresentMarksForBatchParams struct {
+	EventID    pgtype.UUID   `json:"event_id"`
+	OdDate     pgtype.Date   `json:"od_date"`
+	Slot       int32         `json:"slot"`
+	StudentIds []pgtype.UUID `json:"student_ids"`
+}
+
+type ListExistingPresentMarksForBatchRow struct {
+	StudentID pgtype.UUID `json:"student_id"`
+	RollNo    string      `json:"roll_no"`
+	Name      string      `json:"name"`
+	Branch    string      `json:"branch"`
+	Section   string      `json:"section"`
+	Batch     string      `json:"batch"`
+}
+
+// This is executed inside the batch's single write transaction before its first
+// INSERT. It deliberately does not use ON CONFLICT DO NOTHING: a manual batch
+// is all-or-nothing, so an existing mark is a conflict, not an item to skip.
+func (q *Queries) ListExistingPresentMarksForBatch(ctx context.Context, arg ListExistingPresentMarksForBatchParams) ([]ListExistingPresentMarksForBatchRow, error) {
+	rows, err := q.db.Query(ctx, listExistingPresentMarksForBatch,
+		arg.EventID,
+		arg.OdDate,
+		arg.Slot,
+		arg.StudentIds,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListExistingPresentMarksForBatchRow
+	for rows.Next() {
+		var i ListExistingPresentMarksForBatchRow
+		if err := rows.Scan(
+			&i.StudentID,
+			&i.RollNo,
+			&i.Name,
+			&i.Branch,
+			&i.Section,
+			&i.Batch,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listODRecordsForStudent = `-- name: ListODRecordsForStudent :many
 SELECT
     r.id, r.student_id, s.roll_no, s.name AS student_name, b.code AS branch,

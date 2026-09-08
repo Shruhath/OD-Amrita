@@ -71,7 +71,7 @@ test.describe('real stack teacher/admin search marking', () => {
     // code review — CI was already red on this exact timeout before the
     // review started.
     await page.getByLabel(/reason note/i).fill('Manual search mark for the real-stack journey fixture.')
-    await page.getByRole('button', { name: /mark present/i }).click()
+    await page.getByRole('button', { name: /mark selected students/i }).click()
 
     await expect(page.getByRole('status')).toContainText(/marked|present/i)
 
@@ -114,7 +114,7 @@ test.describe('real stack teacher/admin search marking', () => {
     // before the submit button enables at all, independent of the server-side
     // branch refusal this test is actually about.
     await page.getByLabel(/reason note/i).fill('Attempted cross-branch mark for the refusal fixture.')
-    await page.getByRole('button', { name: /mark present/i }).click()
+    await page.getByRole('button', { name: /mark selected students/i }).click()
 
     await expect(page.getByRole('alert')).toContainText(/not allowed|forbidden|branch/i)
 

@@ -66,16 +66,6 @@ export type MarkScreenPorts = {
  * scope selected; the countdown ticker further down is local and costs nothing.
  */
 const STATUS_POLL_MS = 10_000
-/**
- * The cadence once the server says no slot is open.
- *
- * Nothing this endpoint reports can change while every slot is closed: no mark
- * can be accepted, so the counters are frozen and the credit pool cannot move.
- * The only thing still worth watching for is the NEXT slot opening, and a minute
- * is a fine resolution for that — the countdown itself is rendered from a local
- * ticker, not from these responses.
- */
-const CLOSED_SLOT_POLL_MS = 60_000
 const SEARCH_DEBOUNCE_MS = 250
 /** Matches the server's bounds exactly — see student.MinSearchRunes/MaxSearchRunes. */
 const MIN_SEARCH_RUNES = 3
@@ -198,11 +188,11 @@ export default function MarkScreen({
       //    screen forgotten overnight is what keeps the database from ever
       //    suspending. Any tap resumes it and refetches immediately.
       if (attendedInterval === false) return false
-      // 3. Every slot is closed, so nothing this endpoint reports can change: no
-      //    mark can be accepted, the counters are frozen and the credit pool
-      //    cannot move. `slot: null` is the server's explicit closed state, so
-      //    this reads the answer rather than re-deriving the timetable here.
-      return query.state.data?.slot ? STATUS_POLL_MS : CLOSED_SLOT_POLL_MS
+      // 3. Keep the normal cadence even when every slot is closed. An
+      //    administrator can raise or reset the shared fallback-credit limit at
+      //    any time, and this status response is how a coordinator's open
+      //    screen learns that the camera/search controls may be used again.
+      return STATUS_POLL_MS
     },
   })
   statusRefetchRef.current = status.refetch

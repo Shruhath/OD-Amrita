@@ -90,3 +90,9 @@ docs/deploy-walkthrough.md
 # linked to, and committing it makes every clone deploy to whatever project the
 # last person happened to be linked to.
 .vercel/
+
+# ── Local roster and attendance exports ──
+# Source data belongs in the database or an approved private store, never Git.
+/*.csv
+/*.xls
+/*.xlsx

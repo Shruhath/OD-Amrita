@@ -8,6 +8,7 @@ import { ThemeToggle } from '../../components/ThemeToggle'
 import { Select } from '../../components/ui/Select'
 import { useAuth } from '../../features/auth/context'
 import { createBarcodeScanner, type BarcodeScannerStatus } from '../../features/marking/barcodeScanner'
+import { useIdleAwareInterval } from '../../features/polling/useIdleAwareInterval'
 import { CardNfcError, createWebNfcAdapter, type WebNfcStatus } from '../../features/nfc/webNfc'
 
 /**
@@ -49,7 +50,22 @@ export type MarkScreenPorts = {
   camera?: ReturnType<typeof createBarcodeScanner>
 }
 
-const STATUS_POLL_MS = 5_000
+/**
+ * How often the counters and the slot clock refresh.
+ *
+ * The TIGHTEST of the three polling screens, deliberately: this is the one a
+ * coordinator watches while a student stands in front of them, and it carries
+ * the remaining fallback credit and whether the slot is still open. Ten seconds
+ * rather than five halves its cost while staying well inside the time it takes
+ * to mark the next person.
+ *
+ * It was the most expensive poll of the three, because one call fans out into
+ * several server queries — the event, the counters and the credit pool. In
+ * production those showed up as 8,862 / 6,818 / 6,798 calls against 319 actual
+ * marks. The `enabled` guard below is what stops it entirely when there is no
+ * scope selected; the countdown ticker further down is local and costs nothing.
+ */
+const STATUS_POLL_MS = 10_000
 const SEARCH_DEBOUNCE_MS = 250
 /** Matches the server's bounds exactly — see student.MinSearchRunes/MaxSearchRunes. */
 const MIN_SEARCH_RUNES = 3
@@ -90,10 +106,14 @@ export default function MarkScreen({
   // up. Keeping them apart means a failure is never lost to a race.
   // ---------------------------------------------------------------------
   const [failure, setFailure] = useState<string | null>(null)
+  // The server's id for the request that failed, shown only when the failure is
+  // one nobody on this screen can act on. See markFailureReference.
+  const [failureReference, setFailureReference] = useState<string>('')
   const [success, setSuccess] = useState<MarkAttendanceResult | null>(null)
 
-  const reportFailure = useCallback((message: string) => {
+  const reportFailure = useCallback((message: string, reference = '') => {
     setFailure(message)
+    setFailureReference(reference)
     setSuccess(null)
   }, [])
 
@@ -146,12 +166,36 @@ export default function MarkScreen({
   // Counters and the slot clock — one server endpoint, polled.
   // ---------------------------------------------------------------------
 
+  // Declared before the query so the idle timer can gate it, and refetched
+  // through a ref because waking must re-read a query that does not exist yet at
+  // this point in the render.
+  const statusRefetchRef = useRef<(() => unknown) | null>(null)
+  const attendedInterval = useIdleAwareInterval({
+    activeMs: STATUS_POLL_MS,
+    onResume: () => void statusRefetchRef.current?.(),
+  })
+
   const status = useQuery({
     queryKey: ['mark-status', eventID, categoryID],
     queryFn: () => api.markStatus(eventID, categoryID),
     enabled: scopeReady,
-    refetchInterval: STATUS_POLL_MS,
+    // THREE reasons this timer slows or stops, in order of severity.
+    refetchInterval: (query) => {
+      // 1. A refusal. Stop rather than hammer a server that just said no.
+      if (query.state.error) return false
+      // 2. Nobody is here. This is the most expensive poll in the app — one call
+      //    fans out into the event, the counters and the credit pool — so a
+      //    screen forgotten overnight is what keeps the database from ever
+      //    suspending. Any tap resumes it and refetches immediately.
+      if (attendedInterval === false) return false
+      // 3. Keep the normal cadence even when every slot is closed. An
+      //    administrator can raise or reset the shared fallback-credit limit at
+      //    any time, and this status response is how a coordinator's open
+      //    screen learns that the camera/search controls may be used again.
+      return STATUS_POLL_MS
+    },
   })
+  statusRefetchRef.current = status.refetch
   const fallbackCredit = status.data?.fallback_credit
   const fallbackExhausted = fallbackCredit?.exhausted ?? false
   const fallbackWarningThreshold = fallbackCredit?.warning_threshold ?? 1
@@ -187,7 +231,7 @@ export default function MarkScreen({
       })
     },
     onError(error, variables) {
-      reportFailure(markFailureMessage(error))
+      reportFailure(markFailureMessage(error), markFailureReference(error))
       if (error instanceof ApiFailure && error.body.code === 'CAPTURE_CREDIT_LIMIT_REACHED') {
         void queryClient.invalidateQueries({
           queryKey: ['mark-status', variables.scope.eventID, variables.scope.categoryID],
@@ -227,6 +271,7 @@ export default function MarkScreen({
 
   const retryCapture = useCallback(() => {
     setFailure(null)
+    setFailureReference('')
     setSuccess(null)
     setCaptureEpoch((epoch) => epoch + 1)
   }, [])
@@ -314,7 +359,7 @@ export default function MarkScreen({
       }
       submit({ studentID: exact[0].student_id }, 'camera', scope)
     } catch (error) {
-      reportFailure(markFailureMessage(error))
+      reportFailure(markFailureMessage(error), markFailureReference(error))
     }
   }, [api, submit, reportFailure])
 
@@ -472,7 +517,7 @@ export default function MarkScreen({
       {/*
         Every meter here is scoped to TODAY, and each label says so.
 
-        Under Story 0.12a all three of these reset at campus midnight: the two
+        All three of these reset at campus midnight: the two
         counters gained `AND od_date = @od_date` and the credit pool is keyed
         `(event_id, user_id, usage_date)`. On day 2 of a festival a coordinator
         who marked 200 students yesterday opens this screen to "0", "0" and a
@@ -525,9 +570,11 @@ export default function MarkScreen({
 
       <MarkBanner
         failure={failure}
+        failureReference={failureReference}
         success={success}
         onDismiss={() => {
           setFailure(null)
+          setFailureReference('')
           setSuccess(null)
         }}
         onRetry={retryCapture}
@@ -555,6 +602,7 @@ export default function MarkScreen({
             onClick={() => {
               setMode(candidate)
               setFailure(null)
+              setFailureReference('')
               setSuccess(null)
             }}
           >
@@ -635,11 +683,13 @@ type MarkIdentity = { card: CardPayload } | { studentID: string }
  */
 function MarkBanner({
   failure,
+  failureReference,
   success,
   onDismiss,
   onRetry,
 }: {
   failure: string | null
+  failureReference: string
   success: MarkAttendanceResult | null
   onDismiss: () => void
   onRetry: () => void
@@ -649,6 +699,12 @@ function MarkBanner({
       <p role="alert" className="mark-banner is-red">
         <strong>Not recorded</strong>
         <span>{failure}</span>
+        {/*
+          Present only for a server fault, and deliberately quiet. It is the one
+          thing a coordinator can read out that lets the failure be found in the
+          logs at all — see markFailureReference.
+        */}
+        {failureReference ? <span className="mark-banner-reference">Reference {failureReference}</span> : null}
         {/*
           This RE-ARMS the capture session rather than only clearing the banner.
           After a refused permission or a switched-off radio the session is torn
@@ -732,7 +788,7 @@ function useSlotClock(
  * written for an API consumer ("Rejected.", "Student is already marked present
  * for this slot."), and a coordinator at arm's length needs to know what to do
  * next, not what the server called it. Every code here already exists in the
- * closed error registry — this story adds none.
+ * closed error registry — this screen adds none.
  */
 const FAILURE_REASON: Record<string, string> = {
   SCAN_DUPLICATE: 'Already marked — this student is recorded present for this slot.',
@@ -748,6 +804,22 @@ const FAILURE_REASON: Record<string, string> = {
 }
 
 /** Turns any failure into the specific reason the coordinator needs to act on. */
+/**
+ * The reference to print under an unrecoverable failure, or '' for one the
+ * person in front of the screen can do something about.
+ *
+ * Only 5xx. A duplicate, a closed slot, an unrecognised card — those are answers,
+ * and printing an opaque id under them would turn a clear message into a support
+ * ticket. A 500 is the opposite: the screen has nothing true to say beyond "it
+ * broke", and the id is the only thing that makes the report actionable. When an
+ * admin said "it shows internal server error", this is what they could not tell
+ * us, and finding it instead took an afternoon of reading production backwards.
+ */
+function markFailureReference(error: unknown): string {
+  if (error instanceof ApiFailure && error.status >= 500) return error.requestId
+  return ''
+}
+
 function markFailureMessage(error: unknown): string {
   if (error instanceof ApiFailure) {
     // `body` is normalised into a real envelope by the API client, so `code` and

@@ -13,8 +13,8 @@ import (
 
 type teacherWriteQueries interface {
 	AssignTeacherRole(context.Context, pgtype.UUID) (sqlc.AssignTeacherRoleRow, error)
-	AddUserBranch(context.Context, sqlc.AddUserBranchParams) (int64, error)
-	AssignUserCategory(context.Context, sqlc.AssignUserCategoryParams) (sqlc.UserCategoryAssignment, error)
+	AddUserBranchesBulk(context.Context, sqlc.AddUserBranchesBulkParams) (int64, error)
+	AssignUserCategoriesBulk(context.Context, sqlc.AssignUserCategoriesBulkParams) (int64, error)
 	DeleteUserCategoriesExcept(context.Context, sqlc.DeleteUserCategoriesExceptParams) (int64, error)
 }
 
@@ -53,27 +53,34 @@ func (w *SQLCWriter) AssignRoleAndBranches(ctx context.Context, tx pgx.Tx, input
 		return "", false, fmt.Errorf("teacher: assign role returned an invalid id")
 	}
 
-	for _, branchID := range input.BranchIDs {
-		rows, err := q.AddUserBranch(ctx, sqlc.AddUserBranchParams{
-			UserID:   row.ID,
-			BranchID: dbUUID(branchID),
+	// One statement for every branch, rather than a round trip each. The counts
+	// are small, but this runs inside the transaction that creates the teacher,
+	// against a database half a second away, so an administrator waits on every
+	// one of them.
+	//
+	// The row-count assertion is preserved exactly: the loop demanded one row per
+	// branch, so the bulk insert must affect exactly as many rows as there were
+	// branch ids. user_branches has no ON CONFLICT clause, so a duplicate id in
+	// the request still raises rather than being silently absorbed.
+	if len(input.BranchIDs) > 0 {
+		branchIDs := make([]pgtype.UUID, 0, len(input.BranchIDs))
+		for _, branchID := range input.BranchIDs {
+			branchIDs = append(branchIDs, dbUUID(branchID))
+		}
+		rows, err := q.AddUserBranchesBulk(ctx, sqlc.AddUserBranchesBulkParams{
+			UserID:    row.ID,
+			BranchIds: branchIDs,
 		})
 		if err != nil {
 			return "", false, err
 		}
-		if rows != 1 {
-			return "", false, fmt.Errorf("teacher: branch association affected %d rows", rows)
+		if rows != int64(len(branchIDs)) {
+			return "", false, fmt.Errorf("teacher: branch association affected %d rows, want %d", rows, len(branchIDs))
 		}
 	}
 
-	for _, categoryID := range input.CategoryIDs {
-		if _, err := q.AssignUserCategory(ctx, sqlc.AssignUserCategoryParams{
-			UserID:          row.ID,
-			CategoryID:      dbUUID(categoryID),
-			CreatedByUserID: dbUUID(input.ActorUserID),
-		}); err != nil && err != pgx.ErrNoRows {
-			return "", false, err
-		}
+	if err := assignCategories(ctx, q, row.ID, input.CategoryIDs, input.ActorUserID); err != nil {
+		return "", false, err
 	}
 
 	return uuid.UUID(row.ID.Bytes).String(), true, nil
@@ -91,16 +98,43 @@ func (w *SQLCWriter) ReplaceCategoryAccess(ctx context.Context, tx pgx.Tx, input
 	}); err != nil {
 		return false, err
 	}
-	for _, categoryID := range input.CategoryIDs {
-		if _, err := q.AssignUserCategory(ctx, sqlc.AssignUserCategoryParams{
-			UserID:          dbUUID(input.UserID),
-			CategoryID:      dbUUID(categoryID),
-			CreatedByUserID: dbUUID(input.ActorUserID),
-		}); err != nil && err != pgx.ErrNoRows {
-			return false, err
-		}
+	if err := assignCategories(ctx, q, dbUUID(input.UserID), input.CategoryIDs, input.ActorUserID); err != nil {
+		return false, err
 	}
 	return true, nil
+}
+
+// assignCategories grants every category in one statement.
+//
+// Shared by the create path and the replace path because they were already the
+// same loop written twice, and the bulk form is the place where letting them
+// drift would be least visible.
+//
+// It does NOT assert a row count. AssignUserCategoriesBulk carries
+// ON CONFLICT DO NOTHING, so the rows affected are the ones NEWLY granted, not
+// the ones requested — re-granting a category the user already holds is a
+// legitimate no-op, and the per-row loop treated it as one too (it swallowed
+// pgx.ErrNoRows for exactly that reason).
+func assignCategories(
+	ctx context.Context, q teacherWriteQueries,
+	userID pgtype.UUID, categoryIDs []uuid.UUID, actorUserID uuid.UUID,
+) error {
+	if len(categoryIDs) == 0 {
+		return nil
+	}
+	ids := make([]pgtype.UUID, 0, len(categoryIDs))
+	for _, categoryID := range categoryIDs {
+		ids = append(ids, dbUUID(categoryID))
+	}
+	_, err := q.AssignUserCategoriesBulk(ctx, sqlc.AssignUserCategoriesBulkParams{
+		UserID:          userID,
+		CategoryIds:     ids,
+		CreatedByUserID: dbUUID(actorUserID),
+	})
+	if err != nil && err != pgx.ErrNoRows {
+		return err
+	}
+	return nil
 }
 
 func dbUUID(id uuid.UUID) pgtype.UUID {

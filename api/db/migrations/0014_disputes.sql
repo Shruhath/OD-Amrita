@@ -77,7 +77,7 @@ BEGIN
             USING ERRCODE = 'foreign_key_violation';
     END IF;
 
-    -- Story 0.12a widens this to BETWEEN event_date AND end_date. Today there
+    -- 0015_event_date_range.sql widens this to BETWEEN event_date AND end_date. Here there
     -- is no end_date column, so the valid range is the single event_date.
     IF NEW.od_date <> event_start THEN
         RAISE EXCEPTION 'dispute od_date % outside event date %', NEW.od_date, event_start

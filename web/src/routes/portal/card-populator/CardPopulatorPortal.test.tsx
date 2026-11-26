@@ -96,8 +96,8 @@ function installNfc(overrides: Partial<NfcHarness> = {}): NfcHarness {
 
 function renderPopulator(role: 'admin' | 'student' = 'admin') {
   const students = [
-    cardPopulatorStudent(2, { display_name: 'Madhav Rao', roll_no: 'CB.SC.U4CSE24002' }),
-    cardPopulatorStudent(1, { display_name: 'Ananya Rao', roll_no: 'CB.SC.U4CSE24001' }),
+    cardPopulatorStudent(2, { display_name: 'Madhav Rao', roll_no: 'CB.SC.U4CSE99002' }),
+    cardPopulatorStudent(1, { display_name: 'Ananya Rao', roll_no: 'CB.SC.U4CSE99001' }),
   ]
   // Server order is authoritative — the API returns roll-ordered rows, and the
   // component must not re-sort. Ordered here as the server would return them.
@@ -176,7 +176,7 @@ describe('returning to a backgrounded app', () => {
     expect(screen.getByLabelText('Section')).toHaveValue('A')
 
     await user.click(screen.getByRole('button', { name: 'Load roster' }))
-    expect(await screen.findByText('CB.SC.U4CSE24001', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByText('CB.SC.U4CSE99001', {}, { timeout: 5000 })).toBeInTheDocument()
   }, 10_000)
 
   // AR20. The roster comes BACK, but it must come back from the SERVER — a
@@ -214,8 +214,8 @@ describe('Card populator portal', () => {
 
     expect(within(table).getAllByRole('row').map((row) => row.textContent)).toEqual([
       expect.stringContaining('Roll number'),
-      expect.stringContaining('CB.SC.U4CSE24001'),
-      expect.stringContaining('CB.SC.U4CSE24002'),
+      expect.stringContaining('CB.SC.U4CSE99001'),
+      expect.stringContaining('CB.SC.U4CSE99002'),
     ])
     expect(screen.getByText(/0 written/i)).toBeInTheDocument()
     expect(screen.getByText(/0 verified/i)).toBeInTheDocument()
@@ -227,7 +227,7 @@ describe('Card populator portal', () => {
     const students = Array.from({ length: 101 }, (_item, index) =>
       cardPopulatorStudent(index + 1, {
         display_name: `Student ${String(index + 1).padStart(3, '0')}`,
-        roll_no: `CB.SC.U4CSE24${String(index + 1).padStart(3, '0')}`,
+        roll_no: `CB.SC.U4CSE99${String(index + 1).padStart(3, '0')}`,
       }),
     )
     server.use(
@@ -365,8 +365,8 @@ describe('Card populator portal', () => {
     installNfc()
     const user = userEvent.setup()
     const students = [
-      cardPopulatorStudent(1, { display_name: 'Ananya Rao', roll_no: 'CB.SC.U4CSE24001' }),
-      cardPopulatorStudent(2, { display_name: 'Madhav Rao', roll_no: 'CB.SC.U4CSE24002' }),
+      cardPopulatorStudent(1, { display_name: 'Ananya Rao', roll_no: 'CB.SC.U4CSE99001' }),
+      cardPopulatorStudent(2, { display_name: 'Madhav Rao', roll_no: 'CB.SC.U4CSE99002' }),
     ]
     server.use(
       http.get('*/api/v1/auth/me', () =>

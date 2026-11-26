@@ -3,10 +3,10 @@
 // Real-Postgres tests for the coordinator marking surface.
 //
 // Deliberately placed in the EXISTING api/test/odrecord package rather than a
-// new one. Stories 0.2, 0.3, 0.4 and 0.5 each shipped a new integration package
+// new one. Earlier changes each shipped a new integration package
 // that CI silently never ran, because `INTEGRATION_PKGS` in api/Makefile and the
 // integration command in .github/workflows/api-ci.yml were not updated with it.
-// Reusing this package removes that failure mode for 0.6 entirely — ./test/
+// Reusing this package removes that failure mode entirely — ./test/
 // odrecord/... is already in both lists.
 //
 // Helpers (testCtx, dsnOrSkip, connect, seedMarkFixture, fixedClock, markFixture)
@@ -49,7 +49,7 @@ func TestMarkStatusCountersSeparateOwnMarksFromTheCategoryTotal(t *testing.T) {
 	fixture := seedMarkFixture(t, ctx, migrator)
 
 	coordinatorA := fixture.coordinatorID
-	coordinatorB := seedSecondCoordinator(t, ctx, migrator)
+	coordinatorB := seedSecondCoordinator(t, ctx, migrator, fixture)
 
 	// Real rows through raw SQL: this test is about the COUNTING query, not about
 	// the write path (which TestCameraMarkWritesTruthfulRecordAndOneAuditRow owns).
@@ -182,7 +182,7 @@ func TestMarkStatusReturnsRealSlotBoundsOnTheEventDateAndNoneOffIt(t *testing.T)
 //
 // Task 3 widens the pairing rule so a camera mark carries a student_id. What
 // must not drift is honesty: `capture_method` is persisted as "camera" on the
-// od_records row (FR44), because Story 0.8's shared camera+search credit cap and
+// od_records row (FR44), because the shared camera+search credit cap and
 // every later anomaly report read that column. A camera mark silently recorded
 // as "search" would defeat both.
 func TestCameraMarkWritesTruthfulRecordAndConservesAudit(t *testing.T) {
@@ -234,7 +234,7 @@ func TestCameraMarkWritesTruthfulRecordAndConservesAudit(t *testing.T) {
 	}
 	if persisted != "camera" {
 		t.Errorf("[P0] persisted capture_method = %q, want \"camera\" — the record must be truthful (FR44); "+
-			"Story 0.8's shared camera+search credit cap reads this column", persisted)
+			"the shared camera+search credit cap reads this column", persisted)
 	}
 }
 
@@ -255,7 +255,7 @@ func TestStudentSearchUsesCanonicalRollAndStaysBounded(t *testing.T) {
 	svc.WithSearchReader(studentsvc.NewSQLCSearchReader(runtime))
 	actor := studentsvc.Actor{UserID: fixture.coordinatorID, Role: "coordinator"}
 
-	// Story 0.2 canonicalised roll_no to uppercase; a coordinator types lowercase
+	// Student import canonicalises roll_no to uppercase; a coordinator types lowercase
 	// on a phone keyboard, so a lowercase prefix must still match.
 	lower, err := svc.Search(ctx, actor, studentsvc.SearchInput{Query: strings.ToLower(rollNo[:12])})
 	if err != nil {
@@ -286,7 +286,7 @@ func TestStudentSearchUsesCanonicalRollAndStaysBounded(t *testing.T) {
 // Scaffold helpers — real bodies, no logic of their own.
 // ---------------------------------------------------------------------------
 
-func seedSecondCoordinator(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
+func seedSecondCoordinator(t *testing.T, ctx context.Context, pool *pgxpool.Pool, fixture markFixture) string {
 	t.Helper()
 	id := uuid.NewString()
 	if _, err := pool.Exec(ctx, `
@@ -295,6 +295,26 @@ func seedSecondCoordinator(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 		ON CONFLICT (supabase_subject) DO UPDATE SET role = EXCLUDED.role`,
 		id, "atdd-coordinator2-"+id); err != nil {
 		t.Fatalf("seed second coordinator: %v", err)
+	}
+	// THE ASSIGNMENT IS NOT OPTIONAL. This helper used to create the user and
+	// stop there, which was survivable while the fallback credit limit lived in
+	// its own config table — a coordinator with no assignment simply read the
+	// default. Migration 0024 moved that limit onto the assignment ROW, so
+	// GetCaptureCreditState now starts from event_coordinator_assignments and
+	// returns NO ROWS for a coordinator who has none. MarkStatus reads the credit
+	// state, so it failed with a bare "no rows in result set".
+	//
+	// Seeding it is the honest fix rather than making the query tolerate a
+	// missing assignment: in production a coordinator cannot mark in an event
+	// they are not assigned to — the scope guard refuses it — so a coordinator
+	// holding marks in a category necessarily has this row. The fixture writes
+	// od_records through raw SQL to isolate the counting query from the write
+	// path, and in doing so had skipped a row the write path would have required.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO event_coordinator_assignments (user_id, event_id, created_by_user_id)
+		VALUES ($1, $2, $3)
+		ON CONFLICT DO NOTHING`, id, fixture.eventID, fixture.adminID); err != nil {
+		t.Fatalf("seed second coordinator assignment: %v", err)
 	}
 	return id
 }

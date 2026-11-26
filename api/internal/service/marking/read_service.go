@@ -140,9 +140,9 @@ func (s *ReadService) Categories(ctx context.Context, actor Actor, eventID strin
 }
 
 // SearchStudents is the ROLE-gated read. See the type doc above for why it is
-// not event-scoped, and what the assignment story has to decide about it.
+// not event-scoped, and why the assignment lookup does not narrow it.
 //
-// Deliberately NOT assertLiveMarker: Story 0.9's teacher/admin search-mark
+// Deliberately NOT assertLiveMarker: the teacher/admin search-mark
 // screen calls this exact endpoint before it can select a student to mark, so
 // live-marker-only here would 403 the entire teacher/admin surface at the
 // first step.

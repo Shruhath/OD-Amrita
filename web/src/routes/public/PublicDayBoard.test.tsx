@@ -82,7 +82,7 @@ describe('the public attendance board', () => {
     renderBoard()
 
     const table = await screen.findByRole('table', { name: /on-duty students/i })
-    const row = within(table).getByRole('row', { name: /CB\.SC\.U4CSE24101/ })
+    const row = within(table).getByRole('row', { name: /CB\.SC\.U4CSE99101/ })
 
     // The three columns of the ask: roll number, name, and the slots with what
     // each was for.
@@ -273,7 +273,7 @@ describe('the public attendance board', () => {
         HttpResponse.json({
           student: {
             student_id: '95000000-0000-4000-8000-000000000101',
-            roll_no: 'CB.SC.U4CSE24101',
+            roll_no: 'CB.SC.U4CSE99101',
             display_name: 'Ananya Rao',
             branch: 'CSE',
             section: 'A',
@@ -287,8 +287,8 @@ describe('the public attendance board', () => {
     renderBoard()
 
     await screen.findByRole('table', { name: /on-duty students/i })
-    await user.type(screen.getByRole('searchbox', { name: /roll number|name/i }), 'CB.SC.U4CSE24101')
-    await user.click(await screen.findByRole('option', { name: /CB\.SC\.U4CSE24101/ }))
+    await user.type(screen.getByRole('searchbox', { name: /roll number|name/i }), 'CB.SC.U4CSE99101')
+    await user.click(await screen.findByRole('option', { name: /CB\.SC\.U4CSE99101/ }))
 
     expect(await screen.findByText(/no OD records found/i)).toBeInTheDocument()
     // The board is still there — the per-student view opens alongside it.

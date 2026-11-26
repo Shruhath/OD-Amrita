@@ -42,6 +42,8 @@ export default function EventDetailPortal() {
   const [creditFieldErrors, setCreditFieldErrors] = useState<Record<string, string | undefined>>({})
   const [creditFormError, setCreditFormError] = useState<string | null>(null)
   const [resetCandidate, setResetCandidate] = useState<CaptureCreditUsage | null>(null)
+  const [removeCandidate, setRemoveCandidate] = useState<CoordinatorAssignment | null>(null)
+  const [removeError, setRemoveError] = useState<string | null>(null)
 
   const currentEventKey = eventKey(eventID)
   const events = useQuery({
@@ -167,6 +169,43 @@ export default function EventDetailPortal() {
     onError: (cause) => {
       setFormError(messageOf(cause, 'The category visibility could not be saved'))
       if (cause instanceof ApiFailure && cause.body.code === 'EVENT_ARCHIVED') {
+        markEventArchived(queryClient, currentEventKey)
+        void queryClient.invalidateQueries({ queryKey: currentEventKey })
+      }
+    },
+  })
+
+  const removeCoordinator = useMutation({
+    mutationFn: (userID: string) => api.removeCoordinator(eventID, userID),
+    onSuccess: (_result, userID) => {
+      if (coordinators.isSuccess) {
+        queryClient.setQueryData(currentCoordinatorKey, (current: { data: CoordinatorAssignment[] } | undefined) => ({
+          data: (current?.data ?? []).filter((row) => row.user_id !== userID),
+        }))
+      }
+      if (editingCoordinatorID === userID) {
+        setEditingCoordinatorID(null)
+        setEditingCoordinatorCategoryIDs([])
+      }
+      setRemoveCandidate(null)
+      setRemoveError(null)
+      setCoordinatorFormError(null)
+      void queryClient.invalidateQueries({ queryKey: currentCoordinatorKey })
+      // The removed coordinator's fallback-credit row goes with the assignment.
+      void queryClient.invalidateQueries({ queryKey: currentCreditKey })
+    },
+    onError: (cause) => {
+      if (cause instanceof ApiFailure && cause.body.code === 'USER_NOT_FOUND') {
+        // Already gone (another admin, another tab): the list is simply stale.
+        setRemoveCandidate(null)
+        setRemoveError(null)
+        void queryClient.invalidateQueries({ queryKey: currentCoordinatorKey })
+        return
+      }
+      setRemoveError(messageOf(cause, 'The coordinator could not be removed'))
+      if (cause instanceof ApiFailure && cause.body.code === 'EVENT_ARCHIVED') {
+        setRemoveCandidate(null)
+        setCoordinatorFormError(messageOf(cause, 'The coordinator could not be removed'))
         markEventArchived(queryClient, currentEventKey)
         void queryClient.invalidateQueries({ queryKey: currentEventKey })
       }
@@ -516,14 +555,30 @@ export default function EventDetailPortal() {
                               </div>
                             </div>
                             {event.status === 'active' && (
-                              <button
-                                type="button"
-                                onClick={() => isEditing ? cancelCoordinatorEdit() : beginCoordinatorEdit(coordinator)}
-                                disabled={updateCoordinatorAccess.isPending}
-                                className="shrink-0 rounded-[10px] border border-border px-3 py-1.5 text-xs font-semibold hover:bg-surface active:scale-95 transition-all disabled:opacity-50"
-                              >
-                                {isEditing ? 'Cancel' : 'Edit'}
-                              </button>
+                              <div className="flex shrink-0 gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => isEditing ? cancelCoordinatorEdit() : beginCoordinatorEdit(coordinator)}
+                                  disabled={updateCoordinatorAccess.isPending}
+                                  className="shrink-0 rounded-[10px] border border-border px-3 py-1.5 text-xs font-semibold hover:bg-surface active:scale-95 transition-all disabled:opacity-50"
+                                >
+                                  {isEditing ? 'Cancel' : 'Edit'}
+                                </button>
+                                {!isEditing && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setRemoveError(null)
+                                      setRemoveCandidate(coordinator)
+                                    }}
+                                    disabled={removeCoordinator.isPending}
+                                    aria-label={`Remove ${coordinator.name ?? coordinator.email} from this event`}
+                                    className="shrink-0 rounded-[10px] border border-status-error-fg/30 px-3 py-1.5 text-xs font-semibold text-status-error-fg hover:bg-status-error-fg/10 active:scale-95 transition-all disabled:opacity-50"
+                                  >
+                                    Remove
+                                  </button>
+                                )}
+                              </div>
                             )}
                           </div>
                           {isEditing ? (
@@ -687,6 +742,64 @@ export default function EventDetailPortal() {
           <EventAttendanceSection eventID={eventID} categories={categoryData} eventDate={event.event_date} endDate={event.end_date} />
         </motion.div>
       )}
+
+      {/* Remove Coordinator Modal */}
+      <AnimatePresence>
+        {removeCandidate && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-foreground/20 backdrop-blur-sm"
+            role="presentation"
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.95 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="w-full max-w-md bg-surface border border-border rounded-[10px] shadow-xl p-6"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="remove-coordinator-title"
+              aria-describedby="remove-coordinator-description"
+            >
+              <h2 id="remove-coordinator-title" className="text-xl font-bold tracking-tight mb-2">Remove coordinator</h2>
+              <p id="remove-coordinator-description" className="text-foreground-muted text-sm mb-6">
+                Remove <strong className="text-foreground">{removeCandidate.name ?? removeCandidate.email}</strong> from this
+                event? They stop being able to mark here on their next request, and lose their category access and fallback
+                credits for this event. Marks they already recorded are kept, and their other events are not affected.
+              </p>
+              {removeError && (
+                <p className="text-sm text-status-error-fg bg-status-error-bg p-3 rounded-[10px] border border-status-error-fg/20 mb-4" role="alert">
+                  {removeError}
+                </p>
+              )}
+              <div className="flex flex-col-reverse sm:flex-row gap-3">
+                <button
+                  type="button"
+                  className="flex-1 border border-border bg-canvas hover:bg-surface text-foreground px-4 py-2.5 rounded-[10px] font-medium active:scale-95 transition-all disabled:opacity-50"
+                  disabled={removeCoordinator.isPending}
+                  onClick={() => {
+                    setRemoveCandidate(null)
+                    setRemoveError(null)
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="flex-1 border border-status-error-fg/40 bg-status-error-bg text-status-error-fg hover:bg-status-error-fg/10 px-4 py-2.5 rounded-[10px] font-semibold active:scale-95 transition-all disabled:opacity-50"
+                  disabled={removeCoordinator.isPending}
+                  onClick={() => removeCoordinator.mutate(removeCandidate.user_id)}
+                >
+                  {removeCoordinator.isPending ? 'Removing…' : 'Remove coordinator'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Reset Credits Modal */}
       <AnimatePresence>

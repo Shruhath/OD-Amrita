@@ -21,9 +21,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Shruhath/OD-Amrita/api/internal/cachebus"
 	"github.com/Shruhath/OD-Amrita/api/internal/config"
+	"github.com/Shruhath/OD-Amrita/api/internal/eventstream"
 	handleradmin "github.com/Shruhath/OD-Amrita/api/internal/handler/admin"
 	handlerappsettings "github.com/Shruhath/OD-Amrita/api/internal/handler/appsettings"
+	handleraudit "github.com/Shruhath/OD-Amrita/api/internal/handler/audit"
 	handlerauth "github.com/Shruhath/OD-Amrita/api/internal/handler/auth"
 	handlercardtoken "github.com/Shruhath/OD-Amrita/api/internal/handler/cardtoken"
 	handlerdispute "github.com/Shruhath/OD-Amrita/api/internal/handler/dispute"
@@ -34,22 +37,28 @@ import (
 	handlerstudent "github.com/Shruhath/OD-Amrita/api/internal/handler/student"
 	handlerteacher "github.com/Shruhath/OD-Amrita/api/internal/handler/teacher"
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
+	"github.com/Shruhath/OD-Amrita/api/internal/middleware/bodylimit"
 	corsmw "github.com/Shruhath/OD-Amrita/api/internal/middleware/cors"
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/ratelimit"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
+	requestid "github.com/Shruhath/OD-Amrita/api/internal/middleware/request_id"
+	"github.com/Shruhath/OD-Amrita/api/internal/middleware/securityheaders"
 	svcappsettings "github.com/Shruhath/OD-Amrita/api/internal/service/appsettings"
+	svcauditlog "github.com/Shruhath/OD-Amrita/api/internal/service/audit"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
 	svccardtoken "github.com/Shruhath/OD-Amrita/api/internal/service/cardtoken"
 	svcdispute "github.com/Shruhath/OD-Amrita/api/internal/service/dispute"
 	svcevent "github.com/Shruhath/OD-Amrita/api/internal/service/event"
 	svcmarking "github.com/Shruhath/OD-Amrita/api/internal/service/marking"
+	"github.com/Shruhath/OD-Amrita/api/internal/service/markingcache"
 	svcodrecord "github.com/Shruhath/OD-Amrita/api/internal/service/od_record"
 	svcpublicattendance "github.com/Shruhath/OD-Amrita/api/internal/service/publicattendance"
 	"github.com/Shruhath/OD-Amrita/api/internal/service/publiccache"
 	svcstudent "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 	svcteacher "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
 	svcuser "github.com/Shruhath/OD-Amrita/api/internal/service/user"
+	svcuserrole "github.com/Shruhath/OD-Amrita/api/internal/service/userrole"
 	"github.com/Shruhath/OD-Amrita/api/internal/store"
 )
 
@@ -74,10 +83,30 @@ func run() error {
 	}
 	defer pool.Close()
 
+	// The domain event stream. OFF unless KAFKA_BROKERS is set, in which case
+	// every value below is the same no-op it has always been — see package
+	// eventstream. A malformed Kafka setting fails the boot here; an UNREACHABLE
+	// broker deliberately does not.
+	stream, err := eventstream.New(context.Background())
+	if err != nil {
+		return err
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		stream.Close(ctx)
+	}()
+
 	if cfg.AppEnv != "development" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	router := gin.New()
+	// FIRST, ahead of Recovery and the error renderer both: the request that most
+	// needs an id is the one that panics or fails, and a middleware registered
+	// after those two would not have run by the time either logs.
+	router.Use(requestid.Middleware())
+	router.Use(securityheaders.Middleware())
+	router.Use(bodylimit.Middleware(2 << 20))
 	router.Use(gin.Recovery())
 	router.Use(errormw.Handler())
 	// The router is passed to itself on purpose: the preflight's allowed-methods
@@ -86,7 +115,7 @@ func run() error {
 	router.Use(corsmw.Middleware(cfg.PortalAllowedOrigins, router))
 	router.GET("/health", health.Handler(pool))
 
-	// The UNAUTHENTICATED public dashboard (Story 0.10). Built here, BEFORE the
+	// The UNAUTHENTICATED public dashboard. Built here, BEFORE the
 	// /api/v1 group, so the two are visibly siblings in the source rather than
 	// one being an easy-to-miss child of the other.
 	publicLimiter, err := ratelimit.New(ratelimit.Config{
@@ -130,7 +159,11 @@ func run() error {
 
 	var verifier svcauth.TokenVerifier = svcauth.RejectingVerifier{}
 	if cfg.Auth.JWKSURL != "" && cfg.Auth.Issuer != "" {
-		v, err := svcauth.NewVerifier(cfg.Auth.JWKSURL, cfg.Auth.Issuer, cfg.Auth.Audience)
+		providers := make([]string, 0, len(cfg.Auth.AllowedProviders))
+		for provider := range cfg.Auth.AllowedProviders {
+			providers = append(providers, provider)
+		}
+		v, err := svcauth.NewVerifier(cfg.Auth.JWKSURL, cfg.Auth.Issuer, cfg.Auth.Audience, providers)
 		if err != nil {
 			return err
 		}
@@ -143,20 +176,44 @@ func run() error {
 	// and /health reports db:down — provisioning simply fails with a centralized
 	// 5xx until a live DB is present (D6). Provisioning is never reached anyway
 	// until Supabase auth is configured (RejectingVerifier 401s every call).
-	st := store.New(pool)
-	userSvc := svcuser.NewService(st, cfg.Auth.BootstrapAdmins, svcuser.NewSQLCProvisioner())
+	//
+	// WithPublisher mirrors every COMMITTED audit event onto the stream. It is the
+	// only publish site in the codebase, and it covers everything: every state
+	// change in this system already passes through this store's WithAudit, so the
+	// stream cannot miss an event without the ledger missing it too. See
+	// store/publish.go for why the publish happens after the commit and why it
+	// cannot fail the write.
+	st := store.New(pool, store.WithPublisher(stream.Publisher))
+	// WithCurrentReader is what stops /auth/me writing on every call. Without it
+	// the service keeps its original behaviour — an upsert per login — which
+	// production measured as the most expensive query in the database (2,157
+	// calls, 8ms each, 17s total) for a column almost nothing reads.
+	userSvc := svcuser.NewService(st, cfg.Auth.BootstrapAdmins, svcuser.NewSQLCProvisioner()).
+		WithCurrentReader(svcuser.NewSQLCCurrentReader(pool))
 
-	// Auth-event auditor (Story 1.7): co-commits auth.login_succeeded (from
+	// Auth-event auditor: co-commits auth.login_succeeded (from
 	// /auth/me, after provisioning) and auth.domain_rejected (from the auth
 	// middleware's EnforceDomain failure branch) through the same store.WithAudit
 	// boundary. One value serves both the middleware and the handler.
 	eventAuditor := svcauth.NewEventAuditor(st)
+	// The LOGIN audit is throttled per session; the domain-rejection audit is not.
+	// They are separated here because their cadences are genuinely different: a
+	// rejection is rare and every one matters, while /auth/me is called on every
+	// token refresh and wrote a duplicate row each time (79% of the whole audit
+	// ledger in production). The middleware keeps the unthrottled auditor.
+	loginAuditor := svcauth.NewThrottledLoginAuditor(eventAuditor)
 
-	// Forced-logout (Story 1.5c): the revocation checker the auth middleware
+	// Forced-logout: the revocation checker the auth middleware
 	// consults on every protected request, and the admin-only revocation service.
 	// Supabase exposes no supported server-side target-user revoke API, so the
 	// Supabase adapter is the disabled no-op — the local deny-list is authoritative.
-	revChecker := svcauth.NewSQLCRevocationChecker(pool)
+	// Cached, because this runs on EVERY protected request and was the single
+	// most-executed query in the database (15,766 calls against 319 actual
+	// marks). The TTL is short — this is the forced-logout boundary, not merely
+	// an authorization read — and the admin revoke path below drops the cache
+	// so the machine taking the revocation never serves a stale verdict.
+	revCache := svcauth.NewCachedRevocationChecker(svcauth.NewSQLCRevocationChecker(pool))
+	var revChecker svcauth.RevocationChecker = revCache
 	revSvc := svcauth.NewRevocationService(
 		st,
 		svcauth.NewSQLCRevocationWriter(),
@@ -169,9 +226,14 @@ func run() error {
 	// Reject revoked-but-still-valid tokens on the NEXT request, immediately after
 	// verify+domain and before any protected handler runs (DoD 6).
 	api.Use(mwauth.RevocationGuard(revChecker))
-	api.GET("/auth/me", handlerauth.MeHandler(userSvc, eventAuditor))
+	api.GET("/auth/me", handlerauth.MeHandler(userSvc, loginAuditor))
 
-	principalLoader := rbac.NewSQLCPrincipalLoader(pool)
+	// Cached for the same reason as the revocation check: this ran on every
+	// authenticated request (13,571 calls) to answer a question that changes a
+	// handful of times in the life of an event. See rbac.CachedPrincipalLoader
+	// for what the staleness window costs.
+	principalCache := rbac.NewCachedPrincipalLoader(rbac.NewSQLCPrincipalLoader(pool))
+	var principalLoader rbac.PrincipalLoader = principalCache
 	cardKeyring, err := svccardtoken.NewKeyring(cfg.CardSeal.ActiveVersion, cfg.CardSeal.HMACKeys)
 	if err != nil {
 		return err
@@ -182,10 +244,28 @@ func run() error {
 	// surface — the scoped reads are siblings of the admin reads, not a fork.
 	eventReader := svcevent.NewSQLCReader(pool)
 	creditLedger := svcodrecord.NewSQLCCreditLedger(pool)
-	// The scope seam. Every marking read AND the mark write go through this one
-	// policy, so a scope the reads refuse can never be reached by posting to
-	// /api/v1/mark directly (NFR11). Story 0.7 replaces only its policy body.
-	markingPolicy := svcmarking.NewPolicy(svcmarking.NewEventReader(eventReader))
+	// The scope seam. Every marking read AND the mark write ask the SAME policy
+	// body, so a scope the reads refuse can never be reached by posting to
+	// /api/v1/mark directly (NFR11).
+	//
+	// TWO POLICIES OVER ONE POLICY BODY, and the split is load-bearing.
+	//
+	// The reads are polled — a marking screen asks all four scope questions every
+	// ten seconds — so they are served from markingScopeCache. The WRITE keeps the
+	// plain reader and asks the database every time. It runs a few hundred times
+	// against the reads' many thousands, so caching it would save nothing and cost
+	// the gate its exactness.
+	//
+	// What this buys is that the two can only ever disagree in ONE direction. For
+	// up to the cache lifetime a read may still offer an event an administrator has
+	// just archived, and the write then refuses it correctly. A write admitted on a
+	// stale permission is impossible, because the write never consults the cache.
+	// routes_test.go pins that, because it is a one-token slip in this file.
+	plainScopeReader := svcmarking.NewEventReader(eventReader)
+	markingPolicy := svcmarking.NewPolicy(plainScopeReader)
+	markingScopeCache := markingcache.NewReader(
+		plainScopeReader, time.Duration(cfg.MarkingScopeCacheTTLSeconds)*time.Second)
+	readPolicy := svcmarking.NewPolicy(markingScopeCache)
 	portalMarkReads := svcmarking.NewPortalMarkReadService(pool)
 	markSvc := svcodrecord.NewService(
 		svcodrecord.NewSQLCReader(pool),
@@ -205,6 +285,7 @@ func run() error {
 	// open slot that the mark path then refused.
 	markSvc = markSvc.WithSlotCeiling(settingsSvc)
 	handlerodrecord.RegisterRoutes(markAPI, markSvc)
+	handlerodrecord.RegisterPortalBatchMarkRoutes(markAPI, markSvc)
 	handlerodrecord.RegisterRecordManagementRoutes(
 		markAPI, svcodrecord.NewManagementService(pool, st).WithSlotCeiling(settingsSvc))
 	handlerodrecord.RegisterPortalMarkRoutes(markAPI, portalMarkReads)
@@ -245,21 +326,73 @@ func run() error {
 		submitter: disputeSvc,
 		events:    cachedEvents,
 	}, publicDisputeLimiter.Middleware())
+	// The POLLED reads. readPolicy (cached) rather than markingPolicy (exact) —
+	// see the note where the two are built.
+	//
+	// The status service gets its own cached event reader for the same reason and
+	// with the same safety argument: it re-reads the event row on every poll, and
+	// this SQLCReader instance is distinct from the one markSvc holds, so the mark
+	// write's own event lookup is untouched by construction rather than by care.
 	handlerodrecord.RegisterMarkingReadRoutes(markAPI, svcmarking.NewReadService(
-		markingPolicy,
+		readPolicy,
 		eventReader,
 		studentSvc,
 		svcodrecord.NewStatusService(
-			svcodrecord.NewSQLCReader(pool), svcodrecord.NewSQLCCounter(pool), creditLedger, nil,
+			svcodrecord.NewCachedEventReader(
+				svcodrecord.NewSQLCReader(pool),
+				time.Duration(cfg.MarkingScopeCacheTTLSeconds)*time.Second),
+			svcodrecord.NewSQLCCounter(pool), creditLedger, nil,
 		).WithSlotCeiling(settingsSvc),
 	))
 	handlerdispute.RegisterRoutes(markAPI, disputeSvc)
 
 	admin := newAdminGroup(api, principalLoader)
+	handleraudit.RegisterAdminRoutes(admin, svcauditlog.NewService(pool))
 	handlerappsettings.RegisterAdminRoutes(admin, settingsSvc)
-	admin.POST("/users/:user_id/sessions/revoke", handleradmin.RevokeSessionsHandler(revSvc))
+	// Wrapped so a successful revoke drops the cached verdicts on THIS machine
+	// immediately, rather than leaving the administrator to watch a revoked
+	// session keep working for the length of the cache window. Peer machines
+	// expire on their own inside RevocationCacheTTL — the same shape the public
+	// read cache already has.
+	// The two revocation caches join the invalidation bus. What changes is the
+	// REACH of a clear, not its meaning: revokeDroppingCaches still calls Clear()
+	// on a value it knows nothing else about, but that value now drops the entry
+	// on every machine instead of only this one. With no broker configured the
+	// bus clears locally and publishes to events.Nop, which is byte-for-byte the
+	// behaviour this line had before the bus existed.
+	stream.Cache.Register(cachebus.ScopeRevocation, revCache)
+	stream.Cache.Register(cachebus.ScopePrincipal, principalCache)
+	admin.POST("/users/:user_id/sessions/revoke",
+		handleradmin.RevokeSessionsHandler(revokeDroppingCaches{
+			inner:      revSvc,
+			revocation: stream.Cache.Clearing("session revoked", cachebus.ScopeRevocation),
+			principals: stream.Cache.Clearing("session revoked", cachebus.ScopePrincipal),
+		}))
 	eventSvc := svcevent.NewService(eventReader, st, svcevent.NewSQLCWriter())
-	handlerevent.RegisterAdminRoutes(admin, eventSvc)
+	// Wrapped for the same reason the revoke handler is: an administrator who
+	// archives an event or moves an assignment should not then watch the marking
+	// screen keep offering the old answer for a minute. Peer machines expire on
+	// their own inside the cache lifetime.
+	stream.Cache.Register(cachebus.ScopeMarkingScope, markingScopeCache)
+	handlerevent.RegisterAdminRoutes(admin, eventEditsDroppingScopeCache{
+		Service: eventSvc,
+		// Fleet-wide now, for the reason given at the revoke handler above. This
+		// is the case an administrator actually notices: archive an event, and
+		// before the bus the OTHER machine kept offering it to coordinators for
+		// the rest of the cache window — so whether the change appeared depended
+		// on which machine a poll happened to land on.
+		scope: stream.Cache.Clearing("event scope edited", cachebus.ScopeMarkingScope),
+	})
+	// Taking a staff role away. The role and the scope it carried are cached in
+	// three places — the principal cache (role), the marking scope cache
+	// (assignments) and the revocation cache (the forced logout the demotion
+	// records) — and all three are dropped fleet-wide once it commits, so the
+	// demotion lands on the user's next request rather than after a TTL.
+	admin.POST("/users/:user_id/demote", handleradmin.DemoteUserHandler(demotionDroppingCaches{
+		inner: svcuserrole.NewService(st, svcuserrole.NewSQLCWriter()),
+		caches: stream.Cache.Clearing("staff access removed",
+			cachebus.ScopePrincipal, cachebus.ScopeMarkingScope, cachebus.ScopeRevocation),
+	}))
 	handlerodrecord.RegisterAdminAttendanceRoutes(admin, portalMarkReads)
 	teacherSvc := svcteacher.NewService(svcteacher.NewSQLCReader(pool), st, svcteacher.NewSQLCWriter())
 	handlerteacher.RegisterAdminRoutes(admin, teacherSvc)
@@ -331,7 +464,7 @@ func newAdminGroup(api *gin.RouterGroup, loader rbac.PrincipalLoader) *gin.Route
 }
 
 // newPublicGroup returns the UNAUTHENTICATED group the public dashboard is
-// served from (Story 0.10), carrying the rate limiter and nothing else.
+// served from, carrying the rate limiter and nothing else.
 //
 // It takes the ROOT *gin.Engine rather than the /api/v1 group, and that is the
 // entire reason this function exists as a named seam. gin attaches middleware to
@@ -359,6 +492,133 @@ func tlsMinVersion(v string) uint16 {
 		return tls.VersionTLS13
 	}
 	return tls.VersionTLS12
+}
+
+// revokeDroppingCaches performs a revocation and then invalidates the caches
+// that would otherwise keep answering from before it.
+//
+// It lives here rather than inside either cache because neither of them should
+// know what a revocation is: the caches are general, and the ORDER — write
+// first, invalidate second, invalidate only on success — is a property of this
+// composition. Invalidating first would leave a window where a reload could
+// re-cache the pre-revocation answer; invalidating on failure would throw away
+// good entries for nothing.
+type revokeDroppingCaches struct {
+	inner interface {
+		RevokeUserSessions(ctx context.Context, actor svcauth.VerifiedIdentity, targetUserID string, req svcauth.RevokeRequest) (svcauth.Revocation, error)
+	}
+	revocation interface{ Clear() }
+	principals interface{ Clear() }
+}
+
+func (r revokeDroppingCaches) RevokeUserSessions(
+	ctx context.Context,
+	actor svcauth.VerifiedIdentity,
+	targetUserID string,
+	req svcauth.RevokeRequest,
+) (svcauth.Revocation, error) {
+	revocation, err := r.inner.RevokeUserSessions(ctx, actor, targetUserID, req)
+	if err != nil {
+		return revocation, err
+	}
+	// Both caches are cleared ENTIRELY rather than by key, and that is deliberate
+	// rather than lazy. The service's result reports the row it wrote, not the
+	// subject it wrote it for, and the revocation cache's keys carry a session id
+	// and an issue time that cannot be reconstructed from a subject anyway.
+	//
+	// The cost is one reload per active caller, once, at the moment an
+	// administrator deliberately forced somebody out — which is rare, and is
+	// exactly the moment to prefer certainty over cleverness.
+	r.revocation.Clear()
+	r.principals.Clear()
+	return revocation, nil
+}
+
+// eventEditsDroppingScopeCache is the event admin service, with every mutation
+// followed by a drop of this machine's cached marking scope.
+//
+// It EMBEDS the service rather than listing all fifteen methods, so the reads and
+// the credit endpoints pass straight through and a method added to the service
+// later is carried automatically instead of failing to compile here. Only the six
+// calls that can change what a coordinator may mark are overridden.
+//
+// The order matches revokeDroppingCaches for the same reasons: write first, drop
+// second, and only on success. Dropping first would leave a window in which a
+// concurrent poll re-cached the pre-edit answer.
+type eventEditsDroppingScopeCache struct {
+	*svcevent.Service
+	scope interface{ Clear() }
+}
+
+func (e eventEditsDroppingScopeCache) Create(ctx context.Context, actor svcevent.Actor, input svcevent.CreateInput) (svcevent.Event, error) {
+	return dropScopeAfter(e.scope, func() (svcevent.Event, error) { return e.Service.Create(ctx, actor, input) })
+}
+
+func (e eventEditsDroppingScopeCache) Archive(ctx context.Context, actor svcevent.Actor, eventID string) (svcevent.Event, error) {
+	return dropScopeAfter(e.scope, func() (svcevent.Event, error) { return e.Service.Archive(ctx, actor, eventID) })
+}
+
+func (e eventEditsDroppingScopeCache) CreateCategory(ctx context.Context, actor svcevent.Actor, input svcevent.CreateCategoryInput) (svcevent.Category, error) {
+	return dropScopeAfter(e.scope, func() (svcevent.Category, error) { return e.Service.CreateCategory(ctx, actor, input) })
+}
+
+func (e eventEditsDroppingScopeCache) UpdateCategoryVisibility(ctx context.Context, actor svcevent.Actor, input svcevent.UpdateCategoryVisibilityInput) (svcevent.Category, error) {
+	return dropScopeAfter(e.scope, func() (svcevent.Category, error) {
+		return e.Service.UpdateCategoryVisibility(ctx, actor, input)
+	})
+}
+
+func (e eventEditsDroppingScopeCache) CreateCoordinatorAssignment(ctx context.Context, actor svcevent.Actor, input svcevent.CreateCoordinatorAssignmentInput) (svcevent.CoordinatorAssignment, error) {
+	return dropScopeAfter(e.scope, func() (svcevent.CoordinatorAssignment, error) {
+		return e.Service.CreateCoordinatorAssignment(ctx, actor, input)
+	})
+}
+
+func (e eventEditsDroppingScopeCache) UpdateCoordinatorCategoryAccess(ctx context.Context, actor svcevent.Actor, input svcevent.UpdateCoordinatorCategoryAccessInput) (svcevent.CoordinatorAssignment, error) {
+	return dropScopeAfter(e.scope, func() (svcevent.CoordinatorAssignment, error) {
+		return e.Service.UpdateCoordinatorCategoryAccess(ctx, actor, input)
+	})
+}
+
+func (e eventEditsDroppingScopeCache) RemoveCoordinatorAssignment(ctx context.Context, actor svcevent.Actor, input svcevent.RemoveCoordinatorAssignmentInput) error {
+	_, err := dropScopeAfter(e.scope, func() (struct{}, error) {
+		return struct{}{}, e.Service.RemoveCoordinatorAssignment(ctx, actor, input)
+	})
+	return err
+}
+
+// demotionDroppingCaches is the demotion service followed, on a real change
+// only, by a fleet-wide drop of every cache that holds a role or a scope. Same
+// order and reasoning as revokeDroppingCaches: write first, drop second, and
+// never on failure. A no-op demotion (already a student) changed nothing, so it
+// drops nothing.
+type demotionDroppingCaches struct {
+	inner interface {
+		Demote(ctx context.Context, actor svcuserrole.Actor, targetUserID string) (svcuserrole.Result, error)
+	}
+	caches interface{ Clear() }
+}
+
+func (d demotionDroppingCaches) Demote(ctx context.Context, actor svcuserrole.Actor, targetUserID string) (svcuserrole.Result, error) {
+	result, err := d.inner.Demote(ctx, actor, targetUserID)
+	if err == nil && result.Changed {
+		d.caches.Clear()
+	}
+	return result, err
+}
+
+// dropScopeAfter runs the write and clears the cache only when it SUCCEEDED.
+//
+// A closure rather than a (value, error) pair because Go cannot spread a
+// multi-value call alongside another argument — and it lands better anyway: the
+// rule that a failed edit must not throw away good entries lives in exactly one
+// place instead of being restated in six.
+func dropScopeAfter[T any](scope interface{ Clear() }, write func() (T, error)) (T, error) {
+	value, err := write()
+	if err == nil {
+		scope.Clear()
+	}
+	return value, err
 }
 
 type publicDisputeSurface struct {

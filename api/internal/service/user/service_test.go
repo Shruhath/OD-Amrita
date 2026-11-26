@@ -2,6 +2,7 @@ package user
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -116,8 +117,20 @@ func TestProvision_FirstLoginWritesAuditRow(t *testing.T) {
 	if evt.TargetID == nil || *evt.TargetID != "user-id-admin" {
 		t.Errorf("target_id must be provisioned user id, got %#v", evt.TargetID)
 	}
-	if evt.Payload != nil {
-		t.Errorf("provisioning audit row carries no payload (nil → SQL NULL), got %#v", evt.Payload)
+	var payload map[string]string
+	if err := json.Unmarshal(evt.Payload, &payload); err != nil {
+		t.Fatalf("decode provisioning audit payload: %v", err)
+	}
+	wantPayload := map[string]string{
+		"email":            "first.admin@amrita.edu",
+		"name":             "First Admin",
+		"resolved_role":    string(RoleAdmin),
+		"supabase_subject": "supabase-sub-admin",
+	}
+	for key, want := range wantPayload {
+		if payload[key] != want {
+			t.Errorf("payload[%s] = %q, want %q", key, payload[key], want)
+		}
 	}
 	if len(storeSpy.changed) != 1 || !storeSpy.changed[0] {
 		t.Fatalf("first insert must report changed=true to WithAudit, got %v", storeSpy.changed)

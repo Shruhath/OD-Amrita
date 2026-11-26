@@ -67,14 +67,14 @@ function row(
 }
 
 const dayRecords: AttendanceRecord[] = [
-  row(1, 'CB.SC.U4ECE24007', 'Vikram Nair', 'Sports Meet', 'present', sportsID),
-  row(1, 'CB.SC.U4CSE24101', 'Ananya Rao', 'Cultural Programme', 'present', culturalID),
-  row(2, 'CB.SC.U4CSE24102', 'Meera Suresh', 'Procession', 'present', culturalID),
-  row(3, 'CB.SC.U4CSE24103', 'Rahul Menon', 'Technical Expo', 'present', technicalID),
+  row(1, 'CB.SC.U4ECE99007', 'Vikram Nair', 'Sports Meet', 'present', sportsID),
+  row(1, 'CB.SC.U4CSE99101', 'Ananya Rao', 'Cultural Programme', 'present', culturalID),
+  row(2, 'CB.SC.U4CSE99102', 'Meera Suresh', 'Procession', 'present', culturalID),
+  row(3, 'CB.SC.U4CSE99103', 'Rahul Menon', 'Technical Expo', 'present', technicalID),
   // Taken back. It must reach no file.
-  row(3, 'CB.SC.U4CSE24999', 'Withdrawn Student', 'Technical Expo', 'removed', technicalID),
+  row(3, 'CB.SC.U4CSE99999', 'Withdrawn Student', 'Technical Expo', 'removed', technicalID),
   // Present so the picker has a slot to leave out.
-  row(7, 'CB.SC.U4CSE24104', 'Nikhil Das', 'Cultural Programme', 'present', culturalID),
+  row(7, 'CB.SC.U4CSE99104', 'Nikhil Das', 'Cultural Programme', 'present', culturalID),
 ]
 
 const categories: CategoryRecord[] = [
@@ -247,11 +247,55 @@ describe('the on-duty export', () => {
     await waitFor(() => expect(saved).toHaveLength(1))
     expect(sheetRows(saved[0])).toEqual([
       ['Roll number', 'Name', 'Slot', 'Category'],
-      ['CB.SC.U4CSE24101', 'Ananya Rao', '1', 'Cultural Programme'],
-      ['CB.SC.U4ECE24007', 'Vikram Nair', '1', 'Sports Meet'],
+      ['CB.SC.U4CSE99101', 'Ananya Rao', '1', 'Cultural Programme'],
+      ['CB.SC.U4ECE99007', 'Vikram Nair', '1', 'Sports Meet'],
     ])
     const exportQueries = recordQueries.filter((url) => url.searchParams.get('od_date') === day)
     expect(exportQueries.map((url) => url.searchParams.get('category_id')).sort()).toEqual([culturalID, sportsID].sort())
+  })
+
+  test('[P0] day download produces one sheet sorted by slot with serial numbers', async () => {
+    const { user, dialog } = await openExportFor('admin')
+
+    await waitFor(() => expect(dialog.getByLabelText(/slot 1,/i)).toBeInTheDocument())
+    await user.click(dialog.getByRole('button', { name: /download day/i }))
+
+    await waitFor(() => expect(saved).toHaveLength(1))
+    expect(saved[0].fileName).toBe('2026-07-28-day.xlsx')
+    expect(sheetRows(saved[0])).toEqual([
+      ['Serial number', 'Roll number', 'Name', 'Slot', 'Category'],
+      ['1', 'CB.SC.U4CSE99101', 'Ananya Rao', '1', 'Cultural Programme'],
+      ['2', 'CB.SC.U4ECE99007', 'Vikram Nair', '1', 'Sports Meet'],
+      ['3', 'CB.SC.U4CSE99102', 'Meera Suresh', '2', 'Procession'],
+      ['4', 'CB.SC.U4CSE99103', 'Rahul Menon', '3', 'Technical Expo'],
+      ['5', 'CB.SC.U4CSE99104', 'Nikhil Das', '7', 'Cultural Programme'],
+    ])
+  })
+
+  test('[P0] day download keeps the selected category customization', async () => {
+    const user = userEvent.setup()
+    install('admin', dayRecords, categories)
+    render(<Application session={sessionPort()} router={createPortalMemoryRouter(['/portal/od-records'])} />)
+
+    await screen.findByRole('option', { name: 'Amritotsavam 2026' })
+    await user.selectOptions(screen.getByLabelText('Event'), eventID)
+    await user.click(await screen.findByRole('button', { name: /export on-duty lists/i }))
+    const dialog = within(await screen.findByRole('dialog', { name: /export on-duty lists/i }))
+
+    await waitFor(() => expect(dialog.getByLabelText('Category Technical Expo')).toBeChecked())
+    await user.click(dialog.getByLabelText('Category Technical Expo'))
+    fireEvent.change(dialog.getByLabelText('Day'), { target: { value: day } })
+    await waitFor(() => expect(dialog.getByLabelText(/slot 1, 2 students/i)).toBeInTheDocument())
+    await user.click(dialog.getByRole('button', { name: /download day/i }))
+
+    await waitFor(() => expect(saved).toHaveLength(1))
+    expect(sheetRows(saved[0])).toEqual([
+      ['Serial number', 'Roll number', 'Name', 'Slot', 'Category'],
+      ['1', 'CB.SC.U4CSE99101', 'Ananya Rao', '1', 'Cultural Programme'],
+      ['2', 'CB.SC.U4ECE99007', 'Vikram Nair', '1', 'Sports Meet'],
+      ['3', 'CB.SC.U4CSE99102', 'Meera Suresh', '2', 'Procession'],
+      ['4', 'CB.SC.U4CSE99104', 'Nikhil Das', '7', 'Cultural Programme'],
+    ])
   })
 
   test('[P0] three slots ticked downloads three files, named by day then slot', async () => {
@@ -290,13 +334,13 @@ describe('the on-duty export', () => {
     // Slot 1: two students, two DIFFERENT categories, ordered by roll number.
     expect(sheetRows(saved[0])).toEqual([
       ['Roll number', 'Name', 'Slot', 'Category'],
-      ['CB.SC.U4CSE24101', 'Ananya Rao', '1', 'Cultural Programme'],
-      ['CB.SC.U4ECE24007', 'Vikram Nair', '1', 'Sports Meet'],
+      ['CB.SC.U4CSE99101', 'Ananya Rao', '1', 'Cultural Programme'],
+      ['CB.SC.U4ECE99007', 'Vikram Nair', '1', 'Sports Meet'],
     ])
     // Slot 2: only its own student. Nobody from slot 1 leaked across.
     expect(sheetRows(saved[1])).toEqual([
       ['Roll number', 'Name', 'Slot', 'Category'],
-      ['CB.SC.U4CSE24102', 'Meera Suresh', '2', 'Procession'],
+      ['CB.SC.U4CSE99102', 'Meera Suresh', '2', 'Procession'],
     ])
   })
 
@@ -313,7 +357,7 @@ describe('the on-duty export', () => {
 
     expect(sheetRows(saved[0])).toEqual([
       ['Roll number', 'Name', 'Slot', 'Category'],
-      ['CB.SC.U4CSE24103', 'Rahul Menon', '3', 'Technical Expo'],
+      ['CB.SC.U4CSE99103', 'Rahul Menon', '3', 'Technical Expo'],
     ])
   })
 
@@ -359,14 +403,16 @@ describe('the on-duty export', () => {
     const { dialog } = await openExportFor('admin', [])
 
     expect(await dialog.findByText(/no student was marked present on this day/i)).toBeInTheDocument()
-    expect(dialog.getByRole('button', { name: /download/i })).toBeDisabled()
+    expect(dialog.getByRole('button', { name: /download day/i })).toBeDisabled()
+    expect(dialog.getByRole('button', { name: /^download$/i })).toBeDisabled()
   })
 
   test('[P1] download is refused until at least one slot is chosen', async () => {
     const { dialog } = await openExportFor('admin')
 
     await waitFor(() => expect(dialog.getByLabelText(/slot 1,/i)).toBeInTheDocument())
-    expect(dialog.getByRole('button', { name: /download/i })).toBeDisabled()
+    expect(dialog.getByRole('button', { name: /^download$/i })).toBeDisabled()
+    expect(dialog.getByRole('button', { name: /download day/i })).toBeEnabled()
     expect(saved).toHaveLength(0)
   })
 

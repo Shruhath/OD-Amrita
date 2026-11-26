@@ -1,21 +1,27 @@
-# Apply pending goose migrations to a hosted database (Neon).
+# Apply pending goose migrations to the hosted database.
 #
 # WHY THIS EXISTS AS A WORKFLOW RATHER THAN A LAPTOP COMMAND
-#   Neon speaks Postgres on port 5432 and nothing else. Campus wifi — the network
-#   this project is developed on — permits 80/443 outbound only, so `make -C api
-#   migrate-up` simply cannot reach production from a dev machine. A GitHub runner
-#   has open egress, so this is the one host that can always apply a migration.
-#   It also puts the migrator credential in exactly one place (a repo secret)
-#   instead of on whichever laptop happened to be on an unblocked network.
+#   Many networks block outbound Postgres (5432); a GitHub runner has open egress,
+#   so it can always reach the database. It also keeps the migrator credential in
+#   exactly one place instead of on developer machines.
+#
+# THE CREDENTIAL LIVES IN THE `database` ENVIRONMENT
+#   Store DATABASE_URL_MIGRATOR as a secret of the `database` environment (not as
+#   a repository secret), and protect that environment with a deployment branch
+#   rule (main only) and a required reviewer. Otherwise anyone who can push a
+#   branch can edit this file on that branch, dispatch it, and read the secret.
 #
 # MANUAL TRIGGER ONLY — deliberately never `on: push`.
 #   Schema changes against a database holding real attendance must be a decision
 #   someone makes, not a side effect of merging. There is also no `down` here at
 #   all: 0016's Down is a documented one-way door once a multi-day event has been
 #   marked (it refuses rather than deleting attendance), and a rollback button on
-#   a public page is how that gets pressed by accident. Roll back by hand, with
-#   docs/deployment-runbook.md open.
+#   a public page is how that gets pressed by accident. Roll back by hand, after
+#   reading the migration's Down and the restore notes in docs/deployment.md.
 name: db-migrate
+
+permissions:
+  contents: read
 
 on:
   workflow_dispatch:
@@ -37,13 +43,18 @@ jobs:
   migrate:
     name: apply pending migrations
     runs-on: ubuntu-latest
+    environment: database
     steps:
       - name: Check the confirmation
         # Fails before the credential is ever read, so a mistyped run cannot even
         # open a connection.
         if: inputs.confirm != 'migrate'
+        # The typed value reaches the shell through an environment variable, never
+        # interpolated into the script, so it cannot inject commands.
+        env:
+          CONFIRM: ${{ inputs.confirm }}
         run: |
-          echo "confirmation was '${{ inputs.confirm }}', expected 'migrate' — nothing was applied"
+          echo "confirmation was '$CONFIRM', expected 'migrate' — nothing was applied"
           exit 1
 
       - uses: actions/checkout@v4

@@ -1,9 +1,9 @@
 /**
- * Re-auth-required SEAM (Story 1.6, Task 5) — NOT a screen.
+ * Re-auth-required SEAM — NOT a screen.
  *
  * The 401 interceptor cannot open a login screen: none exists yet (1.5a shipped backend-only
  * and deferred the mobile OAuth launch). So when the Supabase session is dead the interceptor
- * fires this pub/sub signal; a FUTURE login story subscribes and drives the actual re-auth UI.
+ * fires this pub/sub signal; the session gate (sessionGate.ts) subscribes and drives the re-auth UI.
  * Keeping it a seam (not a UI) is deliberate — building a login screen here is out of scope.
  */
 
@@ -41,6 +41,6 @@ export function createReauthSignal(): ReauthSignal {
 
 /**
  * App-wide singleton the interceptor's `onReauthRequired` is wired to (see api/client.ts).
- * A future login story consumes it via `reauthSignal.subscribe(...)`.
+ * The session gate consumes it via `reauthSignal.subscribe(...)`.
  */
 export const reauthSignal = createReauthSignal();

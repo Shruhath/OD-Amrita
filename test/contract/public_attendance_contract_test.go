@@ -1,4 +1,4 @@
-// Contract gates for Story 0.10's unauthenticated public attendance surface.
+// Contract gates for the unauthenticated public attendance surface.
 //
 // RED PHASE. These parse contracts/openapi.yaml as YAML — no generated Go types —
 // so this file COMPILES today and fails on assertions with a message that names
@@ -6,7 +6,7 @@
 // one opaque error for the whole suite, and the contract is the first artifact
 // the dev touches.
 //
-// DELIBERATELY NOT GATED behind an env flag. Story 0.9 shipped an entire suite
+// DELIBERATELY NOT GATED behind an env flag. An entire suite once sat
 // behind ATDD_ACTIVE_09, which nothing ever set, so it never ran at all. These
 // go red in normal `go test ./...` and go green when the contract is written.
 package contract
@@ -27,7 +27,7 @@ const (
 
 // publicSchemaAllowlists is the load-bearing table of this file.
 //
-// It is an ALLOWLIST, not a blocklist. Story 0.9's equivalent test listed the
+// It is an ALLOWLIST, not a blocklist. An earlier equivalent test listed the
 // sensitive names it did not want (email, token, ...) and asserted their
 // absence — which could never fail, because a schema that never declared them
 // passes trivially, and the NEXT field someone adds is not on the list either.
@@ -36,7 +36,7 @@ const (
 // open-internet response (AC 5).
 var publicSchemaAllowlists = map[string][]string{
 	"PublicStudent": {"student_id", "roll_no", "display_name", "branch", "section", "batch"},
-	// `od_date` joins both shapes under Story 0.12a, and the two dates are NOT
+	// `od_date` joins both shapes with the multi-day date range, and the two dates are NOT
 	// redundant. On the RECORD, `event_date` stays the event's FIRST day because
 	// eventsFromRecords() builds the dispute form's event options from it, while
 	// `od_date` is the day this particular OD belongs to. On the DAY group,
@@ -68,7 +68,7 @@ var publicSchemaAllowlists = map[string][]string{
 	"PublicStudentSearchResults": {"data"},
 }
 
-// 0.10-CONTRACT-001 — the whole story in one assertion: neither public operation
+// 0.10-CONTRACT-001 — the whole public surface in one assertion: neither public operation
 // declares `security`.
 //
 // The spec declares no root-level `security`, so under OpenAPI 3.0.3 the ABSENCE
@@ -289,15 +289,15 @@ func TestPublicAttendanceContract_PublicSchemasNeverRefAnAuthenticatedSchema(t *
 //
 // /health is the pre-existing precedent: it is mounted on the BARE router in
 // api/cmd/api/main.go, outside the /api/v1 group, and answers a liveness probe.
-// The two public reads are what this story adds. There is no fourth entry, and
+// The two public reads are what the public surface adds. There is no fourth entry, and
 // adding one is a disclosure decision that belongs in this list with a reason.
 // Keyed by "METHOD path", not by path alone. A path-keyed exemption is inherited
 // by every operation later added under it, so a POST dropped onto either public
 // path would be waved past the bearer requirement by the very table that exists
 // to enumerate what may skip it — while the package doc insists no write may
 // exist in this group at all.
-// Story 0.11 adds the two entries below, and they are the first WRITE and the
-// first non-student-scoped read on this list. Both are argued for in the story's
+// The dispute surface adds the two entries below, and they are the first WRITE and
+// the first non-student-scoped read on this list. Both are argued for in its
 // locked decisions: the write is identity-verified against the roster (T1/T2),
 // rate limited by a second stricter bucket of its own (T14), duplicate-guarded by
 // a database constraint (T11) and audited under the submitter's own email (T13);
@@ -327,10 +327,10 @@ var deliberatelyUnauthenticated = map[string]string{
 		"search (product decision, 2026-08-09); roll, name, slot and category only",
 }
 
-// 0.10-CONTRACT-006 — the regression this story makes possible: every operation
+// 0.10-CONTRACT-006 — the regression the public surface makes possible: every operation
 // that is NOT deliberately unauthenticated still requires a bearer token.
 //
-// This story is what makes `security`-omission LOAD-BEARING. Until now, an
+// The public surface is what makes `security`-omission LOAD-BEARING. Until now, an
 // operation missing the block was merely untidy — nothing read the absence as a
 // statement. From 0.10 onward, omission IS the machine-readable declaration that
 // an endpoint is open to the internet, so every existing omission has to be
@@ -365,7 +365,7 @@ func TestPublicAttendanceContract_EveryOtherOperationStillRequiresBearer(t *test
 				hint = " It documents a 401 response while declaring no way to authenticate, so this is an " +
 					"omission, not an intent: add `security: [- bearerAuth: []]` to it."
 			}
-			t.Errorf("[P0] %s %s does not require bearer authentication. From Story 0.10 onward, omitting "+
+			t.Errorf("[P0] %s %s does not require bearer authentication. Now that public endpoints exist, omitting "+
 				"`security` is how this spec DECLARES an endpoint public, so this operation now reads as open "+
 				"to the internet.%s If it really is public, add it to deliberatelyUnauthenticated with a reason.",
 				strings.ToUpper(method), path, hint)

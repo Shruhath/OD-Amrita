@@ -1,6 +1,6 @@
 package rbac
 
-// protected_category_routes_test.go — Story 2.2 coverage for AC 5.
+// protected_category_routes_test.go — RBAC coverage for the category routes.
 // UNIT test: no build tag, no database.
 //
 // Invoked by: api-ci -> build job.
@@ -35,7 +35,7 @@ import (
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
 )
 
-// categoryOperations is the route table this story adds. Keep it in one place so
+// categoryOperations is the category route table. Keep it in one place so
 // the deny matrix and the mount check can never test different paths.
 var categoryOperations = []struct{ method, path string }{
 	{http.MethodGet, "/api/v1/admin/events/10000000-0000-4000-8000-000000000099/categories"},

@@ -14,7 +14,7 @@ import (
 )
 
 type studentWriteQueries interface {
-	UpsertStudent(context.Context, sqlc.UpsertStudentParams) (sqlc.UpsertStudentRow, error)
+	UpsertStudentsBulk(context.Context, sqlc.UpsertStudentsBulkParams) ([]sqlc.UpsertStudentsBulkRow, error)
 	CountStudents(context.Context) (int32, error)
 	InsertStudentRosterImport(context.Context, sqlc.InsertStudentRosterImportParams) (pgtype.UUID, error)
 }
@@ -37,33 +37,64 @@ func (w *SQLCWriter) Import(ctx context.Context, tx pgx.Tx, input ImportWrite) (
 	q := w.queries(tx)
 	result := Result{TotalRows: input.TotalRows, InvalidRows: input.InvalidRows, Errors: input.Errors}
 
-	for _, row := range input.Rows {
-		branchID, err := uuid.Parse(row.BranchID)
-		if err != nil {
-			return Result{}, fmt.Errorf("student: invalid branch id: %w", err)
+	// ONE STATEMENT, NOT ONE PER STUDENT.
+	//
+	// This was a Go loop around UpsertStudent, so a 2,000-row roster was 2,000
+	// sequential round trips inside one open transaction. With the database on
+	// another continent — roughly 480ms each way — that is a sixteen-minute
+	// import holding a transaction the whole time, and it is the shape that made
+	// the roster import the slowest operation in the product.
+	//
+	// The counting is what the loop got for free and this has to reconstruct:
+	// the upsert's IS DISTINCT FROM guard means an UNCHANGED row updates nothing
+	// and comes back not at all. So the statement returns each affected row's
+	// ordinality, and every input position missing from the result is an
+	// unchanged row.
+	if len(input.Rows) > 0 {
+		rollNos := make([]string, 0, len(input.Rows))
+		names := make([]string, 0, len(input.Rows))
+		branchIDs := make([]pgtype.UUID, 0, len(input.Rows))
+		sections := make([]string, 0, len(input.Rows))
+		batches := make([]string, 0, len(input.Rows))
+		for _, row := range input.Rows {
+			branchID, err := uuid.Parse(row.BranchID)
+			if err != nil {
+				return Result{}, fmt.Errorf("student: invalid branch id: %w", err)
+			}
+			rollNos = append(rollNos, row.RollNo)
+			names = append(names, row.Name)
+			branchIDs = append(branchIDs, dbUUID(branchID))
+			sections = append(sections, row.Section)
+			batches = append(batches, row.Batch)
 		}
-		upserted, err := q.UpsertStudent(ctx, sqlc.UpsertStudentParams{
-			RollNo:   row.RollNo,
-			Name:     row.Name,
-			BranchID: dbUUID(branchID),
-			Section:  row.Section,
-			Batch:    row.Batch,
+
+		upserted, err := q.UpsertStudentsBulk(ctx, sqlc.UpsertStudentsBulkParams{
+			RollNos:   rollNos,
+			Names:     names,
+			BranchIds: branchIDs,
+			Sections:  sections,
+			Batches:   batches,
 		})
-		if errors.Is(err, pgx.ErrNoRows) {
-			result.UnchangedRows++
-			continue
-		}
-		if err != nil {
+		// pgx.ErrNoRows is not an error for a :many query, but the loop this
+		// replaced treated it as "nothing changed" and a caller could reasonably
+		// still surface it. Every row unchanged is a legitimate re-import of an
+		// identical file.
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return Result{}, err
 		}
-		if !upserted.ID.Valid {
-			return Result{}, errors.New("student: upsert returned invalid id")
+
+		for _, row := range upserted {
+			if !row.ID.Valid {
+				return Result{}, errors.New("student: upsert returned invalid id")
+			}
+			if row.Inserted {
+				result.InsertedRows++
+			} else {
+				result.UpdatedRows++
+			}
 		}
-		if upserted.Inserted {
-			result.InsertedRows++
-		} else {
-			result.UpdatedRows++
-		}
+		// Whatever the statement did not report back was left alone.
+		result.UnchangedRows += len(input.Rows) - len(upserted)
 	}
 
 	count, err := q.CountStudents(ctx)

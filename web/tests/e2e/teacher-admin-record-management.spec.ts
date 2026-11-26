@@ -7,10 +7,9 @@ import {
 } from '../support/factories/public-attendance'
 
 /**
- * RED-PHASE SCAFFOLD — Story 0.12b Teacher & Admin OD Record Management.
+ * Browser journeys for Teacher & Admin OD Record Management.
  *
- * Assumptions intentionally captured until the UI exists and selectors can be
- * verified in a browser snapshot:
+ * The UI assumptions these selectors rely on:
  * - teacher add remains at /portal/mark; its reason field is labelled "Reason note";
  * - the new teacher/admin screen is /portal/od-records and exposes labelled
  *   Event, Category, Slot, Section, and Coordinator filters;
@@ -47,7 +46,7 @@ function recordCollection(state: RecordState) {
       record_id: recordID,
       student: {
         student_id: studentID,
-        roll_no: 'CB.SC.U4CSE24101',
+        roll_no: 'CB.SC.U4CSE99101',
         display_name: 'Ananya Rao',
         branch: 'CSE',
         section: 'A',
@@ -98,7 +97,7 @@ async function installRecordManagementRoutes(page: import('@playwright/test').Pa
     // Existing add reads. Keep the stub narrow so unexpected calls reveal
     // integration drift instead of making an accidental screen pass.
     if (url.pathname.endsWith('/portal/mark/events')) {
-      return json(route, { data: [{ id: eventID, name: 'Onam Celebrations', event_date: '2026-08-09' }] })
+      return json(route, { data: [{ id: eventID, name: 'Onam Celebrations', event_date: '2026-08-09', end_date: '2026-08-09' }] })
     }
     if (url.pathname.includes('/portal/mark/events/') && url.pathname.endsWith('/categories')) {
       return json(route, { data: [
@@ -107,13 +106,20 @@ async function installRecordManagementRoutes(page: import('@playwright/test').Pa
       ] })
     }
     if (url.pathname.endsWith('/students/search')) {
-      return json(route, { data: [{ student_id: studentID, roll_no: 'CB.SC.U4CSE24101', display_name: 'Ananya Rao' }] })
+      return json(route, { data: [{
+        student_id: studentID,
+        roll_no: 'CB.SC.U4CSE99101',
+        display_name: 'Ananya Rao',
+        branch: 'CSE',
+        section: 'A',
+        batch: '2024',
+      }] })
     }
     if (url.pathname.endsWith('/mark') && request.method() === 'POST') {
       seen.manualAdds.push(request.postDataJSON())
       return json(route, {
         record_id: recordID,
-        student: { student_id: studentID, roll_no: 'CB.SC.U4CSE24101', display_name: 'Ananya Rao', branch: 'CSE', section: 'A', batch: '2024' },
+        student: { student_id: studentID, roll_no: 'CB.SC.U4CSE99101', display_name: 'Ananya Rao', branch: 'CSE', section: 'A', batch: '2024' },
         event_id: eventID,
         category_id: categoryID,
         slot: 6,
@@ -143,7 +149,7 @@ async function installRecordManagementRoutes(page: import('@playwright/test').Pa
     if (url.pathname.includes(`/public/students/${studentID}/od-records`)) {
       // This is the observable public contract: only present rows appear.
       return json(route, state.status === 'removed' ? publicEmptyRecordCollection() : {
-        student: { student_id: studentID, roll_no: 'CB.SC.U4CSE24101', display_name: 'Ananya Rao', branch: 'CSE', section: 'A', batch: '2024' },
+        student: { student_id: studentID, roll_no: 'CB.SC.U4CSE99101', display_name: 'Ananya Rao', branch: 'CSE', section: 'A', batch: '2024' },
         days: [{
           od_date: state.od_date,
           records: [{
@@ -181,14 +187,18 @@ test.describe('teacher/admin OD record management (ATDD red phase)', () => {
     // the scope at the page until the record-management form exists, rather than
     // creating an impossible prerequisite for the reason-note assertion.
     const form = page
+    await form.getByRole('combobox', { name: /event/i }).click()
+    await page.getByRole('option', { name: /Onam Celebrations/i }).click()
+    await form.getByRole('combobox', { name: /category/i }).click()
+    await page.getByRole('option', { name: /Exception Desk/i }).click()
     await form.getByRole('combobox', { name: /slot/i }).click()
     await page.getByRole('option', { name: '6', exact: true }).click()
-    await form.getByRole('searchbox', { name: /student/i }).fill('CB.SC.U4CSE24101')
-    await page.getByRole('option', { name: /CB\.SC\.U4CSE24101.*Ananya Rao/i }).click()
+    await form.getByRole('searchbox', { name: /student/i }).fill('CB.SC.U4CSE99101')
+    await page.getByRole('option', { name: /select CB\.SC\.U4CSE99101/i }).click()
     const reasonNote = form.getByLabel(/reason note/i)
     await expect(reasonNote).toBeVisible()
     await reasonNote.fill('')
-    await expect(form.getByRole('button', { name: /mark present/i })).toBeDisabled()
+    await expect(form.getByRole('button', { name: /mark selected students/i })).toBeDisabled()
     expect(seen.manualAdds).toHaveLength(0)
 
     await reasonNote.fill('ID card left at hostel')
@@ -197,7 +207,7 @@ test.describe('teacher/admin OD record management (ATDD red phase)', () => {
       response.url().endsWith('/api/v1/mark') &&
       response.status() === 201,
     )
-    await form.getByRole('button', { name: /mark present/i }).click()
+    await form.getByRole('button', { name: /mark selected students/i }).click()
     await marked
 
     expect(seen.manualAdds).toHaveLength(1)

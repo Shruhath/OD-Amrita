@@ -1,5 +1,5 @@
 /**
- * Supabase auth client for React Native (Story 1.6) — the FIRST real code in mobile/src/.
+ * Supabase auth client for React Native — the FIRST real code in mobile/src/.
  *
  * Under the hybrid auth model the Supabase SDK owns sessions, silent background refresh and
  * revocation; the Go backend verifies the JWT and re-enforces @amrita.edu. This module is the

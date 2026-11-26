@@ -47,3 +47,22 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 -- od_runtime may reference objects in the schema (table grants are issued per
 -- table by the goose migrations), but may never create anything in it.
 GRANT USAGE ON SCHEMA public TO od_runtime;
+
+-- ── Extensions ──────────────────────────────────────────────────────────────
+--
+-- pg_trgm backs the roster search's index (migration 0025). It is created HERE,
+-- with the roles, rather than in that migration, for the same reason the roles
+-- are: CREATE EXTENSION needs CREATE on the DATABASE, which is a different
+-- privilege from owning the schema. od_migrator owns every table and runs every
+-- migration, but deliberately has no rights above the schema — and widening it
+-- to install extensions would be a real expansion of what a leaked migrator
+-- credential could do, to save one line in a file the operator already runs.
+--
+-- So this is bootstrap, run once by the superuser (local) or the database owner
+-- (Neon's neondb_owner), exactly like the role creation above. pg_trgm is a
+-- TRUSTED extension, so the managed-Postgres owner role can install it without
+-- true superuser.
+--
+-- Migration 0025 checks for it and fails with an actionable message naming this
+-- file if it is missing, so the ordering cannot go wrong silently.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;

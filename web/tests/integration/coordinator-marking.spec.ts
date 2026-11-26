@@ -30,6 +30,18 @@ const portalAPI = 'http://127.0.0.1:8081'
 
 /** The harness's marking event — the one seeded dated TODAY in Asia/Kolkata. */
 const MARKING_EVENT_ID = '93000000-0000-4000-8000-000000000001'
+const PORTAL_COORDINATOR_ID = '90000000-0000-4000-8000-000000000003'
+
+async function setPortalCoordinatorLimit(request: import('@playwright/test').APIRequestContext, limit: number) {
+  const response = await request.put(
+    `${portalAPI}/api/v1/admin/events/${MARKING_EVENT_ID}/capture-credits/coordinators/${PORTAL_COORDINATOR_ID}/limit`,
+    {
+      headers: { Authorization: 'Bearer portal-admin-token', 'Content-Type': 'application/json' },
+      data: { limit },
+    },
+  )
+  expect(response.status()).toBe(200)
+}
 
 /**
  * Reads the scope the screen actually settled on.
@@ -81,7 +93,7 @@ test.describe('real stack coordinator marking', () => {
   })
 
   test('[P0] search hits real Postgres and returns no email or token', async ({ request }) => {
-    const response = await request.get(`${portalAPI}/api/v1/students/search?q=CB.SC.U4CSE24`, {
+    const response = await request.get(`${portalAPI}/api/v1/students/search?q=CB.SC.U4CSE99`, {
       headers: { Authorization: 'Bearer portal-coordinator-token' },
     })
     expect(response.status()).toBe(200)
@@ -102,6 +114,7 @@ test.describe('real stack coordinator marking', () => {
   })
 
   test('[P0] a real mark moves the real counters, and a closed slot moves neither', async ({ page, request }, testInfo) => {
+    await setPortalCoordinatorLimit(request, 10)
     await installFakeWebNfc(page)
     await openMarkingScreen(page)
 
@@ -110,7 +123,7 @@ test.describe('real stack coordinator marking', () => {
     // re-marking the same student in the same slot returns SCAN_DUPLICATE and
     // the retry could only ever fail, turning any flake into a hard red. Three
     // roster students are seeded, which covers the two retries.
-    const rolls = ['CB.SC.U4CSE24001', 'CB.SC.U4CSE24002', 'CB.SC.U4CSE24003']
+    const rolls = ['CB.SC.U4CSE99001', 'CB.SC.U4CSE99002', 'CB.SC.U4CSE99003']
     const roll = rolls[testInfo.retry % rolls.length]
 
     const { eventID, categoryID } = await selectedScope(page)
@@ -243,6 +256,7 @@ test.describe('real stack coordinator marking', () => {
   })
 
   test('[P0] a camera decode resolves a real roll number through the real stack', async ({ page, request }) => {
+    await setPortalCoordinatorLimit(request, 10)
     await installFakeBarcodeScanner(page)
     await openMarkingScreen(page)
 
@@ -260,7 +274,7 @@ test.describe('real stack coordinator marking', () => {
     // endpoint, and the mark goes out as `camera` — not silently as `search`,
     // which the later shared camera+search credit cap would then mis-count.
     await page.evaluate(() => {
-      ;(window as unknown as { __decodeBarcode: (text: string) => void }).__decodeBarcode('CB.SC.U4CSE24002')
+      ;(window as unknown as { __decodeBarcode: (text: string) => void }).__decodeBarcode('CB.SC.U4CSE99002')
     })
 
     if (!slotOpen) {
@@ -275,6 +289,6 @@ test.describe('real stack coordinator marking', () => {
     }
 
     await expect(page.getByRole('status')).toBeVisible()
-    await expect(page.getByRole('status')).toContainText(/CB\.SC\.U4CSE24002|Rao/i)
+    await expect(page.getByRole('status')).toContainText(/CB\.SC\.U4CSE99002|Rao/i)
   })
 })

@@ -1,5 +1,5 @@
 // Package teacher implements teacher-profile creation and branch association
-// (Story 2.3, FR19). A teacher profile is not part of the event aggregate (it
+// A teacher profile is not part of the event aggregate (it
 // has no event_id), so it gets its own service/handler packages rather than
 // living in service/event or handler/admin.
 package teacher

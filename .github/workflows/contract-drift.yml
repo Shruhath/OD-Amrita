@@ -4,6 +4,9 @@
 # checked-in generated output drifts from the spec (stale or hand-edited).
 name: contract-drift
 
+permissions:
+  contents: read
+
 on:
   push:
     # Branches only. A tag push points at a commit these jobs have ALREADY passed

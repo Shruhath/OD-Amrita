@@ -182,8 +182,8 @@ describe('mark fallback credit behavior', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /search/i }))
-    await user.type(screen.getByRole('searchbox'), 'CB.SC.U4CSE24001')
-    await user.click(await screen.findByRole('button', { name: /CB\.SC\.U4CSE24001/i }))
+    await user.type(screen.getByRole('searchbox'), 'CB.SC.U4CSE99001')
+    await user.click(await screen.findByRole('button', { name: /CB\.SC\.U4CSE99001/i }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/fallback credits are exhausted/i)
     expect(screen.getByRole('alert')).not.toHaveTextContent(/qr/i)

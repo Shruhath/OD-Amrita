@@ -1,12 +1,22 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useIdleAwareInterval } from '../../../features/polling/useIdleAwareInterval'
 import type { CategoryRecord, AttendanceRecordCollection } from '../../../api/client'
 import { Select } from '../../../components/ui/Select'
 import { asString, usePersistentState } from '../../../features/persistence/sessionState'
 import { useAuth } from '../../../features/auth/context'
 import { enumerateDays, formatDate, messageOf } from './format'
+import { campusToday } from '../live/campusDay'
 
-const ATTENDANCE_POLL_MS = 5_000
+/**
+ * How often the table refreshes while the event can still gain marks.
+ *
+ * This was 5s, and it ran on any open tab regardless of whether the event was
+ * happening. Each poll costs a list query plus a full re-count on the server;
+ * across the three polling screens production measured ~51,000 such queries
+ * against 319 actual attendance marks.
+ */
+const ATTENDANCE_POLL_MS = 20_000
 const SLOT_VALUES = Array.from({ length: 12 }, (_, index) => index + 1)
 
 export function EventAttendanceSection({
@@ -44,6 +54,12 @@ export function EventAttendanceSection({
     }
   }, [categoryID, categories, setCategoryID])
 
+  const attendanceRefetchRef = useRef<(() => unknown) | null>(null)
+  const attendedInterval = useIdleAwareInterval({
+    activeMs: ATTENDANCE_POLL_MS,
+    onResume: () => void attendanceRefetchRef.current?.(),
+  })
+
   const attendance = useQuery({
     queryKey: ['admin', 'attendance', eventID, categoryID || 'all', slot || 'all', odDate || 'all', page],
     queryFn: () => api.adminAttendance(eventID, {
@@ -54,8 +70,27 @@ export function EventAttendanceSection({
       pageSize: 20,
     }),
     enabled: eventID !== '',
-    refetchInterval: (query) => (query.state.error ? false : ATTENDANCE_POLL_MS),
+    // AN EVENT THAT IS OVER CANNOT GAIN MARKS. Once the last day of the range
+    // has passed, this table is history: it is still worth reading, and still
+    // worth re-reading when the administrator changes a filter, but re-fetching
+    // it on a timer forever is cost for an answer that cannot change. The same
+    // applies before the event starts.
+    //
+    // Corrections and dispute approvals do write to past days, which is why the
+    // query is not made permanently static — any filter change, navigation or
+    // remount refetches it. What stops is only the unattended timer.
+    // And the idle stop, for the administrator's tab left open on this table
+    // overnight — an unattended screen is the one thing that stops the database
+    // suspending. Any tap or return to the tab resumes it and refetches.
+    refetchInterval: (query) => {
+      if (query.state.error) return false
+      if (attendedInterval === false) return false
+      const today = campusToday()
+      const live = today >= eventDate && today <= (endDate || eventDate)
+      return live ? ATTENDANCE_POLL_MS : false
+    },
   })
+  attendanceRefetchRef.current = attendance.refetch
 
   const rows = attendance.data?.data ?? []
   const total = attendance.data?.total ?? 0

@@ -44,13 +44,13 @@ func TestOwnership_MigratorOwns_RuntimeOwnsNothing(t *testing.T) {
 	}
 }
 
-// AC 2 (Story 1.4 revoke): audit_log is APPEND-ONLY, so od_runtime holds only
+// AC 2 (revoke): audit_log is APPEND-ONLY, so od_runtime holds only
 // SELECT + INSERT — the app only ever appends and reads audit rows. UPDATE and
 // DELETE are REVOKED by migration 0002 (least-privilege first line; the trigger
 // is the below-role backstop). od_runtime still has NO CREATE on the schema, so
 // it cannot introduce DDL.
 //
-// NOTE (Story 1.4): before 0002 this asserted all four DML privileges present.
+// NOTE: before 0002 this asserted all four DML privileges present.
 // The revoke flips UPDATE/DELETE to "must be absent" — this test goes RED until
 // 0002 lands, which is the intended red signal for the hardening.
 func TestRuntimeGrants_DMLYesCreateNo(t *testing.T) {

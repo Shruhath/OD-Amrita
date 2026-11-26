@@ -18,7 +18,7 @@ Every year, universities lose thousands of hours and tens of thousands of attend
 
 ---
 
-## The Story — a day at the fest, told twice
+## A day at the fest, told twice
 
 ### Before OD-Amrita
 
@@ -93,26 +93,26 @@ OD-Amrita is not an app. It is a **contract-first, multi-surface distributed pla
                          │    drift-gated in CI · one source of truth  │
                          └───────────────┬────────────────────────────┘
                                          │ (types flow everywhere)
-        ┌────────────────────────────────┼────────────────────────────────┐
-        ▼                                ▼                                ▼
-┌───────────────┐              ┌──────────────────┐              ┌───────────────┐
-│    MOBILE     │              │      BACKEND      │              │      WEB      │
-│ React Native  │─── HMAC ────▶│  Go · gin · sqlc  │◀── portal ───│ React + Vite  │
-│ Coordinator + │   signed     │  goose · no ORM   │              │    Teacher    │
-│ NFC Populator │   scans      │                   │              │   + Public    │
-│ offline queue │              │  ┌─────────────┐  │              └───────────────┘
-└───────────────┘              │  │ River worker │  │
-                               │  │  queue: high │  │        ┌─────────────────────┐
-                               │  │  throughput  │──┼───────▶│      PostgreSQL     │
-                               │  └─────────────┘  │        │  audit · ODs · RBAC  │
-                               └──────────┬────────┘        └─────────────────────┘
-                                          │
-                              ┌───────────▼────────────┐
-                              │     Hybrid Identity     │
-                              │ Supabase brokers MS     │
-                              │ OAuth · backend verifies│
-                              │ JWT · @amrita.edu gate  │
-                              └─────────────────────────┘
+                     ┌───────────────────┴───────────────────┐
+                     ▼                                       ▼
+           ┌──────────────────┐                    ┌───────────────┐
+           │      BACKEND      │◀───── portal ──────│      WEB      │
+           │  Go · gin · sqlc  │                    │ React + Vite  │
+           │  goose · no ORM   │                    │    Teacher    │
+           │                   │                    │   + Public    │
+           │  ┌─────────────┐  │                    └───────────────┘
+           │  │ River worker │  │        ┌─────────────────────┐
+           │  │  queue: high │  │        │      PostgreSQL     │
+           │  │  throughput  │──┼───────▶│  audit · ODs · RBAC  │
+           │  └─────────────┘  │        └─────────────────────┘
+           └─────────┬─────────┘
+                     │
+          ┌──────────▼─────────────┐
+          │     Hybrid Identity     │
+          │ Supabase brokers MS     │
+          │ OAuth · backend verifies│
+          │ JWT · @amrita.edu gate  │
+          └─────────────────────────┘
 ```
 
 **Every piece is deliberate:**
@@ -120,7 +120,6 @@ OD-Amrita is not an app. It is a **contract-first, multi-surface distributed pla
 - **Contract-first SSOT.** A single OpenAPI spec generates *both* the Go server types and the TypeScript client types. Frontend and backend **cannot drift** — CI fails the build if they do. The API is provably in sync with every client, always.
 - **Go, gin, sqlc, goose — no ORM.** Raw, compiled, hand-tuned SQL with zero reflection overhead. Two always-on entrypoints: an HTTP server and a **persistent River worker** that absorbs scan bursts without dropping a record.
 - **Hybrid, hardened identity.** Supabase brokers Microsoft OAuth; the Go backend independently **verifies every JWT**, enforces the `@amrita.edu` domain, and honors **server-side session revocation** — a forced logout takes effect on the next request.
-- **Offline-first mobile core.** A React Native client with an on-device secure store, a **single-flight 401 refresh interceptor**, and a sync queue engineered for exactly-once delivery. The NFC read/write and HMAC encode/decode are a **shared module** powering both the scanner and the card Populator — one codebase, two modes.
 - **TLS 1.2+ only.** Plain HTTP is **rejected, not redirected.** No downgrade path exists.
 - **Per-surface, path-filtered CI.** Independent pipelines; a change to one surface spins up only its own gates. Fast, isolated, drift-guarded.
 
@@ -157,7 +156,7 @@ OD-Amrita is not an app. It is a **contract-first, multi-surface distributed pla
 ├── contracts/            # OpenAPI specification and code generation configs
 │   └── generated/        # Generated Go and TS models (do not edit manually)
 ├── docs/                 # Engineering overviews, architectural diagrams, and ADRs
-├── mobile/               # React Native (Expo) app (scanner and populator modes)
+├── mobile/               # React Native (Expo) app — Microsoft sign-in and an authenticated API round trip (early stage)
 ├── test/                 # Test suites
 │   ├── contract/         # OpenAPI compliance and drift-gate validations
 │   └── skeleton/         # Workspace wiring and structural verification tests
@@ -185,6 +184,7 @@ make -C contracts generate
 ```
 
 For full environment configuration, TLS setup, database migrations, and execution steps, refer to the [Developer Operations Guide (HOWTO.md)](./HOWTO.md).
+To run your own deployment, follow the [self-hosting guide](./docs/deployment.md).
 
 ---
 

@@ -1,11 +1,11 @@
 // Handler tests for the coordinator marking reads.
 //
 // The one ordering rule these exist to protect: AUTHORIZE BEFORE VALIDATE.
-// Story 0.3's review fixed exactly this defect in the card-token handlers. If a
+// A review fixed exactly this defect in the card-token handlers. If a
 // handler validates query parameters before it authorizes the principal, an
 // unauthorized caller can tell a well-formed request from a malformed one by
 // the difference between 400 and 403 — a free oracle over the parameter space.
-// Every new endpoint in this story must answer 403 to an unauthorized caller
+// Every marking read endpoint must answer 403 to an unauthorized caller
 // even when the request is otherwise garbage.
 package odrecord
 
@@ -141,7 +141,7 @@ func TestSearchHandler_ResponseCarriesNoTokenOrEmail(t *testing.T) {
 
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet,
-		"/api/v1/students/search?q=CB.SC.U4CSE24", nil))
+		"/api/v1/students/search?q=CB.SC.U4CSE99", nil))
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", recorder.Code)
@@ -203,7 +203,7 @@ func (s *countingMarkingService) SearchStudents(context.Context, marking.Actor, 
 	s.calls++
 	return []marking.Student{{
 		StudentID:   "55555555-5555-4555-8555-555555555555",
-		RollNo:      "CB.SC.U4CSE24001",
+		RollNo:      "CB.SC.U4CSE99001",
 		DisplayName: "Ananya Rao",
 		Branch:      "CSE",
 		Section:     "A",

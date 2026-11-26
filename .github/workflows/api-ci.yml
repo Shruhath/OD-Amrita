@@ -12,6 +12,9 @@
 # be broken and no job would notice.
 name: api-ci
 
+permissions:
+  contents: read
+
 on:
   push:
     # Branches only. A tag push points at a commit these jobs have ALREADY passed
@@ -25,13 +28,11 @@ on:
       - "api/**"
       - "contracts/**"
       - "test/**"
-      # The ops suite under api/test/ops asserts the SHAPE of the runbooks —
-      # that the smoke script is referenced, that no credential is pasted in,
-      # that every human step is tracked as a checklist item. Those files live
-      # under docs/, so without this a documentation-only edit cannot trigger
-      # the gate that guards it: the runbook change on 2026-08-09 merged green
-      # and failed later, on an unrelated commit that happened to touch api/.
-      # A gate that reports late blames the wrong change.
+      # The ops suite under api/test/ops scans docs/deployment.md for pasted
+      # credentials. That file lives under docs/, so without this a
+      # documentation-only edit could not trigger the gate that guards it, and
+      # the failure would surface later on an unrelated commit that touched
+      # api/. A gate that reports late blames the wrong change.
       - "docs/**"
       - "go.work"
       - ".github/workflows/api-ci.yml"
@@ -40,13 +41,11 @@ on:
       - "api/**"
       - "contracts/**"
       - "test/**"
-      # The ops suite under api/test/ops asserts the SHAPE of the runbooks —
-      # that the smoke script is referenced, that no credential is pasted in,
-      # that every human step is tracked as a checklist item. Those files live
-      # under docs/, so without this a documentation-only edit cannot trigger
-      # the gate that guards it: the runbook change on 2026-08-09 merged green
-      # and failed later, on an unrelated commit that happened to touch api/.
-      # A gate that reports late blames the wrong change.
+      # The ops suite under api/test/ops scans docs/deployment.md for pasted
+      # credentials. That file lives under docs/, so without this a
+      # documentation-only edit could not trigger the gate that guards it, and
+      # the failure would surface later on an unrelated commit that touched
+      # api/. A gate that reports late blames the wrong change.
       - "docs/**"
       - "go.work"
       - ".github/workflows/api-ci.yml"
@@ -101,7 +100,7 @@ jobs:
   acceptance:
     name: acceptance harnesses (skeleton + contract)
     runs-on: ubuntu-latest
-    # These two harnesses existed since Stories 1.1 and 1.2 and — until this job —
+    # These two harnesses existed since the monorepo was set up and — until this job —
     # were executed by NO workflow, on any path filter. An acceptance test that
     # nothing runs cannot block a merge, so the "ATDD seam tests can block merges"
     # claim was false in practice. This job is what makes it true.
@@ -211,9 +210,9 @@ jobs:
         # clearRollbackBlockers in api/test/db, which exists for the same reason —
         # keep the two in step.
         #
-        # The one-way door itself is documented in 0016 and in
-        # docs/deployment-runbook.md §3: past this point the recovery path is a
-        # restore, not a rollback.
+        # The one-way door itself is documented in migration 0016 and in
+        # docs/deployment.md: past this point the recovery path is a restore,
+        # not a rollback.
         run: |
           psql "$DATABASE_URL_MIGRATOR" -v ON_ERROR_STOP=1 -c \
             'DELETE FROM disputes; DELETE FROM od_records; DELETE FROM event_capture_credit_usage;'
@@ -249,18 +248,17 @@ jobs:
           API_BASE_URL=https://localhost:8443 \
             go test -tags integration ./test/health/... -v
       - name: Stop Postgres (server keeps running)
-        # Reference the service container by its GitHub-assigned id — robust
-        # against image-filter mismatches / empty matches that would silently
-        # skip the teardown the db-down gate depends on.
+        # The service container's GitHub-assigned id, so an image-filter mismatch
+        # cannot silently skip the teardown the db-down phase depends on.
         run: |
           docker stop "${{ job.services.postgres.id }}"
-      - name: /health — db-down phase (503 degraded/down)
+      - name: /health?db=1 — db-down phase (503 down)
         working-directory: api
         run: |
-          # Let the pool observe the dropped DB before asserting: poll until
-          # /health flips to 503 so the gate isn't racing the TCP teardown.
+          # Poll until the deep probe flips to 503, so the gate is not racing the
+          # TCP teardown. The shallow /health never touches the database.
           for i in $(seq 1 15); do
-            code="$(curl -sk -o /dev/null -w '%{http_code}' https://localhost:8443/health || true)"
+            code="$(curl -sk -o /dev/null -w '%{http_code}' 'https://localhost:8443/health?db=1' || true)"
             [ "$code" = "503" ] && break
             sleep 1
           done

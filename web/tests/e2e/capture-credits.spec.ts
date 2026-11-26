@@ -47,7 +47,7 @@ async function installCreditRoutes(page: Page, credit: FallbackCredit) {
       markBodies.push(request.postDataJSON())
       return json(route, {
         record_id: '66666666-6666-4666-8666-666666666666',
-        student: { student_id: '95000000-0000-4000-8000-000000000001', roll_no: 'CB.SC.U4CSE24001', display_name: 'Aparna Menon', branch: 'CSE', section: 'A', batch: '2024' },
+        student: { student_id: '95000000-0000-4000-8000-000000000001', roll_no: 'CB.SC.U4CSE99001', display_name: 'Aparna Menon', branch: 'CSE', section: 'A', batch: '2024' },
         event_id: eventID,
         category_id: categoryID,
         slot: 1,

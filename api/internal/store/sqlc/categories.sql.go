@@ -11,6 +11,34 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const assignUserCategoriesBulk = `-- name: AssignUserCategoriesBulk :execrows
+INSERT INTO user_category_assignments (user_id, category_id, created_by_user_id)
+SELECT $1, category_id, $2
+FROM unnest($3::uuid[]) AS category_id
+ON CONFLICT (user_id, category_id) DO NOTHING
+`
+
+type AssignUserCategoriesBulkParams struct {
+	UserID          pgtype.UUID   `json:"user_id"`
+	CreatedByUserID pgtype.UUID   `json:"created_by_user_id"`
+	CategoryIds     []pgtype.UUID `json:"category_ids"`
+}
+
+// Every category for one user in ONE statement.
+//
+// Same conflict behaviour as AssignUserCategory — ON CONFLICT DO NOTHING, so
+// re-assigning a category a user already has is a no-op rather than an error.
+// That is why this is :execrows and not :many: the row count is NOT the number
+// of categories requested, it is the number newly created, and the caller
+// deliberately does not assert on it.
+func (q *Queries) AssignUserCategoriesBulk(ctx context.Context, arg AssignUserCategoriesBulkParams) (int64, error) {
+	result, err := q.db.Exec(ctx, assignUserCategoriesBulk, arg.UserID, arg.CreatedByUserID, arg.CategoryIds)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const assignUserCategory = `-- name: AssignUserCategory :one
 INSERT INTO user_category_assignments (user_id, category_id, created_by_user_id)
 VALUES ($1, $2, $3)

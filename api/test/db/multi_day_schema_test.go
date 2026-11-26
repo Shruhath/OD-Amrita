@@ -4,19 +4,19 @@
 //
 // RED PHASE. Everything here asserts a NAMED database object — a named column, a
 // named CHECK constraint, a named unique index, a named trigger constraint. That
-// is not stylistic pedantry: this story's two headline traps both fail SILENTLY,
+// is not stylistic pedantry: the two headline traps of the date range both fail SILENTLY,
 // and a test that only asks "did the write fail?" cannot see either of them.
 //
 //   - A nullable `od_date` disables the duplicate guard with no error at all,
 //     because Postgres treats NULLs as DISTINCT in a unique index. A single
 //     NULL-dated row never collides with anything.
 //   - A row rejected by the WRONG constraint looks identical to a row rejected by
-//     the right one. Story 0.10's review found three tests that could not fail;
+//     the right one. Tests that only check "did it fail" have been found unable to fail;
 //     asserting the constraint NAME is what makes these able to.
 //
 // Placed in the EXISTING api/test/db package, which api/Makefile's
-// INTEGRATION_PKGS and .github/workflows/api-ci.yml both already run. Stories
-// 0.2-0.5 each shipped a new integration package that CI silently never ran.
+// INTEGRATION_PKGS and .github/workflows/api-ci.yml both already run. A new
+// integration package is silently never run by CI until it is listed there.
 //
 // Run: cd api && make db-up && make test-integration
 package db
@@ -115,7 +115,7 @@ func TestMultiDaySchema_EventDateDocumentsThatItIsTheRangeStart(t *testing.T) {
 // 0.12a-DB-003 — `od_records.od_date` is NOT NULL, and the duplicate guard is
 // re-keyed on it under its NEW name.
 //
-// This is the single most consequential assertion in the story. Postgres treats
+// This is the single most consequential assertion of the date-range change. Postgres treats
 // NULLs as DISTINCT in a unique index by default, so ONE nullable-dated row never
 // collides with anything and duplicate marks quietly come back — with no error,
 // no log line, and the existing duplicate test still green because that test uses
@@ -136,7 +136,7 @@ func TestMultiDaySchema_ODRecordsCarryANotNullODDateInTheDuplicateKey(t *testing
 		t.Errorf("[P0] od_records.od_date type = %q, want date", dataType)
 	}
 	if nullable != "NO" {
-		t.Errorf("[P0] od_records.od_date is NULLABLE (is_nullable = %q). This is the story's headline silent "+
+		t.Errorf("[P0] od_records.od_date is NULLABLE (is_nullable = %q). This is the date range's headline silent "+
 			"failure: Postgres treats NULLs as DISTINCT in a unique index, so one NULL-dated row never collides "+
 			"and the FR10 duplicate guard stops guarding — with no error anywhere. `NULLS NOT DISTINCT` is NOT "+
 			"the fix; the column has no legitimate NULL state", nullable)
@@ -200,7 +200,7 @@ func TestMultiDaySchema_ODRecordsCarryANotNullODDateInTheDuplicateKey(t *testing
 //
 // The in-range positive control is in the same test on purpose. A trigger that
 // raises unconditionally would satisfy the refusal assertion while making every
-// mark impossible — and Story 0.10's review found exactly this class of test.
+// mark impossible — exactly the class of test that cannot fail.
 func TestMultiDaySchema_DatabaseRefusesAnODDateOutsideTheEventRange(t *testing.T) {
 	ctx := testCtx(t)
 	migrator := connect(t, ctx, dsnOrSkip(t, envMigratorDSN))
@@ -287,8 +287,8 @@ func TestMultiDaySchema_CreditUsageIsPerDayWhileTheCapStaysOnAssignment(t *testi
 // 0.12a-DB-006 — the dispute range guard was WIDENED, not left single-day.
 //
 // T6. `0014_disputes.sql` created require_dispute_od_date_in_event_range() with
-// `IF NEW.od_date <> event_start`, and left a comment reading "Story 0.12a widens
-// this to BETWEEN event_date AND end_date". Missing it means every dispute filed
+// `IF NEW.od_date <> event_start`, and left a comment saying it would later be
+// widened to BETWEEN event_date AND end_date. Missing it means every dispute filed
 // for day 2+ of a festival is rejected BY THE DATABASE — a public write path,
 // failing for a student, with no test currently covering it.
 //
@@ -536,8 +536,8 @@ func containsIdentifier(definition, identifier string) bool {
 // resets and re-applies against an EMPTY database, so the UPDATE runs over zero
 // rows and proves nothing.
 //
-// The hazard is specific. Story 0.9's teacher/admin search-mark is exempt from
-// slot windows, is the documented correction path, and before this story had NO
+// The hazard is specific. The teacher/admin search-mark is exempt from
+// slot windows, is the documented correction path, and before the date range had NO
 // date check at all — so a correction typed the morning after a one-day event is
 // a row that already exists and whose `server_received_at` falls OUTSIDE the
 // event. Backfilled unclamped, it becomes permanently illegal data: the range

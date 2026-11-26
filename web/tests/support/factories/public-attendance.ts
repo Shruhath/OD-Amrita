@@ -1,5 +1,5 @@
 /**
- * Fixtures for the Story 0.10 PUBLIC attendance dashboard.
+ * Fixtures for the PUBLIC attendance dashboard.
  *
  * Follows tests/support/factories/marking.ts: fixed ids so assertions can name
  * them, faker only for fields no assertion depends on, and an `overrides`
@@ -19,7 +19,7 @@ export const publicAttendanceRoute = '/attendance'
 
 /** The dashboard's fixture student — the one every assertion below names. */
 export const publicStudentID = '95000000-0000-4000-8000-000000000101'
-export const publicStudentRoll = 'CB.SC.U4CSE24101'
+export const publicStudentRoll = 'CB.SC.U4CSE99101'
 
 export type PublicStudent = {
   student_id: string
@@ -52,7 +52,7 @@ export type PublicODRecord = {
 }
 
 /**
- * The grouping key is RENAMED from `event_date` to `od_date` under Story 0.12a,
+ * The grouping key is RENAMED from `event_date` to `od_date` for multi-day events,
  * not supplemented. The key must not lie about which fact it holds: keyed on the
  * event's start date, a thirty-day festival collapses onto one heading and reads
  * to the student as twenty-nine days of missing attendance.

@@ -1,5 +1,5 @@
 /**
- * Unit suite — Story 1.6: Mobile auth interceptor (silent 401 refresh).
+ * Unit suite — Mobile auth interceptor (silent 401 refresh).
  *
  * Every scenario is a `test(...)` with real, expected-behavior assertions. Green: exercises the
  * shipped `../authInterceptor` against fakes (jest-expo runner, `@types/jest` installed).
@@ -315,7 +315,7 @@ describe('AC-5: single-flight refresh under concurrency', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC-3 — offline boundary: a transport REJECTION is not a 401 (Story 4.5 territory)
+// AC-3 — offline boundary: a transport REJECTION is not a 401 (offline session expiry is handled elsewhere)
 // ---------------------------------------------------------------------------
 describe('AC-3: transport rejection (offline) is not a 401', () => {
   test('a thrown network error propagates unchanged and never triggers refresh or re-auth', async () => {

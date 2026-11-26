@@ -34,6 +34,7 @@ export default function TeachersPortal() {
   const queryClient = useQueryClient()
   const [creating, setCreating] = useState(false)
   const [editingTeacher, setEditingTeacher] = useState<TeacherProfile | null>(null)
+  const [demotingTeacher, setDemotingTeacher] = useState<TeacherProfile | null>(null)
   const [page, setPage] = useState(1)
 
   const branches = useQuery({ queryKey: branchKey, queryFn: api.branches })
@@ -173,7 +174,18 @@ export default function TeachersPortal() {
                         </div>
                       </td>
                       <td className="py-4 px-4">
-                        <Button variant="outline" size="sm" onClick={() => setEditingTeacher(teacher)}>Edit</Button>
+                        <div className="flex flex-wrap gap-2">
+                          <Button variant="outline" size="sm" onClick={() => setEditingTeacher(teacher)}>Edit</Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-status-error-fg"
+                            aria-label={`Remove staff access for ${teacher.email}`}
+                            onClick={() => setDemotingTeacher(teacher)}
+                          >
+                            Remove access
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -206,8 +218,17 @@ export default function TeachersPortal() {
                     ))}
                   </div>
                 </div>
-                <div className="mt-4 border-t border-border pt-3">
+                <div className="mt-4 flex flex-wrap gap-2 border-t border-border pt-3">
                   <Button variant="outline" size="sm" onClick={() => setEditingTeacher(teacher)}>Edit category access</Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-status-error-fg"
+                    aria-label={`Remove staff access for ${teacher.email}`}
+                    onClick={() => setDemotingTeacher(teacher)}
+                  >
+                    Remove staff access
+                  </Button>
                 </div>
               </article>
             ))}
@@ -247,6 +268,17 @@ export default function TeachersPortal() {
             onSaved={() => {
               void queryClient.invalidateQueries({ queryKey: teacherKeyRoot })
               setEditingTeacher(null)
+            }}
+          />
+        )}
+        {demotingTeacher && (
+          <RemoveStaffAccessDialog
+            teacher={demotingTeacher}
+            onClose={() => setDemotingTeacher(null)}
+            onRemoved={() => {
+              // The user is a student now, so they drop out of the teacher list.
+              void queryClient.invalidateQueries({ queryKey: teacherKeyRoot })
+              setDemotingTeacher(null)
             }}
           />
         )}
@@ -397,6 +429,138 @@ function EditCategoryAccessDialog({
               </button>
             </div>
           </form>
+        </div>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+/**
+ * Confirms taking a teacher's staff role away. The consequences are spelled out
+ * because none of them is reversible from this screen: re-adding the teacher
+ * starts from nothing, with branches and categories chosen again.
+ */
+function RemoveStaffAccessDialog({
+  teacher,
+  onClose,
+  onRemoved,
+}: {
+  teacher: TeacherProfile
+  onClose(): void
+  onRemoved(): void
+}) {
+  const { api } = useAuth()
+  const [formError, setFormError] = useState<string | null>(null)
+  const demote = useMutation({
+    mutationFn: () => api.demoteUser(teacher.user_id),
+    onSuccess: onRemoved,
+    onError(cause) {
+      if (cause instanceof ApiFailure && cause.body.code === 'USER_NOT_FOUND') {
+        // Gone already: nothing left to remove, the list is just stale.
+        onRemoved()
+        return
+      }
+      setFormError(messageOf(cause, 'Staff access could not be removed'))
+    },
+  })
+  // Read through refs so the focus/keyboard effect below runs ONCE: re-running it
+  // on every render would yank focus back to Cancel whenever an error appeared.
+  const onCloseRef = useRef(onClose)
+  const pendingRef = useRef(demote.isPending)
+  useEffect(() => {
+    onCloseRef.current = onClose
+    pendingRef.current = demote.isPending
+  })
+
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const node = dialogRef.current
+    if (!node) return
+    const focusable = () => Array.from(node.querySelectorAll<HTMLElement>('button:not([disabled])'))
+    // Cancel first: the safe choice is the one under the cursor.
+    node.querySelector<HTMLElement>('[data-dialog-cancel]')?.focus()
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        if (!pendingRef.current) onCloseRef.current()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const items = focusable()
+      if (items.length === 0) return
+      const current = items.indexOf(document.activeElement as HTMLElement)
+      const next = event.shiftKey ? (current <= 0 ? items.length - 1 : current - 1) : (current >= items.length - 1 ? 0 : current + 1)
+      event.preventDefault()
+      items[next]?.focus()
+    }
+    document.addEventListener('keydown', keydown)
+    return () => document.removeEventListener('keydown', keydown)
+  }, [])
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-foreground/20 backdrop-blur-sm"
+    >
+      <motion.div
+        ref={dialogRef}
+        initial={{ opacity: 0, y: 20, scale: 0.95 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 20, scale: 0.95 }}
+        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+        className="max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-surface shadow-[0_24px_80px_rgb(0_0_0/0.24)]"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="remove-staff-access-title"
+        aria-describedby="remove-staff-access-description"
+      >
+        <div className="border-b border-border bg-canvas/50 px-5 py-5 sm:px-6">
+          <h2 id="remove-staff-access-title" className="text-xl font-bold tracking-tight">Remove staff access</h2>
+          <p className="mt-1 break-words text-sm text-foreground-muted">{teacher.email}</p>
+        </div>
+        <div className="flex flex-col gap-5 p-5 sm:p-6">
+          <div id="remove-staff-access-description" className="flex flex-col gap-2 text-sm text-foreground-muted">
+            <p>
+              <strong className="text-foreground">{teacher.name ?? teacher.email}</strong> becomes a student. This:
+            </p>
+            <ul className="list-disc pl-5 flex flex-col gap-1">
+              <li>removes their branch and category access,</li>
+              <li>signs them out everywhere — they can sign in again, as a student,</li>
+              <li>keeps every attendance mark they already recorded.</li>
+            </ul>
+            <p>To make them a teacher again, add them as a new teacher and choose their access again.</p>
+          </div>
+
+          {formError && (
+            <div className="p-4 bg-status-error-bg rounded-[10px] border border-status-error-fg/20" role="alert">
+              <p className="text-sm font-semibold text-status-error-fg">{formError}</p>
+            </div>
+          )}
+
+          <div className="flex flex-col-reverse sm:flex-row gap-3 pt-4 border-t border-border">
+            <button
+              type="button"
+              data-dialog-cancel
+              disabled={demote.isPending}
+              onClick={onClose}
+              className="flex-1 border border-border bg-canvas hover:bg-surface text-foreground px-4 py-2.5 rounded-[10px] font-medium active:scale-95 transition-all disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <Button
+              variant="destructive"
+              className="flex-1 py-2.5"
+              disabled={demote.isPending}
+              onClick={() => {
+                setFormError(null)
+                demote.mutate()
+              }}
+            >
+              {demote.isPending ? 'Removing…' : 'Remove staff access'}
+            </Button>
+          </div>
         </div>
       </motion.div>
     </motion.div>

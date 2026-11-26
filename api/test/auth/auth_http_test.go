@@ -1,4 +1,4 @@
-// Package authhttp — red-phase ATDD for Story 1.5a: the composed round-trip AC
+// Package authhttp — acceptance tests for the composed auth round-trip
 // table. It wires the REAL error-middleware + auth middleware + MeHandler into
 // the /api/v1 group exactly as cmd/api/main.go will, driving it in-process with
 // a fake verifier (no DB, no live Supabase, no build tag — runs under the

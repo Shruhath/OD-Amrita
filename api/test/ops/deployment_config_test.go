@@ -2,22 +2,19 @@ package ops
 
 // deployment_config_test.go — deployed-host / HTTPS / runtime-foundation
 // acceptance coverage for the artifacts a dev can actually deliver without
-// spending money: api/fly.toml, web/vercel.json, api/scripts/smoke.sh and
-// docs/deployment-runbook.md, plus the backup runbook's unblocking.
+// spending money: api/fly.toml, web/vercel.json, api/scripts/smoke.sh and the
+// credential scan over docs/deployment.md.
 //
 // Invoked by: api-ci -> build job (`go test ./...`). Deliberately UNTAGGED and
 // dependency-free — no database, no network, no new module requirement — so it
 // runs inside the existing gate with NO new CI wiring, exactly like the
-// backup-and-monitoring suites next door.
+// backup-script suite next door.
 //
 // ── RED PHASE ───────────────────────────────────────────────────────────────
 // These are ACTIVE, red-by-assertion tests, not t.Skip()'d scaffolds. That is
 // the established shape for artifact-shape suites in this package: readArtifact
-// in helpers_test.go is documented as "the RED-phase entry point: today both
-// artifacts are absent and every test in this package fails here, by design",
-// which is precisely how the backup-and-monitoring ops suite began. All four
-// artifacts under test are absent at the start, so this whole file is RED until
-// Tasks 3-6 create them, and it turns green with no test edit.
+// in helpers_test.go is the RED-phase entry point: a missing artifact fails
+// there, naming what it is for, rather than skipping.
 //
 // ── WHAT THIS SUITE CAN AND CANNOT PROVE ────────────────────────────────────
 // It proves the committed artifacts EXIST, have the shape the acceptance
@@ -32,11 +29,9 @@ package ops
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -46,12 +41,12 @@ const (
 	flyConfigRel     = "api/fly.toml"
 	vercelConfigRel  = "web/vercel.json"
 	smokeScriptRel   = "api/scripts/smoke.sh"
-	deployRunbookRel = "docs/deployment-runbook.md"
+	deploymentDocRel = "docs/deployment.md"
 	workflowsRel     = ".github/workflows"
 	flyConfigWhy     = "AC 1/2 need the Fly host config that terminates TLS at the edge and refuses plain HTTP (Task 3)"
 	vercelConfigWhy  = "AC 3 needs the SPA rewrite so client-side deep links resolve instead of 404ing (Task 4)"
 	smokeScriptWhy   = "AC 1/2 need the operator-run post-deploy check for NFR15 and /health (Task 6)"
-	deployRunbookWhy = "AC 5 needs the deployment runbook recording origins, wiring values and the operator checklist (Task 5)"
+	deploymentDocWhy = "the self-hosting guide is the published deployment reference"
 )
 
 // secretShaped is the credential scan shared by every committed deployed-host
@@ -335,7 +330,7 @@ func TestFlyConfig_RunsInIngressTerminatedPlaintextModeWithoutARedirectListener(
 	}
 }
 
-func TestFlyConfig_HealthChecksTheDatabaseBackedEndpointWithAGracePeriod(t *testing.T) {
+func TestFlyConfig_HealthChecksTheAPIWithAGracePeriod(t *testing.T) {
 	cfg := readArtifact(t, flyConfigRel, flyConfigWhy)
 
 	// Scoped to an actual check block, so a "/health" mentioned anywhere else in
@@ -347,7 +342,7 @@ func TestFlyConfig_HealthChecksTheDatabaseBackedEndpointWithAGracePeriod(t *test
 		}
 	}
 	if len(checks) == 0 {
-		t.Fatalf("[P0] %s must declare a health check block (e.g. [[services.http_checks]]) — it is what keeps a machine whose pool never reached Neon out of rotation (AC 2, Task 3)", flyConfigRel)
+		t.Fatalf("[P0] %s must declare a health check block (e.g. [[services.http_checks]]) — it is what takes a machine whose process stopped answering out of rotation", flyConfigRel)
 	}
 	healthChecked := false
 	gracePeriod := false
@@ -360,10 +355,10 @@ func TestFlyConfig_HealthChecksTheDatabaseBackedEndpointWithAGracePeriod(t *test
 		}
 	}
 	if !healthChecked {
-		t.Errorf("[P0] %s must health-check path = \"/health\" — it is the endpoint that proves the od_runtime pool actually reached Neon (AC 2)", flyConfigRel)
+		t.Errorf("[P0] %s must health-check path = \"/health\" — the liveness endpoint the API serves (the database probe is the separate /health?db=1)", flyConfigRel)
 	}
 	if healthChecked && !gracePeriod {
-		t.Errorf("[P0] %s's /health check must set a grace_period — /health is fail-closed (503 when the DB is down), so a machine whose pool has not connected yet would be killed before it could ever become healthy (Task 3)", flyConfigRel)
+		t.Errorf("[P0] %s's /health check must set a grace_period, so a machine that is still booting is not killed before it can answer", flyConfigRel)
 	}
 }
 
@@ -549,235 +544,17 @@ func TestSmokeScript_IsNotWiredIntoCI(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Suite F — docs/deployment-runbook.md (AC 5, 6)
+// Suite F — docs/deployment.md
+//
+// The guide is generic on purpose: it says WHICH values to set, never the
+// values. This is the same scan every committed host config gets, and it is why
+// api-ci's path filter includes docs/**.
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestDeploymentRunbook_ExistsAndHasTheSectionsThatMakeItOperable(t *testing.T) {
-	doc := readArtifact(t, deployRunbookRel, deployRunbookWhy)
+func TestDeploymentGuide_CarriesNoCredentials(t *testing.T) {
+	doc := readArtifact(t, deploymentDocRel, deploymentDocWhy)
 	if strings.TrimSpace(doc) == "" {
-		t.Fatalf("[P0] %s exists but is empty", deployRunbookRel)
+		t.Fatalf("[P0] %s exists but is empty", deploymentDocRel)
 	}
-
-	required := []struct {
-		what     string
-		keywords []string
-		why      string
-	}{
-		{"topology", []string{"topology"}, "an operator must know which host holds what before touching anything"},
-		{"deploy procedure", []string{"deploy"}, "the exact flyctl/Vercel commands are the point of the document"},
-		{"operator checklist", []string{"checklist"}, "the paid/console steps (H5) must be tracked, not implied"},
-	}
-	for _, r := range required {
-		if !hasHeadingWith(doc, r.keywords...) {
-			t.Errorf("[P0] %s is missing a %q section — %s\n  (looked for a heading containing: %v)", deployRunbookRel, r.what, r.why, r.keywords)
-		}
-	}
-}
-
-func TestDeploymentRunbook_DocumentsTheCurrentMigrationVersion(t *testing.T) {
-	doc := readArtifact(t, deployRunbookRel, deployRunbookWhy)
-	latest := latestMigrationVersion(t)
-	padded := fmt.Sprintf("%04d", latest)
-
-	if !strings.Contains(doc, fmt.Sprintf("Expect **%d**", latest)) {
-		t.Errorf("[P0] %s must tell operators to expect goose version %d, matching the highest committed migration %s", deployRunbookRel, latest, padded)
-	}
-	if !strings.Contains(doc, fmt.Sprintf("`0001`–`%s`", padded)) {
-		t.Errorf("[P1] %s must name the applied migration range through %s", deployRunbookRel, padded)
-	}
-}
-
-func latestMigrationVersion(t *testing.T) int {
-	t.Helper()
-	dir := filepath.Join(repoRoot(t), "api/db/migrations")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read migrations: %v", err)
-	}
-	versionRe := regexp.MustCompile(`^([0-9]+)_.*\.sql$`)
-	latest := 0
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		match := versionRe.FindStringSubmatch(entry.Name())
-		if match == nil {
-			continue
-		}
-		version, err := strconv.Atoi(match[1])
-		if err != nil {
-			t.Fatalf("parse migration version from %s: %v", entry.Name(), err)
-		}
-		if version > latest {
-			latest = version
-		}
-	}
-	if latest == 0 {
-		t.Fatal("no numbered migrations found")
-	}
-	return latest
-}
-
-func TestDeploymentRunbook_RecordsTheExactDeployCommandAndItsRepoRootContext(t *testing.T) {
-	doc := readArtifact(t, deployRunbookRel, deployRunbookWhy)
-
-	// The Dockerfile COPYs go.work, api/, contracts/ and test/, so its build
-	// context is the REPO ROOT. A deploy run from inside api/ cannot load the Go
-	// workspace and fails confusingly — which is why the runbook must carry the
-	// --config form rather than a bare `flyctl deploy`.
-	if !containsAny(doc, "flyctl deploy") {
-		t.Errorf("[P0] %s must record the flyctl deploy command (Task 5)", deployRunbookRel)
-	}
-	if !containsAny(doc, "--config api/fly.toml") {
-		t.Errorf("[P0] %s must record `--config api/fly.toml` — the Dockerfile's build context is the REPO ROOT (it COPYs go.work and contracts/), so a deploy from inside api/ fails to load the workspace (Task 3/5)", deployRunbookRel)
-	}
-	if !containsAny(doc, "scale count 2") {
-		t.Errorf("[P1] %s must record `flyctl scale count 2 --region <fly.toml region>` (bom preferred, sin fallback) — the 2-machine count is a deploy-time concern that fly.toml cannot express, and one machine is the reliability posture H1 explicitly rejected", deployRunbookRel)
-	}
-}
-
-func TestDeploymentRunbook_RecordsTheCrossOriginWiringTheAuthRoundTripNeeds(t *testing.T) {
-	doc := readArtifact(t, deployRunbookRel, deployRunbookWhy)
-
-	// AC 6. Each of these is a separate way the deployed app silently breaks:
-	// a missing VITE_API_BASE_URL makes the SPA call its own Vercel origin for
-	// the API; a missing PORTAL_ALLOWED_ORIGINS blocks every browser call on
-	// CORS; a missing Supabase redirect URL breaks the OAuth return leg.
-	for _, key := range []string{"PORTAL_ALLOWED_ORIGINS", "VITE_API_BASE_URL"} {
-		if !containsAny(doc, key) {
-			t.Errorf("[P0] %s must record the exact %s used (AC 6)", deployRunbookRel, key)
-		}
-	}
-	if !containsAny(doc, "redirect url", "redirect urls") {
-		t.Errorf("[P0] %s must record the Supabase Redirect URL addition — without it the OAuth round trip cannot return to the deployed web origin (AC 6, Task 7 step 4)", deployRunbookRel)
-	}
-	// config.validateOrigin rejects a trailing slash, a path, a query or a
-	// wildcard, so the runbook has to say "exact origin" or the operator will
-	// paste a URL that makes the API refuse to boot.
-	if !containsAny(doc, "exact origin", "no trailing slash", "trailing slash") {
-		t.Errorf("[P1] %s must warn that PORTAL_ALLOWED_ORIGINS entries are EXACT origins (no trailing slash, path, query or wildcard) — config.validateOrigin refuses to boot otherwise", deployRunbookRel)
-	}
-}
-
-func TestDeploymentRunbook_CoversTheSecureContextAndFailClosedHealthConsequences(t *testing.T) {
-	doc := readArtifact(t, deployRunbookRel, deployRunbookWhy)
-
-	// The coordinator device note is why this is the first foundation slice: Web
-	// NFC and getUserMedia only exist in a secure context, so the later NFC and
-	// camera surfaces are impossible without the HTTPS origin recorded here.
-	if !containsAny(doc, "chrome") || !containsAny(doc, "android") {
-		t.Errorf("[P0] %s must carry the coordinator device-setup note (open the web origin in Chrome on Android over HTTPS) — Web NFC and the camera require a secure context, which is what makes the NFC and camera surfaces possible at all (AC 5)", deployRunbookRel)
-	}
-	if !containsAny(doc, "nfr15") && !containsAny(doc, "not redirected", "rejected, not") {
-		t.Errorf("[P0] %s must document the NFR15 verification step (plain HTTP refused, NOT redirected) (AC 1, Task 5)", deployRunbookRel)
-	}
-	// An operator who does not know /health is fail-closed will misread a
-	// machine dropping out of rotation as a Fly problem rather than a Neon one.
-	if !containsAny(doc, "503", "degraded", "fail-closed", "fail closed") {
-		t.Errorf("[P0] %s must note that /health is fail-closed (503 when Neon is unreachable) and that Fly therefore pulls the machine from rotation — correct behaviour, but it makes Neon a hard dependency of availability (Task 3/5)", deployRunbookRel)
-	}
-	if !containsAny(doc, "neon") {
-		t.Errorf("[P0] %s must name Neon as the application database (H3)", deployRunbookRel)
-	}
-	// Carried forward from the backup runbook §2.2/§7 so it is not lost: Free
-	// tier PITR is 6h, which does not cover an event plus its dispute window.
-	if !containsAny(doc, "plan", "pitr", "upgrade") {
-		t.Errorf("[P1] %s must restate the pre-event Neon plan upgrade (Free = 6h PITR is not enough for the event + dispute window) so it is not lost between runbooks (Task 5)", deployRunbookRel)
-	}
-}
-
-func TestDeploymentRunbook_ReferencesTheSmokeScriptAndTracksThePaidStepsAsUncheckedBoxes(t *testing.T) {
-	doc := readArtifact(t, deployRunbookRel, deployRunbookWhy)
-
-	if !containsAny(doc, "smoke.sh") {
-		t.Errorf("[P0] %s must reference api/scripts/smoke.sh as the \"did the deploy actually work\" check (Task 6)", deployRunbookRel)
-	}
-
-	// H5: every step that needs a console, an account or money must be VISIBLE AS
-	// A CHECKLIST ITEM rather than buried in prose, so nothing is silently
-	// dropped.
-	//
-	// TRACKED, not unchecked. This asserted `- [ ]` specifically until 2026-08-09,
-	// which quietly also asserted that the work was never done — so the day Fly,
-	// Vercel and Supabase were actually deployed and verified, ticking them off
-	// turned this red. A checklist that cannot be completed is not a checklist,
-	// and the only ways to keep it green were to make the runbook claim nothing
-	// was deployed or to invent open items to satisfy a string match. The
-	// guarantee worth having is the one the error messages below already describe:
-	// the step is tracked. Whether it is still owed is asserted separately, just
-	// underneath.
-	boxes := trackedBoxes(doc)
-	if len(boxes) == 0 {
-		t.Errorf("[P0] %s tracks no operator steps — the Neon role bootstrap, the Fly deploy, the Vercel env vars, the Supabase redirect URL and the plan upgrade are all human/paid steps (H5) and must be visible as `- [ ]` / `- [x]` items, not buried in prose", deployRunbookRel)
-	}
-	// The teeth that survive: whatever is genuinely still owed must remain
-	// visible as an unchecked box. A runbook with every box ticked while paid
-	// steps are outstanding is exactly the false all-clear this file exists to
-	// prevent — it is just no longer tied to one specific step being undone
-	// forever.
-	if len(uncheckedBoxes(doc)) == 0 {
-		t.Errorf("[P0] %s has no unchecked steps at all — the Neon plan upgrade, the uptime monitor and the on-device sign-in are still owed, and a checklist showing all-clear while they are outstanding is worse than none (H5)", deployRunbookRel)
-	}
-	joined := strings.ToLower(strings.Join(boxes, "\n"))
-	for _, step := range []struct{ key, why string }{
-		{"neon", "the od_runtime/od_migrator bootstrap and migrations on the live DB (AC 4)"},
-		{"fly", "the secrets + deploy + scale steps (AC 1/2)"},
-		{"vercel", "the root directory and the three VITE_* env vars (AC 3/6)"},
-		{"supabase", "the redirect URL addition without which OAuth cannot return (AC 6)"},
-	} {
-		if !strings.Contains(joined, step.key) {
-			t.Errorf("[P0] %s's operator checklist has no tracked step mentioning %q — %s", deployRunbookRel, step.key, step.why)
-		}
-	}
-}
-
-func TestDeploymentRunbook_CarriesNoCredentials(t *testing.T) {
-	doc := readArtifact(t, deployRunbookRel, deployRunbookWhy)
-	assertNoSecrets(t, deployRunbookRel, doc)
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Suite G — the backup runbook's blocked items become actionable (AC 5)
-// ─────────────────────────────────────────────────────────────────────────────
-
-func TestBackupRunbook_DeployedURLAndHostingItemsAreNoLongerBlocked(t *testing.T) {
-	doc := readArtifact(t, runbookRel, runbookWhy)
-
-	// The backup-and-monitoring work could not name a URL or a host, so it parked
-	// these. This slice's whole job is to supply both; leaving the markers in
-	// place would mean the monitoring gap silently survives the change that
-	// closed it.
-	for _, marker := range []string{"[blocked: deployed URL]", "[blocked: hosting]"} {
-		if strings.Contains(doc, marker) {
-			t.Errorf("[P0] %s still carries %q — the deployed URL and the host are now known, so these items must become actionable (point the uptime monitor at the /health origin) rather than staying parked (AC 5, Task 5)", runbookRel, marker)
-		}
-	}
-	if !containsAny(doc, "deployment-runbook") {
-		t.Errorf("[P0] %s must cross-link docs/deployment-runbook.md — the two runbooks share the restore/role-bootstrap procedure and must not duplicate it (Task 5)", runbookRel)
-	}
-
-	// GUARD AGAINST A CROSS-SUITE CONFLICT.
-	//
-	// "Unblock these items" is one edit away from "tick these boxes", and ticking
-	// them breaks the backup runbook's TestRunbook_TracksBlockedOperatorStepsAsUncheckedBoxes,
-	// which requires at least three UNCHECKED `- [ ]` items including an
-	// Uptime-Robot one. That failure would surface in a different file, for a
-	// different suite, with no hint that this change caused it.
-	//
-	// Unblocked is not the same as done: the URL is supplied, but a human still
-	// has to register the monitor, which is why this slice itself lands `blocked`.
-	// So the box must survive — with a real endpoint in it instead of a marker.
-	boxes := uncheckedBoxes(doc)
-	if len(boxes) < 3 {
-		t.Errorf("[P0] %s now has %d unchecked operator items; the backup runbook's suite requires at least 3.\n  Making an item ACTIONABLE means replacing the [blocked: …] marker with the real endpoint — NOT checking the box or deleting the item. The human still has to register the monitor, which is why this slice lands `blocked`.", runbookRel, len(boxes))
-	}
-	monitorBox := false
-	for _, box := range boxes {
-		if containsAny(box, "uptime robot", "uptimerobot") && containsAny(box, "monitor") {
-			monitorBox = true
-		}
-	}
-	if !monitorBox {
-		t.Errorf("[P0] %s no longer has an UNCHECKED Uptime Robot monitor item — the backup runbook's TestRunbook_TracksBlockedOperatorStepsAsUncheckedBoxes requires one, and registering the monitor is still a human step even now that the URL is known (AC 5)", runbookRel)
-	}
+	assertNoSecrets(t, deploymentDocRel, doc)
 }

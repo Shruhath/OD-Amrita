@@ -30,30 +30,45 @@ paths:
   /health:
     get:
       operationId: getHealth
-      summary: Liveness + DB-readiness probe
+      summary: Liveness probe, with an opt-in database readiness check
       description: >-
-        Reports process liveness and database connectivity. Returns 200 with
-        `{ status: "ok", db: "up" }` while the process is serving and the
-        database ping succeeds; returns 503 with `{ status: "degraded",
-        db: "down" }` when the database is unreachable. Load-balancers and
-        orchestrators may treat 503 as not-ready.
+        Shallow by default: reports process liveness WITHOUT touching the
+        database, as `{ status: "ok", db: "unchecked" }`. The frequent platform
+        health check uses this form so it never wakes a scale-to-zero database.
+        With `?db=1` the probe pings the database (2s timeout) and answers 200
+        `{ status: "ok", db: "up" }` when it responds, or 503
+        `{ status: "degraded", db: "down" }` when it does not. Post-deploy and
+        restore checks use the deep form.
+      parameters:
+        - name: db
+          in: query
+          required: false
+          description: >-
+            Set to `1` to run the database ping. Any other value, or absence,
+            gives the shallow liveness answer with `db: unchecked`.
+          schema:
+            type: string
+            enum:
+              - "1"
       responses:
         "200":
-          description: Service process is live and the database is reachable.
+          description: >-
+            Service process is live. `db` is `unchecked` for the shallow probe,
+            or `up` when `?db=1` was requested and the ping succeeded.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
         "503":
           description: >-
-            Service process is live but the database is unreachable. Body still
-            conforms to HealthStatus, with `db: down`.
+            Only for `?db=1`: the service process is live but the database is
+            unreachable. Body still conforms to HealthStatus, with `db: down`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 
-  # ─── UNAUTHENTICATED PUBLIC SURFACE (Story 0.10, FR38-FR40) ─────────────────
+  # ─── UNAUTHENTICATED PUBLIC SURFACE ─────────────────────────────────────────
   #
   # The two operations below are the ONLY ones under /api/v1 that deliberately
   # omit `security`. This spec declares no root-level `security`, so under
@@ -508,8 +523,8 @@ paths:
         durable enqueue, ON CONFLICT/present-wins resolution and same-transaction
         audit are implemented later; this contract only freezes the shape so
         mobile and backend do not renegotiate it piecemeal.
-      # Required even though the handler is deferred. From Story 0.10 onward,
-      # OMITTING `security` is how this spec declares an endpoint public — the
+      # Required even though the handler is deferred. Since the public dashboard
+      # landed, OMITTING `security` is how this spec declares an endpoint public — the
       # public dashboard reads rely on exactly that — so an operation that
       # documents 401/403 while declaring no way to authenticate now reads as
       # open to the internet. Declaring it here keeps the convention honest
@@ -818,6 +833,72 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/portal/mark/batch:
+    post:
+      operationId: batchManualMarkAttendance
+      summary: Atomically mark selected students present by manual search
+      description: >-
+        Administrator-only manual marking. Every selected student receives the
+        same event, category, slot, OD date and reason. If any selected student
+        is already present for that event, day and slot, no record from the
+        request is committed.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchManualMarkAttendanceRequest"
+      responses:
+        "201":
+          description: Every selected attendance mark and its audit row were committed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchManualMarkAttendanceResult"
+        "400":
+          description: Request validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Unauthenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Administrator access is required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Event, category or student was not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: >-
+            The request conflicts with current state. Duplicate marks include
+            actionable students; other state conflicts use the standard error
+            envelope.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/BatchManualMarkConflict"
+                  - $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/v1/portal/events/{event_id}/records:
     get:
       operationId: listPortalODRecords
@@ -954,12 +1035,19 @@ paths:
             type: integer
             minimum: 1
             default: 1
+          # 1000, not 100, BECAUSE OF THE EXPORT. The per-slot workbook download
+          # reads a whole day through this endpoint and pages until it has
+          # everything. At 100 a day of 20,000 records was 200 sequential
+          # requests, and every one of them dragged a full re-count of the
+          # filtered set alongside the page - roughly 800 queries for one
+          # download. The screens still ask for 20 or 50; this raises only the
+          # ceiling a deliberate bulk reader may choose.
         - name: page_size
           in: query
           schema:
             type: integer
             minimum: 1
-            maximum: 100
+            maximum: 1000
             default: 20
       responses:
         "200":
@@ -1045,12 +1133,19 @@ paths:
             type: integer
             minimum: 1
             default: 1
+          # 1000, not 100, BECAUSE OF THE EXPORT. The per-slot workbook download
+          # reads a whole day through this endpoint and pages until it has
+          # everything. At 100 a day of 20,000 records was 200 sequential
+          # requests, and every one of them dragged a full re-count of the
+          # filtered set alongside the page - roughly 800 queries for one
+          # download. The screens still ask for 20 or 50; this raises only the
+          # ceiling a deliberate bulk reader may choose.
         - name: page_size
           in: query
           schema:
             type: integer
             minimum: 1
-            maximum: 100
+            maximum: 1000
             default: 20
       responses:
         "200":
@@ -1362,6 +1457,78 @@ paths:
                 $ref: "#/components/schemas/Error"
         "403":
           description: Caller is not a provisioned admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/users/{user_id}/demote:
+    post:
+      operationId: demoteAdminUser
+      summary: Take a staff role away — teacher, coordinator or admin back to student
+      description: >-
+        Admin-only. Sets the user's role to student and, in the same audited
+        transaction (user.demoted), removes the access that role carried: every
+        coordinator assignment on an ACTIVE event (with its fallback-credit
+        usage counters), every category assignment, and every teacher branch
+        association. Archived events' coordinator rows are immutable and stay
+        as history. The user's sessions are force-logged-out (a scope=all
+        revocation) so the change applies on their next request; a fresh
+        sign-in works and lands as a student. OD records the user marked are
+        untouched. Refused for the caller's own account and for the last
+        remaining admin. Demoting a user who is already a student is an
+        idempotent no-op (changed=false, no audit row).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          description: Application user id (users.id) of the account to demote.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Role is now student (or already was).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserDemotionResult"
+        "400":
+          description: Malformed user id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Missing, malformed, expired, or revoked token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a provisioned Admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No user exists with this id (USER_NOT_FOUND).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: >-
+            The caller tried to demote themselves (SELF_DEMOTION_REFUSED), or
+            the target is the last remaining admin (LAST_ADMIN_DEMOTION_REFUSED).
           content:
             application/json:
               schema:
@@ -1705,6 +1872,48 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/admin/audit-log:
+    get:
+      operationId: listAdminAuditLog
+      summary: List the immutable audit ledger
+      description: >-
+        Admin-only ledger read for operational investigation. Results are newest
+        first and include actor, target and payload fields so administrators can
+        inspect security/admin/business state changes without direct database
+        access. Filters are exact-match and applied before pagination.
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: action
+          in: query
+          required: false
+          schema: {type: string, minLength: 1, maxLength: 120}
+        - name: actor_account
+          in: query
+          required: false
+          schema: {type: string, minLength: 1, maxLength: 320}
+        - name: target_table
+          in: query
+          required: false
+          schema: {type: string, minLength: 1, maxLength: 120}
+        - name: target_id
+          in: query
+          required: false
+          schema: {type: string, minLength: 1, maxLength: 200}
+        - name: page
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, default: 1}
+        - name: page_size
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      responses:
+        "200": {description: Audit entries, content: {application/json: {schema: {$ref: "#/components/schemas/AuditLogPage"}}}}
+        "400": {description: Invalid query, content: {application/json: {schema: {$ref: "#/components/schemas/ValidationError"}}}}
+        "401": {description: Unauthenticated, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "403": {description: Admin access required, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+        "500": {description: Internal error, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+
   /api/v1/admin/events/{event_id}/categories:
     parameters:
       - name: event_id
@@ -1991,6 +2200,77 @@ paths:
                 $ref: "#/components/schemas/Error"
         "409":
           description: Duplicate assignment, archived event, or ineligible role.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/admin/events/{event_id}/coordinators/{user_id}:
+    parameters:
+      - name: event_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      operationId: removeAdminEventCoordinator
+      summary: Remove one coordinator from one event
+      description: >-
+        Deletes the user's coordinator assignment for this event, together with
+        their category access on this event's categories and the assignment's
+        fallback-credit usage counters, in one audited transaction
+        (coordinator.removed). The user's other event assignments and their
+        global role are unchanged; use the demote endpoint to take the role
+        away. Marking access ends on the next request. Archived events are
+        immutable, so removal is refused there exactly as assignment is. A
+        repeated removal answers 404, matching the category-access update for
+        a missing assignment.
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Assignment removed.
+        "400":
+          description: Malformed event or user id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "401":
+          description: Missing, malformed, expired, or revoked token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not a provisioned Admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: >-
+            Event not found (EVENT_NOT_FOUND), or the user is not assigned to it
+            (USER_NOT_FOUND).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Event is archived (EVENT_ARCHIVED).
           content:
             application/json:
               schema:
@@ -3297,7 +3577,7 @@ components:
           items:
             $ref: "#/components/schemas/ResolvedCardStudent"
 
-    # ─── PUBLIC (UNAUTHENTICATED) SCHEMAS — Story 0.10 ──────────────────────
+    # ─── PUBLIC (UNAUTHENTICATED) SCHEMAS ───────────────────────────────────
     #
     # Every schema below is serialised to callers with NO credential. Three
     # rules hold for all of them:
@@ -4050,6 +4330,62 @@ components:
           type: string
           format: date-time
 
+    BatchManualMarkAttendanceRequest:
+      type: object
+      description: A shared manual-mark scope and the distinct students to mark together.
+      required: [event_id, category_id, student_ids, slot, od_date, reason_note]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        category_id:
+          type: string
+          format: uuid
+        student_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        slot:
+          type: integer
+          minimum: 1
+          maximum: 20
+        od_date:
+          type: string
+          format: date
+        reason_note:
+          type: string
+          minLength: 1
+          maxLength: 2000
+
+    BatchManualMarkAttendanceResult:
+      type: object
+      required: [records]
+      properties:
+        records:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/MarkAttendanceResult"
+
+    BatchManualMarkConflict:
+      type: object
+      required: [code, message, duplicate_students]
+      properties:
+        code:
+          type: string
+          enum: [SCAN_DUPLICATE]
+        message:
+          type: string
+        duplicate_students:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/MarkedStudent"
+
     MarkedStudent:
       type: object
       required: [student_id, roll_no, display_name, branch, section, batch]
@@ -4249,6 +4585,15 @@ components:
       type: object
       required: [action, actor_email, actor_role, occurred_at, payload]
       properties:
+        id:
+          type: string
+          format: uuid
+        target_table:
+          type: string
+          nullable: true
+        target_id:
+          type: string
+          nullable: true
         action:
           type: string
         actor_email:
@@ -4275,6 +4620,25 @@ components:
           items:
             $ref: "#/components/schemas/AuditLogEntry"
 
+    AuditLogPage:
+      type: object
+      required: [data, page, page_size, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditLogEntry"
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
+
     HealthStatus:
       type: object
       description: >-
@@ -4289,16 +4653,20 @@ components:
             - ok
             - degraded
           description: >-
-            Overall service status. "ok" when every dependency is reachable;
-            "degraded" (served with HTTP 503) when the database is not.
+            Overall service status. "ok" when the process is serving (and, for
+            `?db=1`, the database answered); "degraded" (served with HTTP 503)
+            only when a requested database ping failed.
         db:
           type: string
           enum:
             - up
             - down
+            - unchecked
           description: >-
-            Database connectivity as observed by a live ping from the runtime
-            pool. "down" is reported with HTTP 503.
+            Database connectivity. "unchecked" for the default shallow probe,
+            which deliberately does not touch the database. With `?db=1`, the
+            result of a live ping from the runtime pool: "up", or "down"
+            (reported with HTTP 503).
 
     Error:
       type: object
@@ -4336,6 +4704,8 @@ components:
             - STUDENT_NOT_FOUND
             - ROLE_ALREADY_ASSIGNED
             - COORDINATOR_ASSIGNMENT_EXISTS
+            - SELF_DEMOTION_REFUSED
+            - LAST_ADMIN_DEMOTION_REFUSED
             - DISPUTE_IDENTITY_UNVERIFIED
             - DISPUTE_ALREADY_OPEN
             - DISPUTE_NOT_FOUND
@@ -4381,8 +4751,8 @@ components:
       description: >-
         The global base role the identity is provisioned with on first login.
         Always present (provisioning yields exactly one). This is the base role
-        only — per-event coordinator assignment and RBAC enforcement are later
-        epics; the client uses it to route by role.
+        only — per-event coordinator assignment and RBAC enforcement are
+        handled separately; the client uses it to route by role.
       enum:
         - admin
         - teacher
@@ -4417,6 +4787,50 @@ components:
           minLength: 3
           maxLength: 500
           description: Human-readable reason for the forced logout (recorded in the audit log).
+
+    UserDemotionResult:
+      type: object
+      description: >-
+        Outcome of taking a staff role away. The removed_* counts say what
+        access went with the role.
+      required:
+        - user_id
+        - email
+        - previous_role
+        - role
+        - changed
+        - removed_coordinator_assignments
+        - removed_category_assignments
+        - removed_teacher_branches
+        - sessions_revoked
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        previous_role:
+          $ref: "#/components/schemas/AuthenticatedIdentityRole"
+        role:
+          $ref: "#/components/schemas/AuthenticatedIdentityRole"
+        changed:
+          type: boolean
+          description: >-
+            False when the user was already a student (no-op, no audit row).
+        removed_coordinator_assignments:
+          type: integer
+          minimum: 0
+          description: Coordinator assignments removed from active events.
+        removed_category_assignments:
+          type: integer
+          minimum: 0
+        removed_teacher_branches:
+          type: integer
+          minimum: 0
+        sessions_revoked:
+          type: boolean
+          description: >-
+            True when a scope=all forced logout was recorded with the demotion.
 
     SessionRevocationResult:
       type: object

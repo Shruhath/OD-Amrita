@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
 	"github.com/google/uuid"
@@ -75,6 +76,59 @@ func (r *SQLCReader) CategoryForEvent(ctx context.Context, eventID string, categ
 	return Category{CategoryID: uuid.UUID(row.ID.Bytes).String(), EventID: uuid.UUID(row.EventID.Bytes).String()}, nil
 }
 
+// EventWithCategoryForMark resolves the event AND verifies the category in one
+// round trip, returning the same two errors the separate calls did.
+//
+// It exists because the mark path made both lookups back to back on a path that
+// already makes several, against a database far enough away that each one is
+// felt. Both error identities are preserved exactly — ErrEventNotFound when the
+// event is absent, ErrCategoryNotFound when the event resolves but the category
+// is not one of its own — so nothing downstream can tell the difference except
+// by counting queries.
+func (r *SQLCReader) EventWithCategoryForMark(ctx context.Context, eventID, categoryID string) (Event, error) {
+	parsedEventID, err := uuid.Parse(strings.TrimSpace(eventID))
+	if err != nil {
+		return Event{}, err
+	}
+	parsedCategoryID, err := uuid.Parse(strings.TrimSpace(categoryID))
+	if err != nil {
+		return Event{}, err
+	}
+	row, err := r.queries.GetMarkEventWithCategory(ctx, sqlc.GetMarkEventWithCategoryParams{
+		EventID:    dbUUID(parsedEventID),
+		CategoryID: dbUUID(parsedCategoryID),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Event{}, ErrEventNotFound
+	}
+	if err != nil {
+		return Event{}, err
+	}
+	// Same strictness as EventForMark: end_date is NOT NULL in the database, and
+	// a zero-valued one would make range containment empty — closing the slot
+	// gate on every event rather than failing loudly.
+	if !row.EventID.Valid || !row.EventDate.Valid || !row.EndDate.Valid {
+		return Event{}, invalidRowError("event")
+	}
+	event := Event{
+		EventID:   uuid.UUID(row.EventID.Bytes).String(),
+		EventDate: row.EventDate.Time,
+		EndDate:   row.EndDate.Time,
+		Status:    row.Status,
+	}
+	// The LEFT JOIN's null: the event exists, the category is not one of its own.
+	//
+	// THE EVENT IS RETURNED ANYWAY, alongside the error. The caller needs it to
+	// keep the archived-event answer taking precedence over the category one —
+	// with two separate queries the event was already in hand by this point, and
+	// returning a zero value here would silently change which error a request
+	// naming an archived event and a bad category receives.
+	if !row.CategoryID.Valid {
+		return event, ErrCategoryNotFound
+	}
+	return event, nil
+}
+
 func (r *SQLCReader) StudentForMark(ctx context.Context, id string) (Student, error) {
 	studentID, err := uuid.Parse(strings.TrimSpace(id))
 	if err != nil {
@@ -88,6 +142,39 @@ func (r *SQLCReader) StudentForMark(ctx context.Context, id string) (Student, er
 		return Student{}, err
 	}
 	return mapStudent(row.ID, row.RollNo, row.Name, row.Branch, row.Section, row.Batch)
+}
+
+// ExistingPresentForBatch runs after a failed batch transaction to turn a
+// unique-index race into the same detailed conflict the preflight returns.
+// It deliberately uses the pool-backed reader, not the failed transaction.
+func (r *SQLCReader) ExistingPresentForBatch(ctx context.Context, input BatchMarkInput, odDate time.Time) ([]Student, error) {
+	eventID, err := uuid.Parse(strings.TrimSpace(input.EventID))
+	if err != nil {
+		return nil, err
+	}
+	studentIDs := make([]pgtype.UUID, 0, len(input.StudentIDs))
+	for _, raw := range input.StudentIDs {
+		studentID, parseErr := uuid.Parse(strings.TrimSpace(raw))
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		studentIDs = append(studentIDs, dbUUID(studentID))
+	}
+	rows, err := r.queries.ListExistingPresentMarksForBatch(ctx, sqlc.ListExistingPresentMarksForBatchParams{
+		EventID: dbUUID(eventID), StudentIds: studentIDs, Slot: int32(input.Slot), OdDate: pgtype.Date{Time: odDate, Valid: true},
+	})
+	if err != nil {
+		return nil, err
+	}
+	students := make([]Student, 0, len(rows))
+	for _, row := range rows {
+		student, mapErr := mapStudent(row.StudentID, row.RollNo, row.Name, row.Branch, row.Section, row.Batch)
+		if mapErr != nil {
+			return nil, mapErr
+		}
+		students = append(students, student)
+	}
+	return students, nil
 }
 
 type CardTokenResolver struct {

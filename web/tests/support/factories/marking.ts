@@ -1,6 +1,6 @@
 import { faker } from '@faker-js/faker'
 
-// Fixtures for the Story 0.6 coordinator marking surface.
+// Fixtures for the coordinator marking surface.
 //
 // Follows tests/support/factories/card-populator.ts: fixed ids so assertions can
 // name them, faker only for fields no assertion depends on, and an `overrides`
@@ -101,7 +101,7 @@ export function markableCategory(overrides: Partial<MarkableCategory> = {}): Mar
 export function markStudent(sequence = 1, overrides: Partial<MarkStudent> = {}): MarkStudent {
   return {
     student_id: `95000000-0000-4000-8000-${String(sequence).padStart(12, '0')}`,
-    roll_no: `CB.SC.U4CSE24${String(sequence).padStart(3, '0')}`,
+    roll_no: `CB.SC.U4CSE99${String(sequence).padStart(3, '0')}`,
     display_name: faker.person.fullName(),
     branch: 'CSE',
     section: 'A',

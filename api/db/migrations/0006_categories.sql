@@ -5,7 +5,7 @@
 -- event_branches.event_id. Four child tables end up needing identical logic
 -- (event_branches, categories, coordinator assignments, camera-credit config),
 -- so this migration replaces it with ONE TG_ARGV-parameterized function and
--- re-points event_branches at it. Story 2.1's existing event-branch immutability
+-- re-points event_branches at it. The existing event-branch immutability
 -- tests are the regression proof for that re-pointing.
 
 -- +goose Up
@@ -30,7 +30,7 @@ CREATE TABLE categories (
     -- Maintained by the UPDATE statement, not by a trigger — the convention set by
     -- events.sql:64 and users.sql:23, which both write `updated_at = now()` in the
     -- query. Categories are create+list only today, so nothing updates this yet; a
-    -- future rename story must set it in its own UPDATE to match.
+    -- future rename feature must set it in its own UPDATE to match.
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 

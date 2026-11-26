@@ -6,10 +6,14 @@ import {
   EXPORT_PAGE_SIZE,
   ExportTooLarge,
   MAX_EXPORT_RECORDS,
+  DAY_EXPORT_COLUMNS,
+  buildDayWorkbook,
   buildSlotWorkbook,
   buildSlotWorkbooks,
+  dayExportFileName,
   exportFileName,
   readDay,
+  rowsForDay,
   rowsForSlot,
   slotCounts,
   slotsWithRecords,
@@ -47,13 +51,13 @@ describe('the per-slot export', () => {
     // exporting one puts a student on an official list of people who were
     // excused when the record says they were not.
     const records = [
-      record({ slot: 3, status: 'present', rollNo: 'CB.SC.U4CSE24101' }),
-      record({ slot: 3, status: 'removed', rollNo: 'CB.SC.U4CSE24999' }),
+      record({ slot: 3, status: 'present', rollNo: 'CB.SC.U4CSE99101' }),
+      record({ slot: 3, status: 'removed', rollNo: 'CB.SC.U4CSE99999' }),
     ]
 
     const rows = rowsForSlot(records, 3)
 
-    expect(rows.map((row) => row.rollNo)).toEqual(['CB.SC.U4CSE24101'])
+    expect(rows.map((row) => row.rollNo)).toEqual(['CB.SC.U4CSE99101'])
   })
 
   test('[P0] a slot file holds only that slot', () => {
@@ -87,9 +91,9 @@ describe('the per-slot export', () => {
   test('[P0] the four columns are roll number, name, slot and category', () => {
     expect(EXPORT_COLUMNS).toEqual(['Roll number', 'Name', 'Slot', 'Category'])
 
-    const rows = rowsForSlot([record({ slot: 6, rollNo: 'CB.SC.U4CSE24101', name: 'Ananya Rao', categoryName: 'Procession' })], 6)
+    const rows = rowsForSlot([record({ slot: 6, rollNo: 'CB.SC.U4CSE99101', name: 'Ananya Rao', categoryName: 'Procession' })], 6)
 
-    expect(rows[0]).toEqual({ rollNo: 'CB.SC.U4CSE24101', name: 'Ananya Rao', slot: 6, category: 'Procession' })
+    expect(rows[0]).toEqual({ rollNo: 'CB.SC.U4CSE99101', name: 'Ananya Rao', slot: 6, category: 'Procession' })
   })
 
   test('[P0] one file per selected slot, named by day then slot', () => {
@@ -117,15 +121,15 @@ describe('the per-slot export', () => {
     // a different order every time it is pulled, which makes two exports of the
     // same data impossible to compare.
     const records = [
-      record({ slot: 5, rollNo: 'CB.SC.U4CSE24103' }),
-      record({ slot: 5, rollNo: 'CB.SC.U4CSE24101' }),
-      record({ slot: 5, rollNo: 'CB.SC.U4CSE24102' }),
+      record({ slot: 5, rollNo: 'CB.SC.U4CSE99103' }),
+      record({ slot: 5, rollNo: 'CB.SC.U4CSE99101' }),
+      record({ slot: 5, rollNo: 'CB.SC.U4CSE99102' }),
     ]
 
     expect(rowsForSlot(records, 5).map((row) => row.rollNo)).toEqual([
-      'CB.SC.U4CSE24101',
-      'CB.SC.U4CSE24102',
-      'CB.SC.U4CSE24103',
+      'CB.SC.U4CSE99101',
+      'CB.SC.U4CSE99102',
+      'CB.SC.U4CSE99103',
     ])
   })
 
@@ -155,13 +159,50 @@ describe('the per-slot export', () => {
   })
 })
 
+describe('the day-wise export', () => {
+  test('[P0] columns include serial number, roll number, name, slot and category', () => {
+    expect(DAY_EXPORT_COLUMNS).toEqual(['Serial number', 'Roll number', 'Name', 'Slot', 'Category'])
+  })
+
+  test('[P0] rows are grouped by slot, then roll number, with serial numbers in that order', () => {
+    const records = [
+      record({ slot: 3, rollNo: 'CB.SC.U4CSE99103', name: 'Rahul Menon', categoryName: 'Technical Expo' }),
+      record({ slot: 2, rollNo: 'CB.SC.U4CSE99102', name: 'Meera Suresh', categoryName: 'Procession' }),
+      record({ slot: 2, rollNo: 'CB.SC.U4CSE99101', name: 'Ananya Rao', categoryName: 'Cultural Programme' }),
+      record({ slot: 1, rollNo: 'CB.SC.U4CSE99999', status: 'removed' }),
+    ]
+
+    expect(rowsForDay(records)).toEqual([
+      { serial: 1, rollNo: 'CB.SC.U4CSE99101', name: 'Ananya Rao', slot: 2, category: 'Cultural Programme' },
+      { serial: 2, rollNo: 'CB.SC.U4CSE99102', name: 'Meera Suresh', slot: 2, category: 'Procession' },
+      { serial: 3, rollNo: 'CB.SC.U4CSE99103', name: 'Rahul Menon', slot: 3, category: 'Technical Expo' },
+    ])
+  })
+
+  test('[P1] the day file is named by date', () => {
+    expect(dayExportFileName('2026-07-28')).toBe('2026-07-28-day.xlsx')
+  })
+
+  test('[P1] one workbook is built for the whole day', () => {
+    const file = buildDayWorkbook([record({ slot: 2 }), record({ slot: 3 })], day)
+
+    expect(file.fileName).toBe('2026-07-28-day.xlsx')
+    expect(file.rowCount).toBe(2)
+    expect(file.bytes.byteLength).toBeGreaterThan(0)
+  })
+})
+
 describe('reading the whole day', () => {
   test('[P0] follows every page, so a big day is not silently truncated', async () => {
-    // The contract caps a page at 100. Reading one page and exporting it would
-    // produce a plausible-looking file missing everybody after the hundredth
-    // mark, with nothing on screen saying so.
-    const total = 250
-    const all = Array.from({ length: total }, (_, index) => record({ slot: 3, rollNo: `R-${String(index).padStart(3, '0')}` }))
+    // Reading one page and exporting it would produce a plausible-looking file
+    // missing everybody after the first page, with nothing on screen saying so.
+    //
+    // Sized FROM EXPORT_PAGE_SIZE rather than from a literal, so raising the page
+    // size keeps this test asserting what it is named for. Written against a
+    // hardcoded 250 it silently became a one-page test the moment the page size
+    // passed 250, which is exactly the truncation it exists to catch.
+    const total = EXPORT_PAGE_SIZE * 2 + 50
+    const all = Array.from({ length: total }, (_, index) => record({ slot: 3, rollNo: `R-${String(index).padStart(5, '0')}` }))
     const fetchPage = vi.fn(async (page: number, pageSize: number) => ({
       data: all.slice((page - 1) * pageSize, page * pageSize),
       total,
@@ -173,6 +214,26 @@ describe('reading the whole day', () => {
     expect(fetchPage).toHaveBeenCalledTimes(3)
     expect(fetchPage).toHaveBeenNthCalledWith(1, 1, EXPORT_PAGE_SIZE)
     expect(fetchPage).toHaveBeenNthCalledWith(3, 3, EXPORT_PAGE_SIZE)
+  })
+
+  test('[P0] reads the total once, not on every page', async () => {
+    // Every page carries a `total`, and producing it costs the server a full
+    // re-count of the filtered set. Trusting page one's removes half the
+    // export's queries; this pins that the later pages' counts are ignored
+    // rather than accidentally load-bearing.
+    const total = EXPORT_PAGE_SIZE + 10
+    const all = Array.from({ length: total }, (_, index) => record({ slot: 3, rollNo: `R-${String(index).padStart(5, '0')}` }))
+    const fetchPage = vi.fn(async (page: number, pageSize: number) => ({
+      data: all.slice((page - 1) * pageSize, page * pageSize),
+      // A wildly different count on page two must change nothing: the loop is
+      // terminated by the short page, and the first total already bounded it.
+      total: page === 1 ? total : 999_999,
+    }))
+
+    const records = await readDay(fetchPage)
+
+    expect(records).toHaveLength(total)
+    expect(fetchPage).toHaveBeenCalledTimes(2)
   })
 
   test('[P0] a short page ends the read even if the total disagrees', async () => {

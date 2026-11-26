@@ -76,6 +76,61 @@ func (q *Queries) CoordinatorAssignmentExists(ctx context.Context, arg Coordinat
 	return column_1, err
 }
 
+const deleteEventCoordinatorAssignment = `-- name: DeleteEventCoordinatorAssignment :execrows
+DELETE FROM event_coordinator_assignments
+WHERE event_id = $1 AND user_id = $2
+`
+
+type DeleteEventCoordinatorAssignmentParams struct {
+	EventID pgtype.UUID `json:"event_id"`
+	UserID  pgtype.UUID `json:"user_id"`
+}
+
+func (q *Queries) DeleteEventCoordinatorAssignment(ctx context.Context, arg DeleteEventCoordinatorAssignmentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteEventCoordinatorAssignment, arg.EventID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteUserCategoriesForEvent = `-- name: DeleteUserCategoriesForEvent :many
+DELETE FROM user_category_assignments uca
+USING categories c
+WHERE c.id = uca.category_id
+  AND uca.user_id = $1
+  AND c.event_id = $2
+RETURNING uca.category_id
+`
+
+type DeleteUserCategoriesForEventParams struct {
+	UserID  pgtype.UUID `json:"user_id"`
+	EventID pgtype.UUID `json:"event_id"`
+}
+
+// Every category access the user holds on ONE event. A coordinator's category
+// rows mean nothing once they no longer coordinate the event, and leaving them
+// would hand the access straight back on a later re-assignment.
+func (q *Queries) DeleteUserCategoriesForEvent(ctx context.Context, arg DeleteUserCategoriesForEventParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, deleteUserCategoriesForEvent, arg.UserID, arg.EventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var category_id pgtype.UUID
+		if err := rows.Scan(&category_id); err != nil {
+			return nil, err
+		}
+		items = append(items, category_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getCoordinatorAssignmentByEventAndUser = `-- name: GetCoordinatorAssignmentByEventAndUser :one
 SELECT
     eca.id,
@@ -328,6 +383,44 @@ func (q *Queries) ListCoordinatorAssignmentsByEvent(ctx context.Context, eventID
 	return items, nil
 }
 
+const lockCoordinatorAssignment = `-- name: LockCoordinatorAssignment :one
+SELECT eca.id, eca.user_id, eca.event_id, eca.fallback_credit_limit, u.email
+FROM event_coordinator_assignments eca
+JOIN users u ON u.id = eca.user_id
+WHERE eca.event_id = $1 AND eca.user_id = $2
+FOR UPDATE OF eca
+`
+
+type LockCoordinatorAssignmentParams struct {
+	EventID pgtype.UUID `json:"event_id"`
+	UserID  pgtype.UUID `json:"user_id"`
+}
+
+type LockCoordinatorAssignmentRow struct {
+	ID                  pgtype.UUID `json:"id"`
+	UserID              pgtype.UUID `json:"user_id"`
+	EventID             pgtype.UUID `json:"event_id"`
+	FallbackCreditLimit int32       `json:"fallback_credit_limit"`
+	Email               string      `json:"email"`
+}
+
+// Removal's first step: take the assignment row FOR UPDATE so a concurrent
+// fallback-credit debit (whose FK check needs a KEY SHARE lock on this row)
+// waits for the removal and then fails its FK check, instead of slipping a new
+// usage row in between the credit snapshot and the delete.
+func (q *Queries) LockCoordinatorAssignment(ctx context.Context, arg LockCoordinatorAssignmentParams) (LockCoordinatorAssignmentRow, error) {
+	row := q.db.QueryRow(ctx, lockCoordinatorAssignment, arg.EventID, arg.UserID)
+	var i LockCoordinatorAssignmentRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.EventID,
+		&i.FallbackCreditLimit,
+		&i.Email,
+	)
+	return i, err
+}
+
 const lockCoordinatorAssignmentUser = `-- name: LockCoordinatorAssignmentUser :one
 SELECT id, email, name, role
 FROM users
@@ -366,4 +459,31 @@ func (q *Queries) PromoteUserToCoordinator(ctx context.Context, userID pgtype.UU
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const sumCoordinatorCaptureCreditUsage = `-- name: SumCoordinatorCaptureCreditUsage :one
+SELECT count(*)::bigint AS rows, COALESCE(sum(consumed), 0)::bigint AS consumed
+FROM event_capture_credit_usage
+WHERE event_id = $1 AND user_id = $2
+`
+
+type SumCoordinatorCaptureCreditUsageParams struct {
+	EventID pgtype.UUID `json:"event_id"`
+	UserID  pgtype.UUID `json:"user_id"`
+}
+
+type SumCoordinatorCaptureCreditUsageRow struct {
+	Rows     int64 `json:"rows"`
+	Consumed int64 `json:"consumed"`
+}
+
+// The assignment's fallback-credit counters, for the audit snapshot. Read under
+// the assignment lock, just before the assignment is deleted; the counters then
+// go with it through event_capture_credit_usage_assignment_fk ON DELETE CASCADE
+// (0027) — od_runtime holds no DELETE on them.
+func (q *Queries) SumCoordinatorCaptureCreditUsage(ctx context.Context, arg SumCoordinatorCaptureCreditUsageParams) (SumCoordinatorCaptureCreditUsageRow, error) {
+	row := q.db.QueryRow(ctx, sumCoordinatorCaptureCreditUsage, arg.EventID, arg.UserID)
+	var i SumCoordinatorCaptureCreditUsageRow
+	err := row.Scan(&i.Rows, &i.Consumed)
+	return i, err
 }

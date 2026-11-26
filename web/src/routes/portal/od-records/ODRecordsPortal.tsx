@@ -22,7 +22,7 @@ import { AttendanceExportDialog } from './AttendanceExportDialog'
 
 const slots = Array.from({ length: 12 }, (_, index) => index + 1)
 const pageSize = 50
-const filterOptionsPageSize = 200
+const filterOptionsPageSize = 100
 
 function StatusBadge({ status }: { status: string }) {
   const tone = status === 'removed'
@@ -403,7 +403,7 @@ export default function ODRecordsPortal() {
               id="student-history-id"
               value={studentID}
               onChange={(e) => setStudentID(e.target.value)}
-              placeholder="CB.SC.U4CSE24001"
+              placeholder="CB.SC.U4CSE99001"
               className="bg-canvas border border-border focus:border-foreground focus:ring-1 focus:ring-foreground rounded-[10px] px-3 py-2 text-sm outline-none transition-all"
             />
           </div>

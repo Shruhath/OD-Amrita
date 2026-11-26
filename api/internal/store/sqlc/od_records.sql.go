@@ -282,6 +282,66 @@ func (q *Queries) GetMarkEvent(ctx context.Context, eventID pgtype.UUID) (GetMar
 	return i, err
 }
 
+const getMarkEventWithCategory = `-- name: GetMarkEventWithCategory :one
+SELECT
+    e.id AS event_id,
+    e.event_date,
+    e.end_date,
+    e.status,
+    c.id AS category_id
+FROM events e
+LEFT JOIN categories c ON c.id = $1 AND c.event_id = e.id
+WHERE e.id = $2
+`
+
+type GetMarkEventWithCategoryParams struct {
+	CategoryID pgtype.UUID `json:"category_id"`
+	EventID    pgtype.UUID `json:"event_id"`
+}
+
+type GetMarkEventWithCategoryRow struct {
+	EventID    pgtype.UUID `json:"event_id"`
+	EventDate  pgtype.Date `json:"event_date"`
+	EndDate    pgtype.Date `json:"end_date"`
+	Status     string      `json:"status"`
+	CategoryID pgtype.UUID `json:"category_id"`
+}
+
+// The mark path's event AND category lookup, as ONE round trip.
+//
+// These were two sequential queries — GetMarkEvent then GetMarkCategoryForEvent —
+// on a path that already makes many, against a database roughly half a second
+// away. In production they showed up as 8,862 and 627 calls; the event lookup
+// alone was the third most-executed query in the system, because the status poll
+// behind the marking screen reads it too.
+//
+// THE LEFT JOIN IS WHAT PRESERVES THE TWO DISTINCT ANSWERS. The caller must be
+// able to tell "no such event" from "no such category in this event", because
+// they are different errors to the client (EVENT_NOT_FOUND vs
+// CATEGORY_NOT_FOUND) and a coordinator debugging a mis-scanned screen needs to
+// know which. An inner join would collapse both into "no rows".
+//
+//	no row returned  -> the EVENT does not exist
+//	row, category_id IS NULL -> the event exists, the CATEGORY does not belong to it
+//	row, category_id present -> both resolve
+//
+// The scope check is deliberately NOT folded in here. It runs BEFORE this, and
+// the ordering is an information-disclosure boundary: a caller the scope gate
+// refuses must not be able to learn whether an event or category exists by
+// reading which error came back. See the ordering in service/od_record.Mark.
+func (q *Queries) GetMarkEventWithCategory(ctx context.Context, arg GetMarkEventWithCategoryParams) (GetMarkEventWithCategoryRow, error) {
+	row := q.db.QueryRow(ctx, getMarkEventWithCategory, arg.CategoryID, arg.EventID)
+	var i GetMarkEventWithCategoryRow
+	err := row.Scan(
+		&i.EventID,
+		&i.EventDate,
+		&i.EndDate,
+		&i.Status,
+		&i.CategoryID,
+	)
+	return i, err
+}
+
 const getMarkStudentByID = `-- name: GetMarkStudentByID :one
 SELECT
     s.id,
@@ -593,6 +653,76 @@ func (q *Queries) ListAttendanceRecords(ctx context.Context, arg ListAttendanceR
 	return items, nil
 }
 
+const listExistingPresentMarksForBatch = `-- name: ListExistingPresentMarksForBatch :many
+SELECT
+    r.student_id,
+    s.roll_no,
+    s.name,
+    b.code AS branch,
+    s.section,
+    s.batch
+FROM od_records r
+JOIN students s ON s.id = r.student_id
+JOIN branches b ON b.id = s.branch_id
+WHERE r.event_id = $1
+  AND r.od_date = $2
+  AND r.slot = $3
+  AND r.status = 'present'
+  AND r.student_id = ANY($4::uuid[])
+ORDER BY s.roll_no ASC
+`
+
+type ListExistingPresentMarksForBatchParams struct {
+	EventID    pgtype.UUID   `json:"event_id"`
+	OdDate     pgtype.Date   `json:"od_date"`
+	Slot       int32         `json:"slot"`
+	StudentIds []pgtype.UUID `json:"student_ids"`
+}
+
+type ListExistingPresentMarksForBatchRow struct {
+	StudentID pgtype.UUID `json:"student_id"`
+	RollNo    string      `json:"roll_no"`
+	Name      string      `json:"name"`
+	Branch    string      `json:"branch"`
+	Section   string      `json:"section"`
+	Batch     string      `json:"batch"`
+}
+
+// This is executed inside the batch's single write transaction before its first
+// INSERT. It deliberately does not use ON CONFLICT DO NOTHING: a manual batch
+// is all-or-nothing, so an existing mark is a conflict, not an item to skip.
+func (q *Queries) ListExistingPresentMarksForBatch(ctx context.Context, arg ListExistingPresentMarksForBatchParams) ([]ListExistingPresentMarksForBatchRow, error) {
+	rows, err := q.db.Query(ctx, listExistingPresentMarksForBatch,
+		arg.EventID,
+		arg.OdDate,
+		arg.Slot,
+		arg.StudentIds,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListExistingPresentMarksForBatchRow
+	for rows.Next() {
+		var i ListExistingPresentMarksForBatchRow
+		if err := rows.Scan(
+			&i.StudentID,
+			&i.RollNo,
+			&i.Name,
+			&i.Branch,
+			&i.Section,
+			&i.Batch,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listODRecordsForStudent = `-- name: ListODRecordsForStudent :many
 SELECT
     r.id, r.student_id, s.roll_no, s.name AS student_name, b.code AS branch,
@@ -879,8 +1009,7 @@ type ListPublicStudentODRecordsRow struct {
 	ServerReceivedAt pgtype.Timestamptz `json:"server_received_at"`
 }
 
-// One student's present OD records for the UNAUTHENTICATED public dashboard
-// (Story 0.10, FR39).
+// One student's present OD records for the UNAUTHENTICATED public dashboard.
 //
 // GROUPING KEY IS od_records.od_date, NOT server_received_at and no longer
 // events.event_date. An event spans a range of days, so the event's first day

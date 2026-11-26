@@ -7,11 +7,15 @@
 #   that just went out actually work? Two assertions, both of which have failed
 #   silently in real deployments:
 #
-#     1. /health reports the database is UP. A 200 alone is not enough — the API
-#        boots fine with an unreachable database and answers 503
-#        {"status":"degraded","db":"down"}. That response means the od_runtime
-#        pool never reached Neon, which is precisely the failure worth catching
-#        before an event rather than during one.
+#     1. /health?db=1 reports the database is UP. This is the DEEP probe: it
+#        pings the od_runtime pool. The plain /health that Fly checks every 15s
+#        deliberately does not touch the database (so Neon can scale to zero) and
+#        answers {"status":"ok","db":"unchecked"} — it can never prove the
+#        database is reachable, so this script must not use it. A deep 200 alone
+#        is not enough either: the API boots fine with an unreachable database
+#        and the deep probe answers 503 {"status":"degraded","db":"down"}. That
+#        means the od_runtime pool never reached Neon, which is precisely the
+#        failure worth catching before an event rather than during one.
 #
 #     2. Plain HTTP is REFUSED, not redirected (NFR15). The transport rule is
 #        that an insecure request is not ANSWERED and not REDIRECTED; a 301/308
@@ -47,8 +51,7 @@
 #   2  the script was invoked wrong (missing or malformed BASE_URL)
 #
 # SEE ALSO
-#   docs/deployment-runbook.md          the deploy procedure and operator steps
-#   docs/backup-and-monitoring-runbook.md  §5.4 the restore-verify /health check
+#   docs/deployment.md   the deploy procedure, operator steps and restore checks
 
 set -euo pipefail
 
@@ -57,7 +60,8 @@ usage() {
 Usage: BASE_URL=https://<deployed-host> api/scripts/smoke.sh
 
 Verifies a deployed OD-Amrita API:
-  1. GET <BASE_URL>/health returns a body reporting status ok and db up.
+  1. GET <BASE_URL>/health?db=1 (the database-pinging probe) returns a body
+     reporting status ok and db up.
   2. Plain http:// on the same host is refused, not redirected (NFR15).
 USAGE
 }
@@ -129,17 +133,19 @@ fail() {
 
 printf 'Smoke-checking %s\n\n' "$base_url"
 
-# ── Check 1 — /health reports the database is up ────────────────────────────
-printf 'Check 1: GET %s/health\n' "$base_url"
+# ── Check 1 — /health?db=1 reports the database is up ───────────────────────
+# ?db=1 is the deep probe. Without it /health answers db "unchecked" and proves
+# nothing about the database (see the header).
+printf 'Check 1: GET %s/health?db=1\n' "$base_url"
 
 health_body=""
 health_exit=0
-health_body=$(curl -fsS --max-time 15 "$base_url/health" 2>&1) || health_exit=$?
+health_body=$(curl -fsS --max-time 15 "$base_url/health?db=1" 2>&1) || health_exit=$?
 
 if [ "$health_exit" -ne 0 ]; then
-  fail "GET $base_url/health did not return a 2xx (curl exit $health_exit)."
+  fail "GET $base_url/health?db=1 did not return a 2xx (curl exit $health_exit)."
   printf '        curl said: %s\n' "$health_body" >&2
-  printf '        A 503 here is the API telling you it cannot reach the database:\n' >&2
+  printf '        A 503 here is the API telling you its database ping failed:\n' >&2
   printf '        check the DATABASE_URL_RUNTIME secret and that the roles exist.\n' >&2
 else
   # Whitespace-insensitive and key-order-insensitive: the handler is free to
@@ -152,7 +158,11 @@ else
   esac
 
   case "$compact" in
-    *'"db":"up"'*) pass 'body reports db up (the runtime pool reached the database)' ;;
+    *'"db":"up"'*) pass 'body reports db up (the runtime pool answered a live ping)' ;;
+    *'"db":"unchecked"'*)
+      fail "body reports db unchecked — the probe did not ping the database: got $health_body"
+      printf '        The deployed build ignores ?db=1 (older build?), so this run proves nothing about the database.\n' >&2
+      ;;
     *)
       fail "body does not report db up — got: $health_body"
       printf '        db down means the pool never connected. The deploy is NOT good.\n' >&2
@@ -206,8 +216,8 @@ fi
 printf '\n'
 if [ "$failures" -gt 0 ]; then
   printf 'SMOKE CHECK FAILED — %d assertion(s) failed against %s\n' "$failures" "$base_url" >&2
-  printf 'Do not record this deploy as good. See docs/deployment-runbook.md.\n' >&2
+  printf 'Do not record this deploy as good. See docs/deployment.md.\n' >&2
   exit 1
 fi
 
-printf 'SMOKE CHECK PASSED — %s serves HTTPS, reports db up, and refuses plain HTTP.\n' "$base_url"
+printf 'SMOKE CHECK PASSED — %s serves HTTPS, its database answered a live ping, and it refuses plain HTTP.\n' "$base_url"

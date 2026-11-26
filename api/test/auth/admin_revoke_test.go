@@ -1,4 +1,4 @@
-// admin_revoke_test.go — Story 1.5c (DoD 7, 8, 10): the admin forced-logout
+// admin_revoke_test.go — the admin forced-logout
 // endpoint POST /api/v1/admin/users/{user_id}/sessions/revoke. Composed
 // in-process round-trip (errormw + seeded actor identity + handler) with a fake
 // revocation service; no DB. It reuses decodeError from auth_http_test.go.

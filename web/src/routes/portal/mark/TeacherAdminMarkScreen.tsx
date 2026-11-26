@@ -46,13 +46,15 @@ export default function TeacherAdminMarkScreen() {
   const [eventID, setEventID] = usePersistentState('teacher-mark.event.v1', '', asString)
   const [categoryID, setCategoryID] = usePersistentState('teacher-mark.category.v1', '', asString)
   const [slot, setSlot] = usePersistentState('teacher-mark.slot.v1', '1', asString)
-  const [odDate, setODDate] = usePersistentState('teacher-mark.od-date.v1', '', asString)
   const [query, setQuery] = useState('')
   const [reasonNote, setReasonNote] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
-  const [selectedStudent, setSelectedStudent] = useState<ResolvedCardStudent | null>(null)
+  const [selectedStudents, setSelectedStudents] = useState<ResolvedCardStudent[]>([])
+  const [odDate, setODDate] = useState('')
   const [failure, setFailure] = useState<string | null>(null)
-  const [success, setSuccess] = useState<MarkAttendanceResult | null>(null)
+  const [success, setSuccess] = useState<MarkAttendanceResult[] | null>(null)
+  const isAdministrator = identity?.role === 'admin'
+  const isTeacher = identity?.role === 'teacher'
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), SEARCH_DEBOUNCE_MS)
@@ -76,13 +78,6 @@ export default function TeacherAdminMarkScreen() {
     }
   }, [eventID, eventOptions, setEventID])
 
-  useEffect(() => {
-    if (!selectedEvent) return
-    if (odDate < selectedEvent.event_date || odDate > selectedEvent.end_date) {
-      setODDate(selectedEvent.event_date)
-    }
-  }, [odDate, selectedEvent, setODDate])
-
   const categories = useQuery({
     queryKey: ['portal', 'mark', 'events', eventID, 'categories'],
     queryFn: () => api.portalMarkCategories(eventID),
@@ -98,8 +93,9 @@ export default function TeacherAdminMarkScreen() {
   }, [categoryID, categoryOptions, setCategoryID])
 
   useEffect(() => {
-    setSelectedStudent(null)
-  }, [eventID, categoryID])
+    setSelectedStudents([])
+    setODDate(selectedEvent?.event_date ?? '')
+  }, [eventID, categoryID, selectedEvent?.event_date])
 
   const studentQuery = useQuery({
     queryKey: ['portal', 'mark', 'students', debouncedQuery],
@@ -110,29 +106,45 @@ export default function TeacherAdminMarkScreen() {
   const studentOptions = useMemo(() => studentQuery.data?.data ?? [], [studentQuery.data])
 
   const mark = useMutation({
-    mutationFn: () => {
-      if (!selectedStudent) throw new Error('Choose a student before marking.')
-      return api.mark({
+    mutationFn: async (): Promise<MarkAttendanceResult[]> => {
+      if (selectedStudents.length === 0) throw new Error('Choose at least one student before marking.')
+      if (isTeacher) {
+        const [student] = selectedStudents
+        return [await api.mark({
+          event_id: eventID,
+          category_id: categoryID,
+          capture_method: 'search',
+          student_id: student.student_id,
+          slot: Number(slot),
+          reason_note: reasonNote.trim(),
+        })]
+      }
+      if (!isAdministrator) throw new Error('Administrator or teacher access is required for manual marks.')
+      return (await api.batchManualMark({
         event_id: eventID,
         category_id: categoryID,
-        capture_method: 'search',
-        student_id: selectedStudent.student_id,
+        student_ids: selectedStudents.map((student) => student.student_id),
         slot: Number(slot),
         od_date: odDate,
         reason_note: reasonNote.trim(),
-      })
+      })).records
     },
     onSuccess(result) {
       setFailure(null)
       setSuccess(result)
       setQuery('')
       setDebouncedQuery('')
-      setSelectedStudent(null)
+      setSelectedStudents([])
       void queryClient.invalidateQueries({ queryKey: ['admin', 'attendance', eventID] })
     },
     onError(cause) {
       setSuccess(null)
-      setFailure(cause instanceof ApiFailure ? cause.body.message : cause instanceof Error ? cause.message : 'The student could not be marked.')
+      if (cause instanceof ApiFailure && cause.body.code === 'SCAN_DUPLICATE' && 'duplicate_students' in cause.body) {
+        const duplicates = (cause.body as { duplicate_students?: ResolvedCardStudent[] }).duplicate_students ?? []
+        setFailure(`Already marked: ${duplicates.map((student) => student.roll_no).join(', ')}. Remove them and try again.`)
+      } else {
+        setFailure(cause instanceof ApiFailure ? cause.body.message : cause instanceof Error ? cause.message : 'The students could not be marked.')
+      }
       if (cause instanceof ApiFailure && cause.body.code === 'EVENT_ARCHIVED') {
         void events.refetch()
       }
@@ -142,10 +154,8 @@ export default function TeacherAdminMarkScreen() {
   const eventReady =
     eventID !== '' &&
     categoryID !== '' &&
-    selectedEvent !== null &&
-    odDate >= selectedEvent.event_date &&
-    odDate <= selectedEvent.end_date
-  const markDisabled = !eventReady || !selectedStudent || reasonNote.trim() === '' || mark.isPending
+    selectedEvent !== null
+  const markDisabled = (!isAdministrator && !isTeacher) || !eventReady || (isAdministrator && !odDate) || selectedStudents.length === 0 || reasonNote.trim() === '' || mark.isPending
 
   const changeQuery = (value: string) => {
     setQuery(value)
@@ -157,24 +167,18 @@ export default function TeacherAdminMarkScreen() {
     setEventID(value)
     setFailure(null)
     setSuccess(null)
-    setSelectedStudent(null)
+    setSelectedStudents([])
   }
 
   const changeCategory = (value: string) => {
     setCategoryID(value)
     setFailure(null)
     setSuccess(null)
-    setSelectedStudent(null)
+    setSelectedStudents([])
   }
 
   const changeSlot = (value: string) => {
     setSlot(value)
-    setFailure(null)
-    setSuccess(null)
-  }
-
-  const changeODDate = (value: string) => {
-    setODDate(value)
     setFailure(null)
     setSuccess(null)
   }
@@ -198,7 +202,11 @@ export default function TeacherAdminMarkScreen() {
 
       <section className="bg-surface border border-border rounded-[10px] p-6 shadow-sm">
         <h2 className="text-lg font-bold tracking-tight mb-1">Search mark</h2>
-        <p className="text-sm text-foreground-muted mb-6">Choose the event, category, slot, then search and select one student.</p>
+        <p className="text-sm text-foreground-muted mb-6">
+          {isTeacher
+            ? 'Choose the event, category and slot, then select one student to mark.'
+            : 'Choose the event, category, slot and date, then build the student list to mark together.'}
+        </p>
 
         {/* Error/Empty states */}
         {events.isPending && (
@@ -237,7 +245,7 @@ export default function TeacherAdminMarkScreen() {
         {!(events.isSuccess && eventOptions.length === 0) && (
           <form className="flex flex-col gap-5" onSubmit={submit} noValidate>
             {/* Event / Category / Slot selectors */}
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+            <div className={`grid grid-cols-1 ${isAdministrator ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} gap-4`}>
               <div className="flex flex-col gap-1">
                 <label htmlFor="teacher-mark-event" className="text-xs font-semibold uppercase tracking-wider text-foreground-muted">Event</label>
                 <Select
@@ -247,6 +255,21 @@ export default function TeacherAdminMarkScreen() {
                   options={eventOptions.map((event) => ({ value: event.id, label: event.name }))}
                 />
               </div>
+
+              {isAdministrator && (
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="teacher-mark-date" className="text-xs font-semibold uppercase tracking-wider text-foreground-muted">OD date</label>
+                  <input
+                    id="teacher-mark-date"
+                    type="date"
+                    value={odDate}
+                    min={selectedEvent?.event_date}
+                    max={selectedEvent?.end_date}
+                    onChange={(event) => { setODDate(event.target.value); setFailure(null); setSuccess(null) }}
+                    className="bg-canvas border border-border focus:border-foreground focus:ring-1 focus:ring-foreground rounded-[10px] px-3 py-2 text-sm outline-none transition-all"
+                  />
+                </div>
+              )}
 
               <div className="flex flex-col gap-1">
                 <label htmlFor="teacher-mark-category" className="text-xs font-semibold uppercase tracking-wider text-foreground-muted">Category</label>
@@ -272,19 +295,6 @@ export default function TeacherAdminMarkScreen() {
                 />
               </div>
 
-              <div className="flex flex-col gap-1">
-                <label htmlFor="teacher-mark-od-date" className="text-xs font-semibold uppercase tracking-wider text-foreground-muted">Date</label>
-                <input
-                  id="teacher-mark-od-date"
-                  type="date"
-                  value={odDate}
-                  min={selectedEvent?.event_date}
-                  max={selectedEvent?.end_date}
-                  onChange={(event) => changeODDate(event.target.value)}
-                  disabled={!selectedEvent}
-                  className="bg-canvas border border-border focus:border-foreground focus:ring-1 focus:ring-foreground rounded-[10px] px-3 py-2 text-sm outline-none transition-all disabled:opacity-60"
-                />
-              </div>
             </div>
 
             {/* Student search */}
@@ -326,28 +336,38 @@ export default function TeacherAdminMarkScreen() {
                 <ul className="flex flex-col gap-1 mt-1" role="listbox" aria-label="Student search results">
                   {studentOptions.map((student) => (
                     <li key={student.student_id}>
+                      {(() => {
+                        const selected = selectedStudents.some((item) => item.student_id === student.student_id)
+                        return (
                       <button
                         type="button"
                         role="option"
-                        aria-selected={selectedStudent?.student_id === student.student_id}
+                        aria-selected={selected}
+                        aria-label={`${selected ? 'Deselect' : 'Select'} ${student.roll_no}`}
                         className={`w-full text-left p-3 rounded-[10px] transition-all active:scale-[0.99] border ${
-                          selectedStudent?.student_id === student.student_id
+                          selected
                             ? 'bg-foreground text-canvas border-foreground'
                             : 'bg-canvas hover:bg-surface border-border'
                         }`}
                         onClick={() => {
-                          setSelectedStudent(student)
-                          setQuery(student.roll_no)
-                          setDebouncedQuery(student.roll_no)
+                          setSelectedStudents((current) => {
+                            if (current.some((item) => item.student_id === student.student_id)) {
+                              return current.filter((item) => item.student_id !== student.student_id)
+                            }
+                            return isTeacher ? [student] : [...current, student]
+                          })
                           setFailure(null)
                           setSuccess(null)
                         }}
                       >
                         <span className="font-mono font-semibold text-sm">{student.roll_no}</span>
-                        <span className={`text-sm ml-2 ${selectedStudent?.student_id === student.student_id ? 'text-canvas/80' : 'text-foreground-muted'}`}>
+                        <span className={`text-sm ml-2 ${selected ? 'text-canvas/80' : 'text-foreground-muted'}`}>
                           {student.display_name} · {student.branch} · {student.section}
                         </span>
+                        <span className="sr-only">{selected ? ' Selected. Activate to remove.' : ' Not selected. Activate to add.'}</span>
                       </button>
+                        )
+                      })()}
                     </li>
                   ))}
                 </ul>
@@ -374,16 +394,13 @@ export default function TeacherAdminMarkScreen() {
               />
             </div>
 
-            {/* Selected student status */}
-            {selectedStudent && (
-              <div className="flex items-center gap-3 p-3 bg-status-info-bg rounded-[10px] border border-status-info-fg/20" aria-live="polite">
-                <div className="w-8 h-8 rounded-full bg-status-info-fg/20 flex items-center justify-center text-xs font-bold shrink-0 text-status-info-fg">
-                  {selectedStudent.display_name.slice(0, 2).toUpperCase()}
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-status-info-fg">{selectedStudent.display_name}</p>
-                  <p className="text-xs text-status-info-fg/80 font-mono">{selectedStudent.roll_no}</p>
-                </div>
+            {selectedStudents.length > 0 && (
+              <div className="flex flex-wrap gap-2 p-3 bg-status-info-bg rounded-[10px] border border-status-info-fg/20" aria-live="polite" aria-label="Selected students">
+                {selectedStudents.map((student) => (
+                  <button key={student.student_id} type="button" aria-label={`Remove ${student.roll_no} from selected students`} className="text-left rounded-full bg-status-info-fg/15 px-3 py-1 text-xs font-semibold text-status-info-fg" onClick={() => setSelectedStudents((selected) => selected.filter((item) => item.student_id !== student.student_id))}>
+                    {student.roll_no} ×
+                  </button>
+                ))}
               </div>
             )}
 
@@ -392,7 +409,7 @@ export default function TeacherAdminMarkScreen() {
               <div className="flex items-center gap-3 p-3 bg-status-success-bg rounded-[10px] border border-status-success-fg/20" role="status">
                 <Check size={20} weight="bold" aria-hidden="true" className="text-status-success-fg" />
                 <p className="text-sm font-semibold text-status-success-fg">
-                  Marked {success.student.display_name} present on {success.od_date} in slot {success.slot}.
+                  Marked {success.length} student{success.length === 1 ? '' : 's'} present on {success[0]?.od_date} in slot {success[0]?.slot}.
                 </p>
               </div>
             )}
@@ -407,7 +424,7 @@ export default function TeacherAdminMarkScreen() {
               type="submit"
               disabled={markDisabled}
             >
-              {mark.isPending ? 'Marking…' : 'Mark present'}
+              {mark.isPending ? 'Marking…' : 'Mark selected students'}
             </button>
           </form>
         )}

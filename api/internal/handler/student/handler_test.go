@@ -25,7 +25,7 @@ func TestImportStudentsHandler_BindsMultipartFileAndRendersResult(t *testing.T) 
 		DatabaseCount: 1,
 	}}
 	router := testRouter(svc)
-	body, contentType := multipartBody(t, "file", "students.csv", "Roll No,Name,Branch,Section,Batch\nCB.SC.U4CSE24001,Name,CSE,A,2024\n")
+	body, contentType := multipartBody(t, "file", "students.csv", "Roll No,Name,Branch,Section,Batch\nCB.SC.U4CSE99001,Name,CSE,A,2024\n")
 
 	recorder := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/students/import", body)
@@ -38,7 +38,7 @@ func TestImportStudentsHandler_BindsMultipartFileAndRendersResult(t *testing.T) 
 	if svc.fileName != "students.csv" {
 		t.Errorf("filename = %q", svc.fileName)
 	}
-	if !strings.Contains(svc.content, "CB.SC.U4CSE24001") {
+	if !strings.Contains(svc.content, "CB.SC.U4CSE99001") {
 		t.Errorf("service content = %q", svc.content)
 	}
 	if !strings.Contains(recorder.Body.String(), `"inserted_rows":1`) {

@@ -82,7 +82,7 @@ func TestTeacherAdminAttendanceContract_AttendanceSchemas(t *testing.T) {
 		// so a future field (card/token/fallback_credit/dispute/reason/email or
 		// anything else not yet imagined) is caught the moment it is added,
 		// rather than only the handful of names checked here today.
-		// `od_date` was added under Story 0.12a (T22). `server_received_at` is
+		// `od_date` was added with the multi-day date range. `server_received_at` is
 		// already here and is NOT the same fact: it is when the row was written,
 		// while `od_date` is the day the OD belongs to. A teacher's next-morning
 		// correction has two different dates, and an admin verifying a thirty-day

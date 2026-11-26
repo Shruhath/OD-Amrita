@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -59,9 +60,9 @@ const (
 )
 
 // teacherPrincipalID/teacherPrincipalEmail are the ALREADY-teacher-role
-// principal Story 0.9's search-mark journeys sign in as, seeded with a CSE
+// principal the search-mark journeys sign in as, seeded with a CSE
 // branch association below. This is distinct from teacherFixtureEmail further
-// down, which stays role='student' between runs so the 2.3 elevation journeys
+// down, which stays role='student' between runs so the teacher-elevation journeys
 // have something to promote — the two must never collapse into one row.
 const (
 	teacherPrincipalID    = "90000000-0000-4000-8000-000000000004"
@@ -70,7 +71,7 @@ const (
 
 // The marking fixtures. The coordinator surface needs a principal that
 // production never creates on its own — every first-time user is provisioned as
-// `student`, and Story 0.7 is the supported way to elevate one — plus an event
+// `student`, and admin role assignment is the supported way to elevate one — plus an event
 // whose RANGE covers today, because odrecord.ActiveSlot asks whether today falls
 // between events.event_date and events.end_date in Asia/Kolkata. An event whose
 // range excludes today makes every slot assertion vacuously "no slot open",
@@ -85,7 +86,7 @@ const (
 	markingEventName  = "Browser Marking Event"
 )
 
-// The Story 0.10 public-dashboard fixtures.
+// The public-dashboard fixtures.
 //
 // This journey READS and never marks, so unlike every other marking fixture
 // these od_records have to be pre-seeded — and seeded LAST, after both of
@@ -97,9 +98,9 @@ const (
 // two — which is both the realistic shape (a festival day with two events) and
 // what keeps "the row for slot N" unambiguous.
 //
-// The students are disjoint from every pool another spec owns: 24001-003 belong
-// to coordinator-marking, 24004-005 to capture-credits, 24006-007 to
-// teacher-admin-attendance. Story 0.9 lost CI rounds to exactly this collision.
+// The students are disjoint from every pool another spec owns: 99001-003 belong
+// to coordinator-marking, 99004-005 to capture-credits, 99006-007 to
+// teacher-admin-attendance. CI rounds have been lost to exactly this collision.
 const (
 	publicEventID          = "93000000-0000-4000-8000-000000000002"
 	publicCategoryID       = "94000000-0000-4000-8000-000000000002"
@@ -108,20 +109,20 @@ const (
 	publicArchivedCategory = "94000000-0000-4000-8000-000000000003"
 	publicArchivedName     = "Browser Public Archived Event"
 	publicStudentID        = "95000000-0000-4000-8000-000000000009"
-	publicStudentRoll      = "CB.SC.U4CSE24008"
+	publicStudentRoll      = "CB.SC.U4CSE99008"
 	publicUnmarkedID       = "95000000-0000-4000-8000-000000000010"
-	publicUnmarkedRoll     = "CB.SC.U4CSE24009"
+	publicUnmarkedRoll     = "CB.SC.U4CSE99009"
 	disputeEventID         = "93000000-0000-4000-8000-000000000004"
 	disputeCategoryID      = "94000000-0000-4000-8000-000000000004"
 	disputeEventName       = "Browser Dispute Event"
 	disputeStudentID       = "95000000-0000-4000-8000-000000000011"
-	disputeStudentRoll     = "CB.SC.U4CSE24010"
+	disputeStudentRoll     = "CB.SC.U4CSE99010"
 
 	// The multi-day fixtures own their OWN event id and their OWN student, both
 	// disjoint from every pool above.
 	//
 	// A separate event rather than a reuse of the public-dashboard one because
-	// web-deploy.yml asserts an EXACT record count for the two Story 0.10 event
+	// web-deploy.yml asserts an EXACT record count for the two public-dashboard event
 	// ids: adding this journey's rows to those events would turn a conservation
 	// gate red for a reason that has nothing to do with what it guards, and the
 	// tempting fix would be to loosen the number.
@@ -129,11 +130,11 @@ const (
 	multiDayCategoryID  = "94000000-0000-4000-8000-000000000006"
 	multiDayEventName   = "Browser Multi Day Event"
 	multiDayStudentID   = "95000000-0000-4000-8000-000000000012"
-	multiDayStudentRoll = "CB.SC.U4CSE24011"
+	multiDayStudentRoll = "CB.SC.U4CSE99011"
 )
 
-// Story 0.12b's record-management API fixtures. IDs are prefixed 120b0000
-// (the story number) to match the exact ids
+// The record-management API fixtures. IDs are prefixed 120b0000
+// (a fixed prefix) to match the exact ids
 // web/tests/api/teacher-admin-record-management.spec.ts hardcodes — this
 // journey exists to satisfy that file, not the other way round. The named
 // ids below are the ones the spec references directly; the *StudentID ids
@@ -208,6 +209,13 @@ func (fixedVerifier) Verify(_ context.Context, token string) (svcauth.VerifiedId
 func main() {
 	runtimeDSN := requiredEnv("DATABASE_URL_RUNTIME")
 	migratorDSN := requiredEnv("DATABASE_URL_MIGRATOR")
+	// Refuse before connecting: seed() deletes fixture-shaped rows, and these
+	// are the same variable names the production API reads.
+	for name, dsn := range map[string]string{"DATABASE_URL_RUNTIME": runtimeDSN, "DATABASE_URL_MIGRATOR": migratorDSN} {
+		if err := requireLoopbackDSN(name, dsn); err != nil {
+			log.Fatalf("portal acceptance API refused to start: %v", err)
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -280,10 +288,10 @@ func main() {
 	markAPI := api.Group("")
 	markAPI.Use(rbac.RequirePrincipal(principalLoader))
 	handlerodrecord.RegisterRoutes(markAPI, markService)
-	// Mirrors cmd/api: Story 0.12b's correct/remove/audit and the record-list/
+	// Mirrors cmd/api: the record-management correct/remove/audit and the record-list/
 	// history reads. A harness that omits these is a harness whose green means
-	// less than it looks — this is what left the real-Postgres ATDD scaffold for
-	// this story unable to pass no matter what the fixtures below seed.
+	// less than it looks — this is what left the real-Postgres acceptance tests for
+	// record management unable to pass no matter what the fixtures below seed.
 	handlerodrecord.RegisterRecordManagementRoutes(markAPI, svcodrecord.NewManagementService(runtimePool, st))
 	handlerodrecord.RegisterPortalRecordListRoutes(markAPI, portalMarkReads)
 	handlerodrecord.RegisterPortalMarkRoutes(markAPI, portalMarkReads)
@@ -308,7 +316,7 @@ func main() {
 	handlerstudent.RegisterAdminRoutes(admin, studentService)
 	handlercardtoken.RegisterAdminRoutes(admin, cardTokenService)
 
-	// The UNAUTHENTICATED public dashboard (Story 0.10), composed EXACTLY as
+	// The UNAUTHENTICATED public dashboard, composed EXACTLY as
 	// cmd/api composes it: a group off the ROOT router, never a child of `api`.
 	// If this harness mounted it anywhere else, the real-stack spec's "answers an
 	// anonymous request" assertion would be testing the harness's arrangement
@@ -341,8 +349,15 @@ func main() {
 	if port == "" {
 		port = "8081"
 	}
-	log.Printf("portal acceptance API listening on :%s", port)
-	if err := http.ListenAndServe(":"+port, router); err != nil {
+	// Loopback unless PORTAL_API_HOST says otherwise (e.g. inside a container
+	// whose port is published only to the host's loopback).
+	host := os.Getenv("PORTAL_API_HOST")
+	if host == "" {
+		host = defaultListenHost
+	}
+	addr := net.JoinHostPort(host, port)
+	log.Printf("portal acceptance API listening on %s", addr)
+	if err := http.ListenAndServe(addr, router); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -547,7 +562,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 	`); err != nil {
 		return fmt.Errorf("upsert branches: %w", err)
 	}
-	// Story 0.9's teacher search-mark journeys need this principal already
+	// The teacher search-mark journeys need this principal already
 	// branch-scoped to CSE, re-asserted on every start (not ON CONFLICT DO
 	// NOTHING on a row that could go missing) so a run that ever removed it
 	// does not silently leave the teacher with zero branches, which would turn
@@ -571,11 +586,11 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO students (id, roll_no, name, branch_id, section, batch)
 		VALUES
-			('95000000-0000-4000-8000-000000000002', 'CB.SC.U4CSE24002', 'Madhav Rao', '91000000-0000-4000-8000-000000000001', 'A', '2024'),
-			('95000000-0000-4000-8000-000000000001', 'CB.SC.U4CSE24001', 'Ananya Rao', '91000000-0000-4000-8000-000000000001', 'A', '2024'),
-			('95000000-0000-4000-8000-000000000003', 'CB.SC.U4CSE24003', 'Nikhil Menon', '91000000-0000-4000-8000-000000000001', 'B', '2024'),
-			('95000000-0000-4000-8000-000000000004', 'CB.SC.U4CSE24004', 'Isha Nair', '91000000-0000-4000-8000-000000000001', 'A', '2024'),
-			('95000000-0000-4000-8000-000000000005', 'CB.SC.U4CSE24005', 'Rahul Iyer', '91000000-0000-4000-8000-000000000001', 'A', '2024')
+			('95000000-0000-4000-8000-000000000002', 'CB.SC.U4CSE99002', 'Madhav Rao', '91000000-0000-4000-8000-000000000001', 'A', '2024'),
+			('95000000-0000-4000-8000-000000000001', 'CB.SC.U4CSE99001', 'Ananya Rao', '91000000-0000-4000-8000-000000000001', 'A', '2024'),
+			('95000000-0000-4000-8000-000000000003', 'CB.SC.U4CSE99003', 'Nikhil Menon', '91000000-0000-4000-8000-000000000001', 'B', '2024'),
+			('95000000-0000-4000-8000-000000000004', 'CB.SC.U4CSE99004', 'Isha Nair', '91000000-0000-4000-8000-000000000001', 'A', '2024'),
+			('95000000-0000-4000-8000-000000000005', 'CB.SC.U4CSE99005', 'Rahul Iyer', '91000000-0000-4000-8000-000000000001', 'A', '2024')
 		ON CONFLICT (id) DO UPDATE
 		SET roll_no = EXCLUDED.roll_no, name = EXCLUDED.name, branch_id = EXCLUDED.branch_id,
 		    section = EXCLUDED.section, batch = EXCLUDED.batch
@@ -583,19 +598,19 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("upsert card populator students: %w", err)
 	}
 	// An ECE student outside the seeded teacher principal's CSE branch, so
-	// Story 0.9's real-stack "teacher outside student branch" journey has a
+	// the real-stack "teacher outside student branch" journey has a
 	// student to search for that must be refused rather than marked.
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO students (id, roll_no, name, branch_id, section, batch)
-		VALUES ('95000000-0000-4000-8000-000000000006', 'CB.SC.U4ECE24001', 'Vivek Pillai', '91000000-0000-4000-8000-000000000002', 'A', '2024')
+		VALUES ('95000000-0000-4000-8000-000000000006', 'CB.SC.U4ECE99001', 'Vivek Pillai', '91000000-0000-4000-8000-000000000002', 'A', '2024')
 		ON CONFLICT (id) DO UPDATE
 		SET roll_no = EXCLUDED.roll_no, name = EXCLUDED.name, branch_id = EXCLUDED.branch_id,
 		    section = EXCLUDED.section, batch = EXCLUDED.batch
 	`); err != nil {
 		return fmt.Errorf("upsert out-of-branch student fixture: %w", err)
 	}
-	// Dedicated to the 0.9 teacher search-mark journey — CB.SC.U4CSE24001-003
-	// belongs to coordinator-marking.spec.ts and 24004-005 to
+	// Dedicated to the 0.9 teacher search-mark journey — CB.SC.U4CSE99001-003
+	// belongs to coordinator-marking.spec.ts and 99004-005 to
 	// capture-credits.spec.ts; reusing either pool put two legitimate marks in
 	// the same unfiltered admin attendance view and broke a strict-mode locator.
 	// Two rolls, matching the "different student per retry" convention used
@@ -603,8 +618,8 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO students (id, roll_no, name, branch_id, section, batch)
 		VALUES
-			('95000000-0000-4000-8000-000000000007', 'CB.SC.U4CSE24006', 'Teacher Fixture Student One', '91000000-0000-4000-8000-000000000001', 'A', '2024'),
-			('95000000-0000-4000-8000-000000000008', 'CB.SC.U4CSE24007', 'Teacher Fixture Student Two', '91000000-0000-4000-8000-000000000001', 'A', '2024')
+			('95000000-0000-4000-8000-000000000007', 'CB.SC.U4CSE99006', 'Teacher Fixture Student One', '91000000-0000-4000-8000-000000000001', 'A', '2024'),
+			('95000000-0000-4000-8000-000000000008', 'CB.SC.U4CSE99007', 'Teacher Fixture Student Two', '91000000-0000-4000-8000-000000000001', 'A', '2024')
 		ON CONFLICT (id) DO UPDATE
 		SET roll_no = EXCLUDED.roll_no, name = EXCLUDED.name, branch_id = EXCLUDED.branch_id,
 		    section = EXCLUDED.section, batch = EXCLUDED.batch
@@ -640,17 +655,26 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("associate marking event branch: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO categories (id, event_id, name)
-		VALUES ($1, $2, 'Procession')
-		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
-	`, markingCategoryID, markingEventID); err != nil {
+			INSERT INTO categories (id, event_id, name)
+			VALUES ($1, $2, 'Procession')
+			ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+		`, markingCategoryID, markingEventID); err != nil {
 		return fmt.Errorf("upsert marking category: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO event_coordinator_assignments (user_id, event_id, created_by_user_id)
-		VALUES ('90000000-0000-4000-8000-000000000003', $1, '90000000-0000-4000-8000-000000000001')
-		ON CONFLICT (user_id, event_id) DO NOTHING
-	`, markingEventID); err != nil {
+			INSERT INTO user_category_assignments (user_id, category_id, created_by_user_id)
+			VALUES
+				('90000000-0000-4000-8000-000000000003', $1, '90000000-0000-4000-8000-000000000001'),
+				($2, $1, '90000000-0000-4000-8000-000000000001')
+			ON CONFLICT DO NOTHING
+		`, markingCategoryID, teacherPrincipalID); err != nil {
+		return fmt.Errorf("associate marking principals category: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+			INSERT INTO event_coordinator_assignments (user_id, event_id, created_by_user_id)
+			VALUES ('90000000-0000-4000-8000-000000000003', $1, '90000000-0000-4000-8000-000000000001')
+			ON CONFLICT (user_id, event_id) DO NOTHING
+		`, markingEventID); err != nil {
 		return fmt.Errorf("upsert marking coordinator assignment: %w", err)
 	}
 	// Marks from a previous run would make the counter assertions cumulative, so
@@ -735,11 +759,18 @@ func seedDisputeJourney(ctx context.Context, tx pgx.Tx) error {
 		return fmt.Errorf("associate dispute event branch: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO categories (id, event_id, name)
-		VALUES ($1, $2, 'Procession')
-		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
-	`, disputeCategoryID, disputeEventID); err != nil {
+			INSERT INTO categories (id, event_id, name)
+			VALUES ($1, $2, 'Procession')
+			ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+		`, disputeCategoryID, disputeEventID); err != nil {
 		return fmt.Errorf("upsert dispute category fixture: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+			INSERT INTO user_category_assignments (user_id, category_id, created_by_user_id)
+			VALUES ($1, $2, '90000000-0000-4000-8000-000000000001')
+			ON CONFLICT DO NOTHING
+		`, teacherPrincipalID, disputeCategoryID); err != nil {
+		return fmt.Errorf("associate dispute teacher category: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM disputes WHERE event_id = $1`, disputeEventID); err != nil {
 		return fmt.Errorf("clear dispute rows fixture: %w", err)
@@ -804,18 +835,25 @@ func seedMultiDayJourney(ctx context.Context, tx pgx.Tx, today time.Time) error 
 		return fmt.Errorf("associate multi-day event branch: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO categories (id, event_id, name)
-		VALUES ($1, $2, 'Multi Day Procession')
-		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
-	`, multiDayCategoryID, multiDayEventID); err != nil {
+			INSERT INTO categories (id, event_id, name)
+			VALUES ($1, $2, 'Multi Day Procession')
+			ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+		`, multiDayCategoryID, multiDayEventID); err != nil {
 		return fmt.Errorf("upsert multi-day category: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+			INSERT INTO user_category_assignments (user_id, category_id, created_by_user_id)
+			VALUES ('90000000-0000-4000-8000-000000000003', $1, '90000000-0000-4000-8000-000000000001')
+			ON CONFLICT DO NOTHING
+		`, multiDayCategoryID); err != nil {
+		return fmt.Errorf("associate multi-day coordinator category: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM od_records WHERE event_id = $1`, multiDayEventID); err != nil {
 		return fmt.Errorf("clear multi-day od records: %w", err)
 	}
 
 	// The SAME slot on all three days. That is the FR10 change stated as a
-	// fixture: before this story the unique index refused the second and third
+	// fixture: before the date range the unique index refused the second and third
 	// rows outright, so a seed that varied the slot would still load against the
 	// old schema and prove nothing.
 	for _, day := range []time.Time{rangeStart, today, rangeEnd} {
@@ -830,7 +868,7 @@ func seedMultiDayJourney(ctx context.Context, tx pgx.Tx, today time.Time) error 
 	return nil
 }
 
-// seedRecordManagementJourney seeds Story 0.12b's fixtures for
+// seedRecordManagementJourney seeds the record-management fixtures for
 // web/tests/api/teacher-admin-record-management.spec.ts. Every named record
 // gets its OWN student rather than sharing one across scenarios, so one
 // test's correction/removal can never collide with another's expectations —
@@ -866,6 +904,13 @@ func seedRecordManagementJourney(ctx context.Context, tx pgx.Tx) error {
 		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
 	`, recordMgmtCSECategoryID, recordMgmtECECategoryID, recordMgmtEventID); err != nil {
 		return fmt.Errorf("upsert record management categories: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO user_category_assignments (user_id, category_id, created_by_user_id)
+		VALUES ($1, $2, '90000000-0000-4000-8000-000000000001')
+		ON CONFLICT DO NOTHING
+	`, teacherPrincipalID, recordMgmtCSECategoryID); err != nil {
+		return fmt.Errorf("associate teacher principal record management category: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM od_records WHERE event_id = $1`, recordMgmtEventID); err != nil {
 		return fmt.Errorf("clear record management od records: %w", err)
@@ -915,12 +960,12 @@ func seedRecordManagementJourney(ctx context.Context, tx pgx.Tx) error {
 	students := []struct {
 		id, roll, branchID, section string
 	}{
-		{recordMgmtCSEStudentID, "CB.SC.U4CSE24012", "91000000-0000-4000-8000-000000000001", "A"},
-		{recordMgmtECEStudentID, "CB.SC.U4ECE24002", "91000000-0000-4000-8000-000000000002", "A"},
-		{recordMgmtCorrectableStudentID, "CB.SC.U4CSE24013", "91000000-0000-4000-8000-000000000001", "A"},
-		{recordMgmtRemovableStudentID, "CB.SC.U4CSE24014", "91000000-0000-4000-8000-000000000001", "A"},
-		{recordMgmtRemovedStudentID, "CB.SC.U4CSE24015", "91000000-0000-4000-8000-000000000001", "A"},
-		{recordMgmtCrossBranchStudentID, "CB.SC.U4ECE24003", "91000000-0000-4000-8000-000000000002", "A"},
+		{recordMgmtCSEStudentID, "CB.SC.U4CSE99012", "91000000-0000-4000-8000-000000000001", "A"},
+		{recordMgmtECEStudentID, "CB.SC.U4ECE99002", "91000000-0000-4000-8000-000000000002", "A"},
+		{recordMgmtCorrectableStudentID, "CB.SC.U4CSE99013", "91000000-0000-4000-8000-000000000001", "A"},
+		{recordMgmtRemovableStudentID, "CB.SC.U4CSE99014", "91000000-0000-4000-8000-000000000001", "A"},
+		{recordMgmtRemovedStudentID, "CB.SC.U4CSE99015", "91000000-0000-4000-8000-000000000001", "A"},
+		{recordMgmtCrossBranchStudentID, "CB.SC.U4ECE99003", "91000000-0000-4000-8000-000000000002", "A"},
 	}
 	for _, student := range students {
 		if _, err := tx.Exec(ctx, `
@@ -1025,7 +1070,7 @@ func insertRecordMgmtRow(ctx context.Context, tx pgx.Tx, eventID, studentID, cat
 
 func strPtr(v string) *string { return &v }
 
-// seedPublicDashboard seeds the read-only Story 0.10 fixtures.
+// seedPublicDashboard seeds the read-only public-dashboard fixtures.
 //
 // Called at the END of seed(), after every od_records delete, because this
 // journey never marks: its records must already exist when the first assertion

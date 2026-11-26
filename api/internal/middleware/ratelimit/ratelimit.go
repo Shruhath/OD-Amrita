@@ -1,11 +1,11 @@
 // Package ratelimit is the per-client request limiter guarding the
-// UNAUTHENTICATED public surface (Story 0.10).
+// UNAUTHENTICATED public surface.
 //
 // SCOPE — it protects the public group and nothing else. Applying it to
 // /api/v1 would throttle a coordinator mid-event, and applying it to /health
 // would let a burst of platform probes mark a healthy machine as down. FR15's
 // per-coordinator scan limiting is a different mechanism on the authenticated
-// write path and is explicitly out of Epic 0.
+// write path and is explicitly out of scope here.
 //
 // WHY A TOKEN BUCKET, HAND-ROLLED. The whole algorithm is ~40 lines of stdlib.
 // Pulling in golang.org/x/time/rate would add the api module's first new direct

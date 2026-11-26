@@ -1,6 +1,5 @@
 // Package domain holds core domain types shared across services: the audit-event
-// registry (events.go) and the canonical domain-error registry (this file). Story
-// 1.1 reserved the homes; Story 1.4 populates them.
+// registry (events.go) and the canonical domain-error registry (this file).
 package domain
 
 import (
@@ -9,15 +8,14 @@ import (
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
 )
 
-// errors.go ★ — the canonical domain-error registry (Story 1.4, AC 5).
+// errors.go ★ — the canonical domain-error registry.
 //
 // DomainError is a sentinel domain error carrying a canonical, machine-branchable
 // error code plus a human message. The Code is the GENERATED contract enum
 // (contracts.ErrorCode) — the wire SSOT declared in openapi.yaml — so the codes
 // are referenced, never re-declared in Go: one definition, zero drift. Services
-// return a DomainError; the gin error-middleware (which lands with the first
-// error-returning endpoint, auth 1.5a — deliberately NOT wired here) maps Code to
-// an HTTP status via HTTPStatus and renders the {code, message, details} envelope.
+// return a DomainError; the gin error-middleware (middleware/error, deliberately
+// NOT wired here) maps Code to an HTTP status via HTTPStatus and renders the {code, message, details} envelope.
 //
 // Error() has a VALUE receiver so a DomainError value satisfies error — callers
 // can `return DomainError{Code: …, Message: …}` directly.
@@ -38,7 +36,7 @@ func (e DomainError) Error() string {
 // CI backstop: it fails if any contract code lacks a mapping, if a mapped key is
 // no longer .Valid() per the contract, or if the counts diverge.
 //
-// The three status choices the story left to the dev are settled here:
+// The status choices that were open judgement calls are settled here:
 //   - AUTH_DOMAIN_REJECTED -> 403: the identity is known (Microsoft login
 //     succeeded) but the email domain is not permitted; re-authenticating cannot
 //     help, so Forbidden fits better than 401 Unauthorized.
@@ -51,14 +49,18 @@ func (e DomainError) Error() string {
 //     state-conflict family as SCAN_DUPLICATE/SLOT_CLOSED, and deliberately
 //     distinct from EVENT_NOT_FOUND's 404 — "the id is wrong" and "the aggregate
 //     is closed" are different answers the portal branches on differently.
-//   - USER_NOT_FOUND        -> 404: no `users` row matches the supplied email
-//     (Story 2.3). Teacher-profile creation elevates an existing identity; there
-//     is genuinely no prior code for "no such user".
+//   - USER_NOT_FOUND        -> 404: no `users` row matches the supplied email.
+//     Teacher-profile creation elevates an existing identity; there is
+//     genuinely no prior code for "no such user".
 //   - ROLE_ALREADY_ASSIGNED -> 409: the user already holds a non-student role.
 //     Same state-conflict family as EVENT_ARCHIVED/SCAN_DUPLICATE, not reused
 //     from EVENT_ARCHIVED because it is a distinct aggregate/state.
 //   - COORDINATOR_ASSIGNMENT_EXISTS -> 409: the assignment already exists for
 //     that user/event pair, including a uniqueness race.
+//   - SELF_DEMOTION_REFUSED / LAST_ADMIN_DEMOTION_REFUSED -> 409: the request is
+//     authorized and well-formed, but the user aggregate's state forbids it — an
+//     admin may not strip their own access, and the system may not be left with
+//     no admin at all. Same state-conflict family as ROLE_ALREADY_ASSIGNED.
 var codeToStatus = map[contracts.ErrorCode]int{
 	contracts.ErrorCodeAUTHDOMAINREJECTED:        403,
 	contracts.ErrorCodeAUTHTOKENINVALID:          401,
@@ -82,6 +84,8 @@ var codeToStatus = map[contracts.ErrorCode]int{
 	contracts.ErrorCodeSTUDENTNOTFOUND:             404,
 	contracts.ErrorCodeROLEALREADYASSIGNED:         409,
 	contracts.ErrorCodeCOORDINATORASSIGNMENTEXISTS: 409,
+	contracts.ErrorCodeSELFDEMOTIONREFUSED:         409,
+	contracts.ErrorCodeLASTADMINDEMOTIONREFUSED:    409,
 	contracts.ErrorCodeDISPUTEIDENTITYUNVERIFIED:   400,
 	contracts.ErrorCodeDISPUTEALREADYOPEN:          409,
 	contracts.ErrorCodeDISPUTENOTFOUND:             404,

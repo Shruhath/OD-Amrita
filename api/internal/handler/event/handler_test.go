@@ -36,6 +36,8 @@ type fakeService struct {
 	coordinatorUpdateCalls int
 	coordinatorInput       eventsvc.CreateCoordinatorAssignmentInput
 	coordinatorUpdateInput eventsvc.UpdateCoordinatorCategoryAccessInput
+	coordinatorRemoveCalls int
+	coordinatorRemoveInput eventsvc.RemoveCoordinatorAssignmentInput
 	creditLimitCalls       int
 	creditLimitInput       eventsvc.CaptureCreditLimitInput
 }
@@ -75,6 +77,12 @@ func (f *fakeService) CreateCoordinatorAssignment(_ context.Context, _ eventsvc.
 	}
 	return eventsvc.CoordinatorAssignment{}, f.err
 }
+func (f *fakeService) RemoveCoordinatorAssignment(_ context.Context, _ eventsvc.Actor, input eventsvc.RemoveCoordinatorAssignmentInput) error {
+	f.coordinatorRemoveCalls++
+	f.coordinatorRemoveInput = input
+	return f.err
+}
+
 func (f *fakeService) UpdateCoordinatorCategoryAccess(_ context.Context, _ eventsvc.Actor, input eventsvc.UpdateCoordinatorCategoryAccessInput) (eventsvc.CoordinatorAssignment, error) {
 	f.coordinatorUpdateCalls++
 	f.coordinatorUpdateInput = input
@@ -374,6 +382,7 @@ func eventRouter(svc Service) *gin.Engine {
 	router.GET("/events/:event_id/coordinators", ListCoordinatorAssignmentsHandler(svc))
 	router.POST("/events/:event_id/coordinators", CreateCoordinatorAssignmentHandler(svc))
 	router.PUT("/events/:event_id/coordinators/:user_id/categories", UpdateCoordinatorCategoryAccessHandler(svc))
+	router.DELETE("/events/:event_id/coordinators/:user_id", RemoveCoordinatorAssignmentHandler(svc))
 	router.GET("/events/:event_id/capture-credits", ListCaptureCreditsHandler(svc))
 	router.PUT("/events/:event_id/capture-credits/coordinators/:user_id/limit", UpdateCoordinatorCaptureCreditLimitHandler(svc))
 	router.POST("/events/:event_id/capture-credits/coordinators/:user_id/reset", ResetCaptureCreditsHandler(svc))

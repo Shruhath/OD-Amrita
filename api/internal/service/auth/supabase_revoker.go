@@ -1,12 +1,11 @@
 package auth
 
-// supabase_revoker.go — the best-effort Supabase-side revocation seam (Story
-// 1.5c, DoD 5/11).
+// supabase_revoker.go — the best-effort Supabase-side revocation seam.
 //
 // WHY THIS IS DISABLED BY DEFAULT. Supabase/GoTrue exposes NO supported
 // server-side API to force-log-out ANOTHER user's sessions by subject: the admin
 // sign-out (`POST {authUrl}/logout?scope=`) requires the TARGET user's own valid
-// JWT, which a forced-logout admin does not hold. The story forbids inventing a
+// JWT, which a forced-logout admin does not hold. We deliberately do not invent a
 // workaround (e.g. storing users' refresh/access tokens to replay their logout).
 // So the production wiring uses DisabledRevoker: the LOCAL deny-list
 // (revocation_checker.go) is authoritative for our API's next-request guarantee,
@@ -15,7 +14,7 @@ package auth
 // SupabaseRevoker without persisting any token; the service already treats it as
 // best-effort (its failure never blocks the local revoke).
 //
-// See docs/auth-microsoft-supabase-setup.md for the runbook note.
+// docs/deployment.md describes the auth setup this relies on.
 
 import "context"
 

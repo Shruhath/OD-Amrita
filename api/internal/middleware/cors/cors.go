@@ -12,6 +12,7 @@ import (
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
 
 	"github.com/Shruhath/OD-Amrita/api/internal/domain"
+	requestid "github.com/Shruhath/OD-Amrita/api/internal/middleware/request_id"
 )
 
 // RouteSource reports the routes registered on the router this middleware is
@@ -70,6 +71,12 @@ func Middleware(origins []string, routes RouteSource) gin.HandlerFunc {
 		headers := c.Writer.Header()
 		headers.Add("Vary", "Origin")
 		headers.Set("Access-Control-Allow-Origin", origin)
+		// Without this the browser hides X-Request-Id from the page's JavaScript,
+		// and the id is only visible to somebody who opens devtools. Exposing it
+		// lets a failure screen print the reference a person can quote — which is
+		// the entire reason the id is minted. Safe to expose: it is an opaque
+		// correlation token that names a request and carries nothing about it.
+		headers.Set("Access-Control-Expose-Headers", requestid.HeaderName)
 		if c.Request.Method == http.MethodOptions {
 			headers.Set("Access-Control-Allow-Methods", methods())
 			// Reflect the browser's requested headers, falling back to the

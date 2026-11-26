@@ -1,5 +1,5 @@
 /**
- * App shell (Story 1.9) — thin per D3 (no router): switches on the session the
+ * App shell — thin per D3 (no router): switches on the session the
  * `sessionGate` reports between the sign-in screen and the authenticated `RoundTripScreen`.
  *
  * All the actual decisions live in injected-port modules, tested headless (the 1.6 house

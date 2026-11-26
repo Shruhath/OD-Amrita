@@ -14,9 +14,12 @@
 package odrecordtest
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Shruhath/OD-Amrita/api/internal/service/appsettings"
 	odrecord "github.com/Shruhath/OD-Amrita/api/internal/service/od_record"
@@ -56,13 +59,14 @@ func TestExtendedSlots_TogglesBothWays(t *testing.T) {
 	fixture := seedMarkFixture(t, ctx, migrator)
 
 	service := appsettings.NewService(runtime)
+	admin := appsettings.Actor{UserID: fixture.adminID, Email: "admin@amrita.edu", Role: "admin"}
 	t.Cleanup(func() {
 		// Leave the shared database as it was found. Another test in this
 		// package asserts the default, and it runs in the same process.
-		_, _, _ = service.SetExtendedSlots(ctx, false, fixture.adminID)
+		_, _, _ = service.SetExtendedSlots(ctx, false, admin)
 	})
 
-	enabled, _, err := service.SetExtendedSlots(ctx, true, fixture.adminID)
+	enabled, _, err := service.SetExtendedSlots(ctx, true, admin)
 	if err != nil {
 		t.Fatalf("[P0] turn the switch on: %v", err)
 	}
@@ -83,7 +87,7 @@ func TestExtendedSlots_TogglesBothWays(t *testing.T) {
 		t.Errorf("[P0] the ceiling with the switch on is %d, want 20", got)
 	}
 
-	if _, _, err = service.SetExtendedSlots(ctx, false, fixture.adminID); err != nil {
+	if _, _, err = service.SetExtendedSlots(ctx, false, admin); err != nil {
 		t.Fatalf("[P0] turn the switch off: %v", err)
 	}
 	nowOff, err := service.ExtendedSlotsEnabled(ctx)
@@ -93,6 +97,65 @@ func TestExtendedSlots_TogglesBothWays(t *testing.T) {
 	if nowOff {
 		t.Fatal("[P0] the switch would not turn back off. The evening slots must be undoable before a real event")
 	}
+}
+
+func TestExtendedSlots_AdminWriteIsAuditedWithPreviousAndNewValue(t *testing.T) {
+	ctx := testCtx(t)
+	migrator := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_MIGRATOR"))
+	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
+	fixture := seedMarkFixture(t, ctx, migrator)
+	service := appsettings.NewService(runtime)
+	admin := appsettings.Actor{UserID: fixture.adminID, Email: "admin@amrita.edu", Role: "admin"}
+
+	_, _, _ = service.SetExtendedSlots(ctx, false, admin)
+
+	before := countExtendedSlotSettingAudits(t, ctx, migrator)
+
+	if _, _, err := service.SetExtendedSlots(ctx, true, admin); err != nil {
+		t.Fatalf("[P0] turn the switch on: %v", err)
+	}
+
+	var actorRole string
+	var payloadBytes []byte
+	if err := migrator.QueryRow(ctx, `
+		SELECT actor_role, payload
+		FROM audit_log
+		WHERE action = 'app_setting.updated'
+		  AND actor_account = 'admin@amrita.edu'
+		  AND target_table = 'app_settings'
+		  AND target_id = 'extended_slots_enabled'
+		ORDER BY created_at DESC
+		LIMIT 1`).Scan(&actorRole, &payloadBytes); err != nil {
+		t.Fatalf("[P0] read setting audit row: %v", err)
+	}
+	after := countExtendedSlotSettingAudits(t, ctx, migrator)
+	if after != before+1 {
+		t.Fatalf("[P0] setting audit rows changed from %d to %d, want exactly one new row", before, after)
+	}
+	if actorRole != "admin" {
+		t.Fatalf("[P0] setting audit actor_role = %q, want admin", actorRole)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
+		t.Fatalf("[P0] setting audit payload is not JSON: %v", err)
+	}
+	if payload["key"] != appsettings.ExtendedSlotsKey || payload["previous_value"] != false || payload["new_value"] != true {
+		t.Fatalf("[P0] setting audit payload = %#v, want key plus previous=false and new=true", payload)
+	}
+}
+
+func countExtendedSlotSettingAudits(t *testing.T, ctx context.Context, pool *pgxpool.Pool) int {
+	t.Helper()
+	var n int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM audit_log
+		WHERE action = 'app_setting.updated'
+		  AND actor_account = 'admin@amrita.edu'
+		  AND target_table = 'app_settings'
+		  AND target_id = 'extended_slots_enabled'`).Scan(&n); err != nil {
+		t.Fatalf("count extended-slot setting audits: %v", err)
+	}
+	return n
 }
 
 // SLOTS-INT-003 — THE DATABASE ACCEPTS SLOT 20, AND REFUSES 21.

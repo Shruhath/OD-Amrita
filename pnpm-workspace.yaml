@@ -29,3 +29,22 @@ minimumReleaseAgeExclude:
   - expo-modules-autolinking@57.0.3
   - expo-modules-core@57.0.1
   - expo@57.0.1
+# Patched releases of transitive dependencies, each within the major version its
+# parent already asks for. Remove an entry once the parent ships the fix itself.
+overrides:
+  '@xmldom/xmldom@>=0.8.0 <0.9.0': ^0.8.15
+  '@xmldom/xmldom@>=0.9.0 <0.10.0': ^0.9.12
+  'brace-expansion@>=1.0.0 <2.0.0': ^1.1.21
+  'brace-expansion@>=2.0.0 <3.0.0': ^2.1.7
+  'brace-expansion@>=5.0.0 <6.0.0': ^5.0.12
+  'js-yaml@>=3.0.0 <4.0.0': ^3.15.2
+  'js-yaml@>=4.0.0 <5.0.0': ^4.3.2
+  'nanoid@>=3.0.0 <4.0.0': ^3.3.18
+  baseline-browser-mapping: ^2.11.0
+  browserslist: ^4.28.7
+  compression: ^1.8.2
+  node-forge: ^1.4.3
+  postcss: ^8.5.23
+  shell-quote: ^1.11.0
+  source-map-js: ^1.2.2
+  undici: ^7.30.1

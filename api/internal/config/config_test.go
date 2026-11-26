@@ -136,7 +136,7 @@ func TestLoad_TLSFullyConfigured(t *testing.T) {
 		"TLS_CERT_FILE":         cert,
 		"TLS_KEY_FILE":          key,
 		// Auth (Supabase JWT) is required outside development, so a fully
-		// configured production box must supply it (Story 1.5a, DoD 6).
+		// configured production box must supply it.
 		"AUTH_JWKS_URL":       "https://project-ref.supabase.co/auth/v1/.well-known/jwks.json",
 		"AUTH_ISSUER":         "https://project-ref.supabase.co/auth/v1",
 		"AUTH_AUDIENCE":       "authenticated",
@@ -170,12 +170,11 @@ func TestLoad_TLSFullyConfigured(t *testing.T) {
 	}
 }
 
-// ── Auth (Supabase JWT) config — Story 1.5a, DoD 6 ──
-// The gate mirrors the story's open-Q5 recommendation: JWKS + issuer are
-// REQUIRED when APP_ENV != development, so the no-Supabase dev box still boots
-// but a real deploy fails fast on missing/malformed auth config. If the dev
-// instead prefers an explicit AUTH_ENABLED flag (TLS-style), swap the env setup
-// in these four tests — the observable behavior (prod requires it, dev doesn't)
+// ── Auth (Supabase JWT) config ──
+// JWKS + issuer are REQUIRED when APP_ENV != development, so the no-Supabase dev
+// box still boots but a real deploy fails fast on missing/malformed auth config.
+// If an explicit AUTH_ENABLED flag (TLS-style) is preferred instead, swap the env
+// setup in these four tests — the observable behavior (prod requires it, dev doesn't)
 // is what is pinned.
 
 // TestLoad_AuthRequiredInProduction — outside development, missing auth config

@@ -1,20 +1,38 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 import { motion } from 'motion/react'
 import type { Identity } from '../../api/client'
 import { ThemeToggle } from '../../components/ThemeToggle'
 import { ApiFailure, createEventApi } from '../../api/client'
 import type { SessionPort } from './session'
+import { SignOutError } from './signOutError'
 import { hasPendingAuthCallback } from './callback'
 import { clearPersistedState } from '../persistence/sessionState'
 import { LoadingScreen } from '../../components/ui/Spinner'
 import { AuthContext, useAuth, type AuthState } from './context'
 
-export function AuthProvider({ children, session }: { children: ReactNode; session: SessionPort }) {
+export function AuthProvider({
+  children,
+  session,
+  onSignOut,
+}: {
+  children: ReactNode
+  session: SessionPort
+  /**
+   * Run after the session is torn down, before the identity is dropped.
+   *
+   * Passed in rather than reached for with useQueryClient() so this component
+   * keeps working where it is mounted without a QueryClientProvider — which is
+   * how several of its own tests mount it, and which a hook would turn into a
+   * throw. Application.tsx supplies the real one.
+   */
+  onSignOut?: () => void
+}) {
   const api = useMemo(() => createEventApi(session), [session])
   const [identity, setIdentity] = useState<Identity | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [signOutProblem, setSignOutProblem] = useState<string | null>(null)
 
   /**
    * Resolves the signed-in identity.
@@ -69,9 +87,51 @@ export function AuthProvider({ children, session }: { children: ReactNode; sessi
     }
   }, [api, session])
 
+  /**
+   * Mirrors `identity` for the subscription below, which must read the CURRENT
+   * value without re-subscribing every time it changes. A ref rather than a
+   * dependency: putting `identity` in the effect's deps would tear down and
+   * rebuild the Supabase subscription on every sign-in.
+   */
+  const identityRef = useRef<Identity | null>(null)
+  identityRef.current = identity
+
   useEffect(() => {
     void load()
-    return session.subscribe(() => void load({ background: true }))
+
+    /**
+     * A TOKEN REFRESH IS NOT A SIGN-IN, AND MUST NOT COST A ROUND TRIP.
+     *
+     * This used to call `load({ background: true })` on every Supabase auth
+     * event. Supabase fires one on every token refresh and every time a phone
+     * returns from the background, so a person working through a morning
+     * produced dozens of `/auth/me` calls — and each of those was, on the
+     * server, a row update plus an audit insert plus two transactions. It was
+     * measured in production as the single most expensive query in the
+     * database.
+     *
+     * The only two transitions that can change who the user is are:
+     *
+     *   token gone      -> signed out, or the session expired. Re-resolve, which
+     *                      clears the identity and returns to the sign-in card.
+     *   token, no identity -> a fresh sign-in (or a first resolve that failed).
+     *                      Re-resolve to learn the role.
+     *
+     * A new token while an identity is already held is a REFRESH of the session
+     * we already resolved. The subject cannot change without a sign-out first,
+     * so there is nothing to learn and the call is skipped.
+     *
+     * What this gives up: a role changed by an admin mid-session no longer
+     * lands on the next token refresh — it lands on the next page load or
+     * sign-in. The server-side guards are unaffected; every protected request
+     * still loads the principal and still checks the revocation deny-list, so a
+     * demoted user is refused by the API regardless of what this screen shows.
+     */
+    return session.subscribe((token) => {
+      if (!token || !identityRef.current) {
+        void load({ background: true })
+      }
+    })
   }, [load, session])
 
   const value: AuthState = {
@@ -88,17 +148,67 @@ export function AuthProvider({ children, session }: { children: ReactNode; sessi
       }
     },
     async signOut() {
-      await session.signOut()
-      // A coordinator's phone is passed around during an event, so the next
-      // person to sign in must not inherit the previous one's screen — including
-      // the card populator's per-student progress.
-      clearPersistedState()
-      setIdentity(null)
+      setSignOutProblem(null)
+      let failure: unknown = null
+      try {
+        await session.signOut()
+      } catch (cause) {
+        failure = cause
+      } finally {
+        // EVERYTHING BELOW RUNS EVEN WHEN THE SIGN-OUT REQUEST FAILED. It used to
+        // run only after a successful one, so a dropped connection left the
+        // previous person signed in, with their data on screen and no word that
+        // anything had gone wrong.
+        //
+        // A coordinator's phone is passed around during an event, so the next
+        // person to sign in must not inherit the previous one's screen — including
+        // the card populator's per-student progress.
+        clearPersistedState()
+        // The same rule, for the half of the screen that never touched storage.
+        // clearPersistedState only reaches what this app wrote to sessionStorage;
+        // every answer the API gave — rosters, marks, disputes, the live board —
+        // lives in TanStack's in-memory cache, which survives a sign-out untouched.
+        // The next person to sign in on the same phone would be handed the
+        // previous coordinator's data on screen, from cache, before their own
+        // first request came back.
+        try {
+          onSignOut?.()
+        } finally {
+          setIdentity(null)
+        }
+      }
+      if (failure !== null) setSignOutProblem(signOutMessage(failure))
     },
     reload: load,
   }
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+      {/* Rendered by the provider rather than by the menu that started the
+          sign-out: that menu unmounts with the identity, so it could never show
+          the outcome itself. */}
+      {signOutProblem && (
+        <div
+          role="alert"
+          className="fixed left-1/2 top-[calc(12px+env(safe-area-inset-top))] z-[70] flex w-[min(520px,calc(100%-32px))] -translate-x-1/2 items-start gap-3 rounded-xl border border-border bg-status-error-bg p-4 text-sm font-medium text-status-error-fg shadow-sm"
+        >
+          <p className="m-0 flex-1">{signOutProblem}</p>
+          <button type="button" className="secondary shrink-0 px-3 py-1.5 text-sm" onClick={() => setSignOutProblem(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+    </AuthContext.Provider>
+  )
+}
+
+/** What a sign-out that did not complete normally means for the person holding the phone. */
+function signOutMessage(failure: unknown): string {
+  if (failure instanceof SignOutError && failure.localCleared) {
+    return 'You are signed out on this device, but the server could not be reached. Any other device signed in to this account stays signed in.'
+  }
+  return 'Sign-out could not be completed on this device. Close this browser tab before handing the phone to someone else.'
 }
 
 /**

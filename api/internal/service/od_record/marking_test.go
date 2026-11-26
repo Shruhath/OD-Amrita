@@ -24,14 +24,14 @@ import (
 // ---------------------------------------------------------------------------
 // 0.6-PAIR-001 — identity <-> capture_method pairing
 //
-// Story 0.4 pairs `card` with nfc|camera, and `student_id` with search ONLY.
-// But nothing in Epic 0 writes a sealed token to a QR/barcode — 0.5 writes the
-// token to the NFC TAG. What the camera actually reads is the barcode already
+// The original rule paired `card` with nfc|camera, and `student_id` with search
+// ONLY. But nothing writes a sealed token to a QR/barcode — card population
+// writes the token to the NFC TAG. What the camera actually reads is the barcode already
 // printed on the university ID card, which carries a ROLL NUMBER. So the camera
 // path necessarily resolves to a student_id, and without this widening there is
 // no legal request shape for a camera mark at all.
 //
-// This is a required, narrow, documented change to a `done` story's rule. It is
+// This is a required, narrow, documented change to an established rule. It is
 // NOT a licence to loosen the card branch, which these tests pin byte-for-byte.
 // ---------------------------------------------------------------------------
 
@@ -362,7 +362,7 @@ func (r scaffoldReader) StudentForMark(_ context.Context, studentID string) (Stu
 	}
 	return Student{
 		StudentID:   scaffoldStudentID,
-		RollNo:      "CB.SC.U4CSE24001",
+		RollNo:      "CB.SC.U4CSE99001",
 		DisplayName: "Scaffold Student",
 		Branch:      "CSE",
 		Section:     "A",

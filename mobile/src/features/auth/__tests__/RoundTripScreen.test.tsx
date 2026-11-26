@@ -1,10 +1,8 @@
 /**
- * ATDD RED PHASE — Story 1.9, Task 2: the authenticated round-trip screen.
+ * Render tests for the authenticated round-trip screen.
  *
- * These tests FAIL until `../RoundTripScreen` exists.
- *
- * WHY A RENDER TEST AT ALL (Decision D4): the 1.6 house rule is "logic in port-injected modules,
- * tested headless" — and it holds for everything else in this story. But AC 2 is an assertion
+ * WHY A RENDER TEST AT ALL (Decision D4): the house rule is "logic in port-injected modules,
+ * tested headless" — and it holds for everything else in the auth feature. But AC 2 is an assertion
  * ABOUT THE SCREEN: "the screen renders values that can only have come from the backend."
  * That is not provable against a fake in a unit test; something has to actually render.
  *
@@ -35,7 +33,7 @@ import { RoundTripScreen } from '../RoundTripScreen';
 /** A real-shaped `AuthenticatedIdentity` — the 200 body of GET /api/v1/auth/me. */
 function authenticatedIdentity(overrides: Partial<Record<string, unknown>> = {}) {
   return {
-    email: 'cb.sc.u4cse24124@cb.students.amrita.edu',
+    email: 'cb.sc.u4cse99124@cb.students.amrita.edu',
     name: 'Test Student',
     subject: 'supabase-sub-abc123',
     role: 'student',

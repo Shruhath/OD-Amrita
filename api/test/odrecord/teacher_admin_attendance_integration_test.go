@@ -1,13 +1,13 @@
 //go:build integration
 
-// Real-Postgres tests for Story 0.9's teacher/admin search-mark write path and
+// Real-Postgres tests for the teacher/admin search-mark write path and
 // the admin attendance read.
 //
 // Deliberately in the EXISTING api/test/odrecord package, matching the reason
 // marking_integration_test.go gives: ./test/odrecord/... is already wired into
 // both api/Makefile's INTEGRATION_PKGS and .github/workflows/api-ci.yml, so a
 // new package here would silently never run in CI the way three earlier
-// stories' packages did.
+// packages did.
 //
 // Helpers (testCtx, dsnOrSkip, connect, seedMarkFixture, markFixture,
 // fixedClock, countRows) come from odrecord_integration_atdd_test.go and

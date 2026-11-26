@@ -1,10 +1,9 @@
 //go:build integration
 
-// Package storetest is the Story 1.4 acceptance harness for the same-transaction
-// write helper (store.WithAudit). It lives in its OWN directory/package — not in
-// api/test/db — on purpose: these tests reference store.* symbols that do not
-// exist until Story 1.4 lands, so keeping them here means the api/test/db package
-// (the green Story 1.3 integration suite) still compiles and runs unaffected.
+// Package storetest is the acceptance harness for the same-transaction write
+// helper (store.WithAudit). It lives in its OWN directory/package — not in
+// api/test/db — so these store.* tests stay isolated from the api/test/db
+// integration suite.
 //
 // INTEGRATION tests: `//go:build integration` + DSN-gated, so `go test ./...`
 // (no DB) skips them cleanly. This file mirrors the minimal helpers from
@@ -25,7 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// The two DSNs, same names as the Story 1.3 harness. Migrator (owner) sets up the
+// The two DSNs, same names as the api/test/db harness. Migrator (owner) sets up the
 // probe table + inspects rows; runtime (DML-only) is what store.Store connects as.
 const (
 	envMigratorDSN = "DATABASE_URL_MIGRATOR"
@@ -78,8 +77,8 @@ func randHex(t *testing.T) string {
 
 // newProbeTable creates a throwaway "business" table AS od_migrator (the owner),
 // grants od_runtime the DML it needs, and drops it in cleanup. This is the
-// Decision-5 probe table: this epic has no real write tables yet, so WithAudit
-// co-commits against this disposable target. The single-column UNIQUE key lets
+// Decision-5 probe table: WithAudit co-commits against this disposable target
+// so the helper is tested independently of any real domain table. The single-column UNIQUE key lets
 // the dedup no-op path (INSERT ... ON CONFLICT (k) DO NOTHING) affect 0 rows.
 func newProbeTable(t *testing.T, ctx context.Context, migratorPool *pgxpool.Pool) string {
 	t.Helper()

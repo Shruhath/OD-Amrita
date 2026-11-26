@@ -27,9 +27,8 @@ func TestMapPgErrorMapsEventForeignKeyRaceToEventNotFound(t *testing.T) {
 // runtime role and never reaches this function, so until now nothing anywhere
 // asserted the resulting error CODE. That is structurally the same trap as the
 // renamed unique index one branch above: a constraint name matched as a string
-// literal, with the mapping unproven. Story 0.12b reuses this path verbatim the
-// moment a teacher is allowed to pick the day, which is when an unmapped 500
-// would start reaching real users.
+// literal, with the mapping unproven. A teacher-picked day reuses this path
+// verbatim, which is where an unmapped 500 would reach real users.
 func TestMapPgErrorMapsTheEventRangeGuardToAFieldValidation(t *testing.T) {
 	err := mapPgError(&pgconn.PgError{
 		Code:           sqlstateCheckViolation,
@@ -84,12 +83,48 @@ func TestMapPgErrorMapsTheDayKeyedDuplicateIndexToScanDuplicate(t *testing.T) {
 	}
 
 	// The pre-0.12a name must NOT still map — it no longer exists in the schema,
-	// and leaving it matched would hide exactly the rename this story performed.
+	// and leaving it matched would hide exactly the rename the multi-day change performed.
 	stale := &pgconn.PgError{
 		Code:           sqlstateUniqueViolation,
 		ConstraintName: "uq_od_records_present_student_event_slot",
 	}
 	if errors.Is(mapPgError(stale), ErrDuplicatePresentRecord) {
 		t.Fatal("the pre-0.12a index name still maps to ErrDuplicatePresentRecord; 0016 dropped that index")
+	}
+}
+
+// The manual-entry reason guard, mapped after it produced a real outage.
+//
+// od_records_manual_reason_note_ck read `actor_role = 'coordinator' OR
+// reason_note IS NOT NULL` from the day it was written, which was an exact
+// statement of the rule while the only non-coordinator mark was a manual search
+// entry. Giving admins the live marking screen broke that equivalence: their nfc
+// and camera marks are note-free by design, so every admin card tap violated the
+// constraint, and because the name was unmapped here the operator saw a bare
+// 500 with nothing logged. Production had never accepted one.
+//
+// 0026 corrects the predicate, so this branch should now be unreachable. It is
+// mapped and pinned anyway, because "unreachable" is exactly what was believed
+// about it before, and the next drift between the service's idea of a manual
+// mark and the schema's should cost a 400 naming the field rather than a 500
+// naming nothing.
+func TestMapPgErrorMapsTheManualReasonGuardToAFieldValidation(t *testing.T) {
+	err := mapPgError(&pgconn.PgError{
+		Code:           sqlstateCheckViolation,
+		ConstraintName: "od_records_manual_reason_note_ck",
+	})
+
+	var de domain.DomainError
+	if !errors.As(err, &de) {
+		t.Fatalf("error = %v (%T), want a domain.DomainError", err, err)
+	}
+	if de.Code != contracts.ErrorCodeVALIDATIONFAILED {
+		t.Fatalf("code = %s, want %s", de.Code, contracts.ErrorCodeVALIDATIONFAILED)
+	}
+	if len(de.Details) != 1 {
+		t.Fatalf("details = %#v, want exactly one field detail", de.Details)
+	}
+	if de.Details[0].Field != "reason_note" || de.Details[0].Code != "required" {
+		t.Fatalf("detail = %+v, want field reason_note / code required", de.Details[0])
 	}
 }

@@ -1,22 +1,14 @@
-// Package auth — red-phase ATDD scaffold for Story 1.5a (DoD 2): the Supabase
+// Package auth — unit tests for the Supabase
 // session-JWT verifier. UNIT test: no DB, no live Supabase. A stdlib-signed
 // httptest JWKS server stands in for Supabase's
 // /auth/v1/.well-known/jwks.json — so the ES256 verify path is exercised for
 // real (genuine reject-on-bad-sig / expired / wrong-aud / wrong-iss), not
 // mocked.
 //
-// RED PHASE: service/auth is still a Story 1.1 doc stub, so TokenVerifier,
-// VerifiedIdentity, Verifier and NewVerifier do not exist yet — THIS PACKAGE
-// FAILS TO COMPILE until Task 4 lands them. That compile error IS the intended
-// red signal (the Go translation of test.skip()); it clears the moment the
-// verifier is implemented. `go build ./...` (no test files) stays green.
-//
 // STDLIB-ONLY HARNESS ON PURPOSE: the ES256 signer and the JWKS document are
-// built from crypto/ecdsa + encoding/json, so the ONLY undefined symbols are
-// the auth.* ones under test — NOT a missing golang-jwt/keyfunc dependency
-// (those libs are added by the implementation via pinned `go get`, per the
-// go-mod-tidy trap in the story). This keeps the red signal about the code,
-// not the module graph.
+// built from crypto/ecdsa + encoding/json, so the test harness does not depend
+// on the golang-jwt/keyfunc libraries the verifier itself uses — a failure here
+// points at the verifier, not the module graph.
 package auth
 
 import (
@@ -146,6 +138,11 @@ func signToken(t *testing.T, signKey es256Key, headerKid string, c tokenClaims) 
 		"iat":           c.iat.Unix(),
 		"exp":           c.exp.Unix(),
 		"user_metadata": map[string]any{"name": c.name},
+		// The shape a real Supabase Azure login carries once the verifier's
+		// fail-closed checks are satisfied: an explicit verified flag and the
+		// server-written provider.
+		"email_verified": true,
+		"app_metadata":   map[string]any{"provider": "azure", "providers": []string{"azure"}},
 	}
 	hb, err := json.Marshal(header)
 	if err != nil {
@@ -176,7 +173,7 @@ func newVerifierWithJWKS(t *testing.T, jwks []byte, issuer, audience string) *Ve
 	}))
 	t.Cleanup(srv.Close)
 
-	v, err := NewVerifier(srv.URL, issuer, audience)
+	v, err := NewVerifier(srv.URL, issuer, audience, []string{"azure"})
 	if err != nil {
 		t.Fatalf("NewVerifier: %v", err)
 	}

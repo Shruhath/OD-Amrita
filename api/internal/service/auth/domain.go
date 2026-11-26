@@ -11,7 +11,8 @@ import (
 const domainRejectedMessage = "Only @amrita.edu accounts can access this system."
 
 // EnforceDomain accepts the configured domain family: bare host or any
-// subdomain at a label boundary. auth.* audit events are reserved for Story 1.7.
+// subdomain at a label boundary. It writes no audit event itself; the
+// auth.domain_rejected row is written by the caller through EventAuditor.
 func EnforceDomain(email, allowedDomain string) error {
 	// Require exactly one "@": an unquoted local-part cannot contain "@", so a
 	// multi-"@" address (e.g. a@evil.com@amrita.edu) is malformed and must not

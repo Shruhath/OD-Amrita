@@ -79,6 +79,21 @@ func (e AuthenticatedIdentityRole) Valid() bool {
 	}
 }
 
+// Defines values for BatchManualMarkConflictCode.
+const (
+	BatchManualMarkConflictCodeSCANDUPLICATE BatchManualMarkConflictCode = "SCAN_DUPLICATE"
+)
+
+// Valid indicates whether the value is a known member of the BatchManualMarkConflictCode enum.
+func (e BatchManualMarkConflictCode) Valid() bool {
+	switch e {
+	case BatchManualMarkConflictCodeSCANDUPLICATE:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CaptureMethod.
 const (
 	CaptureMethodCamera  CaptureMethod = "camera"
@@ -173,6 +188,7 @@ const (
 	ErrorCodeEVENTNOTFOUND               ErrorCode = "EVENT_NOT_FOUND"
 	ErrorCodeINTERNAL                    ErrorCode = "INTERNAL"
 	ErrorCodeINVALIDSCANID               ErrorCode = "INVALID_SCAN_ID"
+	ErrorCodeLASTADMINDEMOTIONREFUSED    ErrorCode = "LAST_ADMIN_DEMOTION_REFUSED"
 	ErrorCodeODRECORDALREADYREMOVED      ErrorCode = "OD_RECORD_ALREADY_REMOVED"
 	ErrorCodeODRECORDNOTFOUND            ErrorCode = "OD_RECORD_NOT_FOUND"
 	ErrorCodeQRLIMITREACHED              ErrorCode = "QR_LIMIT_REACHED"
@@ -180,6 +196,7 @@ const (
 	ErrorCodeRBACFORBIDDEN               ErrorCode = "RBAC_FORBIDDEN"
 	ErrorCodeROLEALREADYASSIGNED         ErrorCode = "ROLE_ALREADY_ASSIGNED"
 	ErrorCodeSCANDUPLICATE               ErrorCode = "SCAN_DUPLICATE"
+	ErrorCodeSELFDEMOTIONREFUSED         ErrorCode = "SELF_DEMOTION_REFUSED"
 	ErrorCodeSLOTCLOSED                  ErrorCode = "SLOT_CLOSED"
 	ErrorCodeSTUDENTNOTFOUND             ErrorCode = "STUDENT_NOT_FOUND"
 	ErrorCodeUSERNOTFOUND                ErrorCode = "USER_NOT_FOUND"
@@ -217,6 +234,8 @@ func (e ErrorCode) Valid() bool {
 		return true
 	case ErrorCodeINVALIDSCANID:
 		return true
+	case ErrorCodeLASTADMINDEMOTIONREFUSED:
+		return true
 	case ErrorCodeODRECORDALREADYREMOVED:
 		return true
 	case ErrorCodeODRECORDNOTFOUND:
@@ -230,6 +249,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeROLEALREADYASSIGNED:
 		return true
 	case ErrorCodeSCANDUPLICATE:
+		return true
+	case ErrorCodeSELFDEMOTIONREFUSED:
 		return true
 	case ErrorCodeSLOTCLOSED:
 		return true
@@ -264,14 +285,17 @@ func (e EventStatus) Valid() bool {
 
 // Defines values for HealthStatusDb.
 const (
-	HealthStatusDbDown HealthStatusDb = "down"
-	HealthStatusDbUp   HealthStatusDb = "up"
+	HealthStatusDbDown      HealthStatusDb = "down"
+	HealthStatusDbUnchecked HealthStatusDb = "unchecked"
+	HealthStatusDbUp        HealthStatusDb = "up"
 )
 
 // Valid indicates whether the value is a known member of the HealthStatusDb enum.
 func (e HealthStatusDb) Valid() bool {
 	switch e {
 	case HealthStatusDbDown:
+		return true
+	case HealthStatusDbUnchecked:
 		return true
 	case HealthStatusDbUp:
 		return true
@@ -511,6 +535,21 @@ func (e ListDisputesParamsStatus) Valid() bool {
 	}
 }
 
+// Defines values for GetHealthParamsDb.
+const (
+	GetHealthParamsDbN1 GetHealthParamsDb = "1"
+)
+
+// Valid indicates whether the value is a known member of the GetHealthParamsDb enum.
+func (e GetHealthParamsDb) Valid() bool {
+	switch e {
+	case GetHealthParamsDbN1:
+		return true
+	default:
+		return false
+	}
+}
+
 // AttendanceActor Actor display snapshot for an OD record. All fields are required but nullable so records remain renderable after the referenced user row is removed through ON DELETE SET NULL.
 type AttendanceActor struct {
 	Email  *openapi_types.Email `json:"email"`
@@ -556,16 +595,27 @@ type AttendanceRecordCollection struct {
 
 // AuditLogEntry defines model for AuditLogEntry.
 type AuditLogEntry struct {
-	Action     string                  `json:"action"`
-	ActorEmail *openapi_types.Email    `json:"actor_email"`
-	ActorRole  *string                 `json:"actor_role"`
-	OccurredAt time.Time               `json:"occurred_at"`
-	Payload    *map[string]interface{} `json:"payload"`
+	Action      string                  `json:"action"`
+	ActorEmail  *openapi_types.Email    `json:"actor_email"`
+	ActorRole   *string                 `json:"actor_role"`
+	Id          *openapi_types.UUID     `json:"id,omitempty"`
+	OccurredAt  time.Time               `json:"occurred_at"`
+	Payload     *map[string]interface{} `json:"payload"`
+	TargetId    *string                 `json:"target_id,omitempty"`
+	TargetTable *string                 `json:"target_table,omitempty"`
 }
 
 // AuditLogEntryCollection defines model for AuditLogEntryCollection.
 type AuditLogEntryCollection struct {
 	Data []AuditLogEntry `json:"data"`
+}
+
+// AuditLogPage defines model for AuditLogPage.
+type AuditLogPage struct {
+	Data     []AuditLogEntry `json:"data"`
+	Page     int             `json:"page"`
+	PageSize int             `json:"page_size"`
+	Total    int             `json:"total"`
 }
 
 // AuthenticatedIdentity Identity claims verified from the Supabase JWT and accepted by the backend amrita.edu domain-family gate.
@@ -576,15 +626,40 @@ type AuthenticatedIdentity struct {
 	// Name Display name from Supabase user_metadata.name. Optional: some providers omit it, so the backend returns it only when present.
 	Name *string `json:"name,omitempty"`
 
-	// Role The global base role the identity is provisioned with on first login. Always present (provisioning yields exactly one). This is the base role only — per-event coordinator assignment and RBAC enforcement are later epics; the client uses it to route by role.
+	// Role The global base role the identity is provisioned with on first login. Always present (provisioning yields exactly one). This is the base role only — per-event coordinator assignment and RBAC enforcement are handled separately; the client uses it to route by role.
 	Role AuthenticatedIdentityRole `json:"role"`
 
 	// Subject Stable Supabase auth subject (`sub`) for the identity.
 	Subject string `json:"subject"`
 }
 
-// AuthenticatedIdentityRole The global base role the identity is provisioned with on first login. Always present (provisioning yields exactly one). This is the base role only — per-event coordinator assignment and RBAC enforcement are later epics; the client uses it to route by role.
+// AuthenticatedIdentityRole The global base role the identity is provisioned with on first login. Always present (provisioning yields exactly one). This is the base role only — per-event coordinator assignment and RBAC enforcement are handled separately; the client uses it to route by role.
 type AuthenticatedIdentityRole string
+
+// BatchManualMarkAttendanceRequest A shared manual-mark scope and the distinct students to mark together.
+type BatchManualMarkAttendanceRequest struct {
+	CategoryId openapi_types.UUID   `json:"category_id"`
+	EventId    openapi_types.UUID   `json:"event_id"`
+	OdDate     openapi_types.Date   `json:"od_date"`
+	ReasonNote string               `json:"reason_note"`
+	Slot       int                  `json:"slot"`
+	StudentIds []openapi_types.UUID `json:"student_ids"`
+}
+
+// BatchManualMarkAttendanceResult defines model for BatchManualMarkAttendanceResult.
+type BatchManualMarkAttendanceResult struct {
+	Records []MarkAttendanceResult `json:"records"`
+}
+
+// BatchManualMarkConflict defines model for BatchManualMarkConflict.
+type BatchManualMarkConflict struct {
+	Code              BatchManualMarkConflictCode `json:"code"`
+	DuplicateStudents []MarkedStudent             `json:"duplicate_students"`
+	Message           string                      `json:"message"`
+}
+
+// BatchManualMarkConflictCode defines model for BatchManualMarkConflict.Code.
+type BatchManualMarkConflictCode string
 
 // BranchCollection defines model for BranchCollection.
 type BranchCollection struct {
@@ -824,17 +899,17 @@ type FallbackCreditState struct {
 
 // HealthStatus Health probe shape — overall service status plus database connectivity.
 type HealthStatus struct {
-	// Db Database connectivity as observed by a live ping from the runtime pool. "down" is reported with HTTP 503.
+	// Db Database connectivity. "unchecked" for the default shallow probe, which deliberately does not touch the database. With `?db=1`, the result of a live ping from the runtime pool: "up", or "down" (reported with HTTP 503).
 	Db HealthStatusDb `json:"db"`
 
-	// Status Overall service status. "ok" when every dependency is reachable; "degraded" (served with HTTP 503) when the database is not.
+	// Status Overall service status. "ok" when the process is serving (and, for `?db=1`, the database answered); "degraded" (served with HTTP 503) only when a requested database ping failed.
 	Status HealthStatusStatus `json:"status"`
 }
 
-// HealthStatusDb Database connectivity as observed by a live ping from the runtime pool. "down" is reported with HTTP 503.
+// HealthStatusDb Database connectivity. "unchecked" for the default shallow probe, which deliberately does not touch the database. With `?db=1`, the result of a live ping from the runtime pool: "up", or "down" (reported with HTTP 503).
 type HealthStatusDb string
 
-// HealthStatusStatus Overall service status. "ok" when every dependency is reachable; "degraded" (served with HTTP 503) when the database is not.
+// HealthStatusStatus Overall service status. "ok" when the process is serving (and, for `?db=1`, the database answered); "degraded" (served with HTTP 503) only when a requested database ping failed.
 type HealthStatusStatus string
 
 // MarkAttendanceRequest Exactly one identity, paired with the capture method that produced it. `card` is valid for `nfc` and `camera`; `student_id` is valid for `camera` and `search`. The camera pairs with BOTH because the barcode printed on the physical university ID card carries a ROLL NUMBER, not a sealed token — the client resolves that roll to a student_id through `GET /api/v1/students/search` and marks with `capture_method: camera`. `capture_method` is persisted truthfully on the record and its audit row.
@@ -1281,6 +1356,28 @@ type UpdateCategoryVisibilityRequest struct {
 	VisibleOnPublicDashboard bool `json:"visible_on_public_dashboard"`
 }
 
+// UserDemotionResult Outcome of taking a staff role away. The removed_* counts say what access went with the role.
+type UserDemotionResult struct {
+	// Changed False when the user was already a student (no-op, no audit row).
+	Changed bool   `json:"changed"`
+	Email   string `json:"email"`
+
+	// PreviousRole The global base role the identity is provisioned with on first login. Always present (provisioning yields exactly one). This is the base role only — per-event coordinator assignment and RBAC enforcement are handled separately; the client uses it to route by role.
+	PreviousRole               AuthenticatedIdentityRole `json:"previous_role"`
+	RemovedCategoryAssignments int                       `json:"removed_category_assignments"`
+
+	// RemovedCoordinatorAssignments Coordinator assignments removed from active events.
+	RemovedCoordinatorAssignments int `json:"removed_coordinator_assignments"`
+	RemovedTeacherBranches        int `json:"removed_teacher_branches"`
+
+	// Role The global base role the identity is provisioned with on first login. Always present (provisioning yields exactly one). This is the base role only — per-event coordinator assignment and RBAC enforcement are handled separately; the client uses it to route by role.
+	Role AuthenticatedIdentityRole `json:"role"`
+
+	// SessionsRevoked True when a scope=all forced logout was recorded with the demotion.
+	SessionsRevoked bool               `json:"sessions_revoked"`
+	UserId          openapi_types.UUID `json:"user_id"`
+}
+
 // ValidationError 400 validation error — the error envelope whose `details` is a TYPED array of field-level failures (AC3), not a freeform object.
 type ValidationError struct {
 	// Code Always VALIDATION_FAILED for validation (400) responses.
@@ -1310,6 +1407,16 @@ type ValidationErrorDetail struct {
 
 // bearerAuthContextKey is the context key for bearerAuth security scheme
 type bearerAuthContextKey string
+
+// ListAdminAuditLogParams defines parameters for ListAdminAuditLog.
+type ListAdminAuditLogParams struct {
+	Action       *string `form:"action,omitempty" json:"action,omitempty"`
+	ActorAccount *string `form:"actor_account,omitempty" json:"actor_account,omitempty"`
+	TargetTable  *string `form:"target_table,omitempty" json:"target_table,omitempty"`
+	TargetId     *string `form:"target_id,omitempty" json:"target_id,omitempty"`
+	Page         *int    `form:"page,omitempty" json:"page,omitempty"`
+	PageSize     *int    `form:"page_size,omitempty" json:"page_size,omitempty"`
+}
 
 // ListSectionCardStatusParams defines parameters for ListSectionCardStatus.
 type ListSectionCardStatusParams struct {
@@ -1393,6 +1500,11 @@ type ListPortalODRecordsParams struct {
 	PageSize    *int                `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
 
+// BatchManualMarkAttendance409JSONResponseBody defines parameters for BatchManualMarkAttendance.
+type BatchManualMarkAttendance409JSONResponseBody struct {
+	union json.RawMessage
+}
+
 // ListPortalMarkEventsParams defines parameters for ListPortalMarkEvents.
 type ListPortalMarkEventsParams struct {
 	Page     *int `form:"page,omitempty" json:"page,omitempty"`
@@ -1448,6 +1560,15 @@ type SearchStudentsParams struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// GetHealthParams defines parameters for GetHealth.
+type GetHealthParams struct {
+	// Db Set to `1` to run the database ping. Any other value, or absence, gives the shallow liveness answer with `db: unchecked`.
+	Db *GetHealthParamsDb `form:"db,omitempty" json:"db,omitempty"`
+}
+
+// GetHealthParamsDb defines parameters for GetHealth.
+type GetHealthParamsDb string
+
 // ResolveAdminCardTokenJSONRequestBody defines body for ResolveAdminCardToken for application/json ContentType.
 type ResolveAdminCardTokenJSONRequestBody = CardTokenResolveRequest
 
@@ -1489,6 +1610,9 @@ type ResolveDisputeJSONRequestBody = DisputeResolutionRequest
 
 // MarkAttendanceJSONRequestBody defines body for MarkAttendance for application/json ContentType.
 type MarkAttendanceJSONRequestBody = MarkAttendanceRequest
+
+// BatchManualMarkAttendanceJSONRequestBody defines body for BatchManualMarkAttendance for application/json ContentType.
+type BatchManualMarkAttendanceJSONRequestBody = BatchManualMarkAttendanceRequest
 
 // CorrectODRecordJSONRequestBody defines body for CorrectODRecord for application/json ContentType.
 type CorrectODRecordJSONRequestBody = RecordCorrectionRequest
@@ -1687,6 +1811,68 @@ func (t *MarkAttendanceRequest) UnmarshalJSON(b []byte) error {
 		}
 	}
 
+	return err
+}
+
+// AsBatchManualMarkConflict returns the union data inside the BatchManualMarkAttendance409JSONResponseBody as a BatchManualMarkConflict
+func (t BatchManualMarkAttendance409JSONResponseBody) AsBatchManualMarkConflict() (BatchManualMarkConflict, error) {
+	var body BatchManualMarkConflict
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromBatchManualMarkConflict overwrites any union data inside the BatchManualMarkAttendance409JSONResponseBody as the provided BatchManualMarkConflict
+func (t *BatchManualMarkAttendance409JSONResponseBody) FromBatchManualMarkConflict(v BatchManualMarkConflict) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeBatchManualMarkConflict performs a merge with any union data inside the BatchManualMarkAttendance409JSONResponseBody, using the provided BatchManualMarkConflict
+func (t *BatchManualMarkAttendance409JSONResponseBody) MergeBatchManualMarkConflict(v BatchManualMarkConflict) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsError returns the union data inside the BatchManualMarkAttendance409JSONResponseBody as a Error
+func (t BatchManualMarkAttendance409JSONResponseBody) AsError() (Error, error) {
+	var body Error
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromError overwrites any union data inside the BatchManualMarkAttendance409JSONResponseBody as the provided Error
+func (t *BatchManualMarkAttendance409JSONResponseBody) FromError(v Error) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeError performs a merge with any union data inside the BatchManualMarkAttendance409JSONResponseBody, using the provided Error
+func (t *BatchManualMarkAttendance409JSONResponseBody) MergeError(v Error) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t BatchManualMarkAttendance409JSONResponseBody) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *BatchManualMarkAttendance409JSONResponseBody) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
 	return err
 }
 

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// Acceptance coverage for Story 2.2 (Event Categories), AC 1-5 and 8.
+// Acceptance coverage for event categories, AC 1-5 and 8.
 //
 // These read contracts/openapi.yaml directly, so they assert the SSOT itself
 // rather than the generated output derived from it.
@@ -57,7 +57,7 @@ func TestCategoryContract_ExposesNoDeleteOrRename(t *testing.T) {
 		}
 	}
 	if getMap(paths, "/api/v1/admin/events/{event_id}/categories/{category_id}") != nil {
-		t.Error("no per-category path may exist: nothing in this story addresses a category by id")
+		t.Error("no per-category path may exist: nothing addresses a category by id")
 	}
 }
 
@@ -174,7 +174,7 @@ func TestCategoryContract_EventSchemaStaysUnchanged(t *testing.T) {
 	event := getMap(schemas, "Event")
 
 	// Event.required lists every property, so embedding categories would be a
-	// breaking change for the Go/TS consumers and for Story 2.1's tests, and it
+	// breaking change for the Go/TS consumers and for the event tests, and it
 	// would put an unbounded child collection inside a paginated list query.
 	if _, ok := getMap(event, "properties")["categories"]; ok {
 		t.Error("Event must not embed categories: the nested endpoint is the read path")

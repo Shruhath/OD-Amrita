@@ -1,5 +1,5 @@
 /**
- * Round-trip screen (Story 1.9, Task 2) — the walking-skeleton exit gate's mobile half.
+ * Round-trip screen — the walking-skeleton exit gate's mobile half.
  *
  * AC 2, verbatim: "A hardcoded 'Success ✅' is an AC failure." `role` is the load-bearing
  * assertion (1.9-COMP-001): the device cannot compute it — it is resolved server-side by

@@ -67,7 +67,7 @@ func completeBody(t *testing.T, mutate func(map[string]any)) string {
 	t.Helper()
 	body := map[string]any{
 		"student_id":               "95000000-0000-4000-8000-000000000101",
-		"submitted_email":          "cb.sc.u4cse24101@cb.students.amrita.edu",
+		"submitted_email":          "cb.sc.u4cse99101@cb.students.amrita.edu",
 		"event_id":                 "93000000-0000-4000-8000-000000000001",
 		"category_id":              "94000000-0000-4000-8000-000000000001",
 		"od_date":                  "2026-08-03",

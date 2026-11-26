@@ -5,7 +5,7 @@ const zxing = vi.hoisted(() => {
   return {
     controls,
     decodeFromStream: vi.fn(async (_stream: MediaStream, _video: HTMLVideoElement, callback: (result?: { getText(): string }) => void) => {
-      callback({ getText: () => 'CB.SC.U4CSE24002' })
+      callback({ getText: () => 'CB.SC.U4CSE99002' })
       return controls
     }),
   }
@@ -27,8 +27,8 @@ beforeEach(() => {
 /**
  * The camera capture seam.
  *
- * WHAT THE CAMERA ACTUALLY READS. Not a sealed token. Story 0.5 writes the
- * token to the NFC TAG only; nothing in Epic 0 ever prints one. What the camera
+ * WHAT THE CAMERA ACTUALLY READS. Not a sealed token. The card populator writes
+ * the token to the NFC TAG only; nothing in this app ever prints one. What the camera
  * sees is the barcode already printed on the physical university ID card, which
  * carries the ROLL NUMBER. So this module decodes text, and the screen above it
  * resolves that text to a student_id through the search endpoint.
@@ -116,7 +116,7 @@ describe('camera capture behind a fakeable seam', () => {
     void scanner.start((text) => seen.push(text), () => {}, controller.signal)
 
     await vi.waitFor(() => expect(zxing.decodeFromStream).toHaveBeenCalled())
-    expect(seen).toEqual(['CB.SC.U4CSE24002'])
+    expect(seen).toEqual(['CB.SC.U4CSE99002'])
     controller.abort()
     await vi.waitFor(() => expect(zxing.controls.stop).toHaveBeenCalled())
   })
@@ -136,7 +136,7 @@ describe('camera capture behind a fakeable seam', () => {
 
   test('[P0] the camera is requested with the rear lens', async () => {
     const { createBarcodeScanner } = await loadScannerModule()
-    const env = fakeEnvironment({ decoded: ['CB.SC.U4CSE24001'] })
+    const env = fakeEnvironment({ decoded: ['CB.SC.U4CSE99001'] })
     const scanner = createBarcodeScanner(env.windowRef, env.navigatorRef)
 
     const controller = new AbortController()
@@ -149,7 +149,7 @@ describe('camera capture behind a fakeable seam', () => {
 
   test('[P0] decoded text is emitted to the caller', async () => {
     const { createBarcodeScanner } = await loadScannerModule()
-    const env = fakeEnvironment({ decoded: ['CB.SC.U4CSE24001'] })
+    const env = fakeEnvironment({ decoded: ['CB.SC.U4CSE99001'] })
     const scanner = createBarcodeScanner(env.windowRef, env.navigatorRef)
 
     const seen: string[] = []
@@ -157,14 +157,14 @@ describe('camera capture behind a fakeable seam', () => {
     void scanner.start((text) => seen.push(text), () => {}, controller.signal)
 
     await vi.waitFor(() => expect(seen.length).toBeGreaterThan(0))
-    expect(seen[0]).toBe('CB.SC.U4CSE24001')
+    expect(seen[0]).toBe('CB.SC.U4CSE99001')
 
     controller.abort()
   })
 
   test('[P0] every MediaStreamTrack is stopped when the mode closes', async () => {
     const { createBarcodeScanner } = await loadScannerModule()
-    const env = fakeEnvironment({ decoded: ['CB.SC.U4CSE24001'] })
+    const env = fakeEnvironment({ decoded: ['CB.SC.U4CSE99001'] })
     const scanner = createBarcodeScanner(env.windowRef, env.navigatorRef)
 
     const controller = new AbortController()
@@ -197,7 +197,7 @@ describe('camera capture behind a fakeable seam', () => {
 
   test('[P0] the decode loop never overlaps itself', async () => {
     const { createBarcodeScanner } = await loadScannerModule()
-    const env = fakeEnvironment({ decoded: ['CB.SC.U4CSE24001'] })
+    const env = fakeEnvironment({ decoded: ['CB.SC.U4CSE99001'] })
 
     let inFlight = 0
     let maxInFlight = 0

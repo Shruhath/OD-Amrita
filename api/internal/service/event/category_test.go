@@ -1,6 +1,6 @@
 package event
 
-// category_test.go — Story 2.2 coverage for AC 2, 3, 4 and 6.
+// category_test.go — service-layer coverage for event categories.
 // UNIT test: no build tag, no database.
 //
 // Invoked by: api-ci -> build job (`go test ./...`).
@@ -306,7 +306,7 @@ func TestCategoryCreateMapsTheUniqueViolationRaceToTheSameTypedDuplicate(t *test
 	// concurrent creates WILL race past a SELECT-then-INSERT, and the loser
 	// must still receive 400-with-detail. Without this mapping the second
 	// admin sees an opaque 500 for an input the product considers merely
-	// duplicate — the single most likely production defect in this story.
+	// duplicate — the single most likely production defect in category creation.
 	//
 	// The reader deliberately shows NO existing category, so only the mapping of
 	// the constraint violation can produce the expected answer.
@@ -555,7 +555,7 @@ func TestCategoryListReturnsOnlyTheRequestedEventInDeterministicOrder(t *testing
 	// Ordering is the server's promise (name ASC, id ASC). The service must
 	// pass the reader's order through untouched — a re-sort here would let the
 	// portal and the API disagree about what "first" means, which is how
-	// Story 2.1's cache-update ordering defect happened.
+	// an earlier cache-update ordering defect happened.
 	reader := &fakeCategoryReader{
 		state: "active",
 		categories: map[string][]Category{

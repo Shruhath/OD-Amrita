@@ -1,5 +1,30 @@
 @import "tailwindcss";
 
+/*
+  THE APP'S OWN STYLESHEET, INSIDE THE BASE LAYER.
+
+  It used to be imported from Application.tsx, which left it UNLAYERED — and
+  unlayered CSS beats layered CSS no matter how specific the layered rule is. So
+  every plain `button { ... }` rule in that file silently overrode every Tailwind
+  utility the redesign put on a button, and there was no way to tell from either
+  file that it was happening. It cost two rounds of invisible primary buttons:
+  first the background, then, after that was patched one property at a time, the
+  text colour — `bg-foreground` applying while `text-canvas` did not, which
+  painted a button in one colour and its label in the same one.
+
+  Importing it INTO `base` puts it below the utilities where it belongs, so a
+  utility written on an element wins by design rather than by a guard that has to
+  be remembered for each property. It stays above Tailwind's preflight, because
+  this import follows it in source order within the layer.
+
+  The palette is unaffected: App.css declares no custom properties at `:root`,
+  and every colour token is defined in the `@layer base` block below, which
+  comes later in the same layer and therefore still wins.
+
+  tests/e2e/control-contrast.spec.ts is the guard that makes this safe to change.
+*/
+@import "./App.css" layer(base);
+
 @theme {
   --color-canvas: var(--canvas);
   --color-surface: var(--surface);

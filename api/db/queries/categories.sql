@@ -71,6 +71,19 @@ VALUES (@user_id, @category_id, @created_by_user_id)
 ON CONFLICT (user_id, category_id) DO NOTHING
 RETURNING user_id, category_id, created_by_user_id, created_at;
 
+-- name: AssignUserCategoriesBulk :execrows
+-- Every category for one user in ONE statement.
+--
+-- Same conflict behaviour as AssignUserCategory — ON CONFLICT DO NOTHING, so
+-- re-assigning a category a user already has is a no-op rather than an error.
+-- That is why this is :execrows and not :many: the row count is NOT the number
+-- of categories requested, it is the number newly created, and the caller
+-- deliberately does not assert on it.
+INSERT INTO user_category_assignments (user_id, category_id, created_by_user_id)
+SELECT @user_id, category_id, @created_by_user_id
+FROM unnest(@category_ids::uuid[]) AS category_id
+ON CONFLICT (user_id, category_id) DO NOTHING;
+
 -- name: DeleteUserCategoriesForEventExcept :execrows
 DELETE FROM user_category_assignments uca
 USING categories c

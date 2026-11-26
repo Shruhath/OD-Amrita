@@ -67,14 +67,14 @@ test.describe('teacher/admin search marking', () => {
     await expect(page.getByRole('button', { name: /tap|nfc/i })).toHaveCount(0)
     await expect(page.getByRole('button', { name: /camera|scan/i })).toHaveCount(0)
     await selectValue(page, page.getByRole('combobox', { name: /slot/i }), '4')
-    await page.getByRole('searchbox', { name: /student/i }).fill('CB.SC.U4CSE24')
+    await page.getByRole('searchbox', { name: /student/i }).fill('CB.SC.U4CSE99')
     await page.getByRole('option', { name: /CB\.SC\.U4CSE/i }).click()
-    // Story 0.12b made a reason note mandatory for teacher/admin marks; this
-    // pre-existing (0.9) journey never filled one, leaving "Mark present"
+    // Record management made a reason note mandatory for teacher/admin marks; this
+    // pre-existing (0.9) journey never filled one, leaving the submit action
     // permanently disabled. Fixed during code review — CI was already red on
     // this exact failure before the review started.
     await page.getByLabel(/reason note/i).fill('Manual search mark for the journey fixture student.')
-    await page.getByRole('button', { name: /mark present/i }).click()
+    await page.getByRole('button', { name: /mark selected students/i }).click()
 
     await expect(page.getByRole('status')).toContainText(/marked|present/i)
     expect(marks).toHaveLength(1)

@@ -2,12 +2,12 @@
 
 package db
 
-// immutability_test.go — RED-PHASE ATDD scaffold for Story 1.4, AC 1 & AC 2
+// immutability_test.go — acceptance tests for
 // (audit_log immutability trigger + runtime-role append-only hardening).
 //
 // INTEGRATION tests: `//go:build integration` + DSN-gated (dsnOrSkip), so the
 // no-DB developer path (`go test ./...`) skips them cleanly. They reuse the
-// Story 1.3 harness (harness_test.go): connect, testCtx, dsnOrSkip, runGoose,
+// DB harness (harness_test.go): connect, testCtx, dsnOrSkip, runGoose,
 // requireGoose, isPermissionDenied, sqlstatePermissionDenied, and the env consts.
 //
 // RED PHASE (behavioral): these COMPILE today (pgx is already a dependency) but
@@ -202,7 +202,7 @@ func TestAuditLog_RuntimeDisableTriggerDenied(t *testing.T) {
 }
 
 // alwaysEnabledTriggerCount counts the non-internal, ENABLE ALWAYS triggers on
-// audit_log. tgenabled='A' is exactly the "ENABLE ALWAYS" state the story
+// audit_log. tgenabled='A' is exactly the "ENABLE ALWAYS" state the design
 // mandates so a `session_replication_role = replica` session cannot bypass the
 // guard — a plain (origin-mode, 'O') trigger would not satisfy this.
 func alwaysEnabledTriggerCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool) int {
@@ -270,7 +270,7 @@ func TestAuditImmutabilityMigration_Reversible(t *testing.T) {
 	// Revert everything above 0001 (0003 users + 0002 immutability), so 0002's
 	// Down is exercised even though it is no longer the migration tip.
 	//
-	// Story 0.12a: the walk down passes through 0016, whose Down legitimately
+	// The walk down passes through 0016, whose Down legitimately
 	// refuses to restore the single-day unique index over multi-day attendance
 	// rows. Clear that data first so this test asserts 0002's reversibility
 	// rather than inheriting 0016's — see clearRollbackBlockers.

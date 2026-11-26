@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test, vi } from 'vitest'
@@ -24,6 +24,7 @@ type CoordinatorScenario = {
   createResponse?: 'ok' | 'duplicate' | 'missing-user' | 'ineligible' | 'archived'
   archiveOnCreate?: boolean
   createGate?: Promise<void>
+  removeResponse?: 'ok' | 'archived' | 'gone'
 }
 
 const eventName = 'Onam Celebrations'
@@ -32,6 +33,8 @@ const adminEventItemPath = /\/api\/v1\/admin\/events\/[^/?]+$/
 const adminEventCategoriesPath = /\/api\/v1\/admin\/events\/[^/?]+\/categories$/
 const adminEventCoordinatorsPath = /\/api\/v1\/admin\/events\/[^/?]+\/coordinators$/
 const adminEventCoordinatorCategoriesPath = /\/api\/v1\/admin\/events\/[^/?]+\/coordinators\/[^/?]+\/categories$/
+const adminEventCoordinatorItemPath = /\/api\/v1\/admin\/events\/[^/?]+\/coordinators\/[^/?]+$/
+const adminEventCreditsPath = /\/api\/v1\/admin\/events\/[^/?]+\/capture-credits$/
 const adminEventAttendancePath = /\/api\/v1\/admin\/events\/[^/?]+\/attendance(?:\?.*)?$/
 
 function renderCoordinatorPortal({
@@ -40,6 +43,7 @@ function renderCoordinatorPortal({
   createResponse = 'ok',
   archiveOnCreate = false,
   createGate,
+  removeResponse = 'ok',
 }: CoordinatorScenario = {}) {
   let event = createEventFixture({ id: testEventID, name: eventName, status })
   let serverCoordinators = serverOrderedCoordinatorAssignments(coordinators)
@@ -130,12 +134,30 @@ function renderCoordinatorPortal({
     }),
   )
 
+  server.use(
+    http.get(adminEventCreditsPath, () => HttpResponse.json({ data: [] })),
+    http.delete(adminEventCoordinatorItemPath, ({ request }) => {
+      const userID = lastPathSegment(request.url)
+      calls.push(`remove-coordinator:${userID}`)
+      if (removeResponse === 'archived') {
+        event = { ...event, status: 'archived' }
+        return HttpResponse.json(coordinatorArchivedEventError(), { status: 409 })
+      }
+      if (removeResponse === 'gone') {
+        serverCoordinators = serverCoordinators.filter((coordinator) => coordinator.user_id !== userID)
+        return HttpResponse.json({ code: 'USER_NOT_FOUND', message: 'Coordinator assignment not found.' }, { status: 404 })
+      }
+      serverCoordinators = serverCoordinators.filter((coordinator) => coordinator.user_id !== userID)
+      return new HttpResponse(null, { status: 204 })
+    }),
+  )
+
   render(<Application session={session} router={createPortalMemoryRouter()} />)
   return { calls, session }
 }
 
 function lastPathSegment(rawURL: string) {
-  const segments = new URL(rawURL).pathname.split('/').filter(Boolean)
+  const segments = new URL(rawURL, 'http://localhost').pathname.split('/').filter(Boolean)
   return segments[segments.length - 1] ?? ''
 }
 
@@ -197,18 +219,18 @@ describe('Admin event detail coordinator assignments', () => {
     expect(calls).not.toContain('create-coordinator')
   })
 
-  test('[P0] maps duplicate, unknown user, and ineligible role to distinct messages', async () => {
-    for (const createResponse of ['duplicate', 'missing-user', 'ineligible'] as const) {
+  test.each(['duplicate', 'missing-user', 'ineligible'] as const)(
+    '[P0] maps %s coordinator assignment rejection to a distinct message',
+    async (createResponse) => {
       const user = userEvent.setup()
       renderCoordinatorPortal({ createResponse })
       await openEventDetail(user)
-      await user.type(screen.getByLabelText('Coordinator email'), `${createResponse}@amrita.edu`)
+      fireEvent.change(screen.getByLabelText('Coordinator email'), { target: { value: `${createResponse}@amrita.edu` } })
       await user.click(screen.getByRole('checkbox', { name: /Procession/ }))
       await user.click(screen.getByRole('button', { name: 'Assign coordinator' }))
       expect(await screen.findByRole('alert')).toBeVisible()
-      cleanup()
-    }
-  })
+    },
+  )
 
   test('[P1] clears stale form errors when the email changes', async () => {
     const user = userEvent.setup()
@@ -268,5 +290,85 @@ describe('Admin event detail coordinator assignments', () => {
     expect(await screen.findByText('kept@amrita.edu')).toBeInTheDocument()
     expect(screen.queryByLabelText('Coordinator email')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Assign coordinator' })).not.toBeInTheDocument()
+  })
+
+  test('[P0] removes a coordinator only after the confirmation is accepted', async () => {
+    const user = userEvent.setup()
+    const leaving = createCoordinatorAssignmentFixture({ email: 'leaving@amrita.edu', name: null })
+    const staying = createCoordinatorAssignmentFixture({ email: 'staying@amrita.edu', name: null })
+    const { calls } = renderCoordinatorPortal({ coordinators: [leaving, staying] })
+
+    await openEventDetail(user)
+    const coordinators = await screen.findByRole('list', { name: 'Coordinators' })
+    await user.click(within(coordinators).getByRole('button', { name: 'Remove leaving@amrita.edu from this event' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Remove coordinator' })
+    expect(dialog).toHaveTextContent('leaving@amrita.edu')
+    expect(calls.some((call) => call.startsWith('remove-coordinator'))).toBe(false)
+
+    await user.click(within(dialog).getByRole('button', { name: 'Remove coordinator' }))
+
+    expect(calls).toContain(`remove-coordinator:${leaving.user_id}`)
+    await vi.waitFor(() => expect(screen.queryByRole('dialog', { name: 'Remove coordinator' })).not.toBeInTheDocument())
+    await vi.waitFor(() => expect(within(coordinators).queryByText('leaving@amrita.edu')).not.toBeInTheDocument())
+    expect(within(coordinators).getByText('staying@amrita.edu')).toBeInTheDocument()
+  })
+
+  test('[P0] cancelling the confirmation removes nobody', async () => {
+    const user = userEvent.setup()
+    const kept = createCoordinatorAssignmentFixture({ email: 'kept@amrita.edu', name: null })
+    const { calls } = renderCoordinatorPortal({ coordinators: [kept] })
+
+    await openEventDetail(user)
+    const coordinators = await screen.findByRole('list', { name: 'Coordinators' })
+    await user.click(within(coordinators).getByRole('button', { name: 'Remove kept@amrita.edu from this event' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Remove coordinator' })
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+
+    await vi.waitFor(() => expect(screen.queryByRole('dialog', { name: 'Remove coordinator' })).not.toBeInTheDocument())
+    expect(calls.some((call) => call.startsWith('remove-coordinator'))).toBe(false)
+    expect(within(coordinators).getByText('kept@amrita.edu')).toBeInTheDocument()
+  })
+
+  test('[P1] an assignment someone else already removed just disappears from the list', async () => {
+    const user = userEvent.setup()
+    const gone = createCoordinatorAssignmentFixture({ email: 'gone@amrita.edu', name: null })
+    renderCoordinatorPortal({ coordinators: [gone], removeResponse: 'gone' })
+
+    await openEventDetail(user)
+    const coordinators = await screen.findByRole('list', { name: 'Coordinators' })
+    await user.click(within(coordinators).getByRole('button', { name: 'Remove gone@amrita.edu from this event' }))
+    await user.click(within(await screen.findByRole('dialog', { name: 'Remove coordinator' })).getByRole('button', { name: 'Remove coordinator' }))
+
+    expect(await screen.findByText('No coordinators assigned.')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  test('[P1] a stale archived-event rejection closes the dialog and makes the section read-only', async () => {
+    const user = userEvent.setup()
+    const late = createCoordinatorAssignmentFixture({ email: 'late@amrita.edu', name: null })
+    renderCoordinatorPortal({ coordinators: [late], removeResponse: 'archived' })
+
+    await openEventDetail(user)
+    const coordinators = await screen.findByRole('list', { name: 'Coordinators' })
+    await user.click(within(coordinators).getByRole('button', { name: 'Remove late@amrita.edu from this event' }))
+    await user.click(within(await screen.findByRole('dialog', { name: 'Remove coordinator' })).getByRole('button', { name: 'Remove coordinator' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/archived/i)
+    await vi.waitFor(() => expect(screen.queryByRole('dialog', { name: 'Remove coordinator' })).not.toBeInTheDocument())
+    await vi.waitFor(() => expect(screen.queryByRole('button', { name: /^Remove / })).not.toBeInTheDocument())
+    expect(screen.getByText('late@amrita.edu')).toBeInTheDocument()
+  })
+
+  test('[P1] archived events offer no Remove action', async () => {
+    const user = userEvent.setup()
+    renderCoordinatorPortal({
+      status: 'archived',
+      coordinators: [createCoordinatorAssignmentFixture({ email: 'history@amrita.edu', name: null })],
+    })
+
+    await openEventDetail(user)
+    expect(await screen.findByText('history@amrita.edu')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Remove / })).not.toBeInTheDocument()
   })
 })

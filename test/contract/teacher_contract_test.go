@@ -5,17 +5,13 @@ import (
 	"testing"
 )
 
-// Acceptance coverage for Story 2.3 (Teacher Profile Creation & Branch
-// Association), AC 1-6.
+// Acceptance coverage for teacher profile creation and branch
+// association, AC 1-6.
 //
 // These read contracts/openapi.yaml directly, so they assert the SSOT itself
-// rather than the generated output derived from it. RED PHASE: none of the
-// paths/schemas/codes below exist in the spec yet, so every case here fails
-// until Task 2 lands them. No test.skip() equivalent is needed for a Go
-// contract test — the assertions themselves are the red signal, and this file
-// already compiles today because it only calls the shared contract-test
-// helpers (loadSpec/getMap/getStr/enumStrings/jsonResponseSchema), which
-// Story 2.1/2.2 already added to this package.
+// rather than the generated output derived from it. This file only calls the
+// shared contract-test helpers (loadSpec/getMap/getStr/enumStrings/
+// jsonResponseSchema) already in this package.
 //
 // Invoked by: api-ci -> acceptance job (`go test ./... -v` in test/contract).
 
@@ -53,7 +49,7 @@ func TestTeacherContract_ExposesNoItemRouteOrMutationBeyondCreate(t *testing.T) 
 	paths := getMap(doc, "paths")
 
 	// D3: adding branches to an existing teacher, and role reversal, are both
-	// explicitly out of scope for this story. No per-teacher path may exist.
+	// explicitly out of scope. No per-teacher path may exist.
 	item := getMap(paths, teachersPath)
 	for _, method := range []string{"delete", "put", "patch"} {
 		if getMap(item, method) != nil {
@@ -61,7 +57,7 @@ func TestTeacherContract_ExposesNoItemRouteOrMutationBeyondCreate(t *testing.T) 
 		}
 	}
 	if getMap(paths, teachersPath+"/{user_id}") != nil {
-		t.Error("[P0] no per-teacher item path may exist: this story is create + list only")
+		t.Error("[P0] no per-teacher item path may exist: teacher profiles are create + list only")
 	}
 }
 
@@ -88,7 +84,7 @@ func TestTeacherContract_SchemasAreGeneratedTypeBacked(t *testing.T) {
 		t.Errorf("[P1] TeacherProfile.created_at format = %q, want date-time", got)
 	}
 	// name is nullable — some providers omit the display name, the same
-	// AuthenticatedIdentity.name precedent this story reuses.
+	// AuthenticatedIdentity.name precedent reused here.
 	branchesItems := getMap(getMap(profile, "branches"), "items")
 	if got := getStr(branchesItems, "$ref"); got != "#/components/schemas/BranchSummary" {
 		t.Errorf("[P1] TeacherProfile.branches must reuse BranchSummary, got ref %q", got)
@@ -217,8 +213,8 @@ func TestTeacherContract_NewErrorCodesJoinTheEnum(t *testing.T) {
 }
 
 func TestTeacherContract_EventAndCategorySchemasStayUnchanged(t *testing.T) {
-	// This story adds a new aggregate; it must not reshape Story 2.1/2.2's
-	// wire contracts. A teacher profile is not part of the event aggregate.
+	// Teacher profiles add a new aggregate; they must not reshape the event and
+	// category wire contracts. A teacher profile is not part of the event aggregate.
 	doc := loadSpec(t, repoRoot(t))
 	schemas := getMap(getMap(doc, "components"), "schemas")
 

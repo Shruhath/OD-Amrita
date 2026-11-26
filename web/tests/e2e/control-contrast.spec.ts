@@ -45,7 +45,7 @@ const coordinators = [
   { id: 'd1', user_id: 'c1', email: 'rahul.k@amrita.edu', name: 'Rahul Krishnan', category_id: categories[0].id, category_name: 'Cultural Programme', created_at: '2026-07-10T09:30:00Z' },
 ]
 const students = [
-  { student_id: 's1', roll_no: 'CB.SC.U4CSE24124', display_name: 'Aparna Menon', branch_code: 'CSE', batch: '2024', section: 'A', card_state: 'pending' },
+  { student_id: 's1', roll_no: 'CB.SC.U4CSE99124', display_name: 'Aparna Menon', branch_code: 'CSE', batch: '2024', section: 'A', card_state: 'pending' },
 ]
 
 const page1 = (data: unknown[]) => ({ data, page: 1, page_size: 20, total: data.length })
@@ -55,7 +55,7 @@ async function mockApi(page: Page, role: PortalRole) {
     if (route.request().method() === 'OPTIONS') return fulfilPreflight(route)
     const path = new URL(route.request().url()).pathname
 
-    if (path.endsWith('/auth/me')) return json(route, { subject: `sweep-${role}`, email: `${role}@amrita.edu`, name: 'Shruhath Reddy', role })
+    if (path.endsWith('/auth/me')) return json(route, { subject: `sweep-${role}`, email: `${role}@amrita.edu`, name: 'Arjun Menon', role })
     if (path.endsWith('/branches')) return json(route, page1([branch, ece]))
     if (path.endsWith('/coordinators')) return json(route, page1(coordinators))
     if (path.endsWith('/categories')) return json(route, page1(categories))

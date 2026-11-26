@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
 
@@ -21,6 +22,14 @@ import (
 )
 
 var rollPattern = regexp.MustCompile(`^[A-Z0-9][A-Z0-9._/-]*$`)
+
+// maxSlot mirrors od_records_slot_check. Keep it in step with
+// 0019_extended_slots.sql and the slot bounds in contracts/openapi.yaml.
+const maxSlot = 20
+
+// sqlstateObjectNotInPrerequisiteState is what the archived-event guard on
+// od_records raises. Same literal as the one in service/od_record.
+const sqlstateObjectNotInPrerequisiteState = "55000"
 
 type Actor struct {
 	UserID string
@@ -462,7 +471,7 @@ func (s *Service) Resolve(ctx context.Context, actor Actor, disputeID, note, out
 		return true, nil
 	})
 	if err != nil {
-		return Record{}, err
+		return Record{}, mapResolvePgError(err)
 	}
 	if !changed {
 		if lockedFound && lockedStatus == "resolved" {
@@ -537,8 +546,15 @@ func validateSubmitInput(input SubmitInput, now time.Time) error {
 			return validation(id.field, "invalid_format", id.field+" must be a non-nil UUID.")
 		}
 	}
-	if input.Slot < 1 || input.Slot > 12 {
-		return validation("slot", "out_of_range", "Slot must be between 1 and 12.")
+	// 1..20, matching od_records_slot_check and the contract's slot bounds.
+	//
+	// This said 12 until now, which was correct when it was written and stopped
+	// being correct at 0019_extended_slots.sql. Every other slot bound moved with
+	// that migration and this one did not, so a student disputing a mark in slot
+	// 13 or above was refused with "Slot must be between 1 and 12" for a slot the
+	// database, the OpenAPI schema and the marking screen all accept.
+	if input.Slot < 1 || input.Slot > maxSlot {
+		return validation("slot", "out_of_range", "Slot must be between 1 and 20.")
 	}
 	if input.ClaimedCoordinatorName == nil || strings.TrimSpace(*input.ClaimedCoordinatorName) == "" || !hasVisibleCharacter(*input.ClaimedCoordinatorName) {
 		return validation("claimed_coordinator_name", "required", "Coordinator name is required.")
@@ -691,6 +707,28 @@ func disputeAlreadyResolved() domain.DomainError {
 
 func forbidden() domain.DomainError {
 	return domain.DomainError{Code: contracts.ErrorCodeRBACFORBIDDEN, Message: "Teacher or admin role required."}
+}
+
+func eventArchived() domain.DomainError {
+	return domain.DomainError{Code: contracts.ErrorCodeEVENTARCHIVED, Message: "Event is archived."}
+}
+
+// mapResolvePgError names the one database refusal an APPROVAL can provoke.
+//
+// A dispute over an archived event is deliberately still submittable — 0014 says
+// so, and says why: an archive is a statement about marking having finished, not
+// about the record being beyond question. But approving one WRITES an od_records
+// row, and od_records does carry the archived-event guard, which raises 55000.
+//
+// So the approval fails, correctly, and until now it failed as a bare 500 telling
+// the admin nothing. It is a 409 EVENT_ARCHIVED now: the same answer the marking
+// path already gives for the same refusal from the same trigger.
+func mapResolvePgError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == sqlstateObjectNotInPrerequisiteState {
+		return eventArchived()
+	}
+	return err
 }
 
 func validation(field, code, message string) domain.DomainError {

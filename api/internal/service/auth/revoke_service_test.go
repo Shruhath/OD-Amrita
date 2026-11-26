@@ -1,4 +1,4 @@
-// revoke_service_test.go — Story 1.5c (DoD 5, 8, 9): the forced-logout /
+// revoke_service_test.go — the forced-logout /
 // session-revocation service. UNIT test, no DB (fakes for the tx-runner, the DB
 // writer seam, the Supabase adapter, and the user directory). It asserts: the
 // pure RevokeRequest.Validate rules; co-commit through store.WithAudit carrying

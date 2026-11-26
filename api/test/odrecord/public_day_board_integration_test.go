@@ -10,7 +10,7 @@
 //
 // In the EXISTING api/test/odrecord package on purpose — ./test/odrecord/... is
 // already wired into api/Makefile's INTEGRATION_PKGS and api-ci.yml, and a new
-// package here would silently never run in CI the way three earlier stories'
+// package here would silently never run in CI the way three earlier
 // packages did.
 package odrecordtest
 

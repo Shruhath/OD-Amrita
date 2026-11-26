@@ -1,11 +1,6 @@
-// Red-phase unit tests for Story 0.11's dispute service.
+// Unit tests for the dispute service.
 //
-// COMPILE-RED. This package holds only the Story 1.1 placeholder doc.go today, so
-// the first failure is `undefined: NewService` and friends. The blast radius is
-// exactly one package with no other tests in it.
-//
-// The prescribed surface, written out so the dev is not reverse-engineering it
-// from compiler errors:
+// The service surface under test:
 //
 //	type Actor       struct { UserID, Role string }
 //	type Student     struct { StudentID, RollNo, DisplayName, Branch, Section, Batch string }
@@ -55,6 +50,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	contracts "github.com/Shruhath/OD-Amrita/contracts/generated/go"
 
@@ -65,8 +61,8 @@ import (
 // The institutional convention, confirmed in the predecessor app rather than
 // guessed: lowercase(roll_no)@cb.students.amrita.edu (T1).
 const (
-	fixtureRoll  = "CB.SC.U4CSE24101"
-	fixtureEmail = "cb.sc.u4cse24101@cb.students.amrita.edu"
+	fixtureRoll  = "CB.SC.U4CSE99101"
+	fixtureEmail = "cb.sc.u4cse99101@cb.students.amrita.edu"
 	fixtureID    = "95000000-0000-4000-8000-000000000101"
 	otherID      = "95000000-0000-4000-8000-000000000102"
 	fixtureEvent = "93000000-0000-4000-8000-000000000001"
@@ -269,14 +265,14 @@ func validInput() SubmitInput {
 // Identity.
 // ---------------------------------------------------------------------------
 
-// 0.11-SVC-001 — THE test of this story. The three identity-failure paths return
-// BYTE-IDENTICAL errors (AC 3, T3/T5).
+// 0.11-SVC-001 — THE central test of the dispute service. The three
+// identity-failure paths return BYTE-IDENTICAL errors.
 //
 // A bad domain, a well-formed address that resolves to no student, and an address
 // that resolves to a DIFFERENT student than the one the form was opened on are
 // three different internal facts and must be one external answer. Two different
 // answers is a directory oracle: anyone on the internet can then ask "does
-// cb.sc.u4cse24099@… exist" and read the answer off the status code.
+// cb.sc.u4cse99099@… exist" and read the answer off the status code.
 //
 // Compared as whole VALUES with reflect.DeepEqual rather than as three separate
 // shape checks, because that is the only form of this assertion that catches a
@@ -289,7 +285,7 @@ func TestSubmit_TheThreeIdentityRefusalsAreByteIdentical(t *testing.T) {
 	badDomain.SubmittedEmail = "someone@gmail.com"
 
 	unknownStudent := validInput()
-	unknownStudent.SubmittedEmail = "cb.sc.u4cse24999@cb.students.amrita.edu"
+	unknownStudent.SubmittedEmail = "cb.sc.u4cse99999@cb.students.amrita.edu"
 
 	mismatch := validInput()
 	mismatch.StudentID = otherID // resolves to the fixture student, not this one
@@ -354,10 +350,10 @@ func TestSubmit_DerivesTheRollNumberFromTheLocalPartAndNormalisesIt(t *testing.T
 		email string
 		want  string
 	}{
-		{"lowercase institutional address", "cb.sc.u4cse24101@cb.students.amrita.edu", fixtureRoll},
-		{"mixed case", "CB.Sc.U4cse24101@cb.students.amrita.edu", fixtureRoll},
-		{"surrounding whitespace", "  cb.sc.u4cse24101@cb.students.amrita.edu  ", fixtureRoll},
-		{"bare amrita.edu host still resolves (subdomain is not required)", "cb.sc.u4cse24101@amrita.edu", fixtureRoll},
+		{"lowercase institutional address", "cb.sc.u4cse99101@cb.students.amrita.edu", fixtureRoll},
+		{"mixed case", "CB.Sc.U4cse99101@cb.students.amrita.edu", fixtureRoll},
+		{"surrounding whitespace", "  cb.sc.u4cse99101@cb.students.amrita.edu  ", fixtureRoll},
+		{"bare amrita.edu host still resolves (subdomain is not required)", "cb.sc.u4cse99101@amrita.edu", fixtureRoll},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			svc, students, _, _ := newTestService(t)
@@ -410,16 +406,16 @@ func TestSubmit_DomainCheckAcceptsSubdomainsAndRejectsLookalikes(t *testing.T) {
 	ctx := context.Background()
 
 	accepted := []string{
-		"cb.sc.u4cse24101@amrita.edu",
-		"cb.sc.u4cse24101@cb.students.amrita.edu",
-		"cb.sc.u4cse24101@students.amrita.edu",
+		"cb.sc.u4cse99101@amrita.edu",
+		"cb.sc.u4cse99101@cb.students.amrita.edu",
+		"cb.sc.u4cse99101@students.amrita.edu",
 	}
 	rejected := []string{
-		"cb.sc.u4cse24101@amrita.edu.evil.com",
-		"cb.sc.u4cse24101@notamrita.edu",
-		"cb.sc.u4cse24101@amrita.edu@evil.com",
-		"cb.sc.u4cse24101@",
-		"cb.sc.u4cse24101",
+		"cb.sc.u4cse99101@amrita.edu.evil.com",
+		"cb.sc.u4cse99101@notamrita.edu",
+		"cb.sc.u4cse99101@amrita.edu@evil.com",
+		"cb.sc.u4cse99101@",
+		"cb.sc.u4cse99101",
 	}
 
 	for _, email := range accepted {
@@ -511,7 +507,7 @@ func TestSubmit_AuditRowNamesTheSubmitterAndTargetsTheDispute(t *testing.T) {
 	svc, _, _, audited := newTestService(t)
 
 	input := validInput()
-	input.SubmittedEmail = "CB.SC.U4CSE24101@cb.students.amrita.edu"
+	input.SubmittedEmail = "CB.SC.U4CSE99101@cb.students.amrita.edu"
 
 	if _, err := svc.Submit(context.Background(), input); err != nil {
 		t.Fatalf("[P0] Submit: %v", err)
@@ -537,7 +533,7 @@ func TestSubmit_AuditRowNamesTheSubmitterAndTargetsTheDispute(t *testing.T) {
 	if evt.TargetTable == nil || *evt.TargetTable != "disputes" {
 		t.Errorf("[P0] target_table = %v, want \"disputes\". It must NOT be od_records: 0.10's CI conservation "+
 			"gate counts audit rows joined on target_table = 'od_records' for the public fixture events, and a "+
-			"dispute row landing there would break a gate this story is forbidden to relax (T20)", evt.TargetTable)
+			"dispute row landing there would break a gate that must not be relaxed", evt.TargetTable)
 	}
 	// The target id is late-bound through a pointer that the write closure sets,
 	// so it can only be right if store.WithAudit dereferences AFTER the write.
@@ -602,8 +598,13 @@ func TestSubmit_RefusesOutOfBoundsFieldsBeforeAnyQuery(t *testing.T) {
 		wantErr contracts.ErrorCode
 	}{
 		{"slot 0", func(i *SubmitInput) { i.Slot = 0 }, contracts.ErrorCodeVALIDATIONFAILED},
-		{"slot 13", func(i *SubmitInput) { i.Slot = 13 }, contracts.ErrorCodeVALIDATIONFAILED},
+		{"slot 21", func(i *SubmitInput) { i.Slot = 21 }, contracts.ErrorCodeVALIDATIONFAILED},
 		{"slot -1", func(i *SubmitInput) { i.Slot = -1 }, contracts.ErrorCodeVALIDATIONFAILED},
+		// The case that was missing, and the reason the bound stayed at 12 for so
+		// long after 0019 widened slots to 20: every slot row above tests a value
+		// the OLD bound also rejected, so a legal slot the validator refused had
+		// nothing asserting otherwise. This row asserts the bound ADMITS.
+		{"slot 20 is accepted", func(i *SubmitInput) { i.Slot = maxSlot }, ""},
 		{"missing coordinator name", func(i *SubmitInput) { i.ClaimedCoordinatorName = nil }, contracts.ErrorCodeVALIDATIONFAILED},
 		{"blank coordinator name", func(i *SubmitInput) {
 			name := "   "
@@ -1006,5 +1007,37 @@ func TestResolve_AFailedCreditFailsTheWholeResolution(t *testing.T) {
 	}
 	if len(audited.events) != 0 {
 		t.Errorf("[P0] a failed credit still left %d dispute.resolved audit rows behind", len(audited.events))
+	}
+}
+
+// Approving a dispute over an ARCHIVED event answers EVENT_ARCHIVED, not 500.
+//
+// Disputes on archived events are deliberately submittable (0014). The approval,
+// though, writes an od_records row, and od_records carries the archived-event
+// guard — so the write is refused with 55000 and the admin used to be told
+// nothing but "Internal server error."
+func TestResolvePgError_MapsTheArchivedEventGuard(t *testing.T) {
+	err := mapResolvePgError(&pgconn.PgError{Code: sqlstateObjectNotInPrerequisiteState})
+
+	var de domain.DomainError
+	if !errors.As(err, &de) {
+		t.Fatalf("error = %v (%T), want a domain.DomainError", err, err)
+	}
+	if de.Code != contracts.ErrorCodeEVENTARCHIVED {
+		t.Fatalf("code = %s, want %s", de.Code, contracts.ErrorCodeEVENTARCHIVED)
+	}
+}
+
+// Anything else passes through untouched — the mapping must not swallow errors
+// it has no answer for, which is how the 500 above became invisible in the first
+// place.
+func TestResolvePgError_LeavesEveryOtherErrorAlone(t *testing.T) {
+	cause := errors.New("connection reset")
+	if got := mapResolvePgError(cause); !errors.Is(got, cause) {
+		t.Fatalf("mapResolvePgError(%v) = %v, want the cause unchanged", cause, got)
+	}
+	other := &pgconn.PgError{Code: "23505"}
+	if got := mapResolvePgError(other); !errors.Is(got, other) {
+		t.Fatalf("mapResolvePgError(unique violation) = %v, want the cause unchanged", got)
 	}
 }

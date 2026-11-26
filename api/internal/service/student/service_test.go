@@ -22,7 +22,7 @@ func TestImport_NormalizesHeadersValuesAndCanonicalRolls(t *testing.T) {
 	writer := &fakeWriter{result: Result{ImportID: "77777777-7777-4777-8777-777777777777", InsertedRows: 2, DatabaseCount: 2}}
 	svc := NewService(reader, &fakeAuditStore{}, writer)
 
-	csv := " batch ,BRANCH, name ,roll_no,Section\n2024, cse , Ananya José , cb.sc.u4cse24001 , A \n2024,CSE,Madhav Rao,CB.SC.U4CSE24002,B\n"
+	csv := " batch ,BRANCH, name ,roll_no,Section\n2024, cse , Ananya José , cb.sc.u4cse99001 , A \n2024,CSE,Madhav Rao,CB.SC.U4CSE99002,B\n"
 	result, err := svc.Import(context.Background(), Actor{UserID: "90000000-0000-4000-8000-000000000001", Email: "admin@amrita.edu", Role: "admin"}, ImportInput{
 		FileName: " roster.csv ",
 		Content:  strings.NewReader(csv),
@@ -36,7 +36,7 @@ func TestImport_NormalizesHeadersValuesAndCanonicalRolls(t *testing.T) {
 	if len(writer.rows) != 2 {
 		t.Fatalf("writer saw %d rows, want 2", len(writer.rows))
 	}
-	if got := writer.rows[0].RollNo; got != "CB.SC.U4CSE24001" {
+	if got := writer.rows[0].RollNo; got != "CB.SC.U4CSE99001" {
 		t.Errorf("canonical roll = %q", got)
 	}
 	if got := writer.rows[0].Name; got != "Ananya José" {
@@ -52,15 +52,15 @@ func TestImport_CommitsValidRowsAndReportsInvalidRows(t *testing.T) {
 	writer := &fakeWriter{result: Result{ImportID: "77777777-7777-4777-8777-777777777777", InsertedRows: 1, DatabaseCount: 1}}
 	svc := NewService(reader, &fakeAuditStore{}, writer)
 
-	valid := "CB.SC.U4CSE24010,Valid Student,CSE,A,2024\n"
+	valid := "CB.SC.U4CSE99010,Valid Student,CSE,A,2024\n"
 	csv := "Roll No,Name,Branch,Section,Batch\n" +
 		valid +
-		"CB.SC.U4CSE24011,,CSE,A,2024\n" +
-		"CB.SC.U4CSE24010,Duplicate Student,CSE,A,2024\n" +
-		"CB.SC.U4CSE24012,Unknown Branch,ECE,A,2024\n" +
-		"CB.SC.U4CSE24013," + strings.Repeat("N", 201) + ",CSE,A,2024\n" +
+		"CB.SC.U4CSE99011,,CSE,A,2024\n" +
+		"CB.SC.U4CSE99010,Duplicate Student,CSE,A,2024\n" +
+		"CB.SC.U4CSE99012,Unknown Branch,ECE,A,2024\n" +
+		"CB.SC.U4CSE99013," + strings.Repeat("N", 201) + ",CSE,A,2024\n" +
 		"bad roll!,Bad Roll,CSE,A,2024\n" +
-		"CB.SC.U4CSE24014,Missing Batch,CSE,A\n"
+		"CB.SC.U4CSE99014,Missing Batch,CSE,A\n"
 
 	result, err := svc.Import(context.Background(), adminActor(), ImportInput{FileName: "students.csv", Content: strings.NewReader(csv)})
 	if err != nil {
@@ -69,7 +69,7 @@ func TestImport_CommitsValidRowsAndReportsInvalidRows(t *testing.T) {
 	if result.TotalRows != 7 || result.InsertedRows != 1 || result.InvalidRows != 6 {
 		t.Fatalf("unexpected result counts: %+v", result)
 	}
-	if len(writer.rows) != 1 || writer.rows[0].RollNo != "CB.SC.U4CSE24010" {
+	if len(writer.rows) != 1 || writer.rows[0].RollNo != "CB.SC.U4CSE99010" {
 		t.Fatalf("valid rows handed to writer = %+v", writer.rows)
 	}
 	want := map[string]bool{
@@ -101,7 +101,7 @@ func TestImport_RejectsInvalidEncodingBeforeWriter(t *testing.T) {
 		writer,
 	)
 
-	csv := "Roll No,Name,Branch,Section,Batch\nCB.SC.U4CSE24020,Invalid\x00Name,CSE,A,2024\n"
+	csv := "Roll No,Name,Branch,Section,Batch\nCB.SC.U4CSE99020,Invalid\x00Name,CSE,A,2024\n"
 	_, err := svc.Import(context.Background(), adminActor(), ImportInput{FileName: "students.csv", Content: strings.NewReader(csv)})
 
 	var de domain.DomainError
@@ -125,8 +125,8 @@ func TestImport_AcceptsCorrectedRollAfterEarlierInvalidRow(t *testing.T) {
 	)
 
 	csv := "Roll No,Name,Branch,Section,Batch\n" +
-		"CB.SC.U4CSE24021,Bad Branch,UNKNOWN,A,2024\n" +
-		"CB.SC.U4CSE24021,Corrected Student,CSE,A,2024\n"
+		"CB.SC.U4CSE99021,Bad Branch,UNKNOWN,A,2024\n" +
+		"CB.SC.U4CSE99021,Corrected Student,CSE,A,2024\n"
 
 	result, err := svc.Import(context.Background(), adminActor(), ImportInput{FileName: "students.csv", Content: strings.NewReader(csv)})
 	if err != nil {
@@ -198,7 +198,7 @@ func TestImport_AuditPayloadIncludesReconciliationCounts(t *testing.T) {
 
 	_, err := svc.Import(context.Background(), adminActor(), ImportInput{
 		FileName: "students.csv",
-		Content:  strings.NewReader("Roll No,Name,Branch,Section,Batch\nCB.SC.U4CSE24031,Student,CSE,A,2024\n"),
+		Content:  strings.NewReader("Roll No,Name,Branch,Section,Batch\nCB.SC.U4CSE99031,Student,CSE,A,2024\n"),
 	})
 	if err != nil {
 		t.Fatalf("Import returned error: %v", err)
@@ -227,7 +227,7 @@ func TestImport_RejectsNonAdminBeforeParsing(t *testing.T) {
 	reader := &fakeReader{err: errors.New("reader should not be called")}
 	_, err := NewService(reader, &fakeAuditStore{}, &fakeWriter{}).Import(context.Background(), Actor{Role: "student"}, ImportInput{
 		FileName: "students.csv",
-		Content:  strings.NewReader("Roll No,Name,Branch,Section,Batch\nCB.SC.U4CSE24001,Name,CSE,A,2024\n"),
+		Content:  strings.NewReader("Roll No,Name,Branch,Section,Batch\nCB.SC.U4CSE99001,Name,CSE,A,2024\n"),
 	})
 	var de domain.DomainError
 	if !errors.As(err, &de) || de.Code != contracts.ErrorCodeRBACFORBIDDEN {

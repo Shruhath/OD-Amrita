@@ -1,7 +1,7 @@
 package event
 
-// category_handler_test.go — Story 2.2 coverage for AC 1, 2, 4 and 5 at the
-// transport boundary. UNIT test: no build tag, no database.
+// category_handler_test.go — category endpoint coverage at the transport
+// boundary. UNIT test: no build tag, no database.
 //
 // Invoked by: api-ci -> build job (`go test ./...`).
 //
@@ -336,9 +336,9 @@ func TestListCategoriesHandlerRendersRejectionsThroughTheErrorEnvelope(t *testin
 }
 
 // TestBothCategoryRoutesAreMountedOnTheGuardedAdminGroup pins the fact the
-// deny-matrix in middleware/rbac cannot: that the routes EXIST. A route the
-// story forgets to mount returns 404, which reads as a frontend bug and is
-// exactly how the portal integration job failed in Story 2.1's neighbourhood.
+// deny-matrix in middleware/rbac cannot: that the routes EXIST. A route a
+// change forgets to mount returns 404, which reads as a frontend bug and is
+// exactly how the portal integration job once failed for the event routes.
 //
 // It asserts against the SHARED registration function that both cmd/api and
 // test/portal call, so production and the acceptance harness can no longer serve
@@ -360,7 +360,7 @@ func TestBothCategoryRoutesAreMountedOnTheGuardedAdminGroup(t *testing.T) {
 			t.Errorf("route %q is not mounted; the browser journey would see a 404", want)
 		}
 	}
-	// Story 2.1's routes must survive the shared-registration refactor.
+	// The event routes must survive the shared-registration refactor.
 	for _, want := range []string{
 		"GET /api/v1/admin/branches",
 		"GET /api/v1/admin/events",
@@ -368,7 +368,7 @@ func TestBothCategoryRoutesAreMountedOnTheGuardedAdminGroup(t *testing.T) {
 		"POST /api/v1/admin/events/:event_id/archive",
 	} {
 		if !mounted[want] {
-			t.Errorf("Story 2.1 route %q was lost", want)
+			t.Errorf("event route %q was lost", want)
 		}
 	}
 	if !mounted["PUT /api/v1/admin/events/:event_id/categories/:category_id/visibility"] {

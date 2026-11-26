@@ -77,11 +77,11 @@ func TestDistinctSearchQueriesAreNotCollapsed(t *testing.T) {
 	inner := &countingSearch{}
 	cached := NewSearch(inner, time.Minute)
 
-	first, err := cached.PublicSearch(context.Background(), "CB.SC.U4CSE24101")
+	first, err := cached.PublicSearch(context.Background(), "CB.SC.U4CSE99101")
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := cached.PublicSearch(context.Background(), "CB.SC.U4CSE24102")
+	second, err := cached.PublicSearch(context.Background(), "CB.SC.U4CSE99102")
 	if err != nil {
 		t.Fatal(err)
 	}

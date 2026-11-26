@@ -1,87 +1,21 @@
 /* Component layer.
 
    One visual system across every panel — administration, teacher, coordinator
-   and the signed-out surfaces alike. Before this, only the auth card used the
-   backdrop: `.portal-shell` painted an opaque white over it, so the photograph
-   and the glass existed on exactly one screen out of seven.
+   and the signed-out surfaces alike:
 
-   The system:
-
-     backdrop   a blurred campus photograph under a dark mask and a dot lattice,
-                painted once at the app root, fixed, behind everything.
      chrome     translucent frosted bars — topbar, footer, marking header.
      panel      translucent frosted cards holding all content. Light fill, dark
                 text, lit top edge, wide soft shadow.
      backdrop   whatever sits between panels (page headings, status lines,
-       type     pagination) is white type on the photograph.
+       type     pagination), drawn in the --on-backdrop palette.
 
    ONE STRUCTURAL RULE, and breaking it breaks the dialogs: nothing that is an
-   ancestor of `.dialog-backdrop` may carry `backdrop-filter`, `filter` or
+   ancestor of a modal overlay may carry `backdrop-filter`, `filter` or
    `transform`. Each of those makes the element a containing block for
    `position: fixed` descendants, which would trap the modal inside the
    workspace column instead of covering the viewport. `.portal-shell` and
    `.workspace` are therefore plain transparent boxes; the frosting lives on the
    leaf surfaces. */
-
-/* ---------------------------------------------------------------- backdrop */
-
-.app-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: -10;
-  pointer-events: none;
-  /* The layers are painted with their own filters and never move; isolating
-     them keeps the compositor from re-rasterising on every scroll. */
-  overflow: hidden;
-}
-
-.app-backdrop__image {
-  position: absolute;
-  /* The blur samples past the element's edge, which would otherwise leave a
-     feathered transparent margin around the viewport. Oversizing and scaling
-     pushes that artefact off-screen. */
-  inset: -8%;
-  background-image: var(--backdrop-image);
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  opacity: var(--backdrop-opacity);
-  filter: blur(var(--backdrop-blur)) saturate(1.15);
-  transform: scale(var(--backdrop-scale));
-}
-
-/* Mask and brand glow. A flat black at 0.7 (what the old app shipped) is what
-   made the photograph read as grey sludge; a slight blue-to-plum gradient with a
-   crimson bloom in the top corner keeps it a photograph. */
-.app-backdrop__mask {
-  position: absolute;
-  inset: 0;
-  background: var(--backdrop-glow), var(--backdrop-mask);
-}
-
-/* The old app's 5%-opacity dot lattice over the mask. */
-.app-backdrop__pattern {
-  position: absolute;
-  inset: 0;
-  opacity: 0.05;
-  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='0.4'%3E%3Ccircle cx='30' cy='30' r='1'/%3E%3C/g%3E%3C/svg%3E");
-}
-
-/* The *-bg crops, not the full photographs: the supplied campus crops have
-   "FOR ON DUTY" burned across the middle of the frame, which no amount of blur
-   turns into anything but a bright smear behind the content. These are the band
-   above it — sky, the ridge line and the rooflines — which is clean, is the
-   calmest thing to sit behind a UI, and is a fifth of the file size. The
-   untouched originals are still in /brand next to them. */
-:root {
-  --backdrop-image: url('/brand/campus-mobile-bg.jpg');
-}
-
-@media (min-width: 768px) {
-  :root {
-    --backdrop-image: url('/brand/campus-desktop-bg.jpg');
-  }
-}
 
 /* ------------------------------------------------------------------- shell */
 
@@ -369,6 +303,17 @@
 
 /* ----------------------------------------------------------------- buttons */
 
+/*
+  The plain element defaults for a button — ordinary declarations again, with no
+  `:not(:where(...))` guard on any of them.
+
+  This file is imported INTO the base layer (see index.css), so a Tailwind
+  utility written on a button already beats everything here without being asked
+  to. The guards existed only for the window in which this file was unlayered,
+  and each one had to name the exact property it was standing aside for — which
+  is how `color` got missed and shipped two buttons whose text and fill were the
+  same colour.
+*/
 button {
   display: inline-flex;
   align-items: center;
@@ -378,6 +323,8 @@ button {
   padding: 10px 18px;
   border: 1px solid var(--gray-300);
   border-radius: var(--radius-md);
+  background: var(--control-bg);
+  color: var(--foreground);
   font-size: 15px;
   font-weight: 650;
   line-height: 1.2;
@@ -385,63 +332,8 @@ button {
   transition: background-color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, transform 0.1s ease;
 }
 
-/*
-  THE ELEMENT DEFAULT STANDS ASIDE FOR A BUTTON THAT NAMES ITS OWN FILL.
-
-  This file is not inside a cascade layer and the utilities are, and unlayered
-  CSS beats layered CSS no matter how specific the layered rule is — so
-  `button { background }` was quietly winning against `bg-primary` on every
-  button drawn by the shared component, which is why the one primary action in a
-  dialog rendered as the same grey as Cancel beside it.
-
-  `:where()` IS LOAD-BEARING, and leaving it out broke the front door. `:not()`
-  normally takes the specificity of its argument, so `button:not([class*='bg-'])`
-  scores (0,1,1) — which outranks `.primary` (0,1,0), and every legacy primary
-  button in the app went from cobalt to the flat control fill: pure white in the
-  light theme, pure black in the dark one, on the sign-in button of the first
-  screen anybody opens. `:where()` contributes nothing to specificity, so this
-  scores (0,0,1) exactly like the bare element selector it replaces. The
-  exclusion still does its job — it is the SELECTOR not matching that lets the
-  layered utility through, not the specificity.
-*/
-button:not(:where([class*='bg-'])) {
-  background: var(--control-bg);
-}
-
-/*
-  THE INK STANDS ASIDE TOO — and it is the half that actually went invisible.
-  `bg-foreground text-canvas` is how the redesign draws a solid button, and the
-  element rule was overriding `text-canvas` while leaving `bg-foreground` alone,
-  so "New event" and "Assign coordinator" painted rgb(23,23,23) text on an
-  rgb(23,23,23) fill: 1:1, a button-shaped hole.
-
-  The colour utilities are listed rather than matched by prefix, because
-  `[class*='text-']` also catches `text-sm`, `text-xs` and `text-center` — a
-  button would then be excluded from the default ink for having said something
-  about its font size. The app-wide contrast sweep is what keeps this list
-  honest: a new colour utility that is not named here shows up as a failing
-  screen rather than as a button nobody can read.
-*/
-button:not(:where(
-  [class*='text-canvas'],
-  [class*='text-white'],
-  [class*='text-primary'],
-  [class*='text-foreground'],
-  [class*='text-status'],
-  [class*='text-accent']
-)) {
-  color: var(--foreground);
-}
-
-button:not(:where([class*='border-'])) {
-  border-color: var(--gray-300);
-}
-
-button:hover:not(:disabled):not(:where([class*='bg-'])) {
+button:hover:not(:disabled) {
   background: var(--gray-50);
-}
-
-button:hover:not(:disabled):not(:where([class*='border-'])) {
   border-color: var(--gray-400);
 }
 
@@ -539,14 +431,9 @@ button:disabled {
    anyway or shift the brand crimson, and the crimson is the one colour in this
    app that is not ours to change. So on dark the mark keeps its original
    colours and is given the light ground it was drawn for. */
-:root[data-theme='dark'] .auth-brand,
 :root[data-theme='dark'] .app-footer__logo {
   background: rgb(255 255 255 / 0.93);
   border-radius: 12px;
-}
-
-:root[data-theme='dark'] .auth-brand {
-  padding: 14px 18px;
 }
 
 :root[data-theme='dark'] .app-footer__logo {
@@ -589,21 +476,12 @@ button:disabled {
   display: block;
 }
 
-/* On the auth cards the toggle has no bar to sit in, so it is pinned to the top
-   corner of the card itself. */
-.auth-toolbar {
-  display: flex;
-  justify-content: flex-end;
-  margin: calc(-1 * clamp(12px, 3vw, 20px)) calc(-1 * clamp(4px, 1vw, 10px)) 4px 0;
-}
-
 /* ------------------------------------------------------------------ panels */
 
-/* Every content surface in the app is one of these three, and they differ only
+/* Every content surface in the app is one of these two, and they differ only
    in fill weight. Shared here so a panel can never drift from a table. */
 .detail-section,
-.table-wrap,
-.empty-state {
+.table-wrap {
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-2xl);
   background: var(--surface);
@@ -629,28 +507,6 @@ button:disabled {
   color: var(--gray-600);
   font-size: 14.5px;
   line-height: 1.55;
-}
-
-.empty-state {
-  padding: clamp(36px, 8vw, 56px) 24px;
-  text-align: center;
-  /* Dashed on a translucent fill turns to mush, so emptiness is signalled by a
-     quieter fill and a lighter border instead. */
-  background: var(--surface-quiet);
-  border-color: var(--surface-border);
-}
-
-.empty-state h1,
-.empty-state h2 {
-  margin: 0 0 10px;
-  font-size: 21px;
-}
-
-.empty-state p {
-  margin: 0;
-  color: var(--gray-600);
-  max-width: 46ch;
-  margin-inline: auto;
 }
 
 /* ------------------------------------------------------------------ tables */
@@ -727,14 +583,6 @@ tbody tr:hover {
   background: var(--row-hover);
 }
 
-.archived-row {
-  background: var(--archived-row-bg);
-}
-
-.archived-row > * {
-  color: var(--gray-500);
-}
-
 .row-action {
   text-align: right;
   white-space: nowrap;
@@ -768,12 +616,6 @@ tbody tr:hover {
 }
 
 /* ------------------------------------------------------- chips and badges */
-
-.branch-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
 
 /* A code, not a sentence. A fixed minimum width and wider tracking make a row
    of them read as a set of tags rather than as ragged text.
@@ -856,14 +698,6 @@ tbody tr:hover {
   margin-top: 24px;
 }
 
-/* The signed-out screen carries the full lockup above the card. */
-.auth-brand {
-  display: block;
-  width: min(280px, 70%);
-  height: auto;
-  margin: 0 auto 26px;
-}
-
 .auth-hint {
   margin: 22px 0 0;
   padding: 13px 15px;
@@ -917,26 +751,7 @@ tbody tr:hover {
   margin-top: 16px;
 }
 
-.field-error {
-  margin: -2px 0 5px;
-  color: var(--red-600) !important;
-  font-size: 13px;
-  font-weight: 600;
-}
-
 /* --------------------------------------------------------------- dialogs */
-
-.dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: grid;
-  place-items: center;
-  padding: 16px;
-  background: rgb(6 8 13 / 0.5);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
 
 .dialog {
   width: min(520px, 100%);
@@ -1014,143 +829,7 @@ tbody tr:hover {
   margin-top: 26px;
 }
 
-.branch-options {
-  display: grid;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.branch-options label {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  min-height: var(--tap);
-  padding: 10px 13px;
-  border: 1px solid var(--gray-300);
-  border-radius: var(--radius-md);
-  background: var(--panel-raise);
-  cursor: pointer;
-  transition: background-color 0.14s ease, border-color 0.14s ease;
-}
-
-.branch-options label:hover {
-  background: var(--control-bg);
-  border-color: var(--gray-400);
-}
-
-.branch-options input {
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-  accent-color: var(--crimson);
-}
-
-.branch-options span {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  min-width: 0;
-}
-
-.branch-options span strong {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.branch-options small {
-  color: var(--gray-500);
-  flex-shrink: 0;
-}
-
 /* ---------------------------------------------------------- event detail */
-
-.event-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px 36px;
-  margin: 14px 0 0;
-}
-
-.event-summary div {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  min-width: 0;
-}
-
-.event-summary dt {
-  color: var(--on-backdrop-faint);
-  font-size: 11px;
-  font-weight: 720;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-}
-
-.event-summary dd {
-  margin: 0;
-  color: var(--on-backdrop);
-  font-weight: 650;
-  text-shadow: var(--on-backdrop-shadow);
-}
-
-/* The status badge and branch chips in the summary sit on the photograph, so
-   they cannot use the on-panel palette. */
-.event-summary .status-badge.active { color: var(--on-backdrop-success); }
-.event-summary .status-badge.archived { color: var(--on-backdrop-muted); }
-
-.event-summary .branch-chip {
-  color: var(--on-backdrop);
-  background: var(--on-backdrop-fill);
-  box-shadow: inset 0 0 0 1px var(--on-backdrop-line);
-}
-
-.category-list {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  margin: 0 0 18px;
-  padding: 0;
-  list-style: none;
-}
-
-.category-list li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 14px;
-  padding: 13px 15px;
-  border-radius: var(--radius-md);
-  background: var(--tint-soft);
-  box-shadow: inset 0 0 0 1px var(--tint-line);
-  font-weight: 650;
-  font-size: 14.5px;
-  overflow-wrap: anywhere;
-}
-
-/* A coordinator row is name · email · assigned-at. Only the name carries the
-   row's weight; the other two are supporting detail, and the timestamp is
-   pushed to the far edge so the column of dates lines up down the list. */
-.category-list li > span:first-child {
-  min-width: 0;
-}
-
-.category-list li small {
-  color: var(--gray-500);
-  font-weight: 600;
-  font-size: 13px;
-  min-width: 0;
-}
-
-.category-list li time {
-  margin-left: auto;
-  color: var(--gray-500);
-  font-weight: 600;
-  font-size: 12.5px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
 
 .empty-note {
   margin: 0 0 18px;
@@ -1158,94 +837,7 @@ tbody tr:hover {
   font-size: 14px;
 }
 
-/* Wraps rather than clipping the submit button on a narrow viewport. */
-.category-form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
-
-.category-form label { margin: 0; font-weight: 700; font-size: 14px; }
-
-.category-form input {
-  flex: 1 1 220px;
-  min-width: 0;
-  min-height: var(--tap);
-  margin: 0;
-  border: 1px solid var(--gray-300);
-  border-radius: var(--radius-md);
-  padding: 11px 13px;
-  background: var(--control-bg);
-  color: var(--foreground);
-}
-
-.category-form input:focus {
-  border-color: var(--crimson);
-  box-shadow: 0 0 0 3px var(--focus-glow);
-}
-
-.category-form .field-error {
-  flex-basis: 100%;
-  margin: 0;
-}
-
 /* -------------------------------------------------------- roster import */
-
-.roster-form {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto;
-  align-items: end;
-  gap: 10px 14px;
-}
-
-.roster-form label,
-.roster-form .field-error {
-  grid-column: 1 / -1;
-  font-weight: 700;
-  font-size: 14px;
-}
-
-.roster-form input[type='file'] {
-  min-width: 0;
-  border: 1px dashed var(--gray-400);
-  border-radius: var(--radius-md);
-  padding: 14px;
-  background: var(--tint-weak);
-  font-size: 14px;
-}
-
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 10px;
-  margin: 18px 0 0;
-}
-
-.summary-grid div {
-  padding: 15px 17px;
-  border-radius: var(--radius-md);
-  background: var(--tint-soft);
-  box-shadow: inset 0 0 0 1px var(--tint-line);
-  min-width: 0;
-}
-
-.summary-grid dt {
-  color: var(--gray-500);
-  font-size: 11.5px;
-  font-weight: 750;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.summary-grid dd {
-  margin: 6px 0 0;
-  font-size: 27px;
-  font-weight: 760;
-  color: var(--foreground);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.03em;
-}
 
 /* A table inside a panel — the roster, the import errors — is NOT a second pane
    of glass. Frosting it again would blur an already-blurred backdrop and ring
@@ -1266,10 +858,6 @@ tbody tr:hover {
 
 .detail-section .table-wrap thead th:first-child { border-top-left-radius: var(--radius-lg); }
 .detail-section .table-wrap thead th:last-child { border-top-right-radius: var(--radius-lg); }
-
-.import-errors {
-  margin-top: 18px;
-}
 
 /* --------------------------------------------------------- card populator */
 
@@ -1631,6 +1219,17 @@ tbody tr:hover {
   color: var(--foreground);
 }
 
+/* The server's reference for a failed request. Quiet on purpose: it is there to
+   be read out when someone reports the failure, not to compete with the reason
+   above it. Monospace because it is read aloud character by character. */
+.mark-banner-reference {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  opacity: 0.7;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
 .mark-banner button {
   align-self: flex-start;
   min-height: 38px;
@@ -1902,18 +1501,6 @@ tbody tr:hover {
 
   .page-heading > button { align-self: flex-start; }
 
-  .category-form { align-items: stretch; flex-direction: column; }
-
-  /* The flex SHORTHAND has to be reset, not just the width. `flex: 1 1 220px`
-     sizes the main axis, and the main axis here is now vertical — so the basis
-     became a 220px HEIGHT and grow stretched every input into a giant box. */
-  .category-form input {
-    flex: 0 0 auto;
-    width: 100%;
-  }
-
-  .roster-form { grid-template-columns: 1fr; align-items: stretch; }
-
   th, td { padding: 13px 14px; }
 
   /* A five-column roster cannot fit 390px, so it scrolls — but the identifying
@@ -1950,17 +1537,13 @@ tbody tr:hover {
     box-shadow: 1px 0 0 var(--surface-line-strong);
   }
 
-  /* The pinned cell paints over the row, so it has to repeat the row's fill —
-     also opaque, for the same reason. */
-  .archived-row th:first-child,
-  .archived-row td:first-child { background: var(--nested-head-bg); }
   .populator-row-failed th:first-child,
   .populator-row-failed td:first-child { background: var(--sticky-failed-bg); }
 
   /* Short values (dates, counts, statuses) read worse broken across three lines
      than scrolled to, so only the branch chips are allowed to wrap. */
   tbody td { white-space: nowrap; }
-  .branch-list, .branch-chip, .populator-actions button, .populator-note { white-space: normal; }
+  .branch-chip, .populator-actions button, .populator-note { white-space: normal; }
 
   .branch-chip { font-size: 10.5px; }
 
@@ -1977,8 +1560,6 @@ tbody tr:hover {
   .populator-filters > div,
   .populator-filters > button { flex: 0 0 100%; }
   .populator-actions { min-width: 0; }
-  .summary-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
-  .summary-grid dd { font-size: 23px; }
 }
 
 /* At the narrowest supported width four meters across become unreadable, so
@@ -1998,53 +1579,6 @@ tbody tr:hover {
    is the most visible defect this project could ship.
 */
 
-.public-page {
-  width: min(720px, calc(100% - 24px));
-  margin: 0 auto;
-  padding: max(16px, env(safe-area-inset-top)) 0 max(32px, env(safe-area-inset-bottom));
-  color: var(--on-backdrop);
-}
-
-.public-header {
-  padding: 8px 4px 20px;
-  text-align: center;
-}
-
-.public-toolbar {
-  display: flex;
-  /* Was flex-end for a lone theme toggle. The home link sits at the other edge
-     (it carries margin-right: auto), so the row now has two ends to hold. */
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-}
-
-.public-brand {
-  display: block;
-  width: min(240px, 65%);
-  height: auto;
-  margin: 4px auto 18px;
-}
-
-/* The lockup is fixed artwork drawn for white paper, and the backdrop is a dark
-   photograph in BOTH themes — so it needs the light ground in both, not only in
-   dark. A filter is not an option: invert() turns the university crimson mint
-   green, and the crimson is the one colour in this app that is not ours to
-   change. This is the treatment .auth-brand already documents and uses. */
-.public-brand {
-  background: rgb(255 255 255 / 0.93);
-  border-radius: 12px;
-  padding: 12px 16px;
-  box-sizing: content-box;
-}
-
-.public-header h1 {
-  margin: 4px 0 8px;
-  font-size: clamp(22px, 6vw, 30px);
-  font-weight: 760;
-  letter-spacing: -0.03em;
-}
-
 .public-lede {
   margin: 0;
   /* On the backdrop, not on a surface — --gray-600 is #4b5563 and sits at about
@@ -2054,8 +1588,7 @@ tbody tr:hover {
   line-height: 1.55;
 }
 
-.public-search,
-.public-records {
+.public-search {
   padding: clamp(16px, 4vw, 24px);
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-2xl);
@@ -2065,8 +1598,6 @@ tbody tr:hover {
   box-shadow: var(--shadow-raised);
   color: var(--foreground);
 }
-
-.public-records { margin-top: 16px; }
 
 .public-field {
   display: flex;
@@ -2117,38 +1648,6 @@ tbody tr:hover {
   color: var(--gray-600);
   line-height: 1.5;
 }
-
-.public-results {
-  margin: 12px 0 0;
-  padding: 0;
-  list-style: none;
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
-
-.public-results li {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 12px 14px;
-  /* 44px is the smallest reliably tappable target on a phone. */
-  min-height: 44px;
-  border-bottom: 1px solid var(--surface-line);
-  background: var(--surface);
-  cursor: pointer;
-}
-
-.public-results li:last-child { border-bottom: none; }
-.public-results li:hover { background: var(--surface-quiet); }
-
-.public-results li:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: -2px;
-}
-
-.public-results strong { font-size: 15px; }
-.public-results span { font-size: 13px; color: var(--gray-600); }
 
 .public-student h2 {
   margin: 0 0 4px;
@@ -2483,21 +1982,6 @@ tbody tr:hover {
   overflow-wrap: anywhere;
 }
 
-/* A slot can hold more than one mark — two events on the same day each own
-   their own (student, event, slot) row. Separated so two marks never read as
-   one run-on record. */
-.public-slot-mark {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.public-slot-mark + .public-slot-mark {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px dashed var(--surface-border);
-}
-
 .public-slot-detail strong { color: var(--foreground); }
 
 .public-dispute-panel {
@@ -2530,86 +2014,7 @@ tbody tr:hover {
   line-height: 1.5;
 }
 
-.public-readonly-fields {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 10px;
-  margin: 0;
-}
-
-.public-readonly-fields div {
-  padding: 10px 12px;
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  box-shadow: inset 0 0 0 1px var(--surface-line);
-}
-
-.public-readonly-fields dt {
-  margin: 0 0 4px;
-  color: var(--gray-500);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.public-readonly-fields dd {
-  margin: 0;
-  color: var(--foreground);
-  font-size: 14px;
-  font-weight: 650;
-  overflow-wrap: anywhere;
-}
-
-.public-success {
-  margin: 0;
-  padding: 14px 16px;
-  border-radius: var(--radius-md);
-  background: var(--fill-success);
-  box-shadow: inset 0 0 0 1px var(--ring-success);
-  color: var(--green-700);
-  font-weight: 650;
-  line-height: 1.5;
-}
-
 /* --------------------------------------------------------- dispute inbox */
-
-.dispute-list {
-  display: grid;
-  gap: 10px;
-  margin: 18px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.dispute-list > li {
-  border: 1px solid var(--surface-line);
-  border-radius: var(--radius-lg);
-  background: var(--surface);
-  overflow: hidden;
-}
-
-.dispute-summary {
-  display: grid;
-  grid-template-columns: minmax(92px, 0.7fr) minmax(160px, 1.2fr) minmax(180px, 1.2fr) auto;
-  gap: 12px;
-  width: 100%;
-  min-height: 56px;
-  padding: 12px 14px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  text-align: left;
-}
-
-.dispute-summary:hover:not(:disabled) {
-  background: var(--surface-quiet);
-}
-
-.dispute-summary span {
-  min-width: 0;
-  color: var(--gray-600);
-  overflow-wrap: anywhere;
-}
 
 .dispute-detail {
   display: grid;
@@ -2781,12 +2186,20 @@ tbody tr:hover {
   color: var(--crimson);
 }
 
-/* ------------------------------------------------------------ account menu */
-
-.account-menu {
-  position: relative;
-  display: inline-flex;
+/* The source-code offer reads as secondary, like the install link beside it,
+   not as a second contact. Two classes, so it outranks `.app-footer__credit a`.
+   --foreground-muted rather than the --gray-500 of the text around it: that grey
+   is under 4.5:1 on the light chrome, and a link is a control that must meet AA. */
+.app-footer__credit .app-footer__source {
+  color: var(--foreground-muted);
+  font-weight: 700;
 }
+
+.app-footer__credit .app-footer__source:hover {
+  color: var(--crimson);
+}
+
+/* ------------------------------------------------------------ account menu */
 
 .account-menu__trigger {
   display: inline-flex;
@@ -2878,116 +2291,6 @@ tbody tr:hover {
 
 .mark-header .account-menu__trigger:hover {
   background: var(--on-backdrop-fill-hover);
-}
-
-/* ------------------------------------------------------------- ui: select */
-
-/* The replacement for `<select>`. The native control draws its list with the
-   operating system — no CSS reaches inside it, it ignores the dark theme, and on
-   a phone it becomes a full-screen system sheet. This is that list, in the
-   page. */
-.ui-select {
-  position: relative;
-  display: block;
-  min-width: 0;
-}
-
-.ui-select__trigger {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  padding: 9px 12px;
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-md, 10px);
-  background: var(--control-bg);
-  color: var(--foreground);
-  font: inherit;
-  font-size: 14px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.ui-select__trigger:hover:not(:disabled) {
-  border-color: var(--crimson);
-}
-
-.ui-select__trigger:focus-visible {
-  outline: 2px solid var(--crimson);
-  outline-offset: 1px;
-}
-
-.ui-select__trigger:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-/* A long category or event name must shorten rather than push the arrow out of
-   the control. */
-.ui-select__value {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ui-select__arrow {
-  flex-shrink: 0;
-  width: 0;
-  height: 0;
-  border-left: 4.5px solid transparent;
-  border-right: 4.5px solid transparent;
-  border-top: 5px solid currentColor;
-  opacity: 0.6;
-}
-
-.ui-select__list {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  z-index: 80;
-  max-height: 260px;
-  overflow-y: auto;
-  margin: 0;
-  padding: 4px;
-  list-style: none;
-  border: 1px solid var(--chrome-border);
-  border-radius: var(--radius-md, 10px);
-  background: var(--chrome);
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  box-shadow: 0 12px 32px rgb(0 0 0 / 22%);
-}
-
-.ui-select__option {
-  padding: 8px 10px;
-  border-radius: 7px;
-  color: var(--foreground);
-  font-size: 14px;
-  line-height: 1.35;
-  cursor: pointer;
-}
-
-/* One highlight, driven by the keyboard AND the pointer, so arrowing and
-   hovering cannot disagree about which row is current. */
-.ui-select__option.is-active {
-  background: var(--tint-medium);
-}
-
-.ui-select__option.is-selected {
-  font-weight: 700;
-  color: var(--crimson);
-}
-
-.ui-select__option.is-disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-/* On the marking screen the fields sit on the backdrop rather than a panel. */
-.mark-field .ui-select__trigger {
-  background: var(--control-bg);
 }
 
 /* ------------------------------------------------------------- ui: spinner */
@@ -3095,39 +2398,6 @@ tbody tr:hover {
 }
 
 .account-menu__item:hover { background: var(--accent); color: var(--foreground); }
-
-/* A DROPDOWN CANNOT ESCAPE ITS OWN STACKING CONTEXT.
- *
- * Every panel in this app sets `backdrop-filter`, and that creates a stacking
- * context whether or not anyone asked for one. So the list inside a panel is
- * confined to that panel: the next panel in the document — a roster table, a
- * results section — paints over it, and no `z-index` on the list itself can
- * ever win, because the two are not competing in the same context.
- *
- * The symptom is not subtle. The open list is covered, and its options cannot
- * even be clicked: the panel below swallows the pointer events. It shows up
- * exactly where a picker matters most, which is a filter with its own results
- * underneath it.
- *
- * So the PANEL is what gets raised, for as long as it holds an open list. `:has`
- * is what makes that expressible in CSS rather than needing the component to
- * reach up and mark its own ancestor.
- */
-.detail-section:has(.ui-select__list),
-.table-wrap:has(.ui-select__list),
-.empty-state:has(.ui-select__list),
-.mark-scope:has(.ui-select__list),
-.mark-capture:has(.ui-select__list),
-.public-dispute-panel:has(.ui-select__list),
-.public-day-filter:has(.ui-select__list),
-.public-board:has(.ui-select__list),
-.category-form:has(.ui-select__list),
-.populator-filters:has(.ui-select__list) {
-  position: relative;
-  /* Above a sibling panel (auto), below the account menu and the install
-     prompt, which must stay reachable over any screen. */
-  z-index: 20;
-}
 
 /* The two dispute decisions sit side by side and wrap on a phone. They are
    deliberately NOT the same weight: approving writes an attendance record. */

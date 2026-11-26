@@ -78,10 +78,14 @@ func TestCoordinatorAssignmentsArchivedEventGuardRefusesRuntimeWrites(t *testing
 	}
 }
 
-func TestCoordinatorAssignmentsRuntimePrivilegesAllowUpdateButNotDelete(t *testing.T) {
+// 0027 granted DELETE so an administrator can remove a coordinator from an
+// event. What still protects an archived event is the trigger, which the test
+// below this one proves for writes and TestCoordinatorRemovalRefusedOnArchivedEvent
+// proves for the delete.
+func TestCoordinatorAssignmentsRuntimePrivilegesAllowUpdateAndDelete(t *testing.T) {
 	ctx := testContext(t)
 	migrator, _, _ := isolatedCategoryDatabase(t, ctx)
-	for privilege, want := range map[string]bool{"SELECT": true, "INSERT": true, "UPDATE": true, "DELETE": false} {
+	for privilege, want := range map[string]bool{"SELECT": true, "INSERT": true, "UPDATE": true, "DELETE": true} {
 		var got bool
 		if err := migrator.QueryRow(ctx,
 			`SELECT has_table_privilege('od_runtime', 'event_coordinator_assignments', $1)`, privilege,

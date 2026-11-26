@@ -1,11 +1,10 @@
 /**
- * Session gate (Story 1.9, Task 2) — closing the 1.6 re-auth seam.
+ * Session gate — closing the re-auth seam.
  *
- * Story 1.6 built the 401 interceptor and deliberately stopped short of a screen, leaving a
- * pub/sub seam behind (`session.ts`: "a FUTURE login story subscribes"). To this day
- * `reauthSignal` has zero subscribers: when the interceptor exhausts its silent refresh + retry
- * and gives up, it emits into the void, stranding the user on a screen that 401s forever with no
- * way back to sign-in. This module is the subscriber.
+ * The 401 interceptor deliberately stops short of a screen, leaving a pub/sub seam behind
+ * (`session.ts`). Without a subscriber, `reauthSignal` has no listeners: when the interceptor
+ * exhausts its silent refresh + retry and gives up, it emits into the void, stranding the user on
+ * a screen that 401s forever with no way back to sign-in. This module is the subscriber.
  *
  * WHY A MODULE AND NOT JUST App.tsx (D3: no router). `App.tsx` switches on session state between
  * two screens — that is right, and this does not change it. But the DECISION — "is there a

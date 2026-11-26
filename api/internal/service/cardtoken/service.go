@@ -141,7 +141,7 @@ type Ledger interface {
 	// MarkVerified records that an admin read this card back. It takes the
 	// fingerprint that was just resolved rather than a student id, so it can only
 	// mark the row the read actually matched.
-	MarkVerified(ctx context.Context, version string, fingerprint [sha256.Size]byte, actorUserID string) error
+	MarkVerified(ctx context.Context, tx pgx.Tx, version string, fingerprint [sha256.Size]byte, actorUserID string) (bool, error)
 	// SectionStatus is the populator's DURABLE progress for one section, for one
 	// seal version. The version is passed rather than held: the service owns the
 	// keyring, and a ledger configured separately is one somebody forgets to
@@ -252,14 +252,8 @@ func (s *Service) Seal(ctx context.Context, actor Actor, input SealInput) (SealR
 }
 
 // Resolve is the POPULATOR's read-back. Recognising the card is what "verified"
-// means, so a successful admin resolve records the fact.
-//
-// The recording is best-effort on purpose: the operator is holding a phone
-// against a card, and the answer they need — whose card is this — has already
-// been computed. Failing the read because the progress note could not be saved
-// would turn a working verification into an error and send them round again. A
-// missed write shows as "issued" and costs one extra tap; a failed read costs
-// the same tap plus the operator's confidence.
+// means, so a successful admin resolve records the fact and its audit row in one
+// transaction.
 func (s *Service) Resolve(ctx context.Context, actor Actor, input ResolveInput) (ResolvedStudent, error) {
 	if actor.Role != "admin" {
 		return ResolvedStudent{}, forbidden()
@@ -268,9 +262,34 @@ func (s *Service) Resolve(ctx context.Context, actor Actor, input ResolveInput) 
 	if err != nil {
 		return ResolvedStudent{}, err
 	}
-	if actorID := strings.TrimSpace(actor.UserID); actorID != "" {
-		fingerprint := sha256.Sum256([]byte(strings.TrimSpace(input.Token)))
-		_ = s.ledger.MarkVerified(ctx, strings.TrimSpace(input.Version), fingerprint, actorID)
+	actorID := strings.TrimSpace(actor.UserID)
+	if actorID == "" {
+		return student, nil
+	}
+	version := strings.TrimSpace(input.Version)
+	fingerprint := sha256.Sum256([]byte(strings.TrimSpace(input.Token)))
+	actorAccount := strings.ToLower(strings.TrimSpace(actor.Email))
+	actorRole := actor.Role
+	targetTable := "student_card_tokens"
+	targetID := student.StudentID
+	evt := store.AuditEvent{
+		Action:       domain.ActionCardTokenVerified,
+		ActorAccount: stringPtrOrNil(actorAccount),
+		ActorRole:    stringPtrOrNil(actorRole),
+		TargetTable:  &targetTable,
+		TargetID:     &targetID,
+		PayloadFunc: func() ([]byte, error) {
+			return json.Marshal(map[string]any{
+				"student_id":               student.StudentID,
+				"version":                  version,
+				"token_fingerprint_prefix": fmt.Sprintf("%x", fingerprint[:4]),
+			})
+		},
+	}
+	if err := s.audited.WithAudit(ctx, evt, func(ctx context.Context, tx pgx.Tx) (bool, error) {
+		return s.ledger.MarkVerified(ctx, tx, version, fingerprint, actorID)
+	}); err != nil {
+		return ResolvedStudent{}, err
 	}
 	return student, nil
 }

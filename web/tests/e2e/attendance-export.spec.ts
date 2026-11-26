@@ -22,11 +22,11 @@ const day = '2026-07-28'
 type Row = { slot: number; roll: string; name: string; category: string; status?: 'present' | 'removed' }
 
 const dayRows: Row[] = [
-  { slot: 1, roll: 'CB.SC.U4ECE24007', name: 'Vikram Nair', category: 'Sports Meet' },
-  { slot: 1, roll: 'CB.SC.U4CSE24101', name: 'Ananya Rao', category: 'Cultural Programme' },
-  { slot: 2, roll: 'CB.SC.U4CSE24102', name: 'Meera Suresh', category: 'Procession' },
-  { slot: 3, roll: 'CB.SC.U4CSE24103', name: 'Rahul Menon', category: 'Technical Expo' },
-  { slot: 3, roll: 'CB.SC.U4CSE24999', name: 'Withdrawn Student', category: 'Technical Expo', status: 'removed' },
+  { slot: 1, roll: 'CB.SC.U4ECE99007', name: 'Vikram Nair', category: 'Sports Meet' },
+  { slot: 1, roll: 'CB.SC.U4CSE99101', name: 'Ananya Rao', category: 'Cultural Programme' },
+  { slot: 2, roll: 'CB.SC.U4CSE99102', name: 'Meera Suresh', category: 'Procession' },
+  { slot: 3, roll: 'CB.SC.U4CSE99103', name: 'Rahul Menon', category: 'Technical Expo' },
+  { slot: 3, roll: 'CB.SC.U4CSE99999', name: 'Withdrawn Student', category: 'Technical Expo', status: 'removed' },
 ]
 
 function apiRecord(row: Row, index: number) {
@@ -192,8 +192,8 @@ test.describe('the on-duty export', () => {
     // different verticals, ordered by roll number.
     expect(sheetRows(path)).toEqual([
       ['Roll number', 'Name', 'Slot', 'Category'],
-      ['CB.SC.U4CSE24101', 'Ananya Rao', '1', 'Cultural Programme'],
-      ['CB.SC.U4ECE24007', 'Vikram Nair', '1', 'Sports Meet'],
+      ['CB.SC.U4CSE99101', 'Ananya Rao', '1', 'Cultural Programme'],
+      ['CB.SC.U4ECE99007', 'Vikram Nair', '1', 'Sports Meet'],
     ])
   })
 

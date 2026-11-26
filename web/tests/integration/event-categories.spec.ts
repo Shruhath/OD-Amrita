@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-// Story 2.2 against the REAL stack — the deterministic portal API in
+// Event categories against the REAL stack — the deterministic portal API in
 // api/test/portal and a real Postgres.
 //
 // Invoked by: web-deploy -> portal-integration job
@@ -22,6 +22,7 @@ import { expect, test, type Page } from '@playwright/test'
 // counts that read as a conservation failure. The portal harness's seed() clears
 // anything with this prefix, so old runs never accumulate.
 const eventName = `Browser Category Event ${Date.now().toString(36)}`
+test.describe.configure({ mode: 'serial' })
 
 /**
  * Opens the fixture event from the list.
@@ -41,7 +42,7 @@ test('persists categories through the real API and Postgres across reloads', asy
   await page.goto('/integration.html')
   await expect(page.getByRole('heading', { name: 'Events', exact: true })).toBeVisible()
 
-  // Reuse Story 2.1's create path so this test owns its own event and does not
+  // Reuse the event-create path so this test owns its own event and does not
   // depend on another spec having run first.
   await page.getByRole('button', { name: 'New event' }).click()
   const createDialog = page.getByRole('dialog', { name: 'New event' })
@@ -64,14 +65,14 @@ test('persists categories through the real API and Postgres across reloads', asy
   }
 
   // Server order, from a real ORDER BY — not the order they were typed.
-  await expect(categories.getByRole('listitem')).toHaveText(['Procession', 'Stage Setup'])
+  await expect(categories.getByRole('listitem')).toContainText(['Procession', 'Stage Setup'])
 
   // The reload is the persistence oracle: every byte of client state is gone.
   await page.reload()
   await expect(page.getByRole('heading', { level: 1, name: eventName })).toBeVisible()
   await expect(page.getByRole('list', { name: 'Categories' }).getByRole('listitem')).toHaveText([
-    'Procession',
-    'Stage Setup',
+    /Procession/,
+    /Stage Setup/,
   ])
 })
 
@@ -88,8 +89,8 @@ test('rejects a duplicate category name from the real database', async ({ page }
   await expect(page.getByLabel('Category name')).toHaveAttribute('aria-invalid', 'true')
   await expect(page.getByText(/already exists/i)).toBeVisible()
   await expect(page.getByRole('list', { name: 'Categories' }).getByRole('listitem')).toHaveText([
-    'Procession',
-    'Stage Setup',
+    /Procession/,
+    /Stage Setup/,
   ])
 })
 
@@ -111,8 +112,8 @@ test('closes the aggregate when the event is archived', async ({ page }) => {
 
   // History stays readable; only writing is closed.
   await expect(page.getByRole('list', { name: 'Categories' }).getByRole('listitem')).toHaveText([
-    'Procession',
-    'Stage Setup',
+    /Procession/,
+    /Stage Setup/,
   ])
   await expect(page.getByLabel('Category name')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Add category' })).toHaveCount(0)

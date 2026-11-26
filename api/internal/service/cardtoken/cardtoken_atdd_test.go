@@ -20,7 +20,7 @@ func TestSealDeterministicPayloadAndLedgerIdempotency(t *testing.T) {
 	ctx := context.Background()
 	student := Student{
 		ID:          "97000000-0000-4000-8000-000000000001",
-		RollNo:      "CB.SC.U4CSE24001",
+		RollNo:      "CB.SC.U4CSE99001",
 		DisplayName: "Ananya Rao",
 		Branch:      "CSE",
 		Section:     "A",
@@ -68,14 +68,14 @@ func TestSealDeterministicPayloadAndLedgerIdempotency(t *testing.T) {
 	if audit.changedWrites != 1 {
 		t.Fatalf("audit changed writes=%d, want only first seal audited", audit.changedWrites)
 	}
-	if bytes.Contains(audit.payload, []byte(first.Token)) || bytes.Contains(audit.payload, []byte("CB.SC.U4CSE24001")) {
+	if bytes.Contains(audit.payload, []byte(first.Token)) || bytes.Contains(audit.payload, []byte("CB.SC.U4CSE99001")) {
 		t.Fatalf("audit payload leaked raw token or roll number: %s", audit.payload)
 	}
 }
 
 func TestSealUsesActiveVersionAndKeyMaterialChangesToken(t *testing.T) {
 	ctx := context.Background()
-	student := Student{ID: "97000000-0000-4000-8000-000000000002", RollNo: "CB.SC.U4CSE24002"}
+	student := Student{ID: "97000000-0000-4000-8000-000000000002", RollNo: "CB.SC.U4CSE99002"}
 	v1 := NewService(fakeReader{student: student}, &fakeLedger{}, &fakeAuditStore{}, mustKeyring(t, "v1", map[string][]byte{"v1": bytes.Repeat([]byte{0x11}, 32)}))
 	v2 := NewService(fakeReader{student: student}, &fakeLedger{}, &fakeAuditStore{}, mustKeyring(t, "v2", map[string][]byte{"v2": bytes.Repeat([]byte{0x22}, 32)}))
 
@@ -99,14 +99,15 @@ func TestResolveKnownTokenAndRejectsUniformFailures(t *testing.T) {
 	ctx := context.Background()
 	student := Student{
 		ID:          "97000000-0000-4000-8000-000000000003",
-		RollNo:      "CB.SC.U4CSE24003",
+		RollNo:      "CB.SC.U4CSE99003",
 		DisplayName: "Madhav Rao",
 		Branch:      "CSE",
 		Section:     "B",
 		Batch:       "2024",
 	}
 	ledger := &fakeLedger{resolved: student}
-	svc := NewService(fakeReader{student: student}, ledger, &fakeAuditStore{}, mustKeyring(t, "v1", map[string][]byte{"v1": bytes.Repeat([]byte{0x33}, 32)}))
+	audit := &fakeAuditStore{}
+	svc := NewService(fakeReader{student: student}, ledger, audit, mustKeyring(t, "v1", map[string][]byte{"v1": bytes.Repeat([]byte{0x33}, 32)}))
 	sealed, err := svc.Seal(ctx, adminActor(), SealInput{StudentID: student.ID})
 	if err != nil {
 		t.Fatalf("seal: %v", err)
@@ -124,6 +125,12 @@ func TestResolveKnownTokenAndRejectsUniformFailures(t *testing.T) {
 	}
 	if want := sha256.Sum256([]byte(sealed.Token)); ledger.resolveHash != want {
 		t.Fatalf("resolved hash = %x, want SHA256(token) %x", ledger.resolveHash, want)
+	}
+	if audit.changedWrites != 2 || audit.actions[1] != domain.ActionCardTokenVerified {
+		t.Fatalf("audit writes/actions = %d/%v, want seal plus card_token.verified", audit.changedWrites, audit.actions)
+	}
+	if bytes.Contains(audit.payload, []byte(sealed.Token)) || bytes.Contains(audit.payload, []byte(student.RollNo)) {
+		t.Fatalf("verification audit payload leaked raw token or roll number: %s", audit.payload)
 	}
 
 	for _, tc := range []ResolveInput{
@@ -199,9 +206,9 @@ type fakeLedger struct {
 	sectionRows []CardStatus
 }
 
-func (f *fakeLedger) MarkVerified(_ context.Context, version string, _ [sha256.Size]byte, actorUserID string) error {
+func (f *fakeLedger) MarkVerified(_ context.Context, _ pgx.Tx, version string, _ [sha256.Size]byte, actorUserID string) (bool, error) {
 	f.verifiedFor = append(f.verifiedFor, version+"/"+actorUserID)
-	return nil
+	return true, nil
 }
 
 func (f *fakeLedger) SectionStatus(_ context.Context, _ string, filter SectionFilter) ([]CardStatus, error) {
@@ -232,6 +239,7 @@ func (f *fakeLedger) Resolve(_ context.Context, version string, fingerprint [sha
 type fakeAuditStore struct {
 	changedWrites int
 	payload       []byte
+	actions       []domain.Action
 }
 
 func (f *fakeAuditStore) WithAudit(ctx context.Context, evt store.AuditEvent, write func(context.Context, pgx.Tx) (bool, error)) error {
@@ -241,6 +249,7 @@ func (f *fakeAuditStore) WithAudit(ctx context.Context, evt store.AuditEvent, wr
 	}
 	if changed {
 		f.changedWrites++
+		f.actions = append(f.actions, evt.Action)
 		if evt.PayloadFunc != nil {
 			payload, err := evt.PayloadFunc()
 			if err != nil {

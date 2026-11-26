@@ -2,13 +2,26 @@
 
 This document provides step-by-step instructions for running, testing, and developing within the OD-Amrita monorepo codebase.
 
+> **Every password in this repository is a local-development placeholder.**
+> `dev_only_change_me` (Compose superuser), `ci_only_password` (Makefile/CI
+> superuser), `migrator_dev_only_change_me` and `runtime_dev_only_change_me`
+> (the two login roles in `api/db/init/00_roles.sql`), `studio_dev_only_change_me`
+> (the database viewer) and `CHANGE_ME` (`api/.env.example`) are public. They are
+> fine on your own machine, where every container port is published on
+> `127.0.0.1` only. Before any shared, staging or production deployment, give the
+> Postgres superuser, `od_migrator` and `od_runtime` new unique passwords, put
+> them only in that environment's secret store, and replace the card-seal key.
+> The API refuses to start with `APP_ENV=production` while either DSN still uses
+> one of these placeholders. See [docs/deployment.md](docs/deployment.md) for the
+> full self-hosting checklist.
+
 ## Repository Overview
 
 The project is structured as an atomic monorepo:
 *   contracts/ - Contains the OpenAPI spec (openapi.yaml) and the configuration to generate both Go server types and TypeScript client schemas.
 *   api/ - The Go backend service, containing two entrypoints: cmd/api (the Gin HTTP server) and cmd/worker (the persistent River background worker).
 *   web/ - The React and Vite single-page application for teachers and the public portal.
-*   mobile/ - The React Native (Expo) mobile application for event coordinators and card populations.
+*   mobile/ - The React Native (Expo) app. Early stage: Microsoft sign-in and an authenticated API round trip; scanning and card population live in the web app.
 *   test/ - Test suites separated into skeleton configurations and contract validations.
 
 ---
@@ -64,9 +77,10 @@ locally.
 
 Companion targets: `make db-down` (remove it; all data is discarded),
 `make db-reset` (recreate from scratch), and `make db-psql` (a `psql` shell as
-the migrator). The older `docker compose up -d db` still works, but note the two
-known gaps recorded in the deferred-work log: a fresh Compose run starts the API
-with TLS enabled but no certificate paths, and it does not apply migrations.
+the migrator). The container's port is published on `127.0.0.1` only. The older
+`docker compose up -d db` still works (it also publishes on `127.0.0.1` only),
+but note two known gaps: a fresh Compose run starts the API with TLS enabled but
+no certificate paths, and it does not apply migrations.
 
 #### Browsing the database visually
 
@@ -226,7 +240,11 @@ pnpm --filter od-amrita-web test:e2e:integration
 ```
 
 The portal harness re-seeds its fixtures on every start, so the journeys are
-repeatable without recreating the database.
+repeatable without recreating the database. Re-seeding deletes rows, so the
+harness refuses to start unless both DSNs point at `localhost`, `127.0.0.1`,
+`::1` or a unix socket. It answers to fixed test bearer tokens, so it listens on
+`127.0.0.1:8081` by default (`PORTAL_API_PORT` changes the port,
+`PORTAL_API_HOST` the address). Never run it against a shared database.
 
 > **Restart the portal API after `make db-reset`.** `seed()` runs only at
 > startup, so a harness left running against a recreated database serves an empty

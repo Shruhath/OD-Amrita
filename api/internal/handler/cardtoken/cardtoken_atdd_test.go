@@ -24,7 +24,7 @@ func TestSealHandlerRendersGeneratedPayloadOnlyShape(t *testing.T) {
 	studentID := uuid.NewString()
 	svc := &fakeService{seal: cardtokensvc.SealResult{
 		Student: cardtokensvc.ResolvedStudent{
-			StudentID: studentID, RollNo: "CB.SC.U4CSE24001", DisplayName: "Ananya Rao", Branch: "CSE", Section: "A", Batch: "2024",
+			StudentID: studentID, RollNo: "CB.SC.U4CSE99001", DisplayName: "Ananya Rao", Branch: "CSE", Section: "A", Batch: "2024",
 		},
 		Version: "v1",
 		Token:   "QlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlI",
@@ -60,7 +60,7 @@ func TestResolveHandlerMapsKnownTokenAndUniformUnknownFailures(t *testing.T) {
 	studentID := uuid.NewString()
 	svc := &fakeService{resolved: cardtokensvc.ResolvedStudent{
 		StudentID: studentID,
-		RollNo:    "CB.SC.U4CSE24002", DisplayName: "Madhav Rao", Branch: "CSE", Section: "B", Batch: "2024",
+		RollNo:    "CB.SC.U4CSE99002", DisplayName: "Madhav Rao", Branch: "CSE", Section: "B", Batch: "2024",
 	}}
 
 	ok := request(cardTokenRouter(svc, "admin"), http.MethodPost, "/card-tokens/resolve", bytes.NewBufferString(`{"version":"v1","token":"QlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlI"}`))
@@ -71,7 +71,7 @@ func TestResolveHandlerMapsKnownTokenAndUniformUnknownFailures(t *testing.T) {
 	if err := json.Unmarshal(ok.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode ResolvedCardStudent: %v", err)
 	}
-	if body.StudentId.String() != studentID || body.RollNo != "CB.SC.U4CSE24002" {
+	if body.StudentId.String() != studentID || body.RollNo != "CB.SC.U4CSE99002" {
 		t.Fatalf("resolved body = %+v", body)
 	}
 

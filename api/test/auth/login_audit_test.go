@@ -1,22 +1,19 @@
-// login_audit_test.go — Story 1.7 (AC: "when login succeeds … an immutable
+// login_audit_test.go — login-success auditing ("when login succeeds … an immutable
 // audit row is written … And no auth event path can complete without its audit
 // row"). Handler-level acceptance for the auth.login_succeeded emission at
 // GET /api/v1/auth/me. No DB / no build tag — runs under the default
-// `go test ./...` with a fake provisioner + fake auditor, reusing the 1.5b
+// `go test ./...` with a fake provisioner + fake auditor, reusing the provisioning
 // handler harness (recordingProvisioner lives in provisioning_me_test.go).
 //
-// It proves the NEW behavior 1.7 layers on the already-proven /auth/me contract:
+// It proves the behavior login auditing layers on the /auth/me contract:
 //   - a successful /auth/me fires LoginSucceeded EXACTLY once, with the
 //     provisioned email + role, the identity's subject + session id, and the
 //     request device (User-Agent) — and still returns 200 AuthenticatedIdentity;
 //   - a failing auditor makes /auth/me render a centralized INTERNAL 500
 //     (fail-closed) — never a 200 for a login that could not be audited.
 //
-// RED: handlerauth.MeHandler still takes a single (Provisioner) arg — this file
-// calls the intended 2-arg MeHandler(provisioner, auditor) and references the
-// not-yet-built handlerauth.Auditor interface, so package authhttp is compile-red
-// until Story 1.7 Task 2 lands (and the 1.5a/1.5b call sites are updated to the
-// new signature). Intended TDD red phase.
+// It drives the 2-arg MeHandler(provisioner, auditor) and the
+// handlerauth.Auditor interface.
 package authhttp
 
 import (

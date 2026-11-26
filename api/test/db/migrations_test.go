@@ -59,7 +59,7 @@ func TestMigrationsUp_CreatesAuditLog(t *testing.T) {
 // Drives goose directly and compares the audit_log column signature captured on
 // either side of the cycle.
 //
-// NOTE (Story 1.4): this uses `goose reset` (roll back ALL migrations), not a
+// NOTE: this uses `goose reset` (roll back ALL migrations), not a
 // single `goose down`. Once 0002 exists, a single `down` reverts only 0002 (the
 // trigger + revoke) and leaves the audit_log TABLE (0001) in place — the
 // "table dropped" assertion below would then fail. `reset` rolls back 0002 then
@@ -76,7 +76,7 @@ func TestMigrationsRoundTrip_Idempotent(t *testing.T) {
 		t.Fatal("[P0] audit_log has no columns before round-trip (was goose up run?)")
 	}
 
-	// Story 0.12a: 0016's Down legitimately refuses to restore the single-day
+	// 0016's Down legitimately refuses to restore the single-day
 	// unique index over multi-day attendance rows, so a reset inherits that
 	// failure from whatever ran earlier. Clear the data first — the schema
 	// assertions below are untouched.

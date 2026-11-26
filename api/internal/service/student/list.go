@@ -53,7 +53,7 @@ type ListResult struct {
 // List returns one page of students for card population.
 //
 // RBAC is checked before any input validation and before the reader is touched,
-// matching the ordering Story 0.3's review established for the card-token
+// matching the ordering already established for the card-token
 // handlers: a non-admin must not be able to probe field validation behaviour.
 func (s *Service) List(ctx context.Context, actor Actor, input ListInput) (ListResult, error) {
 	if actor.Role != "admin" {

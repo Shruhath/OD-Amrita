@@ -38,6 +38,11 @@ import (
 // for the whole TTL. The roster is on the order of a couple of thousand
 // students, so this holds the real working set many times over while still
 // refusing to grow without limit.
+// loadTimeout bounds a single cache load once it is detached from its caller.
+// Every load behind this cache is a short read; the cap is generous enough that
+// it can only ever be reached by a load that is stuck, not by a slow one.
+const loadTimeout = 10 * time.Second
+
 const DefaultMaxEntries = 20_000
 
 type entry[V any] struct {
@@ -86,17 +91,26 @@ func (c *TTL[V]) Do(ctx context.Context, key string, load func(context.Context) 
 		return value, nil
 	}
 
-	// singleflight.Do carries the FIRST caller's context into load. That is the
-	// behaviour we want here — the loads are short reads — but it does mean a
-	// cancelled first caller can fail the followers, who then simply retry on
-	// their own next request rather than serving anything wrong.
+	// singleflight.Do carries the FIRST caller's context into load, and that is
+	// the one caller whose context is NOT safe to use: if they navigate away or
+	// their tab closes mid-flight, every follower waiting on the shared load
+	// fails with their cancellation. Each follower then retries on its own next
+	// request, so one cancelled poll turns a single collapsed query into a burst
+	// of them — against a database this cache exists to keep asleep.
+	//
+	// Detached from the caller and bounded instead. The loads here are short
+	// reads; a cap well above any of them means a genuinely wedged load still
+	// cannot pin a flight open forever, and the followers get an answer rather
+	// than somebody else's cancellation.
 	result, err, _ := c.group.Do(key, func() (any, error) {
 		// Re-check under the flight: while this goroutine waited for the group,
 		// an earlier flight may have already stored a fresh value.
 		if value, ok := c.lookup(key); ok {
 			return value, nil
 		}
-		value, loadErr := load(ctx)
+		loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), loadTimeout)
+		defer cancel()
+		value, loadErr := load(loadCtx)
 		if loadErr != nil {
 			return value, loadErr
 		}
@@ -165,6 +179,22 @@ func (c *TTL[V]) Forget(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.entries, key)
+}
+
+// Clear drops every entry, so the next read of any key reloads it.
+//
+// For the case where a change invalidates entries the caller cannot NAME. The
+// revocation cache is the one that forced this: its keys carry a session id and
+// an issue time, so "every cached verdict for this subject" is not something the
+// holder can enumerate — and after an administrator deliberately forces a
+// logout, reloading a handful of entries once is plainly the right price for
+// being certain none of them is stale.
+//
+// Prefer Forget when the key IS known; this is the blunt instrument.
+func (c *TTL[V]) Clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	clear(c.entries)
 }
 
 // Len reports how many entries are held, expired ones included. For tests and

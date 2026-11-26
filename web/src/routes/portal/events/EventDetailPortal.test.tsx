@@ -17,7 +17,7 @@ import {
   type CategoryFixture,
 } from '../../../../tests/support/factories/category'
 
-// Story 2.2 component coverage, AC 1-4 and 7.
+// Component coverage for event categories on the event detail screen.
 //
 // Invoked by: web-deploy -> build job (`pnpm --filter od-amrita-web test`).
 //
@@ -41,7 +41,7 @@ type DetailScenario = {
   /**
    * Blocks every list read AFTER the first one. Without it a refetch re-sorts
    * the rows server-side and hides whatever order the client wrote into the
-   * cache — which is precisely how Story 2.1's cache-ordering defect stayed
+   * cache — which is precisely how an earlier cache-ordering defect stayed
    * invisible to its tests.
    */
   listRefetchGate?: Promise<void>

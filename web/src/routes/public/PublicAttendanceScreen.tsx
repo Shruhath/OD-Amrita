@@ -13,10 +13,11 @@ import {
 import { ThemeToggle } from '../../components/ThemeToggle'
 import { Select } from '../../components/ui/Select'
 import { campusToday, defaultDay, enumerateDays } from './days'
+import { useIdleAwareInterval } from '../../features/polling/useIdleAwareInterval'
 
 /**
  * The public attendance dashboard — the only screen in this app that a visitor
- * with no account ever sees (Story 0.10, FR38-FR40).
+ * with no account ever sees.
  *
  * Two rules shape everything below.
  *
@@ -42,7 +43,7 @@ import { campusToday, defaultDay, enumerateDays } from './days'
  * per-slot buttons carried, asked for once instead of being pre-answered twelve
  * times per day.
  *
- * There is deliberately no third "pending/syncing" state: Epic 0 has no async
+ * There is deliberately no third "pending/syncing" state: this build has no async
  * path at all, so an amber chip would tell a student to wait for a sync that
  * does not exist.
  */
@@ -71,6 +72,8 @@ export default function PublicAttendanceScreen() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
+  const searchSectionRef = useRef<HTMLElement>(null)
+  const studentSearchInputRef = useRef<HTMLInputElement>(null)
   // The selected student lives in the URL rather than in component state so a
   // reload, a back button and a link shared over WhatsApp all reopen the same
   // record — which is exactly what PRD Journey 3's student does with it.
@@ -124,6 +127,12 @@ export default function PublicAttendanceScreen() {
 
   const clearStudent = () => setSearchParams({})
 
+  const scrollToStudentSearch = () => {
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    searchSectionRef.current?.scrollIntoView?.({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' })
+    studentSearchInputRef.current?.focus({ preventScroll: true })
+  }
+
   return (
     <main className="min-h-screen bg-canvas text-foreground flex flex-col items-center p-4 md:p-12 transition-colors duration-200">
       <header className="w-full max-w-3xl flex flex-col items-center text-center mb-10">
@@ -155,6 +164,13 @@ export default function PublicAttendanceScreen() {
         <p className="public-lede text-foreground-muted text-lg">
           Today's on-duty list is below. Search to see your own record in full.
         </p>
+        <button
+          className="mt-3 text-xs font-semibold text-foreground-muted underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2 rounded"
+          type="button"
+          onClick={scrollToStudentSearch}
+        >
+          Find my name
+        </button>
         {/*
           Staff arrive here too — the dashboard is the one link students share,
           so it is the one link that gets forwarded. Naming sign-in explicitly
@@ -170,18 +186,19 @@ export default function PublicAttendanceScreen() {
           question almost everybody opening it has. */}
       <DayBoard />
 
-      <section className="public-search w-full min-w-0 max-w-3xl bg-surface border border-border p-6 md:p-8 rounded-2xl shadow-sm mb-8" aria-label="Find a student">
+      <section ref={searchSectionRef} className="public-search w-full min-w-0 max-w-3xl bg-surface border border-border p-6 md:p-8 rounded-2xl shadow-sm mb-8" aria-label="Find a student">
         <label className="public-field flex flex-col gap-2 mb-4" htmlFor="public-student-search">
           <span className="font-semibold text-sm">Roll number or name</span>
           <input
             className="w-full bg-canvas border border-border focus:border-foreground focus:ring-1 focus:ring-foreground rounded-xl p-4 text-lg transition-all outline-none"
             id="public-student-search"
+            ref={studentSearchInputRef}
             type="search"
             autoComplete="off"
             spellCheck={false}
             value={query}
             maxLength={MAX_SEARCH_RUNES * 2}
-            placeholder="CB.SC.U4CSE24001"
+            placeholder="CB.SC.U4CSE99001"
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
@@ -298,6 +315,12 @@ function DayBoard() {
   const [slot, setSlot] = useState('')
   const [categoryID, setCategoryID] = useState('')
 
+  const boardRefetchRef = useRef<(() => unknown) | null>(null)
+  const attendedInterval = useIdleAwareInterval({
+    activeMs: BOARD_POLL_MS,
+    onResume: () => void boardRefetchRef.current?.(),
+  })
+
   const board = useQuery({
     queryKey: ['public', 'board', slot, categoryID],
     queryFn: () => api.publicDayAttendance({
@@ -307,9 +330,19 @@ function DayBoard() {
     // The board is a live list during an event, and it is the same answer for
     // everybody, so the server caches it too — this interval decides how stale
     // a screen left open goes, not how hard the database is hit.
-    refetchInterval: (query) => (query.state.error ? false : BOARD_POLL_MS),
+    //
+    // The idle stop still matters, and this is the least obvious of the four
+    // screens for it: the server's cache of this board lasts sixty seconds and
+    // this poll is sixty seconds, so EVERY poll is a cache miss and reaches the
+    // database. One public board left up on an unattended display keeps the
+    // compute awake exactly as effectively as a marking screen would.
+    refetchInterval: (query) => {
+      if (query.state.error) return false
+      return attendedInterval === false ? false : BOARD_POLL_MS
+    },
     gcTime: 0,
   })
+  boardRefetchRef.current = board.refetch
 
   const students = board.data?.students ?? []
   // Memoised because the effect below depends on it: a fresh [] every render

@@ -1,0 +1,38 @@
+.git
+.github
+
+# Local credentials and deployment metadata must never enter a build context.
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+.vercel
+**/.vercel
+
+# Private working directories are not application build inputs.
+.agent
+.agents
+.claude
+_bmad
+_bmad-logs
+_bmad-output
+bmad-logs
+mydocs
+response-output
+old-od-app
+AGENTS.md
+
+# Dependency and generated output directories are recreated during builds.
+node_modules
+**/node_modules
+dist
+**/dist
+coverage
+**/coverage
+
+# Local roster and attendance exports may contain personal data.
+*.csv
+*.xls
+*.xlsx

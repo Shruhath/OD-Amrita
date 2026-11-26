@@ -30,8 +30,17 @@ func (r *SQLCSearchReader) SearchStudents(ctx context.Context, query SearchQuery
 	if len(query.Patterns) == 0 {
 		return nil, errors.New("student: search query carries no terms")
 	}
+	// The seed must be one OF the patterns, or the redundant index predicate
+	// stops being redundant and starts silently narrowing the result. Guarded at
+	// the same seam and for the same reason as the empty-patterns check above:
+	// buildSearchQuery always sets it, so this catches a hand-built SearchQuery.
+	seed := query.SeedPattern
+	if seed == "" {
+		seed = query.Patterns[0]
+	}
 	rows, err := r.queries.SearchStudents(ctx, sqlc.SearchStudentsParams{
 		Patterns:    query.Patterns,
+		SeedPattern: seed,
 		HeadPattern: query.HeadPattern,
 		ExactRoll:   query.ExactRoll,
 		ResultLimit: int64(query.Limit),

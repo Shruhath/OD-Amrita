@@ -19,7 +19,7 @@ import {
 } from '../support/factories/student-disputes'
 
 /**
- * Mocked browser journeys for Story 0.11's public dispute form.
+ * Mocked browser journeys for the public dispute form.
  *
  * What this file adds over the component tests is a REAL browser at a REAL URL,
  * with real layout: whether the form is usable at 390px, whether the page scrolls
@@ -92,6 +92,12 @@ async function openDisputeForSlotThree(page: import('@playwright/test').Page) {
   return form
 }
 
+async function fillRequiredDisputeFields(form: import('@playwright/test').Locator) {
+  await form.getByRole('textbox', { name: /email/i }).fill(disputeEmail)
+  await form.getByLabel(/coordinator name/i).fill('Portal Coordinator')
+  await form.getByLabel(/student note/i).fill('Missed by the coordinator during crowd movement.')
+}
+
 test.describe('public dispute form', () => {
   // 0.11-E2E-001 — the affordance is reachable, and the form is usable at phone
   // width without the page scrolling sideways (AC 1, AC 15).
@@ -132,7 +138,7 @@ test.describe('public dispute form', () => {
     await page.goto(`${publicAttendanceRoute}?student=${publicStudentID}`)
     await expect(page.getByText(/Onam Celebrations/i).first()).toBeVisible()
     const form = await openDisputeForSlotThree(page)
-    await form.getByRole('textbox', { name: /email/i }).fill(disputeEmail)
+    await fillRequiredDisputeFields(form)
     await form.getByRole('button', { name: /submit|send|report/i }).click()
 
     // Scoped to the receipt panel. A bare getByRole('status') matches 0.10's
@@ -144,7 +150,9 @@ test.describe('public dispute form', () => {
 
     expect(seen.submissions).toHaveLength(1)
     expect(seen.submissions[0]).toMatchObject({
+      claimed_coordinator_name: 'Portal Coordinator',
       submitted_email: disputeEmail,
+      student_note: 'Missed by the coordinator during crowd movement.',
       student_id: publicStudentID,
       slot: 3,
       // The day the OD belongs to — carried explicitly, never inferred from the
@@ -171,7 +179,7 @@ test.describe('public dispute form', () => {
       await page.goto(`${publicAttendanceRoute}?student=${publicStudentID}`)
       await expect(page.getByText(/Onam Celebrations/i).first()).toBeVisible()
       const form = await openDisputeForSlotThree(page)
-      await form.getByRole('textbox', { name: /email/i }).fill(disputeEmail)
+      await fillRequiredDisputeFields(form)
       await form.getByRole('button', { name: /submit|send|report/i }).click()
 
       const alert = page.getByRole('alert')
@@ -192,7 +200,7 @@ test.describe('public dispute form', () => {
     await page.goto(`${publicAttendanceRoute}?student=${publicStudentID}`)
     await expect(page.getByText(/Onam Celebrations/i).first()).toBeVisible()
     const form = await openDisputeForSlotThree(page)
-    await form.getByRole('textbox', { name: /email/i }).fill(disputeEmail)
+    await fillRequiredDisputeFields(form)
     await form.getByRole('button', { name: /submit|send|report/i }).click()
     await expect(
       page.getByRole('region', { name: /dispute receipt/i }).getByRole('status'),
@@ -243,7 +251,7 @@ test.describe('public dispute form', () => {
   // 0.11-E2E-006 — the two 0.10 reads still work with the form on the page
   // (AC 17).
   //
-  // This story adds a POST to a page that was read-only. The regression to catch
+  // The dispute form adds a POST to a page that was read-only. The regression to catch
   // is the dashboard breaking as a side effect: a shared client that starts
   // sending a token, or a query key collision that empties the slot grid.
   test('[P0] the 0.10 dashboard still renders its slots with the dispute form present', async ({ page }) => {

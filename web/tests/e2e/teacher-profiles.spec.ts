@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { fulfilPreflight, installPortalSession, json } from './support/portal-session'
 
-// Story 2.3 browser journey, AC 6 (and AC 1-2 as the user observes them).
+// Teacher profiles browser journey, as the user observes it.
 //
 // Invoked by: web-deploy -> build job (`pnpm --filter od-amrita-web test:e2e`,
 // chromium project, testMatch /e2e\/.*\.spec\.ts/).

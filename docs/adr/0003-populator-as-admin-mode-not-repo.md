@@ -14,4 +14,4 @@ separate populator repo or deployable.
 
 ## Consequences
 Three NFC runtimes collapse to two; encode/decode becomes a genuinely shared
-module. Placeholder ADR — expand in Epic 6.
+module. Placeholder ADR — to be expanded when the populator is built.

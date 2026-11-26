@@ -1,6 +1,6 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator } from '@playwright/test'
 
-// Story 2.3 against the REAL stack — the deterministic portal API in
+// Teacher profiles against the REAL stack — the deterministic portal API in
 // api/test/portal and a real Postgres.
 //
 // Invoked by: web-deploy -> portal-integration job
@@ -11,14 +11,11 @@ import { expect, test } from '@playwright/test'
 // the server actually behaves that way and that the role elevation and branch
 // associations survive in Postgres.
 //
-// RED PHASE / fixture dependency: this spec needs a SEEDED student-role fixture
-// user to elevate — the portal harness cannot create one through the UI, since
-// student provisioning happens only via a real first login. Task 6 extends
-// api/test/portal/main.go's seed() with exactly this row (see the story's Dev
-// Notes: "Extend api/test/portal/main.go's seed() to provision a student-role
-// fixture user the browser journeys can elevate"). Until then every case here
-// fails at the elevation step, which is the correct red signal — the fixture
-// email below (studentFixtureEmail) does not exist in the harness database yet.
+// Fixture dependency: this spec needs a SEEDED student-role fixture user to
+// elevate — the portal harness cannot create one through the UI, since student
+// provisioning happens only via a real first login. api/test/portal/main.go's
+// seed() provisions exactly this row (studentFixtureEmail below); without it
+// every case here fails at the elevation step.
 
 const portalAPI = 'http://127.0.0.1:8081'
 
@@ -29,6 +26,10 @@ const portalAPI = 'http://127.0.0.1:8081'
 // mirroring how the events/categories specs instead suffix by run because
 // those aggregates have no such "already elevated" terminal state.
 const studentFixtureEmail = 'teacher-fixture-student@amrita.edu'
+
+async function selectFirstCategory(dialog: Locator) {
+  await dialog.getByRole('checkbox', { name: /Procession|Exception|Day/i }).first().check()
+}
 
 test('creates a teacher profile through the real API and Postgres, and it persists across reload', async ({ page }) => {
   await page.goto('/integration.html?path=%2Fportal%2Fteachers')
@@ -42,6 +43,7 @@ test('creates a teacher profile through the real API and Postgres, and it persis
   const dialog = page.getByRole('dialog', { name: 'New teacher' })
   await dialog.getByLabel('Email').fill(studentFixtureEmail)
   await dialog.getByRole('checkbox', { name: 'Computer Science and Engineering' }).check()
+  await selectFirstCategory(dialog)
   await dialog.getByRole('button', { name: 'Create teacher' }).click()
 
   const row = page.getByRole('row', { name: new RegExp(studentFixtureEmail) })
@@ -61,6 +63,7 @@ test('rejects a second elevation of the same user with the real 409, and writes 
   const dialog = page.getByRole('dialog', { name: 'New teacher' })
   await dialog.getByLabel('Email').fill(studentFixtureEmail)
   await dialog.getByRole('checkbox', { name: 'Computer Science and Engineering' }).check()
+  await selectFirstCategory(dialog)
   await dialog.getByRole('button', { name: 'Create teacher' }).click()
 
   await expect(dialog.getByRole('alert')).toHaveText('This user already has an assigned role.')
@@ -72,6 +75,7 @@ test('rejects an email with no matching users row with the real 404, and writes 
   const dialog = page.getByRole('dialog', { name: 'New teacher' })
   await dialog.getByLabel('Email').fill('never-signed-in-fixture@amrita.edu')
   await dialog.getByRole('checkbox', { name: 'Computer Science and Engineering' }).check()
+  await selectFirstCategory(dialog)
   await dialog.getByRole('button', { name: 'Create teacher' }).click()
 
   await expect(dialog.getByRole('alert')).toHaveText('No user has signed in with this email yet.')

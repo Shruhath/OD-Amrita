@@ -2,7 +2,7 @@
 
 package eventtest
 
-// categories_test.go — Story 2.2 coverage for AC 1-4, 6 and 8.
+// categories_test.go — event-category coverage for AC 1-4, 6 and 8.
 // REAL-POSTGRES integration: build tag `integration`.
 //
 // Invoked by: api-ci -> integration job
@@ -240,9 +240,9 @@ func TestRePointedGuardLeavesEventBranchImmutabilityUnchanged(t *testing.T) {
 	activeEvent := seedActiveEvent(t, ctx, migrator, "Onam Celebrations")
 	branchID := seedBranch(t, ctx, migrator, "CSE", "Computer Science")
 
-	// Story 2.1 proved this behavior; 0006 re-points the trigger at a shared
-	// function. This case is the safety net for that refactor — the one change
-	// in this story that can silently weaken an existing guarantee.
+	// The event-branch tests proved this behavior; 0006 re-points the trigger at a
+	// shared function. This case is the safety net for that refactor — the one
+	// change in 0006 that can silently weaken an existing guarantee.
 	_, err := runtime.Exec(ctx,
 		`INSERT INTO event_branches (event_id, branch_id) VALUES ($1, $2)`, archivedEvent, branchID)
 	if err == nil {
@@ -276,7 +276,7 @@ func TestRuntimeRoleCannotDeleteCategoriesOrChangeTheirSchema(t *testing.T) {
 		t.Fatalf("seed category: %v", err)
 	}
 
-	// Categories are referenced by later stories' records, so the same
+	// Categories are referenced by later records, so the same
 	// no-hard-delete posture events already have applies from day one — and it is
 	// enforced by a REVOKE, not by remembering not to write the query.
 	if _, err := runtime.Exec(ctx, `DELETE FROM categories WHERE event_id = $1`, eventID); err == nil {

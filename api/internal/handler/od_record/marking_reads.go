@@ -46,6 +46,20 @@ const (
 	defaultEventPage     = 1
 	defaultEventPageSize = 20
 	maxEventPageSize     = 100
+	// maxAttendancePageSize is the ATTENDANCE list's own, higher ceiling.
+	//
+	// Separate from maxEventPageSize rather than raising that one, because the
+	// two are bounded in the contract independently and only the attendance
+	// endpoints were raised: the event and category lists are picker-sized and
+	// still cap at 100 in contracts/openapi.yaml. Sharing one constant would put
+	// the server out of step with the spec for every list that was not raised.
+	//
+	// The number exists for the per-slot export, which reads a whole day and
+	// pages until it has it. At 100, a day of 20,000 records was 200 sequential
+	// requests, each dragging a full re-count of the filtered set alongside its
+	// page — around 800 queries for one download. The screens still ask for 20
+	// or 50; this only raises what a deliberate bulk reader may choose.
+	maxAttendancePageSize = 1_000
 	// maxEventPage is a real ceiling, not decoration. Without one, `page` was
 	// unbounded while `page_size` was capped, and `(page-1)*pageSize` in
 	// pageWindow overflowed int64 and wrapped NEGATIVE — `events[-16:1]` panics.
@@ -216,8 +230,8 @@ func MarkStatusHandler(svc MarkingReadService) gin.HandlerFunc {
 // markingActor loads the authenticated principal. It runs FIRST in every handler
 // above: if a handler judged its parameters before authorizing, the difference
 // between 400 and 403 would tell an unauthorized caller which parameters are
-// well-formed — a free oracle over the parameter space (the defect Story 0.3's
-// review fixed in the card-token handlers).
+// well-formed — a free oracle over the parameter space (the defect a review
+// fixed in the card-token handlers).
 func markingActor(c *gin.Context) (marking.Actor, error) {
 	actor, err := actorFromContext(c)
 	if err != nil {
@@ -230,7 +244,7 @@ func markingActor(c *gin.Context) (marking.Actor, error) {
 }
 
 // searchActor is markingActor's widened sibling for SearchStudentsHandler
-// alone. Story 0.9's teacher/admin search-mark screen calls this exact route
+// alone. The teacher/admin search-mark screen calls this exact route
 // before it can select anyone to mark, so live-marker-only here would 403 the
 // entire teacher/admin surface at its first step.
 func searchActor(c *gin.Context) (marking.Actor, error) {

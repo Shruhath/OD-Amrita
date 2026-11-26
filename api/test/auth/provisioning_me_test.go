@@ -1,4 +1,4 @@
-// provisioning_me_test.go — Story 1.5b acceptance for the /auth/me provisioning
+// provisioning_me_test.go — acceptance tests for the /auth/me provisioning
 // round-trip: the handler provisions the verified identity exactly once at
 // login, echoes the provisioned role, and renders provisioning failures through
 // the centralized error middleware. No DB / no build tag — runs under the

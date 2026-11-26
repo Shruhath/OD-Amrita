@@ -185,7 +185,7 @@ test.describe('Student roster import API', () => {
 
   test('[P1] rejects malformed CSV using the typed validation envelope', async ({ request }) => {
     // Given malformed quoting, when uploaded, then the file-level failure uses the typed envelope.
-    const csv = 'Roll No,Name,Branch,Section,Batch\nCB.SC.U4CSE24001,"unterminated,CSE,A,2024\n'
+    const csv = 'Roll No,Name,Branch,Section,Batch\nCB.SC.U4CSE99001,"unterminated,CSE,A,2024\n'
     await expectValidationFailure(await upload(request, csv))
   })
 
@@ -193,7 +193,7 @@ test.describe('Student roster import API', () => {
     // Given missing and normalization-colliding required headers.
     const record = studentRosterRow(50)
     for (const csv of [
-      'Roll No,Name,Branch,Section\nCB.SC.U4CSE24001,Missing Batch,CSE,A\n',
+      'Roll No,Name,Branch,Section\nCB.SC.U4CSE99001,Missing Batch,CSE,A\n',
       studentRosterCsv([record], ['Roll No', 'roll_number', 'Name', 'Branch', 'Section', 'Batch']),
     ]) {
       // When each file is uploaded, then ambiguous/missing selection is rejected.

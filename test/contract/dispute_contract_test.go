@@ -1,4 +1,4 @@
-// Contract gates for Story 0.11's dispute surface — the FIRST unauthenticated
+// Contract gates for the dispute surface — the FIRST unauthenticated
 // WRITE in this codebase.
 //
 // RED PHASE. Like the 0.10 file next to it, these parse contracts/openapi.yaml
@@ -63,7 +63,7 @@ const (
 var publicDisputeSchemaAllowlists = map[string][]string{
 	"PublicDisputeRequest": {"student_id", "submitted_email", "event_id", "category_id", "od_date", "slot", "claimed_coordinator_name", "student_note"},
 	"PublicDisputeReceipt": {"dispute_id", "reference", "status", "submitted_at", "student"},
-	// `end_date` was added under Story 0.12a, honouring the instruction this
+	// `end_date` was added with the multi-day date range, honouring the instruction this
 	// comment used to carry: an event is now a real date range, and the dispute
 	// form's day picker enumerates event_date..end_date. Without the range on the
 	// wire the picker has exactly one option and a student missed on day 17 of a
@@ -334,7 +334,7 @@ func TestDisputeContract_PublicSchemaAllowlists(t *testing.T) {
 			t.Errorf("[P0] PublicDisputeRequest has no od_date. Amended 2026-08-06 by the multi-day plan " +
 				"(docs/multi-day-events-plan.md §7): `disputes` must carry `od_date date NOT NULL` from CREATION, because the range change " +
 				"makes an event span a date range and \"I was missed in slot 8\" is then ambiguous across thirty " +
-				"days. The story FILE predates this amendment — the planning artifacts win")
+				"days")
 		} else if got := getStr(odDate, "format"); got != "date" {
 			t.Errorf("[P0] od_date.format = %q, want \"date\" — the day an OD belongs to, not an instant", got)
 		}
@@ -353,7 +353,7 @@ func TestDisputeContract_PublicSchemaAllowlists(t *testing.T) {
 }
 
 // 0.11-CONTRACT-005 — no public schema reaches an AUTHENTICATED schema by $ref,
-// including the three this story adds.
+// including the three the dispute surface adds.
 //
 // The authenticated `Dispute` carries the resolution note, the resolving user id
 // and the submitted email. It overlaps the public receipt today, which is exactly

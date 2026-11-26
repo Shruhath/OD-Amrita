@@ -194,7 +194,7 @@ func TestSearch_OrdersExactRollMatchFirstAndDeterministically(t *testing.T) {
 	capture := &searchCapture{}
 	svc := newSearchService(capture)
 
-	if _, err := svc.Search(context.Background(), coordinatorActor(), SearchInput{Query: "CB.SC.U4CSE24001"}); err != nil {
+	if _, err := svc.Search(context.Background(), coordinatorActor(), SearchInput{Query: "CB.SC.U4CSE99001"}); err != nil {
 		t.Fatalf("Search = %v, want nil", err)
 	}
 	got := capture.queries[0]
@@ -202,8 +202,8 @@ func TestSearch_OrdersExactRollMatchFirstAndDeterministically(t *testing.T) {
 	if got.ExactRoll == "" {
 		t.Error("[P0] the query carries no exact-roll term — an exact roll match must sort first")
 	}
-	if got.ExactRoll != strings.ToUpper(strings.TrimSpace("CB.SC.U4CSE24001")) {
-		t.Errorf("[P0] ExactRoll = %q, want the canonical uppercase roll (Story 0.2 established uppercase roll_no)", got.ExactRoll)
+	if got.ExactRoll != strings.ToUpper(strings.TrimSpace("CB.SC.U4CSE99001")) {
+		t.Errorf("[P0] ExactRoll = %q, want the canonical uppercase roll (roll_no is stored uppercase)", got.ExactRoll)
 	}
 }
 
@@ -239,19 +239,19 @@ func TestSearchResult_CarriesNoPrivateFields(t *testing.T) {
 
 	capture := &searchCapture{results: []SearchResult{{
 		StudentID:   "55555555-5555-4555-8555-555555555555",
-		RollNo:      "CB.SC.U4CSE24001",
+		RollNo:      "CB.SC.U4CSE99001",
 		DisplayName: "Scaffold Student",
 	}}}
 	svc := newSearchService(capture)
 
-	out, err := svc.Search(context.Background(), coordinatorActor(), SearchInput{Query: "CB.SC.U4CSE24001"})
+	out, err := svc.Search(context.Background(), coordinatorActor(), SearchInput{Query: "CB.SC.U4CSE99001"})
 	if err != nil {
 		t.Fatalf("Search = %v, want nil", err)
 	}
 	if len(out) != 1 {
 		t.Fatalf("[P0] got %d results, want 1", len(out))
 	}
-	if out[0].RollNo != "CB.SC.U4CSE24001" || out[0].DisplayName != "Scaffold Student" {
+	if out[0].RollNo != "CB.SC.U4CSE99001" || out[0].DisplayName != "Scaffold Student" {
 		t.Errorf("[P0] result = %+v, want the roll and display name the coordinator picks by", out[0])
 	}
 }

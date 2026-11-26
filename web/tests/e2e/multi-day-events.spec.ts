@@ -61,7 +61,7 @@ function festivalRecord(slot: number, odDate: string) {
 const publicHistory = {
   student: {
     student_id: STUDENT_ID,
-    roll_no: 'CB.SC.U4CSE24101',
+    roll_no: 'CB.SC.U4CSE99101',
     display_name: 'Ananya Rao',
     branch: 'CSE',
     section: 'A',
@@ -100,7 +100,7 @@ const publicEvents = {
 /**
  * The identity `/api/v1/auth/me` must answer with, or the app renders the
  * sign-in screen and every assertion below fails on "Authentication could not be
- * verified" — a red that has nothing to do with this story.
+ * verified" — a red that has nothing to do with multi-day events.
  *
  * `installPortalSession` seeds the Supabase session and mocks `**\/auth/v1/**`;
  * it does NOT mock the backend's own identity read, and the existing specs each

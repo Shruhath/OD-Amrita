@@ -1,6 +1,7 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ApiFailure } from '../../../api/client'
+import { useIdleAwareInterval } from '../../../features/polling/useIdleAwareInterval'
 import { PortalShell } from '../../../components/PortalShell'
 import { Select } from '../../../components/ui/Select'
 // Icons are imported ONE PER MODULE rather than from the package barrel.
@@ -14,8 +15,20 @@ import { useAuth } from '../../../features/auth/context'
 import { asString, usePersistentState } from '../../../features/persistence/sessionState'
 import { campusToday } from './campusDay'
 
-/** How often the list refreshes. Matches the admin attendance view. */
-const LIVE_POLL_MS = 5_000
+/**
+ * How often the list refreshes. Matches the admin attendance view.
+ *
+ * This was 5s. Each poll costs the server a list query, a full re-count and,
+ * until recently, two uncached authorization queries — and the screen polls
+ * whether or not anything is happening. Across this screen, the admin
+ * attendance view and the mark status endpoint, production measured ~51,000
+ * queries of pure polling against 319 actual attendance marks.
+ *
+ * Twenty seconds is still "live" for a list a person is watching fill up, and
+ * it is a quarter of the load. The `enabled` guard below matters more than the
+ * number: an idle screen now polls not at all rather than slowly.
+ */
+const LIVE_POLL_MS = 20_000
 
 function formatTime(value: string): string {
   const parsed = new Date(value)
@@ -76,12 +89,33 @@ export default function LivePortal() {
     return days
   }, [selectedEvent])
 
+  const attendanceRefetchRef = useRef<(() => unknown) | null>(null)
+  const attendedInterval = useIdleAwareInterval({
+    activeMs: LIVE_POLL_MS,
+    onResume: () => void attendanceRefetchRef.current?.(),
+  })
+
   const attendance = useQuery({
     queryKey: ['portal', 'live', eventID, odDate],
     queryFn: () => api.portalAttendance(eventID, { odDate, pageSize: 100 }),
     enabled: eventID !== '',
-    refetchInterval: (query) => (query.state.error ? false : LIVE_POLL_MS),
+    // A PAST DAY IS NOT LIVE. Marks land on the campus day they were captured
+    // on, so a day that is already over cannot gain rows — polling it forever is
+    // pure cost for an answer that is settled. The screen still polls today at
+    // LIVE_POLL_MS; it simply stops asking about history.
+    //
+    // The error guard is unchanged: a failed request stops the timer rather than
+    // hammering a server that just refused.
+    // The third reason is the idle stop: a live board left open on an unattended
+    // screen polls all night otherwise, and that alone prevents the database from
+    // ever suspending. Any tap or a return to the tab resumes it and refetches.
+    refetchInterval: (query) => {
+      if (query.state.error) return false
+      if (attendedInterval === false) return false
+      return odDate === campusToday() ? LIVE_POLL_MS : false
+    },
   })
+  attendanceRefetchRef.current = attendance.refetch
 
   const rows = attendance.data?.data ?? []
 

@@ -1,15 +1,14 @@
 // Tests for the scope seam — the one place that answers "may this actor mark here".
 //
-// WHY A SEAM AT ALL. The epic wants "the coordinator only sees the event they
-// are assigned to", but the assignment table is Story 0.7. 0.6 therefore builds
-// the ONE function that answers "may this actor mark here", implements it with a
-// role+active-event policy, and calls it from every read AND the mark write.
-// 0.7 then replaces only the policy body. Because the policy lives in one place,
-// 0.7 is a small diff — which is the entire point of the split.
+// WHY A SEAM AT ALL. The requirement is "the coordinator only sees the event
+// they are assigned to". The seam is the ONE function that answers "may this
+// actor mark here", and it is called from every read AND the mark write. The
+// coordinator-assignment lookup lives only in the policy body, so changing who
+// may mark is a small, single-place diff — which is the entire point of the
+// split.
 //
-// INTERIM EXPOSURE THIS PINS: until 0.7 lands, ANY user with role=coordinator
-// can mark for ANY active event. That is a known, accepted gap. What must never
-// be true is that a NON-coordinator can, or that an ARCHIVED event is markable.
+// What must never be true is that a NON-coordinator can mark, or that an
+// ARCHIVED event is markable.
 package marking
 
 import (
@@ -29,17 +28,14 @@ type fakeReader struct {
 	categories   map[string]string // categoryID -> owning eventID
 	assignments  map[string]bool
 
-	activeEventsCalls int
-	eventByIDCalls    []string
-	assignmentCalls   [][2]string
-	categoryCalls     [][2]string
-	err               error
-}
+	categoryAssignments map[string]bool
 
-type scopedFakeReader struct {
-	*fakeReader
-	categoryAssignments     map[string]bool
+	activeEventsCalls       int
+	eventByIDCalls          []string
+	assignmentCalls         [][2]string
+	categoryCalls           [][2]string
 	categoryAssignmentCalls [][3]string
+	err                     error
 }
 
 func (f *fakeReader) AssignedActiveEvents(_ context.Context, userID string) ([]Event, error) {
@@ -93,7 +89,7 @@ func (f *fakeReader) CategoryForEvent(_ context.Context, eventID, categoryID str
 	return nil
 }
 
-func (f *scopedFakeReader) CoordinatorAssignedToEventCategory(_ context.Context, userID, eventID, categoryID string) (bool, error) {
+func (f *fakeReader) CoordinatorAssignedToEventCategory(_ context.Context, userID, eventID, categoryID string) (bool, error) {
 	f.categoryAssignmentCalls = append(f.categoryAssignmentCalls, [3]string{userID, eventID, categoryID})
 	if f.err != nil {
 		return false, f.err
@@ -120,6 +116,12 @@ func newFixture() *fakeReader {
 			foreignCatID: archivedEventID,
 		},
 		assignments: map[string]bool{"u-coord|" + activeEventID: true},
+		// Assigned to the category too. This line is not decoration: before
+		// CoordinatorAssignedToEventCategory was part of Reader, this fixture did
+		// not implement it, the policy's type assertion failed, and the admit
+		// tests below passed BECAUSE category scoping was switched off. They now
+		// pass because the coordinator genuinely holds the category.
+		categoryAssignments: map[string]bool{"u-coord|" + activeEventID + "|" + categoryID: true},
 	}
 }
 
@@ -163,10 +165,8 @@ func TestAssertCanMark_AllowsAdminForActiveEventAndOwnedCategory(t *testing.T) {
 }
 
 func TestAssertCanMark_AdminMayUseAnyEventCategoryWithoutCoordinatorCategoryAssignment(t *testing.T) {
-	reader := &scopedFakeReader{
-		fakeReader:          newFixture(),
-		categoryAssignments: map[string]bool{},
-	}
+	reader := newFixture()
+	reader.categoryAssignments = map[string]bool{}
 	policy := NewPolicy(reader)
 
 	if err := policy.AssertCanMark(context.Background(), admin(), activeEventID, categoryID); err != nil {
@@ -181,10 +181,8 @@ func TestAssertCanMark_AdminMayUseAnyEventCategoryWithoutCoordinatorCategoryAssi
 }
 
 func TestAssertCanMark_CoordinatorStillNeedsCategoryAssignment(t *testing.T) {
-	reader := &scopedFakeReader{
-		fakeReader:          newFixture(),
-		categoryAssignments: map[string]bool{},
-	}
+	reader := newFixture()
+	reader.categoryAssignments = map[string]bool{}
 	policy := NewPolicy(reader)
 
 	err := policy.AssertCanMark(context.Background(), coordinator(), activeEventID, categoryID)
@@ -296,9 +294,9 @@ func TestVisibleEvents_ActiveOnlyForCoordinatorsAndEmptyForOthers(t *testing.T) 
 }
 
 // 0.6-SCOPE-001e — the seam's surface stays exactly two functions. This is the
-// test that fails if a later story starts scattering authorization: it names
-// Story 0.7 as the ONLY story allowed to change the policy body, and it does so
-// by pinning the call signatures the rest of the system depends on.
+// test that fails if a later change starts scattering authorization: only the
+// policy body may change who is allowed to mark, and it enforces that by
+// pinning the call signatures the rest of the system depends on.
 func TestScopeSeam_ExportsExactlyTheTwoAgreedEntryPoints(t *testing.T) {
 	// Signatures first: these fail to COMPILE if either entry point changes shape.
 	var (
@@ -311,8 +309,8 @@ func TestScopeSeam_ExportsExactlyTheTwoAgreedEntryPoints(t *testing.T) {
 	// exported entry point — the one thing the test's name promises to catch —
 	// would not have failed it.
 	//
-	// The assignment story replaces the BODY of these two methods with a lookup
-	// against the coordinator-assignment table. It must not add a third entry
+	// The BODY of these two methods does the lookup against the
+	// coordinator-assignment table. A change to it must not add a third entry
 	// point, and it must not move any part of the policy into a handler. If this
 	// test fails, that is the decision being made — make it deliberately.
 	want := map[string]bool{"VisibleEvents": true, "AssertCanMark": true}

@@ -1,6 +1,6 @@
 package teacher
 
-// teacher_test.go — Story 2.3 coverage for AC 1-5 at the SERVICE layer.
+// teacher_test.go — teacher-profile coverage at the SERVICE layer.
 // UNIT test: no build tag, no database.
 //
 // Invoked by: api-ci -> build job (`go test ./...`).
@@ -119,8 +119,8 @@ var teacherRejections = []teacherRejection{
 
 // TestTeacherRejectionMatrixIsInternallyCoherent is the ACTIVE guard: it fails
 // if a VALIDATION_FAILED case ever loses its field/detail pair, or a non-field
-// error grows one — the same shape Story 2.2's
-// TestCategoryRejectionMatrixIsInternallyCoherent enforced. It needs no symbol
+// error grows one — the same shape the category rejection-matrix guard
+// enforced. It needs no symbol
 // from the not-yet-existing production package, so it is green today and
 // stays green as the table grows.
 func TestTeacherRejectionMatrixIsInternallyCoherent(t *testing.T) {
@@ -151,7 +151,7 @@ func TestTeacherRejectionMatrixIsInternallyCoherent(t *testing.T) {
 	}
 	// The order below is Dev Notes' documented validation order. A test data
 	// table that silently reorders itself would stop proving the "returns
-	// before a transaction opens" property this story's whole design rests on.
+	// before a transaction opens" property the whole service design rests on.
 	wantOrder := []string{
 		"blank email is rejected before anything else is consulted",
 		"an email over the contract's 320-character maximum is rejected before any lookup",

@@ -1,7 +1,7 @@
 /**
- * Unit suite — Story 1.6, Task 5: the re-auth-required SEAM (no UI).
+ * Unit suite — the re-auth-required SEAM (no UI).
  *
- * `test(...)` with real assertions against the shipped `../session`. A future login story
+ * `test(...)` with real assertions against the shipped `../session`. The session gate
  * consumes this seam; the 401 interceptor's `onReauthRequired` callback is wired to
  * `signal.emit` in app code.
  *

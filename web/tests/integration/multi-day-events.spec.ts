@@ -17,7 +17,7 @@ import { expect, test } from '@playwright/test'
  *     -> tomorrow — not as a single day dated today. The comment at main.go:73-76
  *     currently explains that the event is dated TODAY "because odrecord.ActiveSlot
  *     compares against events.event_date"; that comment describes the behaviour
- *     this story removes, and a range is what proves CONTAINMENT rather than
+ *     multi-day events remove, and a range is what proves CONTAINMENT rather than
  *     equality. Seeded as a single day, every assertion below passes for the wrong
  *     reason.
  *  2. Dedicated students, disjoint from every other spec's roll numbers (0.9 and
@@ -40,14 +40,14 @@ const MARKING_EVENT_ID = '93000000-0000-4000-8000-000000000001'
  * the same slot of three consecutive days of one event.
  *
  * Its own student and its own event, disjoint from every other spec's pool:
- * Stories 0.9 and 0.10 each lost a CI round to a shared roll number, and the
- * public-dashboard conservation gate asserts an exact record count for the two
- * Story 0.10 event ids.
+ * the teacher-marking and public-dashboard specs each lost a CI round to a shared
+ * roll number, and the public-dashboard conservation gate asserts an exact record
+ * count for its two event ids.
  */
 const MULTIDAY_STUDENT_ID = process.env.PORTAL_MULTIDAY_STUDENT_ID ?? '95000000-0000-4000-8000-000000000012'
 
 /**
- * The event that student is marked against — its own id, so the Story 0.10
+ * The event that student is marked against — its own id, so the public-dashboard
  * conservation gates that assert an exact record count for the public-dashboard
  * events stay untouched.
  */
@@ -142,8 +142,8 @@ test.describe('the multi-day event, end to end', () => {
   //
   // AC 2 against the real handler. `CreateEventRequest.end_date` is not in
   // `required`, so oapi-codegen hands the handler a nil pointer for every client
-  // written before this story — and a nil-deref here is a 500 on the admin's
-  // primary create path. Story 0.4's review found exactly that bug once.
+  // written before end_date existed — and a nil-deref here is a 500 on the admin's
+  // primary create path. A past review found exactly that bug once.
   test('0.12a-INT-E2E-003 omitting end_date still creates a single-day event', async ({ page }) => {
     const day = isoDay(90)
     const branches = await page.request.get(`${portalAPI}/api/v1/admin/branches`, {

@@ -228,8 +228,7 @@ func TestClampToEventRange_PullsAnOutOfRangeDayToTheNearestBound(t *testing.T) {
 //
 // This is the compatibility promise for the teacher/admin path specifically. A
 // teacher correcting a mark three days after a one-day event must still be able
-// to: today that write succeeds, and after this story it must not start failing
-// on a range guard.
+// to: that write succeeds, and it must never start failing on a range guard.
 func TestClampToEventRange_SingleDayEventAlwaysFilesUnderThatDay(t *testing.T) {
 	day := campusMidnight(t, 2026, time.August, 3)
 

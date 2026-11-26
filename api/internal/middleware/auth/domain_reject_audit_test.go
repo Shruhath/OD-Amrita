@@ -1,12 +1,12 @@
-// domain_reject_audit_test.go — Story 1.7 (AC: "when … an OAuth domain rejection
-// occurs … an immutable audit row is written"). Middleware-level acceptance for
+// domain_reject_audit_test.go — when an OAuth domain rejection occurs, an
+// immutable audit row is written. Middleware-level acceptance for
 // the auth.domain_rejected emission in the auth middleware's EnforceDomain
 // failure branch — the one place a domain-rejected request lives, since it is
 // aborted before any handler runs. No DB / no build tag: it wires the REAL
 // errormw + auth Middleware with a fake verifier + fake auditor and asserts the
 // rendered status, reusing fakeVerifier/bearer from auth_test.go (same package).
 //
-// It proves the NEW behavior 1.7 adds on top of the already-proven 401/403
+// It proves the audit behavior on top of the 401/403
 // contract:
 //   - a VALID token whose email is off-domain → audited exactly once
 //     (forwarding the verified email + device + reason) and still 403
@@ -16,12 +16,6 @@
 //   - a domain rejection whose audit write fails → still a clean 403 (best-effort
 //     audit, D3 ratified 2026-07-08: a ledger outage must not turn a rejection
 //     into a 500; the missed row is logged/alertable instead).
-//
-// RED: mwauth.Middleware still takes (verifier, allowedDomain) — this file calls
-// the intended 3-arg Middleware(verifier, allowedDomain, auditor) and references
-// the not-yet-built mwauth Auditor interface, so package auth (middleware) is
-// compile-red until Story 1.7 Task 3 lands (and auth_test.go / auth_http_test.go
-// are updated to the new signature). Intended TDD red phase.
 package auth
 
 import (

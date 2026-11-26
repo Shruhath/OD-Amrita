@@ -22,9 +22,9 @@ export type AttendanceActor = {
  * Typed from the CONTRACT rather than by hand.
  *
  * The hand-written version had already drifted by the time `od_date` was added
- * under Story 0.12a: it declared the shape it happened to need, so a field the
+ * for multi-day events: it declared the shape it happened to need, so a field the
  * API required could go missing here and every mocked test still passed while
- * the real screen crashed on it. Story 0.11 retyped `PortalDispute` for the same
+ * the real screen crashed on it. The dispute fixtures retyped `PortalDispute` for the same
  * reason after the same failure.
  */
 export type AttendanceRecord = ContractAttendanceRecord

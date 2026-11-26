@@ -10,6 +10,39 @@ SELECT id, event_id
 FROM categories
 WHERE id = @category_id AND event_id = @event_id;
 
+-- name: GetMarkEventWithCategory :one
+-- The mark path's event AND category lookup, as ONE round trip.
+--
+-- These were two sequential queries — GetMarkEvent then GetMarkCategoryForEvent —
+-- on a path that already makes many, against a database roughly half a second
+-- away. In production they showed up as 8,862 and 627 calls; the event lookup
+-- alone was the third most-executed query in the system, because the status poll
+-- behind the marking screen reads it too.
+--
+-- THE LEFT JOIN IS WHAT PRESERVES THE TWO DISTINCT ANSWERS. The caller must be
+-- able to tell "no such event" from "no such category in this event", because
+-- they are different errors to the client (EVENT_NOT_FOUND vs
+-- CATEGORY_NOT_FOUND) and a coordinator debugging a mis-scanned screen needs to
+-- know which. An inner join would collapse both into "no rows".
+--
+--   no row returned  -> the EVENT does not exist
+--   row, category_id IS NULL -> the event exists, the CATEGORY does not belong to it
+--   row, category_id present -> both resolve
+--
+-- The scope check is deliberately NOT folded in here. It runs BEFORE this, and
+-- the ordering is an information-disclosure boundary: a caller the scope gate
+-- refuses must not be able to learn whether an event or category exists by
+-- reading which error came back. See the ordering in service/od_record.Mark.
+SELECT
+    e.id AS event_id,
+    e.event_date,
+    e.end_date,
+    e.status,
+    c.id AS category_id
+FROM events e
+LEFT JOIN categories c ON c.id = @category_id AND c.event_id = e.id
+WHERE e.id = @event_id;
+
 -- name: GetMarkStudentByID :one
 SELECT
     s.id,
@@ -49,6 +82,27 @@ INSERT INTO od_records (
     @server_received_at
 )
 RETURNING id, student_id, event_id, category_id, slot, od_date, reason_note, capture_method, server_received_at;
+
+-- name: ListExistingPresentMarksForBatch :many
+-- This is executed inside the batch's single write transaction before its first
+-- INSERT. It deliberately does not use ON CONFLICT DO NOTHING: a manual batch
+-- is all-or-nothing, so an existing mark is a conflict, not an item to skip.
+SELECT
+    r.student_id,
+    s.roll_no,
+    s.name,
+    b.code AS branch,
+    s.section,
+    s.batch
+FROM od_records r
+JOIN students s ON s.id = r.student_id
+JOIN branches b ON b.id = s.branch_id
+WHERE r.event_id = @event_id
+  AND r.od_date = @od_date
+  AND r.slot = @slot
+  AND r.status = 'present'
+  AND r.student_id = ANY(@student_ids::uuid[])
+ORDER BY s.roll_no ASC;
 
 -- name: GetODRecordByID :one
 SELECT
@@ -247,8 +301,7 @@ WHERE r.event_id = @event_id
 ;
 
 -- name: ListPublicStudentODRecords :many
--- One student's present OD records for the UNAUTHENTICATED public dashboard
--- (Story 0.10, FR39).
+-- One student's present OD records for the UNAUTHENTICATED public dashboard.
 --
 -- GROUPING KEY IS od_records.od_date, NOT server_received_at and no longer
 -- events.event_date. An event spans a range of days, so the event's first day

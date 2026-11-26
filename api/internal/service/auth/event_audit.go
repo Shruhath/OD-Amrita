@@ -1,11 +1,11 @@
 package auth
 
-// event_audit.go — the auth-event audit service (Story 1.7). It owns the two NEW
+// event_audit.go — the auth-event audit service. It owns the two
 // auth events the hybrid model still records in OUR immutable ledger:
 // auth.login_succeeded (first backend contact at GET /auth/me, after provisioning)
 // and auth.domain_rejected (the auth middleware's EnforceDomain failure branch,
 // after a VALID token). Forced logout (auth.session_revoked) is already audited by
-// Story 1.5c's RevocationService and is deliberately NOT duplicated here.
+// RevocationService and is deliberately NOT duplicated here.
 //
 // The subtlety it encodes: an auth event has NO business-table row — the audit row
 // IS its only artifact. So the store.WithAudit write callback is a no-op that

@@ -15,17 +15,15 @@ import {
   type TeacherProfileFixture,
 } from '../../../../tests/support/factories/teacher'
 
-// teachers-portal-component.test.tsx — Story 2.3 coverage for AC 6.
+// TeachersPortal.test.tsx — component coverage for the teachers portal.
 // UNIT/component test (Vitest + jsdom + React Testing Library + MSW).
 //
 // Invoked by: web-deploy -> build job (`pnpm --filter od-amrita-web test`).
 //
-// RED PHASE: `/portal/teachers` has no route in router.tsx and
-// TeachersPortal.tsx does not exist until Task 5. Every case is reached by
-// NAVIGATING the memory router to '/portal/teachers' rather than importing the
-// component directly — the same call Story 2.2's EventDetailPortal.test.tsx
-// made — so `pnpm typecheck` stays green while the module does not exist: this
-// file imports nothing from routes/portal/teachers/*.
+// Every case is reached by NAVIGATING the memory router to '/portal/teachers'
+// rather than importing the component directly — the same call
+// EventDetailPortal.test.tsx makes — so the route registration in router.tsx is
+// exercised too: this file imports nothing from routes/portal/teachers/*.
 //
 // Boundary note: this file asserts DOM behavior only. Wire-shape and rejection
 // codes belong to the Go handler/service scaffolds and are not restated here.
@@ -112,6 +110,24 @@ function renderTeachersPortal({
       }
       serverTeachers = orderTeachers(serverTeachers.map((teacher) => teacher.user_id === userID ? updated : teacher))
       return HttpResponse.json(updated)
+    }),
+    http.post('*/api/v1/admin/users/:userID/demote', ({ params }) => {
+      const userID = String(params.userID)
+      adminRequest(`demote:${userID}`)
+      const found = serverTeachers.find((teacher) => teacher.user_id === userID)
+      if (!found) return HttpResponse.json({ code: 'USER_NOT_FOUND', message: 'User not found.' }, { status: 404 })
+      serverTeachers = serverTeachers.filter((teacher) => teacher.user_id !== userID)
+      return HttpResponse.json({
+        user_id: userID,
+        email: found.email,
+        previous_role: 'teacher',
+        role: 'student',
+        changed: true,
+        removed_coordinator_assignments: 0,
+        removed_category_assignments: found.categories.length,
+        removed_teacher_branches: found.branches.length,
+        sessions_revoked: true,
+      })
     }),
   )
 
@@ -232,9 +248,9 @@ describe('Admin teachers portal composition (ATDD red phase)', () => {
   })
 
   test('[P1] clears field and form errors on every input change and on every new submit', async () => {
-    // Story 2.2's review found EventDetailPortal did not do this (a stale
-    // "already exists" error stuck to a freshly-typed, valid value) — the exact
-    // defect this story's Task 5 is told not to repeat.
+    // EventDetailPortal once did not do this (a stale "already exists" error
+    // stuck to a freshly-typed, valid value) — the exact defect this screen must
+    // not repeat.
     const user = userEvent.setup()
     renderTeachersPortal()
     server.use(
@@ -290,6 +306,65 @@ describe('Admin teachers portal composition (ATDD red phase)', () => {
     renderTeachersPortal({ teachers: [createTeacherProfileFixture({ email: 'no-name@amrita.edu', name: null })] })
     const row = await screen.findByRole('row', { name: /no-name@amrita.edu/ })
     expect(row).toHaveTextContent('—')
+  })
+})
+
+describe('Admin removes staff access from a teacher', () => {
+  test('[P0] demotes only after the confirmation, and the teacher leaves the roster', async () => {
+    const user = userEvent.setup()
+    const leaving = createTeacherProfileFixture({ email: 'leaving-teacher@amrita.edu' })
+    const { adminRequest } = renderTeachersPortal({
+      teachers: [leaving, createTeacherProfileFixture({ email: 'staying-teacher@amrita.edu' })],
+    })
+
+    const row = await screen.findByRole('row', { name: /leaving-teacher@amrita.edu/ })
+    await user.click(within(row).getByRole('button', { name: 'Remove staff access for leaving-teacher@amrita.edu' }))
+
+    const dialog = screen.getByRole('alertdialog', { name: 'Remove staff access' })
+    expect(dialog).toHaveTextContent('becomes a student')
+    expect(dialog).toHaveTextContent('signs them out everywhere')
+    expect(adminRequest).not.toHaveBeenCalledWith(`demote:${leaving.user_id}`)
+
+    await user.click(within(dialog).getByRole('button', { name: 'Remove staff access' }))
+
+    expect(adminRequest).toHaveBeenCalledWith(`demote:${leaving.user_id}`)
+    await vi.waitFor(() => expect(screen.queryByRole('row', { name: /leaving-teacher@amrita.edu/ })).not.toBeInTheDocument())
+    expect(screen.getByRole('row', { name: /staying-teacher@amrita.edu/ })).toBeInTheDocument()
+  })
+
+  test('[P0] cancel leaves the teacher untouched, and focus starts on Cancel', async () => {
+    const user = userEvent.setup()
+    const kept = createTeacherProfileFixture({ email: 'kept-teacher@amrita.edu' })
+    const { adminRequest } = renderTeachersPortal({ teachers: [kept] })
+
+    const row = await screen.findByRole('row', { name: /kept-teacher@amrita.edu/ })
+    await user.click(within(row).getByRole('button', { name: 'Remove staff access for kept-teacher@amrita.edu' }))
+    const dialog = screen.getByRole('alertdialog', { name: 'Remove staff access' })
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus()
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+
+    await vi.waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(adminRequest).not.toHaveBeenCalledWith(`demote:${kept.user_id}`)
+    expect(screen.getByRole('row', { name: /kept-teacher@amrita.edu/ })).toBeInTheDocument()
+  })
+
+  test('[P1] shows the server refusal inside the dialog', async () => {
+    const user = userEvent.setup()
+    const teacher = createTeacherProfileFixture({ email: 'refused-teacher@amrita.edu' })
+    renderTeachersPortal({ teachers: [teacher] })
+    server.use(
+      http.post('*/api/v1/admin/users/:userID/demote', () =>
+        HttpResponse.json({ code: 'LAST_ADMIN_DEMOTION_REFUSED', message: 'This is the last administrator; promote another admin first.' }, { status: 409 }),
+      ),
+    )
+
+    const row = await screen.findByRole('row', { name: /refused-teacher@amrita.edu/ })
+    await user.click(within(row).getByRole('button', { name: 'Remove staff access for refused-teacher@amrita.edu' }))
+    const dialog = screen.getByRole('alertdialog', { name: 'Remove staff access' })
+    await user.click(within(dialog).getByRole('button', { name: 'Remove staff access' }))
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('This is the last administrator')
+    expect(screen.getByRole('row', { name: /refused-teacher@amrita.edu/ })).toBeInTheDocument()
   })
 })
 

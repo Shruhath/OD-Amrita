@@ -1,6 +1,6 @@
-// Config tests for Story 0.11's SECOND, stricter rate limiter (T14, AC 9).
+// Config tests for the dispute form's SECOND, stricter rate limiter.
 //
-// COMPILE-RED until Config grows PublicDisputeRateLimit. The prescribed surface:
+// The surface under test:
 //
 //	cfg.PublicDisputeRateLimit.PerMinute  <- PUBLIC_DISPUTE_RATE_LIMIT_PER_MINUTE
 //	cfg.PublicDisputeRateLimit.Burst      <- PUBLIC_DISPUTE_RATE_LIMIT_BURST
@@ -10,9 +10,9 @@
 // do not need two types, and a second type is a second place to forget a bound.
 //
 // The DEFAULTS are the load-bearing part and they are why this is a config test
-// rather than a note in the story. The deployed Fly app carries no such secret,
+// rather than a note in a design doc. The deployed Fly app carries no such secret,
 // so a limiter that refuses to boot without one takes the API down at the next
-// deploy — the same reasoning that gave 0.10's pair defaults, restated because a
+// deploy — the same reasoning that gave the public read pair defaults, restated because a
 // stricter limit is exactly the kind of value somebody makes mandatory "to be
 // safe". Setting it to something unusable, by contrast, must fail LOUDLY: an
 // operator raising the cap on event day has to be told their typo did nothing.
@@ -67,7 +67,7 @@ func TestLoad_PublicDisputeRateLimitDefaultsWhenUnset(t *testing.T) {
 			cfg.PublicDisputeRateLimit.PerMinute, cfg.PublicRateLimit.PerMinute)
 	}
 	if cfg.PublicRateLimit.PerMinute != ratelimit.DefaultPerMinute {
-		t.Errorf("[P1] the 0.10 public read default moved to %d (was %d); this story must not retune the read "+
+		t.Errorf("[P1] the public read default moved to %d (was %d); the dispute limiter must not retune the read "+
 			"budget as a side effect of adding a write one",
 			cfg.PublicRateLimit.PerMinute, ratelimit.DefaultPerMinute)
 	}

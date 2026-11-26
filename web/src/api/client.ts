@@ -21,6 +21,7 @@ export type UpdateCaptureCreditLimitInput = components['schemas']['UpdateCapture
 export type TeacherProfile = components['schemas']['TeacherProfile']
 export type TeacherProfileCollection = components['schemas']['TeacherProfileCollection']
 export type CreateTeacherProfileInput = components['schemas']['CreateTeacherProfileRequest']
+export type UserDemotionResult = components['schemas']['UserDemotionResult']
 export type AttendanceActor = components['schemas']['AttendanceActor']
 export type AttendanceRecord = components['schemas']['AttendanceRecord']
 export type AttendanceRecordCollection = components['schemas']['AttendanceRecordCollection']
@@ -29,6 +30,7 @@ export type RecordCorrectionInput = components['schemas']['RecordCorrectionReque
 export type RecordRemovalInput = components['schemas']['RecordRemovalRequest']
 export type ODRecordMutationResult = components['schemas']['ODRecordMutationResult']
 export type AuditLogEntryCollection = components['schemas']['AuditLogEntryCollection']
+export type AuditLogPage = components['schemas']['AuditLogPage']
 export type StudentRosterImportResult = components['schemas']['StudentRosterImportResult']
 export type StudentRosterImportError = components['schemas']['StudentRosterImportError']
 export type StudentCollection = components['schemas']['StudentCollection']
@@ -67,6 +69,9 @@ export type MarkSlotWindow = components['schemas']['MarkSlotWindow']
 export type MarkCounters = components['schemas']['MarkCounters']
 export type MarkAttendanceInput = components['schemas']['MarkAttendanceRequest']
 export type MarkAttendanceResult = components['schemas']['MarkAttendanceResult']
+export type BatchManualMarkAttendanceInput = components['schemas']['BatchManualMarkAttendanceRequest']
+export type BatchManualMarkAttendanceResult = components['schemas']['BatchManualMarkAttendanceResult']
+export type BatchManualMarkConflict = components['schemas']['BatchManualMarkConflict']
 export type CaptureMethod = components['schemas']['CaptureMethod']
 /**
  * The capture methods a CLIENT may send.
@@ -82,11 +87,26 @@ export type MarkCaptureMethod = components['schemas']['MarkAttendanceRequest']['
 export class ApiFailure extends Error {
   readonly status: number
   readonly body: ErrorEnvelope | ValidationError
+  /**
+   * The server's id for the request that failed, from the X-Request-Id response
+   * header. Empty when the failure never reached the API.
+   *
+   * WHY IT IS CARRIED. An admin reported "Internal server error." on the marking
+   * screen and there was nothing to go on: the API logged nothing, and the only
+   * handle on that one request was a header buried in their browser's network
+   * tab. The server names every request now; this is the half that puts the name
+   * where a person can read it out over a phone call.
+   *
+   * It is a correlation token and nothing else. It is never sent back, never
+   * branched on, and says nothing about the request it names.
+   */
+  readonly requestId: string
 
-  constructor(status: number, body: ErrorEnvelope | ValidationError) {
+  constructor(status: number, body: ErrorEnvelope | ValidationError, requestId = '') {
     super(body.message)
     this.status = status
     this.body = body
+    this.requestId = requestId
   }
 }
 
@@ -121,13 +141,40 @@ function errorEnvelope(raw: unknown, response: Response): ErrorEnvelope | Valida
 }
 
 const apiBaseURL = import.meta.env.VITE_API_BASE_URL ?? window.location.origin
+const portalRecordPageSizeMax = 100
 
-// Pre-production only: true while the API is reached through an ngrok tunnel,
-// false the moment VITE_API_BASE_URL points at the API's own domain (Fly). Gating
-// the tunnel bypass header on this means it disappears automatically at cutover
-// rather than relying on someone remembering to delete a line — and it keeps the
-// header (which forces a CORS preflight on every call) off the production origin.
-const isNgrokTunnel = /\bngrok\b/.test(apiBaseURL)
+function portalRecordPageSize(value: number | undefined, fallback: number): number {
+  return Math.min(Math.max(value ?? fallback, 1), portalRecordPageSizeMax)
+}
+
+/**
+ * The refresh in flight, if one is. Shared across every call this module makes.
+ *
+ * WHY. Four screens poll on timers, and they all hold tokens minted at the same
+ * moment — so they all see their first 401 at very nearly the same moment too.
+ * Each one then called `session.refresh()` on its own. Supabase ROTATES the
+ * refresh token, so the first of those calls invalidates the token the others
+ * are still holding: they get back "invalid refresh token", conclude the session
+ * is gone, and call `signOut()` — signing a coordinator out mid-event because
+ * their token expired normally while several tabs were open.
+ *
+ * One flight, shared, cleared when it settles. Followers await the same promise
+ * and every one of them gets the same real answer.
+ *
+ * Module-scoped on purpose: it must be shared by every client this module hands
+ * out, not per-client, because the racing callers are different API clients
+ * built from the same session.
+ */
+let refreshInFlight: Promise<string | null> | null = null
+
+function refreshOnce(session: SessionPort): Promise<string | null> {
+  if (!refreshInFlight) {
+    refreshInFlight = session.refresh().finally(() => {
+      refreshInFlight = null
+    })
+  }
+  return refreshInFlight
+}
 
 function createAuthorizedFetch(session: SessionPort): typeof fetch {
   return async (input, init) => {
@@ -136,20 +183,13 @@ function createAuthorizedFetch(session: SessionPort): typeof fetch {
       const headers = new Headers(request.headers)
       if (token) headers.set('Authorization', `Bearer ${token}`)
       headers.set('Accept', 'application/json')
-      // Pre-production only: while the API is reached through an ngrok tunnel,
-      // the tunnel's free tier answers browser-looking requests with an HTML
-      // interstitial instead of proxying them, which breaks every API call from
-      // the deployed web app. This header opts out of that page. Sent only when
-      // the API base URL is the tunnel (see isNgrokTunnel) so it drops off
-      // automatically once the API moves to its own domain.
-      if (isNgrokTunnel) headers.set('ngrok-skip-browser-warning', 'true')
       return fetch(new Request(request, { headers }))
     }
 
     let response = await invoke(initial.clone(), await session.accessToken())
     if (response.status !== 401) return response
 
-    const refreshed = await session.refresh()
+    const refreshed = await refreshOnce(session)
     if (!refreshed) {
       await session.signOut()
       return response
@@ -170,24 +210,18 @@ function createAuthorizedFetch(session: SessionPort): typeof fetch {
  * moment the public endpoint returned a 401 for any reason. The public surface
  * has no credential to send and nothing to revoke, so the correct client is one
  * that cannot reach a SessionPort at all.
- *
- * The ngrok bypass header is kept because it is a transport concern, not an auth
- * one: without it the tunnel answers browser-looking requests with an HTML
- * interstitial and every call fails. It disappears automatically at cutover (see
- * isNgrokTunnel).
  */
 const publicFetch: typeof fetch = async (input, init) => {
   const request = new Request(input, init)
   const headers = new Headers(request.headers)
   headers.set('Accept', 'application/json')
-  if (isNgrokTunnel) headers.set('ngrok-skip-browser-warning', 'true')
   return fetch(new Request(request, { headers }))
 }
 
 export type PublicApi = ReturnType<typeof createPublicApi>
 
 /**
- * The unauthenticated public attendance dashboard client (Story 0.10).
+ * The unauthenticated public attendance dashboard client.
  *
  * Takes no SessionPort — structurally, not just by convention, so a later change
  * cannot quietly start sending a token from this surface.
@@ -197,7 +231,11 @@ export function createPublicApi() {
 
   const unwrap = <T>(result: { data?: T; error?: ErrorEnvelope | ValidationError; response: Response }): T => {
     if (result.data !== undefined) return result.data
-    throw new ApiFailure(result.response.status, errorEnvelope(result.error, result.response))
+    throw new ApiFailure(
+      result.response.status,
+      errorEnvelope(result.error, result.response),
+      result.response.headers.get('X-Request-Id') ?? '',
+    )
   }
 
   return {
@@ -260,7 +298,11 @@ export function createEventApi(session: SessionPort) {
 
   const unwrap = <T>(result: { data?: T; error?: ErrorEnvelope | ValidationError; response: Response }): T => {
     if (result.data !== undefined) return result.data
-    throw new ApiFailure(result.response.status, errorEnvelope(result.error, result.response))
+    throw new ApiFailure(
+      result.response.status,
+      errorEnvelope(result.error, result.response),
+      result.response.headers.get('X-Request-Id') ?? '',
+    )
   }
 
   return {
@@ -330,6 +372,27 @@ export function createEventApi(session: SessionPort) {
         body: input,
       }))
     },
+    /**
+     * Takes one coordinator off one event (204, no body). Their other events and
+     * their role are untouched; `demoteUser` is the call that takes the role.
+     */
+    async removeCoordinator(eventID: string, userID: string) {
+      const result = await client.DELETE('/api/v1/admin/events/{event_id}/coordinators/{user_id}', {
+        params: { path: { event_id: eventID, user_id: userID } },
+      })
+      if (result.response.ok) return
+      throw new ApiFailure(
+        result.response.status,
+        errorEnvelope(result.error, result.response),
+        result.response.headers.get('X-Request-Id') ?? '',
+      )
+    },
+    /** Takes a staff role away: teacher/coordinator/admin back to student. */
+    async demoteUser(userID: string) {
+      return unwrap(await client.POST('/api/v1/admin/users/{user_id}/demote', {
+        params: { path: { user_id: userID } },
+      }))
+    },
     async captureCredits(eventID: string) {
       return unwrap(await client.GET('/api/v1/admin/events/{event_id}/capture-credits', {
         params: { path: { event_id: eventID } },
@@ -394,7 +457,7 @@ export function createEventApi(session: SessionPort) {
      *
      * Deliberately per-student: there is no bulk seal, so the number of raw
      * tokens this client has ever held is bounded by the cards actually being
-     * written (AR20, and the endpoint scope Story 0.3 established).
+     * written (AR20, and the card-seal endpoint's per-student scope).
      */
     async sealStudentCard(studentID: string) {
       return unwrap(await client.POST('/api/v1/admin/students/{student_id}/card-seal', {
@@ -478,7 +541,7 @@ export function createEventApi(session: SessionPort) {
       eventID: string,
       filters: { categoryID?: string; slot?: number; odDate?: string; section?: string; actorUserID?: string; page?: number; pageSize?: number } = {},
     ) {
-      const query: Record<string, string | number> = { page: filters.page ?? 1, page_size: filters.pageSize ?? 50 }
+      const query: Record<string, string | number> = { page: filters.page ?? 1, page_size: portalRecordPageSize(filters.pageSize, 50) }
       if (filters.categoryID) query.category_id = filters.categoryID
       if (filters.slot !== undefined) query.slot = filters.slot
       if (filters.odDate) query.od_date = filters.odDate
@@ -489,7 +552,7 @@ export function createEventApi(session: SessionPort) {
 
     async studentODHistory(studentID: string, page = 1, pageSize = 50) {
       return unwrap(await client.GET('/api/v1/portal/students/{student_id}/od-records', {
-        params: { path: { student_id: studentID }, query: { page, page_size: pageSize } },
+        params: { path: { student_id: studentID }, query: { page, page_size: portalRecordPageSize(pageSize, 50) } },
       }))
     },
 
@@ -503,6 +566,20 @@ export function createEventApi(session: SessionPort) {
 
     async odRecordAudit(recordID: string) {
       return unwrap(await client.GET('/api/v1/portal/records/{record_id}/audit', { params: { path: { record_id: recordID } } }))
+    },
+
+    async adminAuditLog(
+      filters: { action?: string; actorAccount?: string; targetTable?: string; targetID?: string; page?: number; pageSize?: number } = {},
+    ) {
+      const query: Record<string, string | number> = {
+        page: filters.page ?? 1,
+        page_size: filters.pageSize ?? 50,
+      }
+      if (filters.action) query.action = filters.action
+      if (filters.actorAccount) query.actor_account = filters.actorAccount
+      if (filters.targetTable) query.target_table = filters.targetTable
+      if (filters.targetID) query.target_id = filters.targetID
+      return unwrap(await client.GET('/api/v1/admin/audit-log', { params: { query } }))
     },
 
     /** The evening-slots switch. Administrator only. */
@@ -539,6 +616,10 @@ export function createEventApi(session: SessionPort) {
      */
     async mark(input: MarkAttendanceInput) {
       return unwrap(await client.POST('/api/v1/mark', { body: input }))
+    },
+
+    async batchManualMark(input: BatchManualMarkAttendanceInput) {
+      return unwrap(await client.POST('/api/v1/portal/mark/batch', { body: input }))
     },
 
     async disputes(page = 1, pageSize = 20, status: 'open' | 'resolved' | 'all' = 'open') {

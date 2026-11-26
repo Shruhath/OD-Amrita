@@ -2,7 +2,7 @@ import type { AttendanceRecord } from '../../api/client'
 import { XLSX_MEDIA_TYPE, buildWorkbook } from './xlsx'
 
 /**
- * The per-slot on-duty export.
+ * The on-duty exports.
  *
  * ONE FILE PER SLOT, because that is the unit the office actually works in: a
  * slot is one period of one day, and the person receiving the list is checking
@@ -21,14 +21,21 @@ import { XLSX_MEDIA_TYPE, buildWorkbook } from './xlsx'
  * people who were excused when the record says they were not.
  */
 
-/** The four columns, in order. */
+/** The per-slot columns, in order. */
 export const EXPORT_COLUMNS = ['Roll number', 'Name', 'Slot', 'Category'] as const
+
+/** The day-wise columns, in order. */
+export const DAY_EXPORT_COLUMNS = ['Serial number', 'Roll number', 'Name', 'Slot', 'Category'] as const
 
 export type ExportRow = {
   rollNo: string
   name: string
   slot: number
   category: string
+}
+
+export type DayExportRow = ExportRow & {
+  serial: number
 }
 
 /**
@@ -42,9 +49,19 @@ export function exportFileName(odDate: string, slot: number): string {
   return `${odDate}-slot-${slot}.xlsx`
 }
 
+/** `2026-07-28-day.xlsx` — one workbook for the whole selected day. */
+export function dayExportFileName(odDate: string): string {
+  return `${odDate}-day.xlsx`
+}
+
 /** The tab inside the workbook. Excel caps this at 31 characters. */
 export function exportSheetName(odDate: string, slot: number): string {
   return `${odDate} slot ${slot}`
+}
+
+/** The tab inside the day-wise workbook. */
+export function dayExportSheetName(odDate: string): string {
+  return `${odDate} day`
 }
 
 /**
@@ -65,6 +82,26 @@ export function rowsForSlot(records: readonly AttendanceRecord[], slot: number):
       category: record.category.name,
     }))
     .sort((left, right) => left.rollNo.localeCompare(right.rollNo, 'en'))
+}
+
+/**
+ * Turns the day's records into one office list.
+ *
+ * Ordered by slot first, then roll number inside each slot. Serial numbers are
+ * assigned after sorting so they match the exact visible order in the workbook.
+ */
+export function rowsForDay(records: readonly AttendanceRecord[]): DayExportRow[] {
+  return records
+    .filter((record) => record.status === 'present')
+    .map((record) => ({
+      serial: 0,
+      rollNo: record.student.roll_no,
+      name: record.student.display_name,
+      slot: record.slot,
+      category: record.category.name,
+    }))
+    .sort((left, right) => left.slot - right.slot || left.rollNo.localeCompare(right.rollNo, 'en'))
+    .map((row, index) => ({ ...row, serial: index + 1 }))
 }
 
 /** The slots that actually have present marks on this day, ascending. */
@@ -105,6 +142,18 @@ export function buildSlotWorkbook(records: readonly AttendanceRecord[], odDate: 
   return { fileName: exportFileName(odDate, slot), mediaType: XLSX_MEDIA_TYPE, bytes, rowCount: rows.length }
 }
 
+/** Builds one workbook for the whole selected day. */
+export function buildDayWorkbook(records: readonly AttendanceRecord[], odDate: string): ExportFile {
+  const rows = rowsForDay(records)
+  const bytes = buildWorkbook({
+    name: dayExportSheetName(odDate),
+    header: [...DAY_EXPORT_COLUMNS],
+    rows: rows.map((row) => [row.serial, row.rollNo, row.name, row.slot, row.category]),
+    columnWidths: [14, 22, 30, 8, 26],
+  })
+  return { fileName: dayExportFileName(odDate), mediaType: XLSX_MEDIA_TYPE, bytes, rowCount: rows.length }
+}
+
 /** Builds one workbook per selected slot, in ascending slot order. */
 export function buildSlotWorkbooks(
   records: readonly AttendanceRecord[],
@@ -121,7 +170,13 @@ export function buildSlotWorkbooks(
 /** The most rows one export will read before it stops and says so. */
 export const MAX_EXPORT_RECORDS = 20_000
 
-/** The page size the reader asks for. The contract caps this at 100. */
+/**
+ * The page size the reader asks for. The management record endpoint caps this
+ * at 100, even though the older admin attendance endpoint allows a larger bulk
+ * page. The export reads through the management route so teachers get the same
+ * branch-scoped rows they see on screen; the page size must follow that route's
+ * contract.
+ */
 export const EXPORT_PAGE_SIZE = 100
 
 export class ExportTooLarge extends Error {
@@ -144,22 +199,40 @@ type RecordPage = { data: AttendanceRecord[]; total: number }
  * pages five times, and the counts shown in the picker would come from a
  * different read than the files do — so a slot could be offered as "42
  * students" and download 41.
+ *
+ * Filtering is the caller's: `fetchPage` closes over the event, day and
+ * category it reads, which is how the export dialog reads each selected
+ * category separately and merges the results.
  */
 export async function readDay(
   fetchPage: (page: number, pageSize: number) => Promise<RecordPage>,
-  options: { categoryID?: string } = {},
 ): Promise<AttendanceRecord[]> {
-  void options
   const collected: AttendanceRecord[] = []
+  // The FIRST page's total is the one that decides how far to read.
+  //
+  // Every page carries a `total`, and each one costs the server a full re-count
+  // of the filtered set — the same count, recomputed, once per page. Reading it
+  // from page one and not looking again removes half the export's queries.
+  //
+  // The risk this trades away is a day that grows mid-export. It is bounded on
+  // both sides: the short-page check below is what actually terminates the loop,
+  // so extra rows appearing cannot cut the read short, and rows landing after
+  // page one simply arrive in a later page. A day that SHRINKS mid-export
+  // (a correction removing a record) ends the loop early on a short page, which
+  // is the same answer re-reading the count would have given.
+  let total = Number.POSITIVE_INFINITY
   let page = 1
   for (;;) {
     const result = await fetchPage(page, EXPORT_PAGE_SIZE)
-    if (result.total > MAX_EXPORT_RECORDS) throw new ExportTooLarge(result.total)
+    if (page === 1) {
+      if (result.total > MAX_EXPORT_RECORDS) throw new ExportTooLarge(result.total)
+      total = result.total
+    }
     collected.push(...result.data)
     // Stop on a short page as well as on the count: a page that comes back
     // smaller than asked for is the last one, and trusting only `total` turns a
     // server that disagrees with itself into an endless loop.
-    if (result.data.length < EXPORT_PAGE_SIZE || collected.length >= result.total) break
+    if (result.data.length < EXPORT_PAGE_SIZE || collected.length >= total) break
     page += 1
   }
   return collected

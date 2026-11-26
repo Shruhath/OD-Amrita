@@ -1,6 +1,6 @@
 //go:build integration
 
-// Package db is the Story 1.3 DB-foundation acceptance harness: goose
+// Package db is the DB-foundation acceptance harness: goose
 // migrations round-trip, the dual-role model (od_migrator DDL vs od_runtime
 // DML-only), and the runtime-role DDL-denial gate.
 //
@@ -17,9 +17,8 @@
 // no-DB developer machine skips cleanly. CI (services: postgres:17) provides the
 // DSNs, runs `goose up`, runs these, then `goose down`.
 //
-// RED PHASE: until Story 1.3 lands the migration, the roles, and pgx in
-// api/go.mod, running with `-tags integration` fails (no schema / no roles / no
-// pgx) — that failure IS the red signal these scaffolds encode.
+// Without the migrations and roles applied, running with `-tags integration`
+// fails (no schema / no roles).
 //
 // Priority tags in test names: [P0] critical gate · [P1] important · [P2] guard.
 package db
@@ -37,8 +36,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Env var names for the two DSNs (see api/.env.example — Story 1.3 replaces the
-// single commented DATABASE_URL with this migrator/runtime split).
+// Env var names for the two DSNs (see api/.env.example, which documents this
+// migrator/runtime split).
 const (
 	envMigratorDSN = "DATABASE_URL_MIGRATOR"
 	envRuntimeDSN  = "DATABASE_URL_RUNTIME"

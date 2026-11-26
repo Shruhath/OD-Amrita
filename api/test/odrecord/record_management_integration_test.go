@@ -1,6 +1,6 @@
 //go:build integration
 
-// Real-Postgres tests for Story 0.12b's teacher/admin record management:
+// Real-Postgres tests for teacher/admin record management:
 // Correct, Remove, and Audit. Deliberately in the EXISTING api/test/odrecord
 // package for the same reason teacher_admin_attendance_integration_test.go
 // gives: ./test/odrecord/... is already wired into api/Makefile's
@@ -12,7 +12,7 @@
 //   - that the re-keyed partial unique index actually refuses a correction
 //     that collides with another present row, as SCAN_DUPLICATE;
 //   - that a removed row's slot is genuinely free for a fresh mark, via the
-//     same unique index Story 0.12a relies on;
+//     same unique index the multi-day duplicate rule relies on;
 //   - that RBAC now runs before the terminal-status check (the review's
 //     T8 overturn): a teacher outside the record's branch gets a uniform
 //     RBAC_FORBIDDEN whether the record is present, removed, or nonexistent.

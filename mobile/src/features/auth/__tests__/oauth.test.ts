@@ -1,8 +1,6 @@
 /**
- * ATDD RED PHASE — Story 1.9, Task 1: the OAuth sign-in module.
- *
- * These tests FAIL until `../oauth` exists. That is the point: they are the executable
- * specification of the module the dev is about to write, not a description of one that exists.
+ * Unit tests for the OAuth sign-in module. They are the executable specification of its
+ * behaviour.
  *
  * PRINCIPLE (the 1.6 house rule, kept): the OAuth core is pure TS over INJECTED PORTS — a
  * Supabase-auth-like port and a WebBrowser port. No live Supabase, no network, no `.env`, no

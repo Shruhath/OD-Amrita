@@ -1,10 +1,8 @@
-// domain_test.go — red-phase ATDD for Story 1.5a DoD 3: the @amrita.edu
+// domain_test.go — unit tests for the @amrita.edu
 // domain-FAMILY gate, enforced in OUR Go code (defense-in-depth behind the
 // Supabase before-user-created hook). EnforceDomain is the pure seam the auth
 // middleware calls after a token verifies; testing it in isolation pins the
-// exact family rule and the exact rejection message the AC mandates.
-//
-// RED: auth.EnforceDomain does not exist yet -> compile-red until Task 5.
+// exact family rule and the exact rejection message.
 package auth
 
 import (

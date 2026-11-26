@@ -17,16 +17,22 @@ import { expect, test } from '@playwright/test'
  *     branch-scoped to CSE via `user_branches`.
  *  2. An active event dated TODAY (the same `93000000-...0001` marking event
  *     the coordinator journey uses) with a CSE-branch association, plus a CSE
- *     roster (CB.SC.U4CSE24001-007) and one ECE student
- *     (CB.SC.U4ECE24001) outside the teacher's branch.
+ *     roster (CB.SC.U4CSE99001-007) and one ECE student
+ *     (CB.SC.U4ECE99001) outside the teacher's branch.
  */
 
 const portalAPI = 'http://127.0.0.1:8081'
 const MARKING_EVENT_ID = '93000000-0000-4000-8000-000000000001'
+const MARKING_CATEGORY_ID = '94000000-0000-4000-8000-000000000001'
 
 async function openTeacherMarkScreen(page: import('@playwright/test').Page) {
   await page.goto('/integration.html?role=teacher&path=%2Fportal%2Fmark')
   await expect(page.getByRole('heading', { name: /mark attendance/i })).toBeVisible()
+}
+
+async function selectMarkingScope(page: import('@playwright/test').Page) {
+  await selectValue(page, page.getByRole('combobox', { name: /event/i }), MARKING_EVENT_ID)
+  await selectValue(page, page.getByRole('combobox', { name: /category/i }), MARKING_CATEGORY_ID)
 }
 
 test.describe('real stack teacher/admin search marking', () => {
@@ -34,12 +40,12 @@ test.describe('real stack teacher/admin search marking', () => {
     // A DIFFERENT student per attempt, matching coordinator-marking.spec.ts's
     // reasoning: the harness clears od_records once at boot, not per test, and
     // CI retries — re-marking the same student in the same slot would return
-    // SCAN_DUPLICATE and turn any flake into a hard red. CB.SC.U4CSE24006/007
+    // SCAN_DUPLICATE and turn any flake into a hard red. CB.SC.U4CSE99006/007
     // are dedicated to this spec (seeded in api/test/portal/main.go) —
     // CSE24001-003 belongs to coordinator-marking.spec.ts and CSE24004-005 to
     // capture-credits.spec.ts; reusing either pool put two legitimate marks in
     // the same unfiltered admin attendance view this test reads.
-    const rolls = ['CB.SC.U4CSE24006', 'CB.SC.U4CSE24007']
+    const rolls = ['CB.SC.U4CSE99006', 'CB.SC.U4CSE99007']
     const roll = rolls[testInfo.retry % rolls.length]
 
     await openTeacherMarkScreen(page)
@@ -49,23 +55,23 @@ test.describe('real stack teacher/admin search marking', () => {
 
     // Pin the event EXPLICITLY rather than accepting whichever one the select
     // defaults to. The markable-events query orders by `event_date ASC`, so the
-    // default is simply the teacher's earliest active event — and every story
+    // default is simply the teacher's earliest active event — and every change
     // that seeds another active event in the CSE branch silently moves it. This
     // test marks on one event and then asserts against a DIFFERENT event's
     // attendance view (MARKING_EVENT_ID); leaving the selection implicit made
     // those two the same event only by luck. Selecting it here makes the two
     // ends agree by construction, which is the property the test is really about.
-    await selectValue(page, page.getByRole('combobox', { name: /event/i }), MARKING_EVENT_ID)
+    await selectMarkingScope(page)
 
     await selectValue(page, page.getByRole('combobox', { name: /slot/i }), '4')
     await page.getByRole('searchbox', { name: /student/i }).fill(roll)
     await page.getByRole('option', { name: new RegExp(roll.replace(/\./g, '\\.'), 'i') }).click()
-    // A reason note has been mandatory for teacher/admin marks since this
-    // story landed; this journey predates that requirement. Fixed during
+    // A reason note has been mandatory for teacher/admin marks since record
+    // management landed; this journey predates that requirement. Fixed during
     // code review — CI was already red on this exact timeout before the
     // review started.
     await page.getByLabel(/reason note/i).fill('Manual search mark for the real-stack journey fixture.')
-    await page.getByRole('button', { name: /mark present/i }).click()
+    await page.getByRole('button', { name: /mark selected students/i }).click()
 
     await expect(page.getByRole('status')).toContainText(/marked|present/i)
 
@@ -100,14 +106,15 @@ test.describe('real stack teacher/admin search marking', () => {
 
     await openTeacherMarkScreen(page)
 
+    await selectMarkingScope(page)
     await selectValue(page, page.getByRole('combobox', { name: /slot/i }), '7')
-    await page.getByRole('searchbox', { name: /student/i }).fill('CB.SC.U4ECE24001')
-    await page.getByRole('option', { name: /CB\.SC\.U4ECE24001/i }).click()
+    await page.getByRole('searchbox', { name: /student/i }).fill('CB.SC.U4ECE99001')
+    await page.getByRole('option', { name: /CB\.SC\.U4ECE99001/i }).click()
     // See the note in the test above: the reason note is required client-side
     // before the submit button enables at all, independent of the server-side
     // branch refusal this test is actually about.
     await page.getByLabel(/reason note/i).fill('Attempted cross-branch mark for the refusal fixture.')
-    await page.getByRole('button', { name: /mark present/i }).click()
+    await page.getByRole('button', { name: /mark selected students/i }).click()
 
     await expect(page.getByRole('alert')).toContainText(/not allowed|forbidden|branch/i)
 

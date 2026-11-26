@@ -12,9 +12,8 @@ import { expect, test } from '@playwright/test'
  * than inside it.
  *
  * ---------------------------------------------------------------------------
- * HARNESS CHANGES THIS SPEC REQUIRES. All are part of Story 0.11 and none exist
- * yet — a run before they land fails HERE rather than in the feature, so read
- * this before debugging a red.
+ * HARNESS CHANGES THIS SPEC REQUIRES. A harness missing any of them fails HERE
+ * rather than in the feature, so read this before debugging a red.
  *
  *  1. `api/test/portal/main.go` must register the dispute routes exactly as
  *     cmd/api does: the public POST on the group built from the ROOT router with
@@ -24,10 +23,10 @@ import { expect, test } from '@playwright/test'
  *     flagship failure.
  *
  *  2. seed() must seed DEDICATED fixtures, disjoint from every pool another spec
- *     owns — 24001-003 (coordinator-marking), 24004-005 (capture-credits),
- *     24006-007 (teacher-admin-attendance), 24008-009 (0.10 public dashboard):
- *       - student CB.SC.U4CSE24010 with a roll number whose derived institutional
- *         address is cb.sc.u4cse24010@cb.students.amrita.edu (T1) and at least
+ *     owns — 99001-003 (coordinator-marking), 99004-005 (capture-credits),
+ *     99006-007 (teacher-admin-attendance), 99008-009 (0.10 public dashboard):
+ *       - student CB.SC.U4CSE99010 with a roll number whose derived institutional
+ *         address is cb.sc.u4cse99010@cb.students.amrita.edu (T1) and at least
  *         one ABSENT slot on the dispute event;
  *       - a DEDICATED dispute event, so the counts in the web-deploy gate are
  *         fixed rather than shared with the 0.10 read fixtures;
@@ -52,9 +51,9 @@ import { expect, test } from '@playwright/test'
 const portalAPI = 'http://127.0.0.1:8081'
 
 // Seeded by api/test/portal/main.go — see harness change 2 above.
-const DISPUTE_STUDENT_ROLL = 'CB.SC.U4CSE24010'
+const DISPUTE_STUDENT_ROLL = 'CB.SC.U4CSE99010'
 const DISPUTE_STUDENT_ID = '95000000-0000-4000-8000-000000000011'
-const DISPUTE_EMAIL = 'cb.sc.u4cse24010@cb.students.amrita.edu'
+const DISPUTE_EMAIL = 'cb.sc.u4cse99010@cb.students.amrita.edu'
 const DISPUTE_EVENT_NAME = 'Browser Dispute Event'
 const DISPUTE_EVENT_ID = '93000000-0000-4000-8000-000000000004'
 const DISPUTE_CATEGORY_ID = '94000000-0000-4000-8000-000000000004'
@@ -77,6 +76,8 @@ function submission(overrides: Record<string, unknown> = {}) {
     category_id: DISPUTE_CATEGORY_ID,
     od_date: DISPUTE_OD_DATE,
     slot: DISPUTE_SLOT,
+    claimed_coordinator_name: 'Portal Coordinator',
+    student_note: 'Missed by the coordinator during crowd movement.',
     ...overrides,
   }
 }
@@ -167,7 +168,7 @@ test.describe('real stack student disputes', () => {
   test('[P0] a bad domain, an unknown address and a mismatch return identical responses', async ({ request }) => {
     const cases = [
       { name: 'domain outside the amrita family', data: submission({ submitted_email: 'someone@gmail.com' }) },
-      { name: 'well-formed address matching no roll', data: submission({ submitted_email: 'cb.sc.u4cse24999@cb.students.amrita.edu' }) },
+      { name: 'well-formed address matching no roll', data: submission({ submitted_email: 'cb.sc.u4cse99999@cb.students.amrita.edu' }) },
       { name: 'email resolves to a different student', data: submission({ student_id: '95000000-0000-4000-8000-000000000009' }) },
     ]
 
@@ -222,6 +223,8 @@ test.describe('real stack student disputes', () => {
     await expect(form).toContainText(new RegExp(DISPUTE_STUDENT_ROLL.replace(/\./g, '\\.'), 'i'))
 
     await form.getByRole('textbox', { name: /email/i }).fill(DISPUTE_EMAIL)
+    await form.getByLabel(/coordinator name/i).fill('Portal Coordinator')
+    await form.getByLabel(/student note/i).fill('Missed by the coordinator during crowd movement.')
     await form.getByRole('button', { name: /submit|send|report/i }).click()
 
     // Scoped to the receipt panel. A bare getByRole('status') also matches
@@ -353,7 +356,7 @@ test.describe('real stack student disputes', () => {
 
   // 0.11-RS-009 — the 0.10 read surface is unchanged and still green (AC 17).
   //
-  // This story puts a POST behind the door 0.10 opened. The regression to catch
+  // The dispute form puts a POST behind the door 0.10 opened. The regression to catch
   // is the reads breaking as a side effect — a shared limiter, a changed group,
   // or a schema edit that widened a Public* type.
   test('[P0] the 0.10 public reads still answer anonymously with their original shape', async ({ request }) => {

@@ -1,11 +1,8 @@
-// errormw_test.go — red-phase ATDD for Story 1.5a DoD 5: the gin error-
-// middleware (the deferred 1.4 continuation, landing with the first error-
-// returning endpoint). errormw is the SINGLE place the {code, message, details}
+// errormw_test.go — unit tests for the gin error-middleware. errormw is the
+// SINGLE place the {code, message, details}
 // envelope is rendered — handlers/middleware only c.Error(DomainError). It must
 // render the GENERATED contracts.Error, map the code -> HTTP status via
 // domain.HTTPStatus, and NEVER leak a raw internal error.
-//
-// RED: errormw.Handler does not exist yet -> compile-red until Task 6.
 package errormw
 
 import (

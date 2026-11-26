@@ -121,13 +121,14 @@ func NewSQLCRevocationChecker(pool *pgxpool.Pool) RevocationChecker {
 
 func (c sqlcRevocationChecker) IsRevoked(ctx context.Context, id VerifiedIdentity) (bool, error) {
 	// A malformed session_id must not fail the whole check: leave it NULL so the
-	// scope=session branch can't match, while the scope=all branch (keyed on iat)
-	// still applies. The verifier already requires session_id to be present.
+	// scope=session branch can't match, while the scope=all branch (keyed on the
+	// session's sign-in time) still applies. The verifier already requires
+	// session_id to be present.
 	sessionID, _ := optionalUUID(&id.SessionID)
 	return sqlc.New(c.pool).IsTokenRevoked(ctx, sqlc.IsTokenRevokedParams{
 		SupabaseSubject: id.Subject,
 		SessionID:       sessionID,
-		IssuedAt:        pgtype.Timestamptz{Time: id.IssuedAt, Valid: true},
+		AuthenticatedAt: pgtype.Timestamptz{Time: id.RevocationAnchor(), Valid: true},
 	})
 }
 

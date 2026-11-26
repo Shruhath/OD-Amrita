@@ -17,6 +17,9 @@
 #   docs/deployment-runbook.md open.
 name: db-migrate
 
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
     inputs:

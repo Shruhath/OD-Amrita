@@ -12,6 +12,9 @@
 # be broken and no job would notice.
 name: api-ci
 
+permissions:
+  contents: read
+
 on:
   push:
     # Branches only. A tag push points at a commit these jobs have ALREADY passed

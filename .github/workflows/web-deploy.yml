@@ -3,6 +3,9 @@
 # host) is wired once the surface has real content.
 name: web-deploy
 
+permissions:
+  contents: read
+
 on:
   push:
     # Branches only. A tag push points at a commit these jobs have ALREADY passed

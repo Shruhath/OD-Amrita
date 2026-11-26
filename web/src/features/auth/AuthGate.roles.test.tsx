@@ -71,7 +71,7 @@ describe('role-parameterised session boundary', () => {
   })
 
   test('[P0] admin, teacher and student are all refused at the marking boundary', async () => {
-    // C2: teacher/admin marking is Story 0.9 and needs an explicit slot picker
+    // C2: teacher/admin marking has its own screen and needs an explicit slot picker
     // this screen deliberately does not have. Admitting an admin "because admins
     // can do anything" would let them mark with no slot control at all.
     for (const role of ['admin', 'teacher', 'student']) {

@@ -4,6 +4,7 @@
  * fell back to a placeholder when that failed; the asset is a static file here,
  * so there is no fetch and nothing to fall back to.
  */
+import { sourceCodeURL } from '../lib/sourceCode'
 import { InstallButton } from './InstallPrompt'
 
 export function AppFooter() {
@@ -33,6 +34,11 @@ export function AppFooter() {
               once the app is installed, and nothing at all on a browser that
               cannot install it. */}
           <InstallButton className="app-footer__install" />
+          {/* The AGPL source offer. A new tab, so an installed app does not
+              lose its own window to the repository page. */}
+          <a className="app-footer__source" href={sourceCodeURL()} target="_blank" rel="noopener noreferrer">
+            Source code
+          </a>
         </p>
       </div>
     </footer>

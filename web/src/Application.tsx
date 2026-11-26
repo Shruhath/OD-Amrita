@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from 'react-router-dom'
-import { AppBackdrop } from './components/AppBackdrop'
 import { InstallPrompt } from './components/InstallPrompt'
 import { AuthProvider } from './features/auth/AuthGate'
 import type { SessionPort } from './features/auth/session'
@@ -34,9 +33,6 @@ export function Application({ session, router }: { session: SessionPort; router:
     <QueryClientProvider client={queryClient}>
       {/* No theme provider: the theme is an external store (features/theme/store),
           so every toggle shares it without one. */}
-      {/* Painted once, behind everything. Every shell above it is transparent,
-          so it is the ground for all seven surfaces, not just sign-in. */}
-      <AppBackdrop />
       <AuthProvider session={session} onSignOut={() => queryClient.clear()}>
         <RouterProvider router={router} />
         {/* At the root, not on one screen: the browser fires its install offer

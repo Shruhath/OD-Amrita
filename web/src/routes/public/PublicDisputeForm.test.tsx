@@ -1,16 +1,15 @@
 import { openOptions, selectByLabel, selectByValue } from '../../test/select'
 /**
- * Red-phase component tests for Story 0.11's PUBLIC dispute form (AC 1, 2, 15,
- * 16, 17).
+ * Component tests for the PUBLIC dispute form.
  *
- * Rendered through the REAL Application — QueryClientProvider -> AppBackdrop ->
+ * Rendered through the REAL Application — QueryClientProvider ->
  * AuthProvider -> RouterProvider — with a SIGNED-OUT session, for the same reason
  * 0.10's suite does: rendering the form component in isolation would skip the two
  * things most likely to break it, namely whether the affordance is reachable from
  * a "No record" slot at all, and whether an anonymous visitor is left alone.
  *
  * The session port FAILS the test if refresh() or signOut() is ever called. This
- * story adds a POST that can return 400, 409 and 429, and `createAuthorizedFetch`
+ * form adds a POST that can return 400, 409 and 429, and `createAuthorizedFetch`
  * retries once on 401 and signs out if the refresh fails — so a public form built
  * on the wrong client could sign a signed-in admin out of another tab. That is
  * invisible unless the port treats those calls as errors rather than as no-ops.
@@ -457,7 +456,7 @@ describe('public dispute form', () => {
   // 0.11-WEB-008 — a student with NO records at all can still open the form, and
   // the event list comes from GET /api/v1/public/events (T7, AC 7).
   //
-  // This is the person the whole story is for. They have no slot row to click, so
+  // This is the person the whole form is for. They have no slot row to click, so
   // the affordance cannot live only on a record — and they have no event to
   // derive, so the fallback read has to exist and has to be wired.
   test('[P0] a never-marked student can still file, using the public event list', async () => {

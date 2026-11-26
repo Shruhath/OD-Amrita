@@ -17,9 +17,9 @@ import {
 /**
  * The typed client methods for the live marking surface.
  *
- * `web/src/api/client.ts` owns bearer injection, the single 401-refresh retry,
- * the ngrok header and `ApiFailure`. Every new call must go through it — a
- * component that reaches for `fetch` directly loses all four.
+ * `web/src/api/client.ts` owns bearer injection, the single 401-refresh retry
+ * and `ApiFailure`. Every new call must go through it — a component that
+ * reaches for `fetch` directly loses all three.
  *
  * THE RULE THESE PIN: the live marking surface calls its OWN scoped endpoints and
  * never an `/admin/` one. `/api/v1/admin/students` and
@@ -77,11 +77,11 @@ describe('scoped marking client methods', () => {
     )
 
     const api = markingApi()
-    const result = await api.searchStudents('  CB.SC.U4CSE24  ')
+    const result = await api.searchStudents('  CB.SC.U4CSE99  ')
 
     expect(result.data).toHaveLength(1)
     expect(seen!.pathname).toBe('/api/v1/students/search')
-    expect(seen!.searchParams.get('q')).toBe('CB.SC.U4CSE24')
+    expect(seen!.searchParams.get('q')).toBe('CB.SC.U4CSE99')
     expect(seen!.pathname).not.toContain('/admin/')
   })
 
@@ -90,7 +90,7 @@ describe('scoped marking client methods', () => {
       http.get('*/api/v1/students/search', () => HttpResponse.json(dataOnly([markStudent(1)]))),
     )
 
-    const result = await markingApi().searchStudents('CB.SC.U4CSE24')
+    const result = await markingApi().searchStudents('CB.SC.U4CSE99')
     const serialized = JSON.stringify(result)
 
     // `students` has no email column and card tokens are stored as fingerprints
@@ -145,7 +145,7 @@ describe('scoped marking client methods', () => {
   test('[P0] a network failure rejects — it is never reported as a queued success', async () => {
     server.use(http.post('*/api/v1/mark', () => HttpResponse.error()))
 
-    // Epic 0 has no queue. A timeout is red, never amber.
+    // There is no offline queue. A timeout is red, never amber.
     await expect(
       markingApi().mark({
         event_id: markEventID,

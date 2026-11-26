@@ -1,6 +1,7 @@
-# web/ CI + deploy — runs only when the web app or the contract changes.
-# Test + build validation for the web portal. The actual deploy step (static
-# host) is wired once the surface has real content.
+# web/ CI — typechecks, lints, tests and builds the web app, then runs its
+# browser journeys against the real API and Postgres. Runs when the web app, the
+# API or the contract changes. This workflow does not deploy: Vercel builds and
+# deploys the web app from its own Git integration.
 name: web-deploy
 
 permissions:
@@ -62,8 +63,6 @@ jobs:
         run: pnpm --filter od-amrita-web test:e2e
       - name: Build web
         run: pnpm --filter od-amrita-web build
-      # - name: Deploy   # wired once the SPA has real content
-      #   run: echo "deploy step lands with the first web release"
 
   portal-integration:
     name: browser + real API + postgres
@@ -282,7 +281,7 @@ jobs:
             FROM od_records AS record
             JOIN students AS student ON student.id = record.student_id
             WHERE record.event_id = '$event_id'
-              AND student.roll_no = 'CB.SC.U4ECE24001'")"
+              AND student.roll_no = 'CB.SC.U4ECE99001'")"
           [ "$refused" = "0" ] || {
             echo "expected the out-of-branch teacher mark attempt to write nothing, got $refused rows"
             exit 1
@@ -297,7 +296,7 @@ jobs:
         # store.WithAudit, which is an unauthenticated write path even when the
         # OD table is untouched.
         #
-        # Scoped to the two Story 0.10 fixture events and asserted as an exact
+        # Scoped to the two public-dashboard fixture events and asserted as an exact
         # count, not a delta: api/test/portal/main.go seeds exactly four records
         # for them on every harness start (slots 1, 2 and 4 of the public event
         # plus slot 5 of the archived one) with plain INSERTs that write no audit

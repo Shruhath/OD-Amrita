@@ -11,7 +11,7 @@
  *
  * A student account's `name` is frequently the ROLL NUMBER rather than a
  * person's name, which is why the split treats dots, underscores and hyphens as
- * word breaks: without that, `cb.sc.u4cse24712` is a single "word" and every
+ * word breaks: without that, `cb.sc.u4cse99712` is a single "word" and every
  * student in the university gets the same single-letter avatar.
  *
  * Falling back to the first two characters covers the one-word case, so the

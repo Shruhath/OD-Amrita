@@ -51,13 +51,13 @@ describe('the per-slot export', () => {
     // exporting one puts a student on an official list of people who were
     // excused when the record says they were not.
     const records = [
-      record({ slot: 3, status: 'present', rollNo: 'CB.SC.U4CSE24101' }),
-      record({ slot: 3, status: 'removed', rollNo: 'CB.SC.U4CSE24999' }),
+      record({ slot: 3, status: 'present', rollNo: 'CB.SC.U4CSE99101' }),
+      record({ slot: 3, status: 'removed', rollNo: 'CB.SC.U4CSE99999' }),
     ]
 
     const rows = rowsForSlot(records, 3)
 
-    expect(rows.map((row) => row.rollNo)).toEqual(['CB.SC.U4CSE24101'])
+    expect(rows.map((row) => row.rollNo)).toEqual(['CB.SC.U4CSE99101'])
   })
 
   test('[P0] a slot file holds only that slot', () => {
@@ -91,9 +91,9 @@ describe('the per-slot export', () => {
   test('[P0] the four columns are roll number, name, slot and category', () => {
     expect(EXPORT_COLUMNS).toEqual(['Roll number', 'Name', 'Slot', 'Category'])
 
-    const rows = rowsForSlot([record({ slot: 6, rollNo: 'CB.SC.U4CSE24101', name: 'Ananya Rao', categoryName: 'Procession' })], 6)
+    const rows = rowsForSlot([record({ slot: 6, rollNo: 'CB.SC.U4CSE99101', name: 'Ananya Rao', categoryName: 'Procession' })], 6)
 
-    expect(rows[0]).toEqual({ rollNo: 'CB.SC.U4CSE24101', name: 'Ananya Rao', slot: 6, category: 'Procession' })
+    expect(rows[0]).toEqual({ rollNo: 'CB.SC.U4CSE99101', name: 'Ananya Rao', slot: 6, category: 'Procession' })
   })
 
   test('[P0] one file per selected slot, named by day then slot', () => {
@@ -121,15 +121,15 @@ describe('the per-slot export', () => {
     // a different order every time it is pulled, which makes two exports of the
     // same data impossible to compare.
     const records = [
-      record({ slot: 5, rollNo: 'CB.SC.U4CSE24103' }),
-      record({ slot: 5, rollNo: 'CB.SC.U4CSE24101' }),
-      record({ slot: 5, rollNo: 'CB.SC.U4CSE24102' }),
+      record({ slot: 5, rollNo: 'CB.SC.U4CSE99103' }),
+      record({ slot: 5, rollNo: 'CB.SC.U4CSE99101' }),
+      record({ slot: 5, rollNo: 'CB.SC.U4CSE99102' }),
     ]
 
     expect(rowsForSlot(records, 5).map((row) => row.rollNo)).toEqual([
-      'CB.SC.U4CSE24101',
-      'CB.SC.U4CSE24102',
-      'CB.SC.U4CSE24103',
+      'CB.SC.U4CSE99101',
+      'CB.SC.U4CSE99102',
+      'CB.SC.U4CSE99103',
     ])
   })
 
@@ -166,16 +166,16 @@ describe('the day-wise export', () => {
 
   test('[P0] rows are grouped by slot, then roll number, with serial numbers in that order', () => {
     const records = [
-      record({ slot: 3, rollNo: 'CB.SC.U4CSE24103', name: 'Rahul Menon', categoryName: 'Technical Expo' }),
-      record({ slot: 2, rollNo: 'CB.SC.U4CSE24102', name: 'Meera Suresh', categoryName: 'Procession' }),
-      record({ slot: 2, rollNo: 'CB.SC.U4CSE24101', name: 'Ananya Rao', categoryName: 'Cultural Programme' }),
-      record({ slot: 1, rollNo: 'CB.SC.U4CSE24999', status: 'removed' }),
+      record({ slot: 3, rollNo: 'CB.SC.U4CSE99103', name: 'Rahul Menon', categoryName: 'Technical Expo' }),
+      record({ slot: 2, rollNo: 'CB.SC.U4CSE99102', name: 'Meera Suresh', categoryName: 'Procession' }),
+      record({ slot: 2, rollNo: 'CB.SC.U4CSE99101', name: 'Ananya Rao', categoryName: 'Cultural Programme' }),
+      record({ slot: 1, rollNo: 'CB.SC.U4CSE99999', status: 'removed' }),
     ]
 
     expect(rowsForDay(records)).toEqual([
-      { serial: 1, rollNo: 'CB.SC.U4CSE24101', name: 'Ananya Rao', slot: 2, category: 'Cultural Programme' },
-      { serial: 2, rollNo: 'CB.SC.U4CSE24102', name: 'Meera Suresh', slot: 2, category: 'Procession' },
-      { serial: 3, rollNo: 'CB.SC.U4CSE24103', name: 'Rahul Menon', slot: 3, category: 'Technical Expo' },
+      { serial: 1, rollNo: 'CB.SC.U4CSE99101', name: 'Ananya Rao', slot: 2, category: 'Cultural Programme' },
+      { serial: 2, rollNo: 'CB.SC.U4CSE99102', name: 'Meera Suresh', slot: 2, category: 'Procession' },
+      { serial: 3, rollNo: 'CB.SC.U4CSE99103', name: 'Rahul Menon', slot: 3, category: 'Technical Expo' },
     ])
   })
 

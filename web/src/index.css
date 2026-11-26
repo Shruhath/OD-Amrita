@@ -17,10 +17,9 @@
   be remembered for each property. It stays above Tailwind's preflight, because
   this import follows it in source order within the layer.
 
-  The palette is unaffected: App.css declares exactly one custom property at
-  `:root` (`--backdrop-image`), and every colour token is defined in the
-  `@layer base` block below, which comes later in the same layer and therefore
-  still wins.
+  The palette is unaffected: App.css declares no custom properties at `:root`,
+  and every colour token is defined in the `@layer base` block below, which
+  comes later in the same layer and therefore still wins.
 
   tests/e2e/control-contrast.spec.ts is the guard that makes this safe to change.
 */

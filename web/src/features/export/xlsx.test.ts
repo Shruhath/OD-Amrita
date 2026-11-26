@@ -84,8 +84,8 @@ const simpleSheet = {
   name: '2026-07-28 slot 3',
   header: ['Roll number', 'Name', 'Slot', 'Category'],
   rows: [
-    ['CB.SC.U4CSE24101', 'Ananya Rao', 3, 'Procession'],
-    ['CB.SC.U4CSE24102', 'Vikram Nair', 3, 'Cultural Programme'],
+    ['CB.SC.U4CSE99101', 'Ananya Rao', 3, 'Procession'],
+    ['CB.SC.U4CSE99102', 'Vikram Nair', 3, 'Cultural Programme'],
   ],
 }
 
@@ -118,11 +118,11 @@ describe('the workbook writer', () => {
 
     expect(cells.A1).toBe('Roll number')
     expect(cells.D1).toBe('Category')
-    expect(cells.A2).toBe('CB.SC.U4CSE24101')
+    expect(cells.A2).toBe('CB.SC.U4CSE99101')
     expect(cells.B2).toBe('Ananya Rao')
     expect(cells.C2).toBe('3')
     expect(cells.D2).toBe('Procession')
-    expect(cells.A3).toBe('CB.SC.U4CSE24102')
+    expect(cells.A3).toBe('CB.SC.U4CSE99102')
     expect(cells.D3).toBe('Cultural Programme')
   })
 

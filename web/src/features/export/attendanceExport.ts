@@ -199,12 +199,14 @@ type RecordPage = { data: AttendanceRecord[]; total: number }
  * pages five times, and the counts shown in the picker would come from a
  * different read than the files do — so a slot could be offered as "42
  * students" and download 41.
+ *
+ * Filtering is the caller's: `fetchPage` closes over the event, day and
+ * category it reads, which is how the export dialog reads each selected
+ * category separately and merges the results.
  */
 export async function readDay(
   fetchPage: (page: number, pageSize: number) => Promise<RecordPage>,
-  options: { categoryID?: string } = {},
 ): Promise<AttendanceRecord[]> {
-  void options
   const collected: AttendanceRecord[] = []
   // The FIRST page's total is the one that decides how far to read.
   //

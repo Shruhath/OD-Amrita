@@ -1,5 +1,5 @@
 import type { Session } from '@supabase/supabase-js'
-import { supabase } from '../../lib/supabase/client'
+import { SUPABASE_STORAGE_KEY, supabase } from '../../lib/supabase/client'
 
 export type SessionPort = {
   accessToken(): Promise<string | null>
@@ -39,8 +39,19 @@ export const browserSession: SessionPort = {
   },
 
   async signOut() {
-    const { error } = await supabase.auth.signOut()
-    if (error) throw error
+    // The normal path: the auth server revokes the session, and Supabase then
+    // drops it from this device.
+    const remote = await settle(supabase.auth.signOut(), REMOTE_SIGN_OUT_TIMEOUT_MS)
+    if (remote === null) return
+
+    // The server could not be reached (or refused). Supabase keeps the local
+    // session in that case, which on a phone passed between coordinators means
+    // the next person inherits this account. End it on THIS device regardless:
+    // first through Supabase's own local-only sign-out, then — because that
+    // still sends a request, and waits on the same auth lock as the call that
+    // just failed — by removing the stored session directly.
+    await settle(supabase.auth.signOut({ scope: 'local' }), LOCAL_SIGN_OUT_TIMEOUT_MS)
+    throw new SignOutError(remote, forgetSessionOnThisDevice())
   },
 
   subscribe(listener) {
@@ -49,4 +60,56 @@ export const browserSession: SessionPort = {
     })
     return () => data.subscription.unsubscribe()
   },
+}
+
+/**
+ * A sign-out that did not complete normally.
+ *
+ * `localCleared` says whether the session is at least gone from this device. It
+ * is true when only the server could not be told — the device is signed out,
+ * but the session may stay valid elsewhere until it expires.
+ */
+export class SignOutError extends Error {
+  readonly localCleared: boolean
+
+  constructor(cause: unknown, localCleared: boolean) {
+    super(cause instanceof Error ? cause.message : 'Sign-out did not complete.', { cause })
+    this.name = 'SignOutError'
+    this.localCleared = localCleared
+  }
+}
+
+/**
+ * Bounds the wait on the auth server. A request on a flaky network can hang for
+ * minutes rather than fail, and a sign-out tapped on a shared phone must finish
+ * while the person who tapped it is still holding it.
+ */
+export const REMOTE_SIGN_OUT_TIMEOUT_MS = 8_000
+export const LOCAL_SIGN_OUT_TIMEOUT_MS = 3_000
+
+/** Resolves to null on success, or to the failure — a returned error, a throw, or a timeout. */
+async function settle(call: Promise<{ error: unknown }>, timeoutMs: number): Promise<unknown> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<{ error: unknown }>((resolve) => {
+    timer = setTimeout(() => resolve({ error: new Error('The sign-out request timed out.') }), timeoutMs)
+  })
+  try {
+    const { error } = await Promise.race([call, timeout])
+    return error ?? null
+  } catch (cause) {
+    return cause ?? new Error('Sign-out failed.')
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** Removes every key Supabase stores for the session. True when none remain. */
+function forgetSessionOnThisDevice(): boolean {
+  try {
+    const keys = [SUPABASE_STORAGE_KEY, `${SUPABASE_STORAGE_KEY}-code-verifier`, `${SUPABASE_STORAGE_KEY}-user`]
+    keys.forEach((key) => window.localStorage.removeItem(key))
+    return keys.every((key) => window.localStorage.getItem(key) === null)
+  } catch {
+    return false
+  }
 }

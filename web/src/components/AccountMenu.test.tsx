@@ -32,7 +32,7 @@ function identity(overrides: { name?: string | null; email?: string } = {}) {
     http.get('*/api/v1/auth/me', () =>
       HttpResponse.json({
         user_id: '99999999-9999-4999-8999-999999999999',
-        email: overrides.email ?? 'cb.sc.u4cse24712@cb.students.amrita.edu',
+        email: overrides.email ?? 'cb.sc.u4cse99712@cb.students.amrita.edu',
         name: overrides.name === undefined ? 'Ananya Rao' : overrides.name,
         role: 'coordinator',
       }),
@@ -56,7 +56,7 @@ describe('account menu', () => {
     const trigger = await screen.findByRole('button', { name: /account: ananya rao/i })
     expect(trigger).toHaveAttribute('aria-expanded', 'false')
     expect(
-      screen.queryByText(/cb\.sc\.u4cse24712@/i),
+      screen.queryByText(/cb\.sc\.u4cse99712@/i),
       'the address belongs in the menu, not in the bar',
     ).not.toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: /sign out/i })).not.toBeInTheDocument()
@@ -69,7 +69,7 @@ describe('account menu', () => {
 
     await user.click(await screen.findByRole('button', { name: /account:/i }))
 
-    expect(screen.getByText('cb.sc.u4cse24712@cb.students.amrita.edu')).toBeInTheDocument()
+    expect(screen.getByText('cb.sc.u4cse99712@cb.students.amrita.edu')).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: /sign out/i })).toBeInTheDocument()
   })
 
@@ -151,8 +151,8 @@ describe('avatar initials', () => {
     // Both spellings agree, which is the point: whether the name is absent and
     // the address is used, or the name IS the roll number, one account gets one
     // avatar rather than two depending on which field happened to be populated.
-    expect(initialsFor(null, 'cb.sc.u4cse24712@cb.students.amrita.edu')).toBe('CS')
-    expect(initialsFor('cb.sc.u4cse24712', 'cb.sc.u4cse24712@cb.students.amrita.edu')).toBe('CS')
+    expect(initialsFor(null, 'cb.sc.u4cse99712@cb.students.amrita.edu')).toBe('CS')
+    expect(initialsFor('cb.sc.u4cse99712', 'cb.sc.u4cse99712@cb.students.amrita.edu')).toBe('CS')
   })
 
   test('[P0] never returns an empty avatar', () => {

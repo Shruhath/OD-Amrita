@@ -1,8 +1,7 @@
 /**
- * Red-phase component tests for the Story 0.10 public attendance dashboard
- * (AC 9-13).
+ * Component tests for the public attendance dashboard.
  *
- * These render the REAL Application — QueryClientProvider -> AppBackdrop ->
+ * These render the REAL Application — QueryClientProvider ->
  * AuthProvider -> RouterProvider — with a SIGNED-OUT session, because that is
  * the only state this page will ever be seen in. Rendering the screen component
  * in isolation would skip the two things most likely to break it: whether
@@ -282,7 +281,7 @@ describe('public attendance dashboard', () => {
     }
     expect(screen.queryByText(/no record/i)).not.toBeInTheDocument()
 
-    // Epic 0 has no async path at all — AR8/AR9 are deferred and there is no
+    // There is no async path at all — no offline sync and no
     // queue. A "pending/syncing" state would tell a student to wait for a sync
     // that does not exist.
     expect(screen.queryByText(/pending|syncing|not yet synced|processing|queued/i)).not.toBeInTheDocument()

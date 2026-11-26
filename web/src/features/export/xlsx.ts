@@ -9,7 +9,7 @@
  *
  * WHY NOT CSV, which would be ten lines. A `.csv` is a text file that Excel
  * *guesses* at, and it guesses wrong on exactly the column this export exists
- * to carry: a roll number like `CB.SC.U4CSE24101` survives, but any roster whose
+ * to carry: a roll number like `CB.SC.U4CSE99101` survives, but any roster whose
  * ids are digits gets read as a number, loses its leading zeros and — past
  * fifteen digits — its last digits too, silently. A real workbook states the
  * type of every cell, so a roll number stays the string it is.

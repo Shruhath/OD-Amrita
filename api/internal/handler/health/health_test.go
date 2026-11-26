@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,15 +21,25 @@ type countingPinger struct{ calls int }
 
 func (c *countingPinger) Ping(ctx context.Context) error { c.calls++; return nil }
 
-func serve(t *testing.T, p Pinger) *httptest.ResponseRecorder {
+// blockingPinger waits until its context is done, like a wedged pool.
+type blockingPinger struct{ deadline time.Duration }
+
+func (b *blockingPinger) Ping(ctx context.Context) error {
+	if d, ok := ctx.Deadline(); ok {
+		b.deadline = time.Until(d)
+	}
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func serve(t *testing.T, p Pinger, target string) *httptest.ResponseRecorder {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/health", Handler(p))
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
-	r.ServeHTTP(w, req)
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, target, nil))
 	return w
 }
 
@@ -41,85 +52,89 @@ func decode(t *testing.T, w *httptest.ResponseRecorder) map[string]string {
 	return body
 }
 
-// AC 4: DB ping succeeds → 200 { status: "ok", db: "up" }.
-func TestHandler_DBUp_200(t *testing.T) {
-	w := serve(t, fakePinger{err: nil})
-
-	if w.Code != http.StatusOK {
-		t.Errorf("want 200, got %d", w.Code)
+func assertBody(t *testing.T, w *httptest.ResponseRecorder, code int, status, db string) {
+	t.Helper()
+	if w.Code != code {
+		t.Errorf("want %d, got %d", code, w.Code)
 	}
 	body := decode(t, w)
-	if body["status"] != "ok" {
-		t.Errorf("want status=ok, got %q", body["status"])
+	if body["status"] != status {
+		t.Errorf("want status=%s, got %q", status, body["status"])
 	}
-	if body["db"] != "up" {
-		t.Errorf("want db=up, got %q", body["db"])
+	if body["db"] != db {
+		t.Errorf("want db=%s, got %q", db, body["db"])
 	}
 }
 
-// The probe does NOT consult the database, so a broken one does not degrade it.
-//
-// This replaces the old AC-4 db-down test, and the inversion is deliberate — it
-// is the trade the cost fix bought, written down where it will be read. The
-// handler used to ping the pool on every request; api/fly.toml checks this path
-// every 15s across two machines, which is 5,760 database touches a day at zero
-// traffic and is why the Neon compute never scaled to zero.
-//
-// WHAT WE GAVE UP: Fly can no longer route around a machine whose database is
-// unreachable. A failing pinger now produces a healthy answer. If that trade is
-// ever reversed, uncomment the probe in Handler and restore the 503 assertions
-// below — the contract still describes that response, and pingTimeout and
-// Pinger are both still here for it.
-func TestHandler_DBDown_StillReports200_ProbeIsDeliberatelyDBFree(t *testing.T) {
-	w := serve(t, fakePinger{err: errors.New("connection refused")})
-
-	if w.Code != http.StatusOK {
-		t.Errorf("want 200 — the probe must not touch the database, got %d", w.Code)
-	}
-	body := decode(t, w)
-	if body["status"] != "ok" {
-		t.Errorf("want status=ok, got %q", body["status"])
-	}
-	if body["db"] != "up" {
-		t.Errorf("want db=up, got %q", body["db"])
-	}
+// The shallow probe is honest: it did not check, so it says "unchecked" rather
+// than "up" — even when the database is in fact down.
+func TestHandler_Shallow_ReportsUnchecked(t *testing.T) {
+	assertBody(t, serve(t, fakePinger{}, "/health"), http.StatusOK, "ok", "unchecked")
+	assertBody(t, serve(t, fakePinger{err: errors.New("connection refused")}, "/health"), http.StatusOK, "ok", "unchecked")
 }
 
-// The pinger is never invoked. Asserted separately from the response shape
-// because it is the actual cost property: a handler that pings and then ignores
-// the result would satisfy the test above and still bill for the ping.
-func TestHandler_NeverCallsPing(t *testing.T) {
+// The cost property: the frequent platform check must never touch the database
+// (every ping resets Neon's idle timer and keeps a suspending compute billing).
+// Only the documented ?db=1 pings; any other value stays shallow.
+func TestHandler_OnlyDBEqualsOnePings(t *testing.T) {
+	for _, target := range []string{"/health", "/health?db=", "/health?db=0", "/health?db=true", "/health?deep=1"} {
+		counter := &countingPinger{}
+		w := serve(t, counter, target)
+		if counter.calls != 0 {
+			t.Errorf("%s: Ping called %d times, want 0", target, counter.calls)
+		}
+		if body := decode(t, w); body["db"] != "unchecked" {
+			t.Errorf("%s: want db=unchecked, got %q", target, body["db"])
+		}
+	}
 	counter := &countingPinger{}
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.GET("/health", Handler(counter))
-
-	for range 3 {
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
+	serve(t, counter, "/health?db=1")
+	if counter.calls != 1 {
+		t.Errorf("?db=1: Ping called %d times, want exactly 1", counter.calls)
 	}
+}
 
-	if counter.calls != 0 {
-		t.Errorf("Ping called %d times, want 0 — every call resets the database's "+
-			"idle timer and keeps a suspending compute billing", counter.calls)
+// Deep probe, database reachable → 200 {ok, up}.
+func TestHandler_Deep_DBUp_200(t *testing.T) {
+	assertBody(t, serve(t, fakePinger{}, "/health?db=1"), http.StatusOK, "ok", "up")
+}
+
+// Deep probe, database unreachable → 503 {degraded, down}.
+func TestHandler_Deep_DBDown_503(t *testing.T) {
+	assertBody(t, serve(t, fakePinger{err: errors.New("connection refused")}, "/health?db=1"),
+		http.StatusServiceUnavailable, "degraded", "down")
+}
+
+// A wedged pool degrades the probe within the 2s bound instead of hanging it.
+func TestHandler_Deep_PingIsBoundedByTheTimeout(t *testing.T) {
+	pinger := &blockingPinger{}
+	start := time.Now()
+	w := serve(t, pinger, "/health?db=1")
+	if elapsed := time.Since(start); elapsed > pingTimeout+time.Second {
+		t.Errorf("probe took %v, want it bounded near %v", elapsed, pingTimeout)
 	}
+	if pinger.deadline <= 0 || pinger.deadline > pingTimeout {
+		t.Errorf("ping deadline = %v, want within %v", pinger.deadline, pingTimeout)
+	}
+	assertBody(t, w, http.StatusServiceUnavailable, "degraded", "down")
 }
 
 // The wire shape is exactly the generated HealthStatus contract: both required
-// fields, nothing else.
+// fields, nothing else — in both depths.
 func TestHandler_WireShapeMatchesContract(t *testing.T) {
-	w := serve(t, fakePinger{err: nil})
-
-	var raw map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(raw) != 2 {
-		t.Errorf("HealthStatus carries exactly {status, db}, got keys: %v", raw)
-	}
-	for _, k := range []string{"status", "db"} {
-		if _, ok := raw[k]; !ok {
-			t.Errorf("missing required contract field %q", k)
+	for _, target := range []string{"/health", "/health?db=1"} {
+		w := serve(t, fakePinger{}, target)
+		var raw map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if len(raw) != 2 {
+			t.Errorf("%s: HealthStatus carries exactly {status, db}, got keys: %v", target, raw)
+		}
+		for _, k := range []string{"status", "db"} {
+			if _, ok := raw[k]; !ok {
+				t.Errorf("%s: missing required contract field %q", target, k)
+			}
 		}
 	}
 }

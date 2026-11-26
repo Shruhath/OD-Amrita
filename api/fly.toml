@@ -5,7 +5,7 @@
 #   SHAPE only: every credential (the runtime DSN, the JWKS URL, the bootstrap
 #   admin email, the allowed browser origin) is a Fly SECRET set with
 #   `flyctl secrets set`, never an [env] entry here. See
-#   docs/deployment-runbook.md for the deploy procedure and the operator steps.
+#   docs/deployment.md for the deploy procedure and the operator steps.
 #
 # HOW TO DEPLOY — FROM THE REPOSITORY ROOT, NOT FROM api/
 #   flyctl deploy --config api/fly.toml --dockerfile api/Dockerfile
@@ -83,18 +83,20 @@ primary_region = "sin"
     port = 443
     handlers = ["tls", "http"]
 
-  # /health pings the od_runtime pool and answers 200 {"status":"ok","db":"up"}
-  # or 503 {"status":"degraded","db":"down"}.
+  # This checks the SHALLOW /health: process liveness only. It does NOT touch
+  # the database and answers 200 {"status":"ok","db":"unchecked"} — "unchecked"
+  # because it genuinely did not look. Pinging the pool every 15s on two
+  # machines kept Neon's compute from ever scaling to zero (every ping resets its
+  # 5-minute idle timer), so the frequent check stays database-free.
   #
-  # FAIL-CLOSED, DELIBERATELY: when Neon is unreachable the check fails and Fly
-  # pulls the machine out of rotation. That is the behaviour we want — a mark
-  # must never be routed to an instance that cannot write it — but it does make
-  # Neon a hard dependency of availability, which is the accepted no-offline
-  # posture. The deployment runbook says so where an operator will read it.
+  # THE TRADE: this check is fail-OPEN on the database. Fly cannot pull a
+  # machine out of rotation when Neon is unreachable; a dead database shows up as
+  # 5xx on real requests instead. The database-pinging form is /health?db=1
+  # (200 db:"up", or 503 {"status":"degraded","db":"down"}) — api/scripts/smoke.sh
+  # uses it after a deploy. Do not point this check at ?db=1 without also raising
+  # interval well past Neon's suspend window, or the bill comes straight back.
   #
-  # grace_period covers first boot: pgxpool connects lazily, so a machine needs
-  # a moment to answer db:up. Without it a healthy machine gets killed before it
-  # can ever report healthy.
+  # grace_period covers first boot, before the process is serving at all.
   [[services.http_checks]]
     path = "/health"
     method = "get"

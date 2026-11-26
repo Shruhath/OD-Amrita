@@ -1,5 +1,5 @@
--- auth_session_revocations.sql — named queries for the forced-logout deny-list
--- (Story 1.5c). sqlc reads this + db/migrations (the schema) and emits typed Go
+-- auth_session_revocations.sql — named queries for the forced-logout deny-list.
+-- sqlc reads this + db/migrations (the schema) and emits typed Go
 -- into internal/store/sqlc (DO NOT EDIT that output). The insert goes through
 -- store.WithAudit so the revocation row and its audit row co-commit in one tx;
 -- the check runs read-only on the pool from the auth middleware.
@@ -21,21 +21,30 @@ RETURNING id::text, (xmax = 0) AS inserted;
 
 -- name: IsTokenRevoked :one
 -- The next-request enforcement predicate (DoD 6). A verified token (sub,
--- session_id, iat) is revoked when either its specific session was revoked
--- (scope='session') OR a scope='all' revocation for the subject was recorded
--- strictly after the token was issued. JWT `iat` is whole-second granular while
--- revoked_after carries sub-second precision from now(), so we compare against
--- date_trunc('second', revoked_after) with a strict '>': a token whose iat falls
--- in the same wall-clock second as (or after) the revoke is NOT revoked, so a
+-- session_id, authenticated_at) is revoked when either its specific session was
+-- revoked (scope='session') OR a scope='all' revocation for the subject was
+-- recorded strictly after the session AUTHENTICATED.
+--
+-- authenticated_at is the session's sign-in time (the earliest Supabase `amr`
+-- timestamp; `iat` only when a token carries no usable amr), NOT the token's
+-- `iat`. Supabase re-mints the access token on every refresh with a fresh iat
+-- and the same session, so comparing against iat let a force-logged-out user
+-- back in after one silent refresh. amr survives a refresh and moves only on a
+-- genuine sign-in, which is exactly the event a forced logout should still let
+-- through.
+--
+-- Both amr and iat are whole-second granular while revoked_after carries
+-- sub-second precision from now(), so we compare against
+-- date_trunc('second', revoked_after) with a strict '>': a sign-in that falls in
+-- the same wall-clock second as (or after) the revoke is NOT revoked, so a
 -- legitimate re-login is never locked out by a sub-second boundary. The tradeoff
--- is that a session issued in the same second as a scope='all' revoke escapes it
--- for up to that one second — acceptable since a genuine re-login is the common
--- case and the ban re-applies to any token issued in a later second.
+-- is that a session signed in during the same second as a scope='all' revoke
+-- escapes it — acceptable since a genuine re-login is the common case.
 SELECT EXISTS (
     SELECT 1 FROM auth_session_revocations
     WHERE supabase_subject = @supabase_subject
       AND (
           (scope = 'session' AND session_id = sqlc.narg('session_id')::uuid)
-          OR (scope = 'all' AND date_trunc('second', revoked_after) > @issued_at)
+          OR (scope = 'all' AND date_trunc('second', revoked_after) > @authenticated_at)
       )
 ) AS revoked;

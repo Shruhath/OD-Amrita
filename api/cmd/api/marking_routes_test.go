@@ -30,7 +30,7 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/service/marking"
 )
 
-// The four paths this story adds to the authenticated group.
+// The four marking read paths on the authenticated group.
 var markingReadPaths = []string{
 	"/api/v1/events",
 	"/api/v1/events/:event_id/categories",
@@ -144,7 +144,7 @@ func TestMarkingReadsAreNotMountedUnderTheAdminGroup(t *testing.T) {
 		}
 	}
 
-	// The admin surfaces this story must leave alone.
+	// The admin surfaces the marking reads must leave alone.
 	for _, path := range []string{"/api/v1/admin/events", "/api/v1/admin/students"} {
 		found := false
 		for _, route := range router.Routes() {

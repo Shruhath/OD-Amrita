@@ -21,6 +21,7 @@ export type UpdateCaptureCreditLimitInput = components['schemas']['UpdateCapture
 export type TeacherProfile = components['schemas']['TeacherProfile']
 export type TeacherProfileCollection = components['schemas']['TeacherProfileCollection']
 export type CreateTeacherProfileInput = components['schemas']['CreateTeacherProfileRequest']
+export type UserDemotionResult = components['schemas']['UserDemotionResult']
 export type AttendanceActor = components['schemas']['AttendanceActor']
 export type AttendanceRecord = components['schemas']['AttendanceRecord']
 export type AttendanceRecordCollection = components['schemas']['AttendanceRecordCollection']
@@ -146,13 +147,6 @@ function portalRecordPageSize(value: number | undefined, fallback: number): numb
   return Math.min(Math.max(value ?? fallback, 1), portalRecordPageSizeMax)
 }
 
-// Pre-production only: true while the API is reached through an ngrok tunnel,
-// false the moment VITE_API_BASE_URL points at the API's own domain (Fly). Gating
-// the tunnel bypass header on this means it disappears automatically at cutover
-// rather than relying on someone remembering to delete a line — and it keeps the
-// header (which forces a CORS preflight on every call) off the production origin.
-const isNgrokTunnel = /\bngrok\b/.test(apiBaseURL)
-
 /**
  * The refresh in flight, if one is. Shared across every call this module makes.
  *
@@ -189,13 +183,6 @@ function createAuthorizedFetch(session: SessionPort): typeof fetch {
       const headers = new Headers(request.headers)
       if (token) headers.set('Authorization', `Bearer ${token}`)
       headers.set('Accept', 'application/json')
-      // Pre-production only: while the API is reached through an ngrok tunnel,
-      // the tunnel's free tier answers browser-looking requests with an HTML
-      // interstitial instead of proxying them, which breaks every API call from
-      // the deployed web app. This header opts out of that page. Sent only when
-      // the API base URL is the tunnel (see isNgrokTunnel) so it drops off
-      // automatically once the API moves to its own domain.
-      if (isNgrokTunnel) headers.set('ngrok-skip-browser-warning', 'true')
       return fetch(new Request(request, { headers }))
     }
 
@@ -223,24 +210,18 @@ function createAuthorizedFetch(session: SessionPort): typeof fetch {
  * moment the public endpoint returned a 401 for any reason. The public surface
  * has no credential to send and nothing to revoke, so the correct client is one
  * that cannot reach a SessionPort at all.
- *
- * The ngrok bypass header is kept because it is a transport concern, not an auth
- * one: without it the tunnel answers browser-looking requests with an HTML
- * interstitial and every call fails. It disappears automatically at cutover (see
- * isNgrokTunnel).
  */
 const publicFetch: typeof fetch = async (input, init) => {
   const request = new Request(input, init)
   const headers = new Headers(request.headers)
   headers.set('Accept', 'application/json')
-  if (isNgrokTunnel) headers.set('ngrok-skip-browser-warning', 'true')
   return fetch(new Request(request, { headers }))
 }
 
 export type PublicApi = ReturnType<typeof createPublicApi>
 
 /**
- * The unauthenticated public attendance dashboard client (Story 0.10).
+ * The unauthenticated public attendance dashboard client.
  *
  * Takes no SessionPort — structurally, not just by convention, so a later change
  * cannot quietly start sending a token from this surface.
@@ -391,6 +372,27 @@ export function createEventApi(session: SessionPort) {
         body: input,
       }))
     },
+    /**
+     * Takes one coordinator off one event (204, no body). Their other events and
+     * their role are untouched; `demoteUser` is the call that takes the role.
+     */
+    async removeCoordinator(eventID: string, userID: string) {
+      const result = await client.DELETE('/api/v1/admin/events/{event_id}/coordinators/{user_id}', {
+        params: { path: { event_id: eventID, user_id: userID } },
+      })
+      if (result.response.ok) return
+      throw new ApiFailure(
+        result.response.status,
+        errorEnvelope(result.error, result.response),
+        result.response.headers.get('X-Request-Id') ?? '',
+      )
+    },
+    /** Takes a staff role away: teacher/coordinator/admin back to student. */
+    async demoteUser(userID: string) {
+      return unwrap(await client.POST('/api/v1/admin/users/{user_id}/demote', {
+        params: { path: { user_id: userID } },
+      }))
+    },
     async captureCredits(eventID: string) {
       return unwrap(await client.GET('/api/v1/admin/events/{event_id}/capture-credits', {
         params: { path: { event_id: eventID } },
@@ -455,7 +457,7 @@ export function createEventApi(session: SessionPort) {
      *
      * Deliberately per-student: there is no bulk seal, so the number of raw
      * tokens this client has ever held is bounded by the cards actually being
-     * written (AR20, and the endpoint scope Story 0.3 established).
+     * written (AR20, and the card-seal endpoint's per-student scope).
      */
     async sealStudentCard(studentID: string) {
       return unwrap(await client.POST('/api/v1/admin/students/{student_id}/card-seal', {

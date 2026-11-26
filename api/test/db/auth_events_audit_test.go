@@ -2,7 +2,7 @@
 
 package db
 
-// auth_events_audit_test.go — Story 1.7 DB acceptance. Proves the auth-event
+// auth_events_audit_test.go — DB acceptance for auth-event auditing. Proves the auth-event
 // audit actually lands an immutable row in audit_log through the real write path
 // (store.WithAudit's no-op-write-is-a-write pattern), not just a fake. Run with a
 // live Postgres + the runtime role:
@@ -15,8 +15,7 @@ package db
 // with the expected action / actor_account / actor_role / payload{device,
 // session_id, subject}.
 //
-// RED: it drives svcauth.NewEventAuditor(...).LoginSucceeded(...), which does not
-// exist until Story 1.7 Task 1 — compile-red until then. Intended TDD red phase.
+// It drives svcauth.NewEventAuditor(...).LoginSucceeded(...).
 
 import (
 	"context"

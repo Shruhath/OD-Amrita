@@ -14,7 +14,7 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/store"
 )
 
-// Story 1.5b DB acceptance. Run with a live Postgres + the two roles:
+// Users-provisioning DB acceptance. Run with a live Postgres + the two roles:
 //
 //	DATABASE_URL_MIGRATOR=... DATABASE_URL_RUNTIME=... \
 //	  go test -tags integration ./test/db/... -run Users
@@ -36,10 +36,10 @@ func TestUsersMigration_SchemaAndRuntimeGrants(t *testing.T) {
 		WHERE table_schema = 'public'
 		  AND table_name IN ('users', 'refresh_tokens')
 	`).Scan(&tableCount); err != nil {
-		t.Fatalf("count story tables: %v", err)
+		t.Fatalf("count users/refresh_tokens tables: %v", err)
 	}
 	if tableCount != 1 {
-		t.Fatalf("Story 1.5b must create exactly users and no refresh_tokens table; matched count=%d", tableCount)
+		t.Fatalf("0003 must create exactly users and no refresh_tokens table; matched count=%d", tableCount)
 	}
 
 	required := map[string]string{

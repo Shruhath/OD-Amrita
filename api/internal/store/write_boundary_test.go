@@ -18,7 +18,7 @@ type reviewedWriteQuery struct {
 var reviewedWriteQueries = []reviewedWriteQuery{
 	{"app_settings.sql", "UpsertAppSetting", "audited by app_setting.updated"},
 	{"audit.sql", "InsertAuditLog", "the ledger insert itself"},
-	{"auth_session_revocations.sql", "InsertRevocation", "audited by auth.session_revoked"},
+	{"auth_session_revocations.sql", "InsertRevocation", "audited by auth.session_revoked, or inside user.demoted"},
 	{"capture_credits.sql", "DebitCaptureCredit", "co-committed with od.created for fallback marks"},
 	{"capture_credits.sql", "ResetCaptureCreditUsage", "audited by capture_credit.reset"},
 	{"capture_credits.sql", "UpdateCoordinatorCaptureCreditLimit", "audited by capture_credit.cap_changed"},
@@ -34,7 +34,10 @@ var reviewedWriteQueries = []reviewedWriteQuery{
 	{"disputes.sql", "GetDisputeForResolution", "row lock used before dispute.resolved audit snapshot"},
 	{"disputes.sql", "InsertDispute", "audited by dispute.submitted"},
 	{"disputes.sql", "ResolveDispute", "audited by dispute.resolved"},
+	{"event_coordinator_assignments.sql", "DeleteEventCoordinatorAssignment", "audited by coordinator.removed (cascades to its credit counters)"},
+	{"event_coordinator_assignments.sql", "DeleteUserCategoriesForEvent", "audited by coordinator.removed"},
 	{"event_coordinator_assignments.sql", "InsertEventCoordinatorAssignment", "audited by coordinator.assigned"},
+	{"event_coordinator_assignments.sql", "LockCoordinatorAssignment", "row lock used before coordinator.removed audit snapshot"},
 	{"event_coordinator_assignments.sql", "LockCoordinatorAssignmentUser", "row lock used before coordinator assignment audit snapshot"},
 	{"event_coordinator_assignments.sql", "PromoteUserToCoordinator", "audited by coordinator.assigned"},
 	{"events.sql", "AddEventBranch", "audited as part of event.created"},
@@ -50,6 +53,13 @@ var reviewedWriteQueries = []reviewedWriteQuery{
 	{"teachers.sql", "AddUserBranch", "audited by teacher.profile_created"},
 	{"teachers.sql", "AddUserBranchesBulk", "audited by teacher.profile_created"},
 	{"teachers.sql", "AssignTeacherRole", "audited by teacher.profile_created"},
+	{"user_roles.sql", "DeleteActiveCoordinatorAssignmentsForUser", "audited by user.demoted (cascades to credit counters)"},
+	{"user_roles.sql", "DeleteAllUserCategoryAssignments", "audited by user.demoted"},
+	{"user_roles.sql", "DeleteUserBranches", "audited by user.demoted"},
+	{"user_roles.sql", "DemoteUserToStudent", "audited by user.demoted"},
+	{"user_roles.sql", "LockActiveCoordinatorAssignmentsForUser", "row lock used before user.demoted audit snapshot"},
+	{"user_roles.sql", "LockAdminUsers", "row lock guarding the last-admin check of user.demoted"},
+	{"user_roles.sql", "LockUserForRoleChange", "row lock used before user.demoted audit snapshot"},
 	{"users.sql", "ProvisionUser", "audited by user.provisioned"},
 }
 

@@ -32,6 +32,7 @@ type Service interface {
 	ListCoordinatorAssignments(context.Context, eventsvc.Actor, string) ([]eventsvc.CoordinatorAssignment, error)
 	CreateCoordinatorAssignment(context.Context, eventsvc.Actor, eventsvc.CreateCoordinatorAssignmentInput) (eventsvc.CoordinatorAssignment, error)
 	UpdateCoordinatorCategoryAccess(context.Context, eventsvc.Actor, eventsvc.UpdateCoordinatorCategoryAccessInput) (eventsvc.CoordinatorAssignment, error)
+	RemoveCoordinatorAssignment(context.Context, eventsvc.Actor, eventsvc.RemoveCoordinatorAssignmentInput) error
 	ListCaptureCredits(context.Context, eventsvc.Actor, string) (eventsvc.CaptureCreditSummary, error)
 	UpdateCoordinatorCaptureCreditLimit(context.Context, eventsvc.Actor, eventsvc.CaptureCreditLimitInput) (eventsvc.CaptureCreditUsage, error)
 	ResetCaptureCredits(context.Context, eventsvc.Actor, string, string) (eventsvc.CaptureCreditUsage, error)
@@ -61,6 +62,7 @@ func RegisterAdminRoutes(group gin.IRouter, svc Service) {
 	group.GET("/events/:event_id/coordinators", ListCoordinatorAssignmentsHandler(svc))
 	group.POST("/events/:event_id/coordinators", CreateCoordinatorAssignmentHandler(svc))
 	group.PUT("/events/:event_id/coordinators/:user_id/categories", UpdateCoordinatorCategoryAccessHandler(svc))
+	group.DELETE("/events/:event_id/coordinators/:user_id", RemoveCoordinatorAssignmentHandler(svc))
 	group.GET("/events/:event_id/capture-credits", ListCaptureCreditsHandler(svc))
 	group.PUT("/events/:event_id/capture-credits/coordinators/:user_id/limit", UpdateCoordinatorCaptureCreditLimitHandler(svc))
 	group.POST("/events/:event_id/capture-credits/coordinators/:user_id/reset", ResetCaptureCreditsHandler(svc))
@@ -404,6 +406,26 @@ func UpdateCoordinatorCategoryAccessHandler(svc Service) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, response)
+	}
+}
+
+// RemoveCoordinatorAssignmentHandler takes one coordinator off one event and
+// answers 204. The ids are validated by the service so the 400 carries the same
+// typed details as the sibling category-access update.
+func RemoveCoordinatorAssignmentHandler(svc Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		actor, err := actorFromContext(c)
+		if err != nil {
+			fail(c, err)
+			return
+		}
+		if err := svc.RemoveCoordinatorAssignment(c.Request.Context(), actor, eventsvc.RemoveCoordinatorAssignmentInput{
+			EventID: c.Param("event_id"), UserID: c.Param("user_id"),
+		}); err != nil {
+			fail(c, err)
+			return
+		}
+		c.Status(http.StatusNoContent)
 	}
 }
 

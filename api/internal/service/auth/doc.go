@@ -1,3 +1,3 @@
-// Package auth is a Story 1.1 skeleton placeholder — it reserves the directory
-// home for the auth domain service. No logic is implemented here; that lands in a later story.
+// Package auth is the auth domain service: Supabase session-JWT verification,
+// the allowed-domain rule, forced-logout revocation, and auth-event auditing.
 package auth

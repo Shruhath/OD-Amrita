@@ -301,8 +301,7 @@ WHERE r.event_id = @event_id
 ;
 
 -- name: ListPublicStudentODRecords :many
--- One student's present OD records for the UNAUTHENTICATED public dashboard
--- (Story 0.10, FR39).
+-- One student's present OD records for the UNAUTHENTICATED public dashboard.
 --
 -- GROUPING KEY IS od_records.od_date, NOT server_received_at and no longer
 -- events.event_date. An event spans a range of days, so the event's first day

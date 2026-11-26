@@ -52,7 +52,7 @@ func TestMarkingSurfaceContract_ScopedEventAndCategoryReads(t *testing.T) {
 		t.Errorf("[P0] 200 schema = %q, want CategoryCollection (reuse, do not fork)", ref)
 	}
 
-	// The admin surface must survive this story untouched.
+	// The admin surface must survive the marking surface untouched.
 	if admin := getMap(getMap(paths, "/api/v1/admin/events"), "get"); admin == nil {
 		t.Error("[P0] /api/v1/admin/events GET disappeared — the scoped read is a sibling, not a replacement")
 	} else if got := getStr(admin, "operationId"); got != "listAdminEvents" {
@@ -60,7 +60,7 @@ func TestMarkingSurfaceContract_ScopedEventAndCategoryReads(t *testing.T) {
 	}
 }
 
-// 0.6-CONTRACT-002 — the search response is the story's sharpest secrecy
+// 0.6-CONTRACT-002 — the search response is the marking surface's sharpest secrecy
 // boundary: `students` has no email column and card tokens are stored as
 // fingerprints only. This asserts that structurally so a future "convenience"
 // field cannot be added without a failing test.
@@ -253,11 +253,11 @@ func TestMarkingSurfaceContract_PairingDocumentedAndRegistriesStable(t *testing.
 		t.Errorf("[P0] MarkAttendanceRequest.od_date format = %q, want date", got)
 	}
 
-	// /api/v1/scans is Epic 3's deferred 202 path. Epic 0 is synchronous only.
+	// /api/v1/scans is the deferred 202 batch path. Marking is synchronous only.
 	if scans := getMap(getMap(doc, "paths"), "/api/v1/scans"); scans != nil {
 		if post := getMap(scans, "post"); post != nil {
 			if ref := getStr(jsonResponseSchema(doc, post, "202"), "$ref"); ref == "" {
-				t.Error("[P0] /api/v1/scans lost its 202 response — Story 0.6 must not touch the deferred batch path")
+				t.Error("[P0] /api/v1/scans lost its 202 response — the marking surface must not touch the deferred batch path")
 			}
 		}
 	}

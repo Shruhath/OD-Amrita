@@ -2,7 +2,7 @@
 
 package teachertest
 
-// teacher_test.go — Story 2.3 coverage for AC 1-5 and 7.
+// teacher_test.go — teacher-profile coverage for AC 1-5 and 7.
 // REAL-POSTGRES integration: build tag `integration`.
 //
 // Invoked by: api-ci -> integration job, once wired per Task 6:
@@ -14,7 +14,7 @@ package teachertest
 // shape from api/test/event/categories_test.go but is self-contained: Go test
 // helpers are unexported, so a second package cannot reuse the originals
 // directly, and re-declaring them here (rather than importing internal test
-// code across packages) is the same call Story 2.2 made for its own harness.
+// code across packages) is the same call the category harness made.
 //
 // Cases that only need migration 0008 (schema, FK, privileges, goose
 // round-trip) are EXECUTABLE TODAY — they speak SQL directly and need no
@@ -56,8 +56,8 @@ func TestUserBranchesMigrationRoundTripsCleanly(t *testing.T) {
 	assertTableExists(t, ctx, migrator, "user_branches", true)
 
 	// down-to 7, not "down": names the target version so this stays pointed at
-	// 0008 no matter what lands after it — the exact "clean revert" gate Story
-	// 2.2's git history (d0204ab) fixed for the CI rollback job.
+	// 0008 no matter what lands after it — the exact "clean revert" gate
+	// commit d0204ab fixed for the CI rollback job.
 	runGoose(t, ctx, migratorDSN, "down-to", "7")
 	assertTableExists(t, ctx, migrator, "user_branches", false)
 
@@ -106,12 +106,12 @@ func TestUserBranchesEnforcesForeignKeysAndTheCompositePrimaryKey(t *testing.T) 
 // AC 3 — the od_migrator/od_runtime privilege posture, WITHOUT explicit grants
 // ---------------------------------------------------------------------------
 
-// TestRuntimeRoleHasExactlyTheInheritedPrivilegesWithNoExplicitGrant is the
-// actual proof that skipping explicit GRANT/REVOKE statements in 0008 was
-// correct, not an assumption — mirroring the Story 2.2 review's privilege-guard
-// pattern (0007_runtime_privilege_defaults.sql's ALTER DEFAULT PRIVILEGES rule
-// should apply automatically to any table od_migrator creates after it).
-func TestRuntimeRoleHasExactlyTheInheritedPrivilegesWithNoExplicitGrant(t *testing.T) {
+// TestRuntimeRoleUserBranchesPrivileges pins od_runtime's grant on
+// user_branches. 0008 relied on the 0007 default (SELECT/INSERT/UPDATE, no
+// DELETE); 0027 then granted DELETE explicitly, because demoting a teacher to
+// student removes their branch associations — the row is an access switch that
+// no OD record points at (runtime_privileges_test.go declares the same posture).
+func TestRuntimeRoleUserBranchesPrivileges(t *testing.T) {
 	ctx := testContext(t)
 	migrator, runtime, _ := isolatedTeacherDatabase(t, ctx)
 	userID := seedUser(t, ctx, migrator, "privilege-fixture@amrita.edu", "student")
@@ -133,13 +133,8 @@ func TestRuntimeRoleHasExactlyTheInheritedPrivilegesWithNoExplicitGrant(t *testi
 	if !canSelect || !canInsert || !canUpdate {
 		t.Errorf("[P0] od_runtime must hold SELECT, INSERT and UPDATE via the 0007 default — got select=%v insert=%v update=%v", canSelect, canInsert, canUpdate)
 	}
-	if canDelete {
-		t.Error("[P0] od_runtime must NOT hold DELETE on user_branches — no hard delete of a teacher's branch association")
-	}
-
-	// Behavioral proof, not just the catalog check above.
-	if _, err := runtime.Exec(ctx, `DELETE FROM user_branches WHERE user_id = $1`, userID); err == nil {
-		t.Error("[P0] od_runtime must not be able to delete a user_branches row")
+	if !canDelete {
+		t.Error("[P0] od_runtime must hold DELETE on user_branches (0027) — demotion removes a teacher's branch associations")
 	}
 	for _, statement := range []string{
 		`ALTER TABLE user_branches ADD COLUMN injected text`,
@@ -154,6 +149,10 @@ func TestRuntimeRoleHasExactlyTheInheritedPrivilegesWithNoExplicitGrant(t *testi
 		`INSERT INTO user_branches (user_id, branch_id) VALUES ($1, $2)`, userID, seedBranch(t, ctx, migrator, "ECE", "Electronics")); err != nil {
 		t.Errorf("[P0] od_runtime must still hold INSERT: %v", err)
 	}
+	// Behavioral proof of the 0027 grant, not just the catalog check above.
+	if _, err := runtime.Exec(ctx, `DELETE FROM user_branches WHERE user_id = $1`, userID); err != nil {
+		t.Errorf("[P0] od_runtime must be able to delete a user_branches row: %v", err)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -161,7 +160,7 @@ func TestRuntimeRoleHasExactlyTheInheritedPrivilegesWithNoExplicitGrant(t *testi
 // ---------------------------------------------------------------------------
 
 // TestGetUserByEmailPicksTheMostRecentlyActiveRowOnACollision proves D5/AC 3's
-// documented default at the SQL boundary this story's query.sql will wrap:
+// documented default at the SQL boundary the teacher queries wrap:
 // users.email is NOT UNIQUE (0003's own comment), so a recycled address across
 // two identities must resolve deterministically rather than by whatever order
 // Postgres happens to return rows.

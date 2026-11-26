@@ -3,9 +3,9 @@ package domain
 import "testing"
 
 // TestActionUserProvisionedRegistered pins the user.provisioned audit action
-// added by Story 1.5b: its wire value, its presence in the registry (so
-// store.WithAudit accepts it), and that it never collides with the reserved
-// auth.* actions (which Story 1.7 owns). The registry drift-guard in
+// written on first-login provisioning: its wire value, its presence in the
+// registry (so store.WithAudit accepts it), and that it never collides with the
+// reserved auth.* actions. The registry drift-guard in
 // events_test.go additionally proves the constant is listed in AllActions.
 func TestActionUserProvisionedRegistered(t *testing.T) {
 	if ActionUserProvisioned != Action("user.provisioned") {

@@ -8,7 +8,7 @@ package auth
 //	/auth/me is not called once per sign-in. The web client re-resolves the
 //	identity on every Supabase auth-state change — every token refresh, and every
 //	time a phone comes back from the background — so one person working through a
-//	morning produces dozens of calls. Story 1.7 chose a per-call cadence for the
+//	morning produces dozens of calls. The original design chose a per-call cadence for the
 //	login audit, and per-call against that caller means the ledger fills with rows
 //	that record nothing new.
 //

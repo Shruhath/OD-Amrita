@@ -109,6 +109,11 @@ func (s reachingService) UpdateCoordinatorCategoryAccess(context.Context, events
 	return eventsvc.CoordinatorAssignment{}, nil
 }
 
+func (s reachingService) RemoveCoordinatorAssignment(context.Context, eventsvc.Actor, eventsvc.RemoveCoordinatorAssignmentInput) error {
+	s.reached.hits++
+	return nil
+}
+
 func (s reachingService) ListCaptureCredits(context.Context, eventsvc.Actor, string) (eventsvc.CaptureCreditSummary, error) {
 	s.reached.hits++
 	return eventsvc.CaptureCreditSummary{}, nil
@@ -190,6 +195,7 @@ func TestAdminGroupGuardsEveryRouteRegisterAdminRoutesMounts(t *testing.T) {
 	handlerstudent.RegisterAdminRoutes(admin, reachingStudentService{reached: reached})
 	handlercardtoken.RegisterAdminRoutes(admin, reachingCardTokenService{reached: reached})
 	admin.POST("/users/:user_id/sessions/revoke", reached.handler)
+	admin.POST("/users/:user_id/demote", reached.handler)
 
 	// Every route the admin group actually serves, discovered from the router
 	// rather than restated here — a route added to RegisterAdminRoutes is covered

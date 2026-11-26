@@ -342,8 +342,9 @@ func TestAC1_SpecStructurallyValid(t *testing.T) {
 }
 
 // [P0] AC1: GET /health reports DB connectivity — HealthStatus { status, db }
-// with db ∈ {up, down}, plus a 503 response for the db-down case (body still
-// HealthStatus). The pre-DB static shape (no `db`) was superseded when the DB
+// with db ∈ {up, down, unchecked} (unchecked = the shallow default that does not
+// ping), a `db` query parameter for the deep probe, plus a 503 response for the
+// deep db-down case (body still HealthStatus). The pre-DB static shape (no `db`) was superseded when the DB
 // foundation landed.
 func TestAC1_HealthEndpointStaticShape(t *testing.T) {
 	root := repoRoot(t)
@@ -363,8 +364,23 @@ func TestAC1_HealthEndpointStaticShape(t *testing.T) {
 	if _, ok := props["db"]; !ok {
 		t.Errorf("health schema must expose `db` (DB-connectivity reporting)")
 	}
-	if missing := containsAll(enumStrings(getMap(props, "db")), []string{"up", "down"}); len(missing) > 0 {
-		t.Errorf("health `db` must be the up|down enum; missing %v", missing)
+	// "unchecked" is the shallow default's honest answer: the frequent platform
+	// probe does not ping the database, so it must not claim "up".
+	if missing := containsAll(enumStrings(getMap(props, "db")), []string{"up", "down", "unchecked"}); len(missing) > 0 {
+		t.Errorf("health `db` must be the up|down|unchecked enum; missing %v", missing)
+	}
+	// The deep probe is opt-in via ?db=1.
+	deepParam := false
+	if params, ok := get["parameters"].([]any); ok {
+		for _, raw := range params {
+			p := asMap(raw)
+			if p != nil && p["name"] == "db" && p["in"] == "query" {
+				deepParam = true
+			}
+		}
+	}
+	if !deepParam {
+		t.Errorf("GET /health must declare the `db` query parameter that opts into the database ping")
 	}
 	// The db-down case is a 503 whose body still conforms to HealthStatus.
 	schema503 := jsonResponseSchema(doc, get, "503")

@@ -7,7 +7,7 @@
 //
 // NOT gated behind a build tag or an env flag. Four files in this repo already
 // sit behind `//go:build atdd` with nothing anywhere passing `-tags atdd`, which
-// is the same defect as Story 0.9's ATDD_ACTIVE_09 in a different disguise. A
+// is the same defect as an unset ATDD_ACTIVE_09 env flag in a different disguise. A
 // skipped test and a missing test are the same signal.
 package contract
 
@@ -80,7 +80,7 @@ func TestMultiDayEventContract_EndDateIsRequiredOnEventAndOptionalOnCreate(t *te
 //
 // `PublicODDay.event_date` is renamed to `od_date` (T18). The key must not lie
 // about which fact it is: today it holds the EVENT's date because one event was
-// one day, and after this story a thirty-day festival must show as up to thirty
+// one day, and with the date range a thirty-day festival must show as up to thirty
 // day groups. Leaving the name would produce a field called `event_date` whose
 // value is not the event's date — the exact confusion that makes a next-morning
 // correction file under the wrong day.
@@ -175,7 +175,7 @@ func TestMultiDayEventContract_AdminAttendanceHasAnODDateFilter(t *testing.T) {
 // picker has something to enumerate.
 //
 // T19, and 0.11 left the instruction in `publicDisputeSchemaAllowlists` verbatim:
-// *"PublicEvent gains `end_date` under Story 0.12a … Add it to this allowlist in
+// *"PublicEvent gains `end_date` with the date range … Add it to this allowlist in
 // the SAME change."* Without the range on the wire, `dayOptions` in
 // PublicAttendanceScreen.tsx has exactly one day to offer and a student missed on
 // day 17 of a festival cannot report it.

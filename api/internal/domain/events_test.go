@@ -1,14 +1,7 @@
 package domain
 
-// events_test.go — RED-PHASE ATDD scaffold for Story 1.4, AC 5 (audit-event
-// registry). This is a UNIT test: no build tag, no database. It runs in the
-// default `go test ./...`.
-//
-// RED PHASE: `events.go` is still a reserved stub, so the symbols referenced
-// here (Action, AllActions, and the eight action constants) do not exist yet.
-// Until Task 3 lands them, THIS PACKAGE FAILS TO COMPILE — that compile error
-// IS the red signal for the registry layer (the pure-Go equivalent of a failing
-// assertion). It turns green the moment the tiny `events.go` registry is added.
+// events_test.go — tests for the audit-event registry. This is a UNIT test: no
+// build tag, no database. It runs in the default `go test ./...`.
 //
 // Priority tags in test names/messages: [P0] critical · [P1] important · [P2] guard.
 
@@ -20,18 +13,18 @@ import (
 
 // TestAllActions_MatchesDeclaredConstants pins TWO things that must never drift:
 //
-//  1. Each action CONSTANT has the exact wire string the architecture mandates
-//     (architecture#Communication-Patterns lines 472-475). The string is what
+//  1. Each action CONSTANT has the exact wire string the architecture mandates.
+//     The string is what
 //     gets written into the immutable audit ledger, so a typo here is a
 //     permanent, tamper-evident record of the wrong thing.
 //  2. AllActions (the canonical SSOT slice the audit helper validates against)
-//     contains EXACTLY these constants — no missing entry (a story that adds a
+//     contains EXACTLY these constants — no missing entry (a change that adds a
 //     constant but forgets AllActions), no unexpected extra, no duplicate, and
 //     no empty Action.
 func TestAllActions_MatchesDeclaredConstants(t *testing.T) {
-	// The canonical registry-of-record. When a future story introduces a new
+	// The canonical registry-of-record. When a change introduces a new
 	// auditable action it MUST be added both to events.go AND to this map
-	// (that per-story discipline is the CONVENTIONS rule this story establishes).
+	// (that discipline is a CONVENTIONS rule).
 	want := map[Action]string{
 		ActionODCreated:                        "od.created",
 		ActionODOverridden:                     "od.overridden",
@@ -59,6 +52,8 @@ func TestAllActions_MatchesDeclaredConstants(t *testing.T) {
 		ActionCaptureCreditCapChanged:          "capture_credit.cap_changed",
 		ActionCaptureCreditReset:               "capture_credit.reset",
 		ActionAppSettingUpdated:                "app_setting.updated",
+		ActionCoordinatorRemoved:               "coordinator.removed",
+		ActionUserDemoted:                      "user.demoted",
 	}
 
 	// (1) Each constant carries its exact architecture-mandated wire value.
@@ -102,7 +97,7 @@ var declaredActionConst = regexp.MustCompile(`(?m)^\s*Action[A-Za-z0-9]+\s+Actio
 // and asserts every declared Action constant is registered in AllActions. Go
 // cannot reflect over declared constants, so without this a constant added to the
 // const block but omitted from BOTH AllActions AND `want` would slip past
-// TestAllActions_MatchesDeclaredConstants. This closes the "a story forgot to
+// TestAllActions_MatchesDeclaredConstants. This closes the "a change forgot to
 // register its action" gap at the unit-test layer (store.WithAudit's runtime
 // rejection is the second backstop).
 func TestAllActions_CoversEveryDeclaredConstant(t *testing.T) {

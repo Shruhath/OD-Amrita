@@ -1,7 +1,7 @@
-// Route-composition guard for Story 0.10's UNAUTHENTICATED public group.
+// Route-composition guard for the UNAUTHENTICATED public group.
 //
-// This is the single most important test in the story. Story 0.9's flagship
-// defect was a guard that was written but never wired, so the feature 403'd on
+// This is the single most important test for the public dashboard. An earlier
+// flagship defect was a guard that was written but never wired, so the feature 403'd on
 // every request while the notes said "implemented and verified". The direct
 // analogue here is the mount point, and the failure mode is worse: gin attaches
 // middleware to the GROUP VALUE, not to the path prefix, so
@@ -43,7 +43,7 @@ import (
 	svcstudent "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 )
 
-// The two paths this story adds, in gin's registered form.
+// The two public paths, in gin's registered form.
 var publicPaths = []string{
 	"/api/v1/public/students/search",
 	"/api/v1/public/students/:student_id/od-records",
@@ -219,7 +219,7 @@ func TestPublicRoutesAreNotNestedUnderAnAuthenticatedGroup(t *testing.T) {
 //
 // Applying it to /api/v1 would throttle a coordinator mid-event, and applying it
 // to /health would let a burst of probes mark a healthy app as down. Per-
-// coordinator scan rate limiting (FR15) is explicitly out of Epic 0.
+// coordinator scan rate limiting is explicitly out of scope here.
 func TestRateLimiterGuardsThePublicGroupOnly(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -281,7 +281,7 @@ func TestRateLimiterGuardsThePublicGroupOnly(t *testing.T) {
 				"test cannot tell whether the limiter is attached to /api/v1", code)
 		}
 		if code == http.StatusTooManyRequests {
-			t.Errorf("[P0] an /api/v1 route was rate limited; FR15 coordinator scan limiting is out of Epic 0 " +
+			t.Errorf("[P0] an /api/v1 route was rate limited; coordinator scan limiting is out of scope here " +
 				"and throttling a coordinator mid-event is a live-event outage")
 			break
 		}

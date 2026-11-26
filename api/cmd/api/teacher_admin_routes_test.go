@@ -1,4 +1,4 @@
-// Route-composition guard for the three endpoints Story 0.9 adds: the
+// Route-composition guard for the three teacher/admin endpoints: the
 // teacher/admin portal-mark reads (authenticated, RequirePrincipal) and the
 // admin attendance read (RequireAdmin).
 //
@@ -21,7 +21,7 @@ import (
 	"github.com/Shruhath/OD-Amrita/api/internal/service/marking"
 )
 
-// The three paths this story adds.
+// The three teacher/admin paths.
 var (
 	portalMarkPaths = []string{
 		"/api/v1/portal/mark/events",

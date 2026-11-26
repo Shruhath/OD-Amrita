@@ -1,3 +1,3 @@
-// Package auth is a Story 1.1 skeleton placeholder — it reserves the directory
-// home for JWT authentication middleware. No logic is implemented here; that lands in a later story.
+// Package auth holds the JWT authentication middleware: it verifies the bearer
+// token, enforces the allowed email domain, and guards against revoked sessions.
 package auth

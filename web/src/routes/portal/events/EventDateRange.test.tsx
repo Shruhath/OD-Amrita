@@ -7,9 +7,8 @@
  * because the create form and the list column are the same screen and a test that
  * mounted the form alone would skip whether the range ever reaches the list.
  *
- * NOT gated behind an env flag or a build tag. Story 0.9 shipped a suite behind
- * ATDD_ACTIVE_09 that nothing ever set, and four Go files in this repo currently
- * sit behind `//go:build atdd` with nothing passing `-tags atdd`.
+ * NOT gated behind an env flag or a build tag: a suite behind a flag that nothing
+ * ever sets never runs, and passes silently.
  *
  * WHAT IS DELIBERATELY NOT HERE: the 90-day bound. T5 makes it SERVICE policy
  * that will be tuned, and pinning the number in a browser test means re-recording

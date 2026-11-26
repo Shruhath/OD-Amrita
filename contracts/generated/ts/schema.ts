@@ -15,8 +15,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Liveness + DB-readiness probe
-         * @description Reports process liveness and database connectivity. Returns 200 with `{ status: "ok", db: "up" }` while the process is serving and the database ping succeeds; returns 503 with `{ status: "degraded", db: "down" }` when the database is unreachable. Load-balancers and orchestrators may treat 503 as not-ready.
+         * Liveness probe, with an opt-in database readiness check
+         * @description Shallow by default: reports process liveness WITHOUT touching the database, as `{ status: "ok", db: "unchecked" }`. The frequent platform health check uses this form so it never wakes a scale-to-zero database. With `?db=1` the probe pings the database (2s timeout) and answers 200 `{ status: "ok", db: "up" }` when it responds, or 503 `{ status: "degraded", db: "down" }` when it does not. Post-deploy and restore checks use the deep form.
          */
         get: operations["getHealth"];
         put?: never;
@@ -510,6 +510,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/users/{user_id}/demote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Take a staff role away — teacher, coordinator or admin back to student
+         * @description Admin-only. Sets the user's role to student and, in the same audited transaction (user.demoted), removes the access that role carried: every coordinator assignment on an ACTIVE event (with its fallback-credit usage counters), every category assignment, and every teacher branch association. Archived events' coordinator rows are immutable and stay as history. The user's sessions are force-logged-out (a scope=all revocation) so the change applies on their next request; a fresh sign-in works and lands as a student. OD records the user marked are untouched. Refused for the caller's own account and for the last remaining admin. Demoting a user who is already a student is an idempotent no-op (changed=false, no audit row).
+         */
+        post: operations["demoteAdminUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/settings/extended-slots": {
         parameters: {
             query?: never;
@@ -703,6 +723,29 @@ export interface paths {
          */
         post: operations["createAdminEventCoordinatorAssignment"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/events/{event_id}/coordinators/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove one coordinator from one event
+         * @description Deletes the user's coordinator assignment for this event, together with their category access on this event's categories and the assignment's fallback-credit usage counters, in one audited transaction (coordinator.removed). The user's other event assignments and their global role are unchanged; use the demote endpoint to take the role away. Marking access ends on the next request. Archived events are immutable, so removal is refused there exactly as assignment is. A repeated removal answers 404, matching the category-access update for a missing assignment.
+         */
+        delete: operations["removeAdminEventCoordinator"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1584,15 +1627,15 @@ export interface components {
         /** @description Health probe shape — overall service status plus database connectivity. */
         HealthStatus: {
             /**
-             * @description Overall service status. "ok" when every dependency is reachable; "degraded" (served with HTTP 503) when the database is not.
+             * @description Overall service status. "ok" when the process is serving (and, for `?db=1`, the database answered); "degraded" (served with HTTP 503) only when a requested database ping failed.
              * @enum {string}
              */
             status: "ok" | "degraded";
             /**
-             * @description Database connectivity as observed by a live ping from the runtime pool. "down" is reported with HTTP 503.
+             * @description Database connectivity. "unchecked" for the default shallow probe, which deliberately does not touch the database. With `?db=1`, the result of a live ping from the runtime pool: "up", or "down" (reported with HTTP 503).
              * @enum {string}
              */
-            db: "up" | "down";
+            db: "up" | "down" | "unchecked";
         };
         /** @description Standard error envelope for all non-2xx responses. Clients branch on `code`, never on `message`. */
         Error: {
@@ -1600,7 +1643,7 @@ export interface components {
              * @description Canonical SCREAMING_SNAKE error code. This enum is the WIRE source of truth; the Go `errors.go` const registry mirrors it. Do not invent free-text codes.
              * @enum {string}
              */
-            code: "AUTH_DOMAIN_REJECTED" | "AUTH_TOKEN_INVALID" | "RBAC_FORBIDDEN" | "SCAN_DUPLICATE" | "SLOT_CLOSED" | "CARD_NOT_RECOGNIZED" | "CAPTURE_CREDIT_LIMIT_REACHED" | "QR_LIMIT_REACHED" | "RATE_LIMITED" | "INVALID_SCAN_ID" | "VALIDATION_FAILED" | "EVENT_NOT_FOUND" | "EVENT_ARCHIVED" | "CATEGORY_NOT_FOUND" | "OD_RECORD_NOT_FOUND" | "OD_RECORD_ALREADY_REMOVED" | "USER_NOT_FOUND" | "STUDENT_NOT_FOUND" | "ROLE_ALREADY_ASSIGNED" | "COORDINATOR_ASSIGNMENT_EXISTS" | "DISPUTE_IDENTITY_UNVERIFIED" | "DISPUTE_ALREADY_OPEN" | "DISPUTE_NOT_FOUND" | "DISPUTE_ALREADY_RESOLVED" | "INTERNAL";
+            code: "AUTH_DOMAIN_REJECTED" | "AUTH_TOKEN_INVALID" | "RBAC_FORBIDDEN" | "SCAN_DUPLICATE" | "SLOT_CLOSED" | "CARD_NOT_RECOGNIZED" | "CAPTURE_CREDIT_LIMIT_REACHED" | "QR_LIMIT_REACHED" | "RATE_LIMITED" | "INVALID_SCAN_ID" | "VALIDATION_FAILED" | "EVENT_NOT_FOUND" | "EVENT_ARCHIVED" | "CATEGORY_NOT_FOUND" | "OD_RECORD_NOT_FOUND" | "OD_RECORD_ALREADY_REMOVED" | "USER_NOT_FOUND" | "STUDENT_NOT_FOUND" | "ROLE_ALREADY_ASSIGNED" | "COORDINATOR_ASSIGNMENT_EXISTS" | "SELF_DEMOTION_REFUSED" | "LAST_ADMIN_DEMOTION_REFUSED" | "DISPUTE_IDENTITY_UNVERIFIED" | "DISPUTE_ALREADY_OPEN" | "DISPUTE_NOT_FOUND" | "DISPUTE_ALREADY_RESOLVED" | "INTERNAL";
             /** @description Human-readable message. For diagnostics/display only — branch on `code`. */
             message: string;
             /** @description Optional, freeform context for generic errors. Typed validation failures use ValidationError.details (a typed array) instead. */
@@ -1619,7 +1662,7 @@ export interface components {
             role: components["schemas"]["AuthenticatedIdentityRole"];
         };
         /**
-         * @description The global base role the identity is provisioned with on first login. Always present (provisioning yields exactly one). This is the base role only — per-event coordinator assignment and RBAC enforcement are later epics; the client uses it to route by role.
+         * @description The global base role the identity is provisioned with on first login. Always present (provisioning yields exactly one). This is the base role only — per-event coordinator assignment and RBAC enforcement are handled separately; the client uses it to route by role.
          * @enum {string}
          */
         AuthenticatedIdentityRole: "admin" | "teacher" | "coordinator" | "student";
@@ -1637,6 +1680,22 @@ export interface components {
             session_id?: string | null;
             /** @description Human-readable reason for the forced logout (recorded in the audit log). */
             reason: string;
+        };
+        /** @description Outcome of taking a staff role away. The removed_* counts say what access went with the role. */
+        UserDemotionResult: {
+            /** Format: uuid */
+            user_id: string;
+            email: string;
+            previous_role: components["schemas"]["AuthenticatedIdentityRole"];
+            role: components["schemas"]["AuthenticatedIdentityRole"];
+            /** @description False when the user was already a student (no-op, no audit row). */
+            changed: boolean;
+            /** @description Coordinator assignments removed from active events. */
+            removed_coordinator_assignments: number;
+            removed_category_assignments: number;
+            removed_teacher_branches: number;
+            /** @description True when a scope=all forced logout was recorded with the demotion. */
+            sessions_revoked: boolean;
         };
         /** @description Result of recording a forced-logout revocation. */
         SessionRevocationResult: {
@@ -1720,14 +1779,17 @@ export type $defs = Record<string, never>;
 export interface operations {
     getHealth: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Set to `1` to run the database ping. Any other value, or absence, gives the shallow liveness answer with `db: unchecked`. */
+                db?: "1";
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Service process is live and the database is reachable. */
+            /** @description Service process is live. `db` is `unchecked` for the shallow probe, or `up` when `?db=1` was requested and the ping succeeded. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1736,7 +1798,7 @@ export interface operations {
                     "application/json": components["schemas"]["HealthStatus"];
                 };
             };
-            /** @description Service process is live but the database is unreachable. Body still conforms to HealthStatus, with `db: down`. */
+            /** @description Only for `?db=1`: the service process is live but the database is unreachable. Body still conforms to HealthStatus, with `db: down`. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -3437,6 +3499,83 @@ export interface operations {
             };
         };
     };
+    demoteAdminUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Application user id (users.id) of the account to demote. */
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Role is now student (or already was). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserDemotionResult"];
+                };
+            };
+            /** @description Malformed user id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No user exists with this id (USER_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The caller tried to demote themselves (SELF_DEMOTION_REFUSED), or the target is the last remaining admin (LAST_ADMIN_DEMOTION_REFUSED). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getExtendedSlotsSetting: {
         parameters: {
             query?: never;
@@ -4256,6 +4395,81 @@ export interface operations {
                 };
             };
             /** @description Duplicate assignment, archived event, or ineligible role. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Internal error. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    removeAdminEventCoordinator: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Assignment removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed event or user id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationError"];
+                };
+            };
+            /** @description Missing, malformed, expired, or revoked token. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Caller is not a provisioned Admin. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event not found (EVENT_NOT_FOUND), or the user is not assigned to it (USER_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Event is archived (EVENT_ARCHIVED). */
             409: {
                 headers: {
                     [name: string]: unknown;

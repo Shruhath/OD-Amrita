@@ -52,8 +52,8 @@ type CaptureCreditLimitWriteResult struct {
 type CaptureCreditResetWrite struct {
 	EventID uuid.UUID
 	UserID  uuid.UUID
-	// UsageDate is the day whose pool is being reset. The credit pool is per day
-	// from Story 0.12a; a reset with no day would zero one arbitrary row.
+	// UsageDate is the day whose pool is being reset. The credit pool is per
+	// day; a reset with no day would zero one arbitrary row.
 	UsageDate time.Time
 }
 

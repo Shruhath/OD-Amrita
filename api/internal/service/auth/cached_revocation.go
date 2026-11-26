@@ -66,7 +66,7 @@ func (c *CachedRevocationChecker) IsRevoked(ctx context.Context, id VerifiedIden
 // Clear drops every cached verdict.
 //
 // There is deliberately no per-subject variant. The key carries the session id
-// and issue time, so a subject's entries cannot be enumerated from the subject
+// and sign-in time, so a subject's entries cannot be enumerated from the subject
 // alone, and offering a Forget(subject) that quietly missed some of them would
 // be worse than not offering one: it would look like a precise invalidation of
 // the forced-logout boundary while leaving stale "not revoked" verdicts behind.
@@ -77,11 +77,17 @@ func (c *CachedRevocationChecker) Clear() { c.cache.Clear() }
 
 // revocationKey identifies one token, not one user.
 //
-// Subject, session and issue time are exactly the three inputs IsTokenRevoked
+// Subject, session and sign-in time are exactly the three inputs IsTokenRevoked
 // matches on: the deny-list has a scope=session branch keyed on session_id and a
-// scope=all branch keyed on iat. Keying on anything less would let a verdict
-// computed for one token be served for another that the deny-list would judge
+// scope=all branch keyed on RevocationAnchor (the session's amr sign-in time,
+// iat only as a fallback). Keying on anything less would let a verdict computed
+// for one token be served for another that the deny-list would judge
 // differently.
+//
+// The token's iat is deliberately NOT part of the key any more. It is not an
+// input to the query, and keying on it gave every refreshed token of a session a
+// fresh entry — harmless for correctness, but a cache miss per refresh for no
+// difference in the answer.
 func revocationKey(id VerifiedIdentity) string {
-	return id.Subject + "|" + id.SessionID + "|" + strconv.FormatInt(id.IssuedAt.Unix(), 10)
+	return id.Subject + "|" + id.SessionID + "|" + strconv.FormatInt(id.RevocationAnchor().Unix(), 10)
 }

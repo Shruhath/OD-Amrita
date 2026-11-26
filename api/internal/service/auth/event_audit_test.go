@@ -1,5 +1,5 @@
-// event_audit_test.go — Story 1.7 (FR48, AC): the auth-event audit service, the
-// shared write path for the two NEW auth events. UNIT test, no DB — a fake
+// event_audit_test.go — the auth-event audit service, the
+// shared write path for the two auth events. UNIT test, no DB — a fake
 // TxRunner captures the store.AuditEvent + the `changed` signal WithAudit would
 // use, so the test observes the built immutable row without a database.
 //
@@ -14,11 +14,7 @@
 //   - a WithAudit failure propagates so the call site can fail closed
 //     ("no auth event path can complete without its audit row");
 //   - both actions are registered (else WithAudit would reject them);
-//   - forced logout still audits auth.session_revoked (1.5c reused, not duplicated).
-//
-// RED: internal/service/auth has no EventAuditor / NewEventAuditor /
-// LoginSucceeded / DomainRejected yet (Story 1.7, Task 1) → this package is
-// compile-red until they are built. This is the intended TDD red phase.
+//   - forced logout still audits auth.session_revoked (reused, not duplicated).
 package auth
 
 import (
@@ -195,7 +191,7 @@ func TestEventAuditor_DomainRejected_PropagatesAuditFailure(t *testing.T) {
 
 // TestAuthEvents_AreRegistered — [P2] guard: both auth events the auditor emits
 // must be in the events.go registry, or store.WithAudit rejects the write with
-// ErrUnregisteredAction (Story 1.7 adds NO new constant — 1.4 pre-registered them).
+// ErrUnregisteredAction (both constants are pre-registered in the registry).
 func TestAuthEvents_AreRegistered(t *testing.T) {
 	for _, act := range []domain.Action{domain.ActionAuthLoginSucceeded, domain.ActionAuthDomainRejected} {
 		if !act.Registered() {
@@ -204,11 +200,11 @@ func TestAuthEvents_AreRegistered(t *testing.T) {
 	}
 }
 
-// TestForcedLogout_StillAuditsSessionRevoked — [P1] regression: Story 1.7 REUSES
-// 1.5c's forced-logout audit and adds no duplicate event. This guards that a
-// forced logout still writes auth.session_revoked through WithAudit, unchanged by
-// 1.7's new auditor. Reuses the 1.5c service + fakes (same package) — it does not
-// re-implement the revocation path.
+// TestForcedLogout_StillAuditsSessionRevoked — [P1] regression: the auth-event
+// auditor REUSES the forced-logout audit and adds no duplicate event. This guards
+// that a forced logout still writes auth.session_revoked through WithAudit,
+// unchanged by EventAuditor. Reuses the revocation service + fakes (same package)
+// — it does not re-implement the revocation path.
 func TestForcedLogout_StillAuditsSessionRevoked(t *testing.T) {
 	st := &fakeRevStore{}
 	writer := &fakeRevWriter{rev: Revocation{ID: "rev-1", Inserted: true}}

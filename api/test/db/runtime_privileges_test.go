@@ -46,10 +46,10 @@ var runtimePrivileges = map[string][]string{
 	"event_branches": {"SELECT", "INSERT", "UPDATE"},
 	"categories":     {"SELECT", "INSERT", "UPDATE"},
 
-	// A teacher's branch associations: no-hard-delete, same posture as
-	// event_branches/categories, inherited entirely from 0007's default
-	// privileges (0008 writes no explicit GRANT/REVOKE).
-	"user_branches": {"SELECT", "INSERT", "UPDATE"},
+	// A teacher's branch associations. 0008 inherited 0007's no-DELETE default;
+	// 0027 grants DELETE because demoting a teacher to student removes them —
+	// the row is an access switch, and nothing an OD record points at.
+	"user_branches": {"SELECT", "INSERT", "UPDATE", "DELETE"},
 	// Category assignment rows are the access-control switch admins edit. Removing
 	// one row is how category access is revoked; deleting the user or category
 	// would be the dangerous operation.
@@ -57,14 +57,22 @@ var runtimePrivileges = map[string][]string{
 
 	// Imported student roster and its import summaries are stable references for
 	// attendance, dashboard, and correction flows.
-	"students":                      {"SELECT", "INSERT", "UPDATE"},
-	"student_roster_imports":        {"SELECT", "INSERT", "UPDATE"},
-	"student_card_tokens":           {"SELECT", "INSERT", "UPDATE"},
-	"od_records":                    {"SELECT", "INSERT", "UPDATE"},
-	"event_coordinator_assignments": {"SELECT", "INSERT", "UPDATE"},
-	"event_capture_credit_config":   {"SELECT", "INSERT", "UPDATE"},
-	"event_capture_credit_usage":    {"SELECT", "INSERT", "UPDATE"},
-	"disputes":                      {"SELECT", "INSERT", "UPDATE"},
+	"students":                    {"SELECT", "INSERT", "UPDATE"},
+	"student_roster_imports":      {"SELECT", "INSERT", "UPDATE"},
+	"student_card_tokens":         {"SELECT", "INSERT", "UPDATE"},
+	"od_records":                  {"SELECT", "INSERT", "UPDATE"},
+	"event_capture_credit_config": {"SELECT", "INSERT", "UPDATE"},
+	"disputes":                    {"SELECT", "INSERT", "UPDATE"},
+	// Fallback-credit counters: still no DELETE. Since 0027 they go with their
+	// assignment through an ON DELETE CASCADE foreign key, so they can vanish
+	// only as part of removing that assignment — never by a direct delete that
+	// would hand a coordinator a fresh pool.
+	"event_capture_credit_usage": {"SELECT", "INSERT", "UPDATE"},
+
+	// Coordinator access, removable since 0027: removing a coordinator from an
+	// event deletes the assignment row. No OD record references it, and the
+	// active-event trigger still refuses the delete on an archived event.
+	"event_coordinator_assignments": {"SELECT", "INSERT", "UPDATE", "DELETE"},
 
 	// Runtime switches an administrator flips from the portal. Upsert, never
 	// delete: a missing row and a row set to false mean the same thing to the

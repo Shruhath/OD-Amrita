@@ -1,13 +1,14 @@
 package auth
 
 // revoke_service.go — the forced-logout / server-side session-revocation service
-// (Story 1.5c). It records a revocation in the local deny-list and co-commits an
+// It records a revocation in the local deny-list and co-commits an
 // auth.session_revoked audit row through store.WithAudit, keeping the ledger and
 // the enforcement record in one transaction (NFR20). Supabase-side revocation is
 // best-effort; this local deny-list is authoritative for our API's next-request
 // guarantee (the auth middleware checks it — see revocation_checker.go).
 //
-// Scope is deliberately narrow: a small admin-only gate (DoD 8), NOT Epic 2 RBAC.
+// Scope is deliberately narrow: a small admin-only gate, NOT the general RBAC
+// middleware.
 
 import (
 	"context"

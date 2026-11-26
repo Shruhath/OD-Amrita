@@ -41,8 +41,8 @@ import (
 )
 
 // endDate wraps a literal so a test can say `EndDate: endDate("2026-09-08")`.
-// Its absence is `nil`, which is the shape every client written before this
-// story sends.
+// Its absence is `nil`, which is the shape every client written before
+// end_date existed sends.
 func endDate(value string) *string { return &value }
 
 // `adminActor()` comes from category_test.go — one admin principal for the
@@ -141,7 +141,7 @@ func TestCreate_OmittedEndDateDefaultsToTheStartDate(t *testing.T) {
 		BranchIDs: []string{branchID.String()},
 	}); err != nil {
 		t.Fatalf("[P0] omitting end_date was refused: %v. It is NOT in `required` — every client written before "+
-			"this story omits it, and requiring it turns a backwards-compatible addition into a breaking change", err)
+			"end_date existed omits it, and requiring it turns a backwards-compatible addition into a breaking change", err)
 	}
 
 	if got := writer.createInput.EndDate.Format("2006-01-02"); got != "2026-08-15" {
@@ -159,7 +159,7 @@ func TestCreate_OmittedEndDateDefaultsToTheStartDate(t *testing.T) {
 //
 // T17 mirrors the raw-shape guard already at handler/event/handler.go:155-183: a
 // JSON null, a non-string, or a string that does not round-trip through
-// "2006-01-02" is a validation failure. Story 0.4's review found exactly this bug
+// "2006-01-02" is a validation failure. An earlier code review found exactly this bug
 // once — a value field turning an absent or malformed input into a zero value
 // that parsed and reached Postgres.
 //
@@ -259,7 +259,7 @@ func TestCreate_AuditPayloadCarriesTheWholeRange(t *testing.T) {
 // The cheapest possible guard against building the superseded option. An earlier
 // revision of the plan recommended thirty events sharing a `series_id` plus a
 // bulk-create endpoint, and a fan-out would show up here as N calls into the
-// writer. The story's anti-patterns list names this first; this is the assertion
+// writer. That is the first anti-pattern to rule out; this is the assertion
 // that makes it a test rather than a wish.
 func TestCreate_AThirtyDayRangeWritesExactlyOneEventRow(t *testing.T) {
 	branchID, eventID := uuid.New(), uuid.New()

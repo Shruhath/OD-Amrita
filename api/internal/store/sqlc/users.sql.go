@@ -23,7 +23,7 @@ type GetActorBySubjectRow struct {
 }
 
 // Resolve the acting identity's provisioned user id + base role by Supabase
-// subject (Story 1.5c admin gate). id feeds the revocation's revoked_by_user_id
+// subject (the admin gate). id feeds the revocation's revoked_by_user_id
 // FK; role feeds the narrow admin-only check. No row = unprovisioned actor.
 func (q *Queries) GetActorBySubject(ctx context.Context, supabaseSubject string) (GetActorBySubjectRow, error) {
 	row := q.db.QueryRow(ctx, getActorBySubject, supabaseSubject)
@@ -39,7 +39,7 @@ WHERE supabase_subject = $1
 `
 
 // Look up a provisioned identity by its stable Supabase subject (never by email,
-// which can change). Epic 2's per-request role loading will build on this read.
+// which can change). Per-request role loading can build on this read.
 func (q *Queries) GetUserBySubject(ctx context.Context, supabaseSubject string) (User, error) {
 	row := q.db.QueryRow(ctx, getUserBySubject, supabaseSubject)
 	var i User
@@ -100,7 +100,7 @@ type ProvisionUserRow struct {
 	Inserted        bool        `json:"inserted"`
 }
 
-// users.sql — named queries for the application users table (Story 1.5b). sqlc
+// users.sql — named queries for the application users table. sqlc
 // reads this + db/migrations (the schema) and emits typed Go into
 // internal/store/sqlc (DO NOT EDIT that output). Provisioning writes go through
 // store.WithAudit, so the user row and its audit row co-commit in one tx.

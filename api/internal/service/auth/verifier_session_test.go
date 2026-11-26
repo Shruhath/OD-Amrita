@@ -1,4 +1,4 @@
-// verifier_session_test.go — Story 1.5c (DoD 2): the verifier exposes the
+// verifier_session_test.go — the verifier exposes the
 // Supabase session identity (session_id, iat) so middleware/services can tell one
 // session apart from another and enforce revocation. UNIT test, no DB.
 //
@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-// sessionClaims extends the Supabase session-JWT with the claims Story 1.5c
+// sessionClaims extends the Supabase session-JWT with the claims revocation
 // needs: session_id (correlates to auth.sessions) and iat (issued-at, the anchor
 // for "revoke all sessions issued before T"). withSessionID=false omits the
 // claim entirely to exercise the production reject-on-missing path.
@@ -60,6 +60,7 @@ func signSessionToken(t *testing.T, signKey es256Key, headerKid string, c sessio
 		"exp":            c.exp.Unix(),
 		"email_verified": true,
 		"user_metadata":  map[string]any{"name": "Staff Member"},
+		"app_metadata":   map[string]any{"provider": "azure", "providers": []string{"azure"}},
 	}
 	if c.withSessionID {
 		claims["session_id"] = c.sessionID
@@ -115,5 +116,81 @@ func TestVerify_RejectsTokenMissingSessionID(t *testing.T) {
 
 	if _, err := v.Verify(context.Background(), signSessionToken(t, key, key.kid, c)); err == nil {
 		t.Error("[P0] a token missing session_id must be rejected (AUTH_TOKEN_INVALID), got nil error")
+	}
+}
+
+// signWithAMR signs baseClaims (verifier_hardening_test.go) carrying the given
+// amr value and iat; amr=nil omits the claim.
+func signWithAMR(t *testing.T, key es256Key, iat time.Time, amr any) string {
+	t.Helper()
+	claims := baseClaims()
+	claims["iat"] = iat.Unix()
+	if amr != nil {
+		claims["amr"] = amr
+	}
+	return signRaw(t, key, key.kid, claims)
+}
+
+// TestVerify_AuthenticatedAtComesFromAMR — the forced-logout anchor is the
+// session's sign-in time. Supabase refreshes re-mint iat but carry amr through,
+// so a refreshed token must still report the ORIGINAL sign-in.
+func TestVerify_AuthenticatedAtComesFromAMR(t *testing.T) {
+	key := newES256Key(t, "kid-1")
+	v := newVerifierWithJWKS(t, jwksJSON(t, key), testIssuer, testAudience)
+
+	iat := time.Now().Add(-time.Minute).Truncate(time.Second)
+	signedIn := iat.Add(-50 * time.Minute)
+	mfa := iat.Add(-10 * time.Minute)
+
+	cases := []struct {
+		name string
+		amr  any
+		want time.Time
+	}{
+		{"single oauth entry", []map[string]any{{"method": "oauth", "timestamp": signedIn.Unix()}}, signedIn},
+		{"earliest of several entries wins", []map[string]any{
+			{"method": "totp", "timestamp": mfa.Unix()},
+			{"method": "oauth", "timestamp": signedIn.Unix()},
+		}, signedIn},
+		{"amr absent falls back to iat", nil, iat},
+		{"amr as RFC 8176 strings falls back to iat", []string{"pwd", "mfa"}, iat},
+		{"amr not an array falls back to iat", map[string]any{"method": "oauth"}, iat},
+		{"entries without timestamps fall back to iat", []map[string]any{{"method": "oauth"}}, iat},
+		{"zero/negative timestamps are ignored", []map[string]any{
+			{"method": "oauth", "timestamp": 0},
+			{"method": "otp", "timestamp": -5},
+		}, iat},
+		{"a timestamp after iat is clamped to iat", []map[string]any{{"method": "oauth", "timestamp": iat.Add(time.Hour).Unix()}}, iat},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			id, err := v.Verify(context.Background(), signWithAMR(t, key, iat, tc.amr))
+			if err != nil {
+				t.Fatalf("[P0] token rejected: %v", err)
+			}
+			if !id.AuthenticatedAt.Equal(tc.want) {
+				t.Errorf("[P0] AuthenticatedAt = %v, want %v", id.AuthenticatedAt, tc.want)
+			}
+			if !id.RevocationAnchor().Equal(tc.want) {
+				t.Errorf("[P0] RevocationAnchor = %v, want %v", id.RevocationAnchor(), tc.want)
+			}
+			if !id.IssuedAt.Equal(iat) {
+				t.Errorf("[P1] IssuedAt = %v, want %v (iat is still reported)", id.IssuedAt, iat)
+			}
+		})
+	}
+}
+
+// TestRevocationAnchor_FallsBackToIssuedAt — hand-built identities (fakes, the
+// local portal harness) carry no AuthenticatedAt; a zero anchor would read as
+// "signed in at the beginning of time" and be revoked by any scope=all row.
+func TestRevocationAnchor_FallsBackToIssuedAt(t *testing.T) {
+	iat := time.Unix(1_700_000_000, 0)
+	if got := (VerifiedIdentity{IssuedAt: iat}).RevocationAnchor(); !got.Equal(iat) {
+		t.Errorf("[P0] zero AuthenticatedAt must fall back to IssuedAt, got %v", got)
+	}
+	signedIn := iat.Add(-time.Hour)
+	if got := (VerifiedIdentity{IssuedAt: iat, AuthenticatedAt: signedIn}).RevocationAnchor(); !got.Equal(signedIn) {
+		t.Errorf("[P0] AuthenticatedAt must win when set, got %v", got)
 	}
 }

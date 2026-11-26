@@ -86,6 +86,33 @@ func TestCachedRevocationChecker_KeyDistinguishesSessionAndIssueTime(t *testing.
 	}
 }
 
+// A refreshed token is the same session signed in at the same moment, so the
+// deny-list must judge it identically — and the key, which follows the query's
+// inputs, must say so. The sign-in time, by contrast, IS an input.
+func TestCachedRevocationChecker_KeyFollowsSignInTimeNotIssueTime(t *testing.T) {
+	signedIn := time.Unix(1_699_990_000, 0)
+	original := testToken()
+	original.AuthenticatedAt = signedIn
+
+	refreshed := original
+	refreshed.IssuedAt = original.IssuedAt.Add(55 * time.Minute)
+
+	inner := &countingRevocationChecker{}
+	checker := NewCachedRevocationChecker(inner)
+	_, _ = checker.IsRevoked(context.Background(), original)
+	_, _ = checker.IsRevoked(context.Background(), refreshed)
+	if got := inner.count(); got != 1 {
+		t.Errorf("hit the database %d times, want 1 — a refresh does not change the verdict's inputs", got)
+	}
+
+	reSignedIn := original
+	reSignedIn.AuthenticatedAt = signedIn.Add(time.Hour)
+	_, _ = checker.IsRevoked(context.Background(), reSignedIn)
+	if got := inner.count(); got != 2 {
+		t.Errorf("hit the database %d times, want 2 — a new sign-in time is a different verdict", got)
+	}
+}
+
 // The guard fails closed, so a cached error would refuse every request from a
 // caller for the whole window over one transient blip.
 func TestCachedRevocationChecker_DoesNotCacheErrors(t *testing.T) {

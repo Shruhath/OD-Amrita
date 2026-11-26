@@ -33,11 +33,18 @@ type Auth struct {
 	Audience      string
 	AllowedDomain string
 	// BootstrapAdmins is the lowercased set of emails provisioned as `admin` on
-	// first login (Story 1.5b). Empty by default — every real login then
-	// provisions as the least-privileged `student` until an admin elevates them
-	// (Epic 2). Never commit a concrete admin email here; it loads from the
+	// first login. Empty by default — every real login then
+	// provisions as the least-privileged `student` until an admin elevates them.
+	// Never commit a concrete admin email here; it loads from the
 	// environment (AUTH_BOOTSTRAP_ADMINS).
 	BootstrapAdmins map[string]struct{}
+	// AllowedProviders is the lowercased set of Supabase identity providers
+	// (the token's app_metadata.provider) the API accepts (AUTH_ALLOWED_PROVIDERS,
+	// default "azure"). app_metadata is server-controlled, unlike user_metadata,
+	// so it is the trustworthy record of HOW an identity signed in; anything not
+	// listed — an email/password or magic-link account, another OAuth provider —
+	// is refused at verification even if its email is on the Amrita domain.
+	AllowedProviders map[string]struct{}
 }
 
 // CardSeal holds server-only card-token HMAC keys. Keys are decoded bytes from
@@ -64,7 +71,7 @@ type Config struct {
 	CardSeal CardSeal
 
 	// PublicRateLimit bounds the UNAUTHENTICATED public dashboard endpoints
-	// (Story 0.10). Both fields have working defaults on purpose: the deployed
+	// Both fields have working defaults on purpose: the deployed
 	// Fly app carries no rate-limit secret, and requiring one would take the API
 	// down at the next deploy. Tuning them live is the venue-day lever — a
 	// `flyctl secrets set` rather than a redeploy.
@@ -160,11 +167,20 @@ func Load() (*Config, error) {
 			Audience:        getenvDefault("AUTH_AUDIENCE", "authenticated"),
 			AllowedDomain:   strings.ToLower(getenvDefault("AUTH_ALLOWED_DOMAIN", "amrita.edu")),
 			BootstrapAdmins: parseEmailSet(os.Getenv("AUTH_BOOTSTRAP_ADMINS")),
+			// Reuses the email-set parser: it only lowercases, trims and drops
+			// blanks, which is exactly the normalisation a provider list needs.
+			AllowedProviders: parseEmailSet(getenvDefault("AUTH_ALLOWED_PROVIDERS", "azure")),
 		},
 	}
 
 	if cfg.DatabaseURLRuntime == "" {
 		return nil, fmt.Errorf("config: DATABASE_URL_RUNTIME is required (the od_runtime app DSN — see api/.env.example)")
+	}
+	if err := rejectPlaceholderPasswords(cfg.AppEnv, map[string]string{
+		"DATABASE_URL_RUNTIME":  cfg.DatabaseURLRuntime,
+		"DATABASE_URL_MIGRATOR": cfg.DatabaseURLMigrator,
+	}); err != nil {
+		return nil, err
 	}
 	// API_PORT must be a real TCP port so a typo fails here, naming the variable,
 	// instead of surfacing as an opaque net.Listen error at startup.
@@ -447,6 +463,9 @@ func validateAuth(auth Auth, appEnv string) error {
 	}
 	if auth.AllowedDomain == "" {
 		return fmt.Errorf("config: AUTH_ALLOWED_DOMAIN is required")
+	}
+	if len(auth.AllowedProviders) == 0 {
+		return fmt.Errorf("config: AUTH_ALLOWED_PROVIDERS must name at least one provider (default \"azure\")")
 	}
 	requireURLs := appEnv != "development" || auth.JWKSURL != "" || auth.Issuer != ""
 	if !requireURLs {

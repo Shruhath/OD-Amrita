@@ -1,4 +1,4 @@
--- users.sql — named queries for the application users table (Story 1.5b). sqlc
+-- users.sql — named queries for the application users table. sqlc
 -- reads this + db/migrations (the schema) and emits typed Go into
 -- internal/store/sqlc (DO NOT EDIT that output). Provisioning writes go through
 -- store.WithAudit, so the user row and its audit row co-commit in one tx.
@@ -25,14 +25,14 @@ RETURNING id::text, supabase_subject, email, name, role, (xmax = 0) AS inserted;
 
 -- name: GetUserBySubject :one
 -- Look up a provisioned identity by its stable Supabase subject (never by email,
--- which can change). Epic 2's per-request role loading will build on this read.
+-- which can change). Per-request role loading can build on this read.
 SELECT id, supabase_subject, email, name, role, created_at, updated_at, last_login_at
 FROM users
 WHERE supabase_subject = $1;
 
 -- name: GetActorBySubject :one
 -- Resolve the acting identity's provisioned user id + base role by Supabase
--- subject (Story 1.5c admin gate). id feeds the revocation's revoked_by_user_id
+-- subject (the admin gate). id feeds the revocation's revoked_by_user_id
 -- FK; role feeds the narrow admin-only check. No row = unprovisioned actor.
 SELECT id::text, role
 FROM users

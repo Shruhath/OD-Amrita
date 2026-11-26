@@ -128,3 +128,38 @@ SELECT EXISTS(
       AND eca.event_id = @event_id
       AND c.id = @category_id
 )::boolean;
+
+-- name: LockCoordinatorAssignment :one
+-- Removal's first step: take the assignment row FOR UPDATE so a concurrent
+-- fallback-credit debit (whose FK check needs a KEY SHARE lock on this row)
+-- waits for the removal and then fails its FK check, instead of slipping a new
+-- usage row in between the credit snapshot and the delete.
+SELECT eca.id, eca.user_id, eca.event_id, eca.fallback_credit_limit, u.email
+FROM event_coordinator_assignments eca
+JOIN users u ON u.id = eca.user_id
+WHERE eca.event_id = @event_id AND eca.user_id = @user_id
+FOR UPDATE OF eca;
+
+-- name: SumCoordinatorCaptureCreditUsage :one
+-- The assignment's fallback-credit counters, for the audit snapshot. Read under
+-- the assignment lock, just before the assignment is deleted; the counters then
+-- go with it through event_capture_credit_usage_assignment_fk ON DELETE CASCADE
+-- (0027) — od_runtime holds no DELETE on them.
+SELECT count(*)::bigint AS rows, COALESCE(sum(consumed), 0)::bigint AS consumed
+FROM event_capture_credit_usage
+WHERE event_id = @event_id AND user_id = @user_id;
+
+-- name: DeleteUserCategoriesForEvent :many
+-- Every category access the user holds on ONE event. A coordinator's category
+-- rows mean nothing once they no longer coordinate the event, and leaving them
+-- would hand the access straight back on a later re-assignment.
+DELETE FROM user_category_assignments uca
+USING categories c
+WHERE c.id = uca.category_id
+  AND uca.user_id = @user_id
+  AND c.event_id = @event_id
+RETURNING uca.category_id;
+
+-- name: DeleteEventCoordinatorAssignment :execrows
+DELETE FROM event_coordinator_assignments
+WHERE event_id = @event_id AND user_id = @user_id;

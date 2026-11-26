@@ -1009,8 +1009,7 @@ type ListPublicStudentODRecordsRow struct {
 	ServerReceivedAt pgtype.Timestamptz `json:"server_received_at"`
 }
 
-// One student's present OD records for the UNAUTHENTICATED public dashboard
-// (Story 0.10, FR39).
+// One student's present OD records for the UNAUTHENTICATED public dashboard.
 //
 // GROUPING KEY IS od_records.od_date, NOT server_received_at and no longer
 // events.event_date. An event spans a range of days, so the event's first day

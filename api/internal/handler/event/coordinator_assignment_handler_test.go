@@ -213,3 +213,47 @@ func TestRegisterAdminRoutesMountsCoordinatorAssignmentRoutes(t *testing.T) {
 		}
 	}
 }
+
+// Removal answers 204 with no body, and every failure goes through the shared
+// error envelope with the status the contract documents.
+func TestRemoveCoordinatorAssignmentHandlerRendersEveryDocumentedOutcome(t *testing.T) {
+	eventID := uuid.NewString()
+	userID := uuid.NewString()
+	for _, tc := range []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		{name: "removed", wantStatus: http.StatusNoContent},
+		{name: "malformed id", err: domain.DomainError{Code: contracts.ErrorCodeVALIDATIONFAILED, Message: "bad", Details: []contracts.ValidationErrorDetail{{Field: "user_id", Code: "invalid_format", Message: "User id must be a UUID."}}}, wantStatus: 400, wantCode: "VALIDATION_FAILED"},
+		{name: "non-admin", err: domain.DomainError{Code: contracts.ErrorCodeRBACFORBIDDEN, Message: "no"}, wantStatus: 403, wantCode: "RBAC_FORBIDDEN"},
+		{name: "unknown event", err: domain.DomainError{Code: contracts.ErrorCodeEVENTNOTFOUND, Message: "no"}, wantStatus: 404, wantCode: "EVENT_NOT_FOUND"},
+		{name: "not assigned", err: domain.DomainError{Code: contracts.ErrorCodeUSERNOTFOUND, Message: "no"}, wantStatus: 404, wantCode: "USER_NOT_FOUND"},
+		{name: "archived event", err: domain.DomainError{Code: contracts.ErrorCodeEVENTARCHIVED, Message: "no"}, wantStatus: 409, wantCode: "EVENT_ARCHIVED"},
+		{name: "unexpected failure", err: errors.New("database unavailable"), wantStatus: 500, wantCode: "INTERNAL"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &fakeService{err: tc.err}
+			recorder := request(eventRouter(svc), http.MethodDelete, "/events/"+eventID+"/coordinators/"+userID, "")
+			if recorder.Code != tc.wantStatus {
+				t.Fatalf("status=%d body=%s, want %d", recorder.Code, recorder.Body.String(), tc.wantStatus)
+			}
+			if svc.coordinatorRemoveCalls != 1 || svc.coordinatorRemoveInput.EventID != eventID || svc.coordinatorRemoveInput.UserID != userID {
+				t.Fatalf("service calls=%d input=%#v", svc.coordinatorRemoveCalls, svc.coordinatorRemoveInput)
+			}
+			if tc.wantStatus == http.StatusNoContent {
+				if recorder.Body.Len() != 0 {
+					t.Fatalf("204 must carry no body, got %q", recorder.Body.String())
+				}
+				return
+			}
+			var body struct {
+				Code string `json:"code"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil || body.Code != tc.wantCode {
+				t.Fatalf("body=%s err=%v, want code %s", recorder.Body.String(), err, tc.wantCode)
+			}
+		})
+	}
+}

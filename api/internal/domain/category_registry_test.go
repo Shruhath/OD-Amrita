@@ -1,6 +1,6 @@
 package domain
 
-// category_registry_test.go — Story 2.2 coverage for AC 6 and 8.
+// category_registry_test.go — category audit-action and error-code registry coverage.
 // UNIT test: no build tag, no database. It runs in the default `go test ./...`.
 //
 // Invoked by: api-ci -> build job.
@@ -83,6 +83,6 @@ func TestEventArchivedIsDistinctFromEventNotFound(t *testing.T) {
 		t.Errorf("EVENT_ARCHIVED and EVENT_NOT_FOUND must not share status %d", archived)
 	}
 	if notFound != 404 {
-		t.Errorf("HTTPStatus(EVENT_NOT_FOUND) = %d, want 404 (Story 2.1 regression)", notFound)
+		t.Errorf("HTTPStatus(EVENT_NOT_FOUND) = %d, want 404 (regression)", notFound)
 	}
 }

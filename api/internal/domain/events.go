@@ -1,6 +1,6 @@
 package domain
 
-// events.go ★ — the audit-event registry (Story 1.4, AC 5).
+// events.go ★ — the audit-event registry.
 //
 // Action is the typed name of an auditable, state-changing action. Its string
 // value is the domain.action wire name written verbatim into the immutable
@@ -11,17 +11,16 @@ package domain
 //
 // SSOT: audit events are NOT part of the OpenAPI contract (unlike error codes,
 // whose SSOT is the generated Error.code enum), so THIS FILE is their single
-// source of truth. Registration discipline is a CONVENTIONS rule: every story
+// source of truth. Registration discipline is a CONVENTIONS rule: every change
 // that introduces a new auditable action MUST add its constant here AND to
 // AllActions. events_test.go fails if a declared constant is missing from
 // AllActions, and store.WithAudit rejects an unregistered action at runtime — so
-// "a story forgot to register its action" fails loudly, never silently.
+// "a change forgot to register its action" fails loudly, never silently.
 type Action string
 
-// The domain.action constants, grounded in architecture#Communication-Patterns
-// (lines 472-475). Only the actions Epic 1's surface needs are declared now;
-// each future story adds its own (session.revoked, scan-path names, …) when it
-// needs them — do not pre-add future names.
+// The domain.action constants. Only the actions the current surface needs are
+// declared; each new feature adds its own (scan-path names, …) when it needs
+// them — do not pre-add future names.
 const (
 	ActionODCreated          Action = "od.created"
 	ActionODOverridden       Action = "od.overridden"
@@ -35,18 +34,18 @@ const (
 	ActionDisputeResolved    Action = "dispute.resolved"
 	ActionUserProvisioned    Action = "user.provisioned"
 	// ActionAuthSessionRevoked is the SETTLED forced-logout / session-revocation
-	// event (Story 1.5c). Story 1.7 owns the broader auth-event audit family and
-	// MUST reuse this name — it must not add a duplicate forced-logout event.
+	// event. The broader auth-event audit family MUST reuse this name — it must
+	// not add a duplicate forced-logout event.
 	ActionAuthSessionRevoked Action = "auth.session_revoked"
 	ActionEventCreated       Action = "event.created"
 	ActionEventArchived      Action = "event.archived"
-	// ActionCategoryCreated is the per-event category creation event (Story 2.2).
+	// ActionCategoryCreated is the per-event category creation event.
 	// Singular entity, past-tense verb — the string is written verbatim into the
 	// immutable ledger, so it is a permanent wire commitment.
 	ActionCategoryCreated           Action = "category.created"
 	ActionCategoryVisibilityUpdated Action = "category.visibility_updated"
 	// ActionTeacherProfileCreated covers a role elevation AND every branch
-	// association from the same request as ONE audit row (Story 2.3) — mirroring
+	// association from the same request as ONE audit row — mirroring
 	// event.created's single row covering the event insert and every
 	// event_branches insert.
 	ActionTeacherProfileCreated            Action = "teacher.profile_created"
@@ -59,6 +58,13 @@ const (
 	ActionCaptureCreditCapChanged          Action = "capture_credit.cap_changed"
 	ActionCaptureCreditReset               Action = "capture_credit.reset"
 	ActionAppSettingUpdated                Action = "app_setting.updated"
+	// ActionCoordinatorRemoved is one coordinator taken off one event: the
+	// assignment, its category access on that event and its fallback-credit
+	// counters, deleted together.
+	ActionCoordinatorRemoved Action = "coordinator.removed"
+	// ActionUserDemoted is a staff role taken away (back to student), with every
+	// access row the role carried and the forced logout that makes it immediate.
+	ActionUserDemoted Action = "user.demoted"
 )
 
 // AllActions is the canonical registry-of-record: every declared Action, in
@@ -91,6 +97,8 @@ var AllActions = []Action{
 	ActionCaptureCreditCapChanged,
 	ActionCaptureCreditReset,
 	ActionAppSettingUpdated,
+	ActionCoordinatorRemoved,
+	ActionUserDemoted,
 }
 
 // registeredActions is the O(1) lookup set DERIVED from AllActions, so it can

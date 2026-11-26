@@ -1,4 +1,4 @@
-// revocation_mw_test.go — Story 1.5c (DoD 6): backend next-request enforcement.
+// revocation_mw_test.go — backend next-request revocation enforcement.
 // The revocation guard runs AFTER token signature/audience/issuer + domain
 // enforcement and BEFORE the identity is used downstream, so a token that is
 // still cryptographically valid but revoked is rejected with 401

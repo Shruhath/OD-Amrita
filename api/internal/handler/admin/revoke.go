@@ -1,5 +1,5 @@
-// Package admin holds admin-only HTTP handlers. Story 1.5c adds the forced-logout
-// endpoint; broader admin surface (Epic 2 RBAC, event lifecycle) lands later.
+// Package admin holds admin-only HTTP handlers, such as the forced-logout
+// endpoint.
 package admin
 
 import (
@@ -24,7 +24,7 @@ type RevocationService interface {
 }
 
 // RevokeSessionsHandler serves POST /api/v1/admin/users/{user_id}/sessions/revoke
-// (Story 1.5c, DoD 7/8/10). It binds the request into the generated contract
+// It binds the request into the generated contract
 // type, validates the field rules (400 VALIDATION_FAILED without touching the
 // service on bad input), then delegates to the service, which enforces the narrow
 // admin gate and records the revocation. The service's domain errors

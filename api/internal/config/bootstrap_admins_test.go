@@ -3,7 +3,7 @@ package config
 import "testing"
 
 // TestLoad_BootstrapAdmins — AUTH_BOOTSTRAP_ADMINS parses into a lowercased set,
-// trimming whitespace and dropping blank entries (Story 1.5b, DoD 9).
+// trimming whitespace and dropping blank entries.
 func TestLoad_BootstrapAdmins(t *testing.T) {
 	setEnv(t, map[string]string{
 		"DATABASE_URL_RUNTIME":  "postgres://od_runtime:x@localhost:5432/od_amrita",
@@ -27,7 +27,7 @@ func TestLoad_BootstrapAdmins(t *testing.T) {
 
 // TestLoad_BootstrapAdminsEmptyByDefault — with the variable unset the set is
 // empty (a valid "no bootstrap admins" config), so every real login provisions
-// as the least-privileged student until an admin elevates them (Epic 2).
+// as the least-privileged student until an admin elevates them.
 func TestLoad_BootstrapAdminsEmptyByDefault(t *testing.T) {
 	setEnv(t, map[string]string{
 		"DATABASE_URL_RUNTIME": "postgres://od_runtime:x@localhost:5432/od_amrita",

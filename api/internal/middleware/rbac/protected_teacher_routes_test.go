@@ -1,6 +1,6 @@
 package rbac
 
-// protected_teacher_routes_test.go — Story 2.3 coverage for AC 5.
+// protected_teacher_routes_test.go — RBAC coverage for the teacher routes.
 // UNIT test: no build tag, no database.
 //
 // Invoked by: api-ci -> build job.
@@ -35,7 +35,7 @@ import (
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
 )
 
-// teacherOperations is the route table this story adds. Keep it in one place
+// teacherOperations is the teacher-profile route table. Keep it in one place
 // so the deny matrix and the (future) mount check can never test different
 // paths.
 var teacherOperations = []struct{ method, path string }{

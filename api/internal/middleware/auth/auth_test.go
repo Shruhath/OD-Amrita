@@ -1,14 +1,10 @@
-// auth_test.go — red-phase ATDD for Story 1.5a DoD 2/3: the gin auth
+// auth_test.go — unit tests for the gin auth
 // middleware. Tests the middleware's OWN contract in isolation (fake verifier,
 // no errormw, no HTTP-body rendering): on each failure it must abort BEFORE the
 // handler and push a typed domain.DomainError with the right code; on success
 // it must stash the verified identity in the gin context and call Next. The
 // rendered-envelope side (401/403 bodies) is proven separately by errormw_test
 // and the composed round-trip in api/test/auth.
-//
-// RED: middleware/auth is a Story 1.1 doc stub — Middleware, IdentityFromContext
-// do not exist yet, and it calls into service/auth (EnforceDomain, TokenVerifier,
-// VerifiedIdentity), also unbuilt -> compile-red until Tasks 4-6.
 package auth
 
 import (

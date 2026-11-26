@@ -126,8 +126,8 @@ type CreateCategoryWrite struct {
 // one. Only writes are refused, so the portal can show an archived event's
 // categories read-only.
 // The actor is re-checked here for the same reason CreateCategory re-checks it:
-// this service is reachable from any future caller, and Story 2.4's coordinator
-// work will reach for exactly this method. Leaving the read to trust its route
+// this service is reachable from any future caller, and coordinator-facing
+// code is the obvious next reader of this method. Leaving the read to trust its route
 // while the write defends itself is an asymmetry that only looks harmless until
 // someone mounts the read outside the /admin group.
 func (s *Service) ListCategories(ctx context.Context, actor Actor, rawEventID string) ([]Category, error) {

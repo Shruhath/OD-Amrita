@@ -1,6 +1,6 @@
-// Route-composition guard for Story 0.11's dispute surface.
+// Route-composition guard for the dispute surface.
 //
-// This story registers routes on BOTH sides of the authentication boundary in
+// The dispute surface registers routes on BOTH sides of the authentication boundary in
 // the same change, which is the arrangement most likely to put one on the wrong
 // side. gin attaches middleware to the GROUP VALUE, not to the path prefix, so
 // each of these compiles cleanly and looks right in a diff:
@@ -45,7 +45,7 @@ import (
 )
 
 const (
-	// gin's registered form of the two paths this story adds on each side.
+	// gin's registered form of the two dispute paths on each side.
 	publicDisputeRoute  = "/api/v1/public/disputes"
 	publicEventsRoute   = "/api/v1/public/events"
 	disputeListRoute    = "/api/v1/disputes"
@@ -56,7 +56,7 @@ const (
 	// not bounded at the edge. Reachability must be proven with a body the
 	// endpoint actually accepts.
 	anonymousDisputeBody = `{"student_id":"00000000-0000-4000-8000-000000000000",` +
-		`"submitted_email":"cb.sc.u4cse24101@cb.students.amrita.edu",` +
+		`"submitted_email":"cb.sc.u4cse99101@cb.students.amrita.edu",` +
 		`"event_id":"00000000-0000-4000-8000-000000000001",` +
 		`"category_id":"00000000-0000-4000-8000-000000000002",` +
 		`"od_date":"2026-08-03","slot":3,` +
@@ -144,8 +144,8 @@ func postDispute(router *gin.Engine, remoteAddr string) *httptest.ResponseRecord
 // request carrying NO Authorization header, no cookie and no session, and so
 // does the public event read.
 //
-// 0.9's flagship defect was a guard written but never wired; 0.10's analogue was
-// the public group's mount point. This story's is a POST registered on the group
+// An earlier defect was a guard written but never wired; the public dashboard's
+// analogue was the group's mount point. Here it is a POST registered on the group
 // that carries auth middleware, which produces the identical URL and a 401 for
 // every student who tries to report a missed slot.
 func TestPublicDisputeWriteIsReachableWithNoCredentialsAtAll(t *testing.T) {
@@ -345,8 +345,8 @@ func TestDisputeWriteLimiterIsSeparateFromTheGroupBudget(t *testing.T) {
 // only, not to the whole public group.
 //
 // Applying it at group level would throttle the dashboard to five requests a
-// minute, which a single debounced search exceeds — the feature 0.10 shipped
-// would break as a side effect of this story landing.
+// minute, which a single debounced search exceeds — the public dashboard would
+// break as a side effect of the dispute form landing.
 func TestDisputeWriteLimiterDoesNotThrottleTheDashboard(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

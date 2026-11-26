@@ -1,7 +1,7 @@
 package auth
 
-// revocation_guard.go — the next-request forced-logout enforcement (Story 1.5c,
-// DoD 6). It runs IMMEDIATELY AFTER Middleware (which verifies the token, enforces
+// revocation_guard.go — the next-request forced-logout enforcement. It runs
+// IMMEDIATELY AFTER Middleware (which verifies the token, enforces
 // the domain, and sets the identity) and BEFORE any protected handler, so a token
 // that is still cryptographically valid but whose session has been revoked is
 // rejected with 401 on its very next request — not only at token expiry.

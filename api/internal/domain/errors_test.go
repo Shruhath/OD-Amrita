@@ -1,11 +1,7 @@
 package domain
 
-// errors_test.go — RED-PHASE ATDD scaffold for Story 1.4, AC 5 (error-code
-// registry + centralized code->HTTP-status map). UNIT test: no build tag, no DB.
-//
-// RED PHASE: `errors.go` is still a reserved stub, so DomainError, HTTPStatus and
-// the unexported codeToStatus map do not exist yet. Until Task 4 lands them THIS
-// PACKAGE FAILS TO COMPILE — the intended red signal.
+// errors_test.go — tests for the error-code registry and the centralized
+// code->HTTP-status map. UNIT test: no build tag, no DB.
 //
 // White-box (`package domain`) deliberately: the parity test reaches the
 // UNEXPORTED codeToStatus map, which is the whole point — it proves the map is
@@ -22,11 +18,10 @@ package domain
 // already binds types.gen.go byte-for-byte to a regen from openapi.yaml.
 //
 // KEY DESIGN NOTE — allowed-status sets, not single pins:
-// The architecture's HTTP-status vocabulary (architecture#Format lines 483-484)
-// is 200/201/202/400/401/403/404/409/429/5xx. Three codes are left as a genuine
-// design choice in the story (AUTH_DOMAIN_REJECTED 401|403, SLOT_CLOSED 409|422,
-// CARD_NOT_RECOGNIZED 400|422). For those this test accepts EITHER defensible
-// value — it must not pin a number the story hasn't settled. The other seven are
+// The HTTP-status vocabulary is 200/201/202/400/401/403/404/409/429/5xx. Three
+// codes are a genuine design choice (AUTH_DOMAIN_REJECTED 401|403, SLOT_CLOSED
+// 409|422, CARD_NOT_RECOGNIZED 400|422). For those this test accepts EITHER
+// defensible value — it must not pin a number that is a judgement call. The other seven are
 // unambiguous and pinned exactly.
 
 import (
@@ -65,6 +60,8 @@ var codeStatusCases = []struct {
 	{contracts.ErrorCodeSTUDENTNOTFOUND, []int{404}},     // 0.3: no students row matches the supplied id — pinned 404
 	{contracts.ErrorCodeROLEALREADYASSIGNED, []int{409}}, // 2.3: non-student role is a state conflict — pinned 409
 	{contracts.ErrorCodeCOORDINATORASSIGNMENTEXISTS, []int{409}},
+	{contracts.ErrorCodeSELFDEMOTIONREFUSED, []int{409}},
+	{contracts.ErrorCodeLASTADMINDEMOTIONREFUSED, []int{409}},
 	{contracts.ErrorCodeDISPUTEIDENTITYUNVERIFIED, []int{400}},
 	{contracts.ErrorCodeDISPUTEALREADYOPEN, []int{409}},
 	{contracts.ErrorCodeDISPUTENOTFOUND, []int{404}},

@@ -1,6 +1,6 @@
 //go:build integration
 
-// Package db — Story 1.5c (DoD 3, 4, 9): the local deny-list table
+// Package db — the local deny-list table
 // auth_session_revocations, its constraints/grants, the scope semantics, and the
 // co-commit rollback guarantee. INTEGRATION test: needs a live Postgres + the two
 // login roles, so it is DSN-gated and skips cleanly on a no-DB machine. It proves
@@ -23,7 +23,7 @@ import (
 )
 
 // seedAdminUser inserts a users row to satisfy the revoked_by_user_id FK and
-// returns its id, cleaning it up afterward. Runtime has DML on users (Story 1.5b).
+// returns its id, cleaning it up afterward. Runtime has DML on users.
 func seedAdminUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool, subject string) string {
 	t.Helper()
 	var id string
@@ -187,9 +187,12 @@ func TestRevocationCheck_ScopeSemantics(t *testing.T) {
 	}
 
 	// isRevoked runs the SAME predicate as the production IsTokenRevoked query
-	// (db/queries/auth_session_revocations.sql): scope=all compares the token's iat
-	// against date_trunc('second', revoked_after) with a strict '>', because JWT
-	// iat is whole-second granular while revoked_after carries sub-second precision.
+	// (db/queries/auth_session_revocations.sql): scope=all compares the session's
+	// sign-in time (the amr timestamp, iat only as a fallback — the parameter is
+	// still called iat here) against date_trunc('second', revoked_after) with a
+	// strict '>', because both are whole-second granular while revoked_after
+	// carries sub-second precision. revocation_refresh_test.go drives the real
+	// query through the real verifier.
 	isRevoked := func(sessionID string, iat time.Time) bool {
 		var revoked bool
 		if err := pool.QueryRow(ctx, `

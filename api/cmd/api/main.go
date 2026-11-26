@@ -58,6 +58,7 @@ import (
 	svcstudent "github.com/Shruhath/OD-Amrita/api/internal/service/student"
 	svcteacher "github.com/Shruhath/OD-Amrita/api/internal/service/teacher"
 	svcuser "github.com/Shruhath/OD-Amrita/api/internal/service/user"
+	svcuserrole "github.com/Shruhath/OD-Amrita/api/internal/service/userrole"
 	"github.com/Shruhath/OD-Amrita/api/internal/store"
 )
 
@@ -114,7 +115,7 @@ func run() error {
 	router.Use(corsmw.Middleware(cfg.PortalAllowedOrigins, router))
 	router.GET("/health", health.Handler(pool))
 
-	// The UNAUTHENTICATED public dashboard (Story 0.10). Built here, BEFORE the
+	// The UNAUTHENTICATED public dashboard. Built here, BEFORE the
 	// /api/v1 group, so the two are visibly siblings in the source rather than
 	// one being an easy-to-miss child of the other.
 	publicLimiter, err := ratelimit.New(ratelimit.Config{
@@ -158,7 +159,11 @@ func run() error {
 
 	var verifier svcauth.TokenVerifier = svcauth.RejectingVerifier{}
 	if cfg.Auth.JWKSURL != "" && cfg.Auth.Issuer != "" {
-		v, err := svcauth.NewVerifier(cfg.Auth.JWKSURL, cfg.Auth.Issuer, cfg.Auth.Audience)
+		providers := make([]string, 0, len(cfg.Auth.AllowedProviders))
+		for provider := range cfg.Auth.AllowedProviders {
+			providers = append(providers, provider)
+		}
+		v, err := svcauth.NewVerifier(cfg.Auth.JWKSURL, cfg.Auth.Issuer, cfg.Auth.Audience, providers)
 		if err != nil {
 			return err
 		}
@@ -186,7 +191,7 @@ func run() error {
 	userSvc := svcuser.NewService(st, cfg.Auth.BootstrapAdmins, svcuser.NewSQLCProvisioner()).
 		WithCurrentReader(svcuser.NewSQLCCurrentReader(pool))
 
-	// Auth-event auditor (Story 1.7): co-commits auth.login_succeeded (from
+	// Auth-event auditor: co-commits auth.login_succeeded (from
 	// /auth/me, after provisioning) and auth.domain_rejected (from the auth
 	// middleware's EnforceDomain failure branch) through the same store.WithAudit
 	// boundary. One value serves both the middleware and the handler.
@@ -198,7 +203,7 @@ func run() error {
 	// ledger in production). The middleware keeps the unthrottled auditor.
 	loginAuditor := svcauth.NewThrottledLoginAuditor(eventAuditor)
 
-	// Forced-logout (Story 1.5c): the revocation checker the auth middleware
+	// Forced-logout: the revocation checker the auth middleware
 	// consults on every protected request, and the admin-only revocation service.
 	// Supabase exposes no supported server-side target-user revoke API, so the
 	// Supabase adapter is the disabled no-op — the local deny-list is authoritative.
@@ -378,6 +383,16 @@ func run() error {
 		// on which machine a poll happened to land on.
 		scope: stream.Cache.Clearing("event scope edited", cachebus.ScopeMarkingScope),
 	})
+	// Taking a staff role away. The role and the scope it carried are cached in
+	// three places — the principal cache (role), the marking scope cache
+	// (assignments) and the revocation cache (the forced logout the demotion
+	// records) — and all three are dropped fleet-wide once it commits, so the
+	// demotion lands on the user's next request rather than after a TTL.
+	admin.POST("/users/:user_id/demote", handleradmin.DemoteUserHandler(demotionDroppingCaches{
+		inner: svcuserrole.NewService(st, svcuserrole.NewSQLCWriter()),
+		caches: stream.Cache.Clearing("staff access removed",
+			cachebus.ScopePrincipal, cachebus.ScopeMarkingScope, cachebus.ScopeRevocation),
+	}))
 	handlerodrecord.RegisterAdminAttendanceRoutes(admin, portalMarkReads)
 	teacherSvc := svcteacher.NewService(svcteacher.NewSQLCReader(pool), st, svcteacher.NewSQLCWriter())
 	handlerteacher.RegisterAdminRoutes(admin, teacherSvc)
@@ -449,7 +464,7 @@ func newAdminGroup(api *gin.RouterGroup, loader rbac.PrincipalLoader) *gin.Route
 }
 
 // newPublicGroup returns the UNAUTHENTICATED group the public dashboard is
-// served from (Story 0.10), carrying the rate limiter and nothing else.
+// served from, carrying the rate limiter and nothing else.
 //
 // It takes the ROOT *gin.Engine rather than the /api/v1 group, and that is the
 // entire reason this function exists as a named seam. gin attaches middleware to
@@ -563,6 +578,33 @@ func (e eventEditsDroppingScopeCache) UpdateCoordinatorCategoryAccess(ctx contex
 	return dropScopeAfter(e.scope, func() (svcevent.CoordinatorAssignment, error) {
 		return e.Service.UpdateCoordinatorCategoryAccess(ctx, actor, input)
 	})
+}
+
+func (e eventEditsDroppingScopeCache) RemoveCoordinatorAssignment(ctx context.Context, actor svcevent.Actor, input svcevent.RemoveCoordinatorAssignmentInput) error {
+	_, err := dropScopeAfter(e.scope, func() (struct{}, error) {
+		return struct{}{}, e.Service.RemoveCoordinatorAssignment(ctx, actor, input)
+	})
+	return err
+}
+
+// demotionDroppingCaches is the demotion service followed, on a real change
+// only, by a fleet-wide drop of every cache that holds a role or a scope. Same
+// order and reasoning as revokeDroppingCaches: write first, drop second, and
+// never on failure. A no-op demotion (already a student) changed nothing, so it
+// drops nothing.
+type demotionDroppingCaches struct {
+	inner interface {
+		Demote(ctx context.Context, actor svcuserrole.Actor, targetUserID string) (svcuserrole.Result, error)
+	}
+	caches interface{ Clear() }
+}
+
+func (d demotionDroppingCaches) Demote(ctx context.Context, actor svcuserrole.Actor, targetUserID string) (svcuserrole.Result, error) {
+	result, err := d.inner.Demote(ctx, actor, targetUserID)
+	if err == nil && result.Changed {
+		d.caches.Clear()
+	}
+	return result, err
 }
 
 // dropScopeAfter runs the write and clears the cache only when it SUCCEEDED.

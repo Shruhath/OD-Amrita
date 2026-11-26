@@ -59,8 +59,8 @@ jobs:
     name: go build + gofmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26"
       - name: gofmt (no diffs)
@@ -108,13 +108,13 @@ jobs:
     # They are separate Go modules at the repo root, so they need their own steps:
     # the api/ jobs all run with `working-directory: api` and never see them.
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: pnpm
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26"
       # Both harnesses shell out to pnpm (test/skeleton's TestAC1_PnpmWorkspaceResolves
@@ -160,8 +160,8 @@ jobs:
       CARD_SEAL_ACTIVE_VERSION: dev
       CARD_SEAL_HMAC_KEYS: dev=Y2ktZGV2LWNhcmQtc2VhbC1rZXktMzItYnl0ZXMhISEh
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26"
       - name: Install goose (pinned — keep in sync with api/Makefile GOOSE_VERSION)

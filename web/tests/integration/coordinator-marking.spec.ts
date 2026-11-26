@@ -93,7 +93,7 @@ test.describe('real stack coordinator marking', () => {
   })
 
   test('[P0] search hits real Postgres and returns no email or token', async ({ request }) => {
-    const response = await request.get(`${portalAPI}/api/v1/students/search?q=CB.SC.U4CSE24`, {
+    const response = await request.get(`${portalAPI}/api/v1/students/search?q=CB.SC.U4CSE99`, {
       headers: { Authorization: 'Bearer portal-coordinator-token' },
     })
     expect(response.status()).toBe(200)
@@ -123,7 +123,7 @@ test.describe('real stack coordinator marking', () => {
     // re-marking the same student in the same slot returns SCAN_DUPLICATE and
     // the retry could only ever fail, turning any flake into a hard red. Three
     // roster students are seeded, which covers the two retries.
-    const rolls = ['CB.SC.U4CSE24001', 'CB.SC.U4CSE24002', 'CB.SC.U4CSE24003']
+    const rolls = ['CB.SC.U4CSE99001', 'CB.SC.U4CSE99002', 'CB.SC.U4CSE99003']
     const roll = rolls[testInfo.retry % rolls.length]
 
     const { eventID, categoryID } = await selectedScope(page)
@@ -274,7 +274,7 @@ test.describe('real stack coordinator marking', () => {
     // endpoint, and the mark goes out as `camera` — not silently as `search`,
     // which the later shared camera+search credit cap would then mis-count.
     await page.evaluate(() => {
-      ;(window as unknown as { __decodeBarcode: (text: string) => void }).__decodeBarcode('CB.SC.U4CSE24002')
+      ;(window as unknown as { __decodeBarcode: (text: string) => void }).__decodeBarcode('CB.SC.U4CSE99002')
     })
 
     if (!slotOpen) {
@@ -289,6 +289,6 @@ test.describe('real stack coordinator marking', () => {
     }
 
     await expect(page.getByRole('status')).toBeVisible()
-    await expect(page.getByRole('status')).toContainText(/CB\.SC\.U4CSE24002|Rao/i)
+    await expect(page.getByRole('status')).toContainText(/CB\.SC\.U4CSE99002|Rao/i)
   })
 })

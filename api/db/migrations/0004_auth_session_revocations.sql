@@ -1,8 +1,8 @@
 -- 0004_auth_session_revocations.sql — the local session-revocation deny-list
--- (forced logout, Story 1.5c) + runtime grant.
+-- (forced logout) + runtime grant.
 --
 -- Runs as od_migrator (DATABASE_URL_MIGRATOR). Under the hybrid auth model
--- (Story 1.5a) Supabase owns sessions and refresh tokens; this table is NOT a
+-- Supabase owns sessions and refresh tokens; this table is NOT a
 -- session store and does NOT hold any token. It is an auditable deny-list the
 -- auth middleware consults so a still-cryptographically-valid access JWT is
 -- rejected on its NEXT request after a forced logout — without waiting for the

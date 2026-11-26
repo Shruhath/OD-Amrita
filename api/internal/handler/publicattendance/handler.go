@@ -1,5 +1,5 @@
 // Package publicattendance is the HTTP edge of the UNAUTHENTICATED public
-// attendance dashboard (Story 0.10, FR38-FR40).
+// attendance dashboard.
 //
 // Everything these two handlers return is served to the open internet with no
 // credential, so the mapping below is written as an allowlist: each contract

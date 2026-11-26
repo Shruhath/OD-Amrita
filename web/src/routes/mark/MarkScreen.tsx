@@ -517,7 +517,7 @@ export default function MarkScreen({
       {/*
         Every meter here is scoped to TODAY, and each label says so.
 
-        Under Story 0.12a all three of these reset at campus midnight: the two
+        All three of these reset at campus midnight: the two
         counters gained `AND od_date = @od_date` and the credit pool is keyed
         `(event_id, user_id, usage_date)`. On day 2 of a festival a coordinator
         who marked 200 students yesterday opens this screen to "0", "0" and a
@@ -788,7 +788,7 @@ function useSlotClock(
  * written for an API consumer ("Rejected.", "Student is already marked present
  * for this slot."), and a coordinator at arm's length needs to know what to do
  * next, not what the server called it. Every code here already exists in the
- * closed error registry — this story adds none.
+ * closed error registry — this screen adds none.
  */
 const FAILURE_REASON: Record<string, string> = {
   SCAN_DUPLICATE: 'Already marked — this student is recorded present for this slot.',

@@ -1,4 +1,4 @@
--- 0008_teacher_branches.sql — teacher-to-branch associations (Story 2.3).
+-- 0008_teacher_branches.sql — teacher-to-branch associations.
 --
 -- Same shape as event_branches (0005): a plain association table with a
 -- composite primary key and no updated_at (the pair is either present or

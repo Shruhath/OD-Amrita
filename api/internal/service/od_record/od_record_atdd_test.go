@@ -233,7 +233,7 @@ func newServiceFixture(t *testing.T, now time.Time) serviceFixture {
 	studentID := uuid.NewString()
 	eventID := uuid.NewString()
 	categoryID := uuid.NewString()
-	student := Student{StudentID: studentID, RollNo: "CB.SC.U4CSE24001", DisplayName: "Ananya Rao", Branch: "CSE", Section: "A", Batch: "2024"}
+	student := Student{StudentID: studentID, RollNo: "CB.SC.U4CSE99001", DisplayName: "Ananya Rao", Branch: "CSE", Section: "A", Batch: "2024"}
 	return serviceFixture{
 		eventID:    eventID,
 		categoryID: categoryID,

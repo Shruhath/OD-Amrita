@@ -58,7 +58,7 @@ func TestPortalBatchMarkHandlerRendersDetailedAndGenericConflicts(t *testing.T) 
 	}{
 		{
 			name: "duplicate includes students",
-			err:  odsvc.BatchDuplicateError{Students: []odsvc.Student{{StudentID: studentID, RollNo: "CB.SC.U4CSE24001", DisplayName: "Asha", Branch: "CSE", Section: "A", Batch: "2024"}}},
+			err:  odsvc.BatchDuplicateError{Students: []odsvc.Student{{StudentID: studentID, RollNo: "CB.SC.U4CSE99001", DisplayName: "Asha", Branch: "CSE", Section: "A", Batch: "2024"}}},
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var response contracts.BatchManualMarkConflict

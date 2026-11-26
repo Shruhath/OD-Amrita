@@ -1,5 +1,5 @@
 /**
- * Red-phase component tests for Story 0.11's portal dispute inbox (AC 11-14).
+ * Component tests for the portal dispute inbox.
  *
  * Rendered through the REAL Application on the REAL router, so "is /portal/disputes
  * registered above the `*` catch-all" and "does SessionBoundary admit a teacher"
@@ -150,11 +150,11 @@ describe('portal dispute inbox', () => {
 
     const detail = await screen.findByRole('region', { name: new RegExp(disputeReference, 'i') })
     for (const [label, value] of [
-      ['roll number', /CB\.SC\.U4CSE24101/i],
+      ['roll number', /CB\.SC\.U4CSE99101/i],
       ['student name', /Ananya Rao/i],
       ['branch/section', /CSE/i],
       ['batch', /2024/i],
-      ['submitted email', /cb\.sc\.u4cse24101@cb\.students\.amrita\.edu/i],
+      ['submitted email', /cb\.sc\.u4cse99101@cb\.students\.amrita\.edu/i],
       ['event', /Onam Celebrations/i],
       ['category', /Procession/i],
       ['slot', /slot\s*3\b/i],
@@ -319,7 +319,7 @@ describe('portal dispute inbox', () => {
       const denied = screen.queryByText(/access denied|not allowed|permission/i)
       expect(denied, 'a coordinator was not refused the dispute inbox').toBeInTheDocument()
     })
-    expect(screen.queryByText(/cb\.sc\.u4cse24101@/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/cb\.sc\.u4cse99101@/i)).not.toBeInTheDocument()
   })
 
   // 0.11-PORTAL-006b — the SERVICE's 403 is legible too (AC 11).

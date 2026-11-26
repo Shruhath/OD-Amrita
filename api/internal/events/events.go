@@ -43,7 +43,7 @@ const SchemaVersion = 1
 // for each of the two dozen registered actions, all to restate what the action's
 // own Payload already carries. Consumers that need the specifics parse Payload,
 // which is the SAME bytes the ledger stored — so a consumer and an auditor
-// reading the same event can never see two different stories.
+// reading the same event can never see two different accounts of it.
 type Envelope struct {
 	// ID is unique per PUBLISH, not per fact. Two publishes of the same audit
 	// row (a retry, a replay) carry different IDs and the same Type/TargetID, so

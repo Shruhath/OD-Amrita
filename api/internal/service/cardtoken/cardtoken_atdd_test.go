@@ -20,7 +20,7 @@ func TestSealDeterministicPayloadAndLedgerIdempotency(t *testing.T) {
 	ctx := context.Background()
 	student := Student{
 		ID:          "97000000-0000-4000-8000-000000000001",
-		RollNo:      "CB.SC.U4CSE24001",
+		RollNo:      "CB.SC.U4CSE99001",
 		DisplayName: "Ananya Rao",
 		Branch:      "CSE",
 		Section:     "A",
@@ -68,14 +68,14 @@ func TestSealDeterministicPayloadAndLedgerIdempotency(t *testing.T) {
 	if audit.changedWrites != 1 {
 		t.Fatalf("audit changed writes=%d, want only first seal audited", audit.changedWrites)
 	}
-	if bytes.Contains(audit.payload, []byte(first.Token)) || bytes.Contains(audit.payload, []byte("CB.SC.U4CSE24001")) {
+	if bytes.Contains(audit.payload, []byte(first.Token)) || bytes.Contains(audit.payload, []byte("CB.SC.U4CSE99001")) {
 		t.Fatalf("audit payload leaked raw token or roll number: %s", audit.payload)
 	}
 }
 
 func TestSealUsesActiveVersionAndKeyMaterialChangesToken(t *testing.T) {
 	ctx := context.Background()
-	student := Student{ID: "97000000-0000-4000-8000-000000000002", RollNo: "CB.SC.U4CSE24002"}
+	student := Student{ID: "97000000-0000-4000-8000-000000000002", RollNo: "CB.SC.U4CSE99002"}
 	v1 := NewService(fakeReader{student: student}, &fakeLedger{}, &fakeAuditStore{}, mustKeyring(t, "v1", map[string][]byte{"v1": bytes.Repeat([]byte{0x11}, 32)}))
 	v2 := NewService(fakeReader{student: student}, &fakeLedger{}, &fakeAuditStore{}, mustKeyring(t, "v2", map[string][]byte{"v2": bytes.Repeat([]byte{0x22}, 32)}))
 
@@ -99,7 +99,7 @@ func TestResolveKnownTokenAndRejectsUniformFailures(t *testing.T) {
 	ctx := context.Background()
 	student := Student{
 		ID:          "97000000-0000-4000-8000-000000000003",
-		RollNo:      "CB.SC.U4CSE24003",
+		RollNo:      "CB.SC.U4CSE99003",
 		DisplayName: "Madhav Rao",
 		Branch:      "CSE",
 		Section:     "B",

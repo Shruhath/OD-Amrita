@@ -1,5 +1,5 @@
 // Package publicattendance serves one student's OD records to a caller with no
-// credential (Story 0.10, FR39).
+// credential.
 //
 // A SEPARATE PACKAGE ON PURPOSE. The obvious home would be service/marking,
 // which already reads od_records for the admin attendance view — but that
@@ -43,7 +43,7 @@ import (
 // SIZED AGAINST THE RANGE, not against a single day. The old value of 500 was
 // justified as "over forty event-days for one student — far beyond any realistic
 // history", which was true while an event was one day. It stopped being true
-// under Story 0.12a: an event may now span maxEventRangeDays (90) and a student
+// with multi-day events: an event may now span maxEventRangeDays (90) and a student
 // can hold a mark in each of the 12 slots, so ONE event alone can produce 1080
 // rows. At 500 the query — which orders by od_date DESC — would silently drop
 // the EARLIEST days, and the screen whose entire purpose is never to read as "I

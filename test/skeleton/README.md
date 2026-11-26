@@ -1,24 +1,17 @@
-# Skeleton ATDD Acceptance Harness — Story 1.1
+# Skeleton Acceptance Tests
 
-Red-phase acceptance tests for **Story 1.1: Monorepo skeleton & workspace wiring with CI scaffold**.
+Acceptance tests for the **monorepo skeleton, workspace wiring and CI scaffold**.
 
-These are the executable form of the story's acceptance criteria. They are **structural + toolchain** assertions (no business logic — that arrives in Story 1.2+). Every test starts `SKIP`ped (`t.Skip("RED: ...")`) and asserts the *expected* end state of the skeleton, so it fails against the current experimental tree and passes once the skeleton is built.
+They are **structural + toolchain** assertions (no business logic): each one checks part of the expected layout of the repository — surface directories, Go and pnpm workspaces, the api module's entrypoints and layout, the CI workflows and their path filters, and the documented TLS-only posture.
 
 ## Run
 
 ```bash
 cd test/skeleton
-go test -v ./...      # all SKIP in red phase
+go test -v ./...
 ```
 
-Standalone stdlib-only module — no dependency on `api/`, and it survives the root-Go-module reconciliation. Optionally wire into the workspace in the green phase: `go work use ./test/skeleton`.
-
-## Activation (green phase) — one scenario at a time
-
-1. Implement the Story 1.1 task that satisfies a scenario.
-2. Delete the single `t.Skip("RED: ...")` line at the top of that scenario's `Test...` function.
-3. `go test -v ./...` — confirm it was RED before your change and is GREEN after.
-4. Commit.
+Standalone stdlib-only module — no dependency on `api/`. Optionally wire into the workspace: `go work use ./test/skeleton`. CI runs it in the `api-ci` acceptance job.
 
 ## Scenario → Acceptance Criterion map
 
@@ -49,4 +42,4 @@ Standalone stdlib-only module — no dependency on `api/`, and it survives the r
 
 - **YAML validity** (`TestAC4_WorkflowsWellFormed`) is a lightweight substring check — stdlib has no YAML parser. True validity + "green on empty skeleton" is enforced by GitHub Actions / `actionlint` in CI.
 - **git-ignore semantics** (`TestDoD_GitignoreTracksSurfaceMakefiles`) are approximated by checking the over-broad `Makefile` line is gone + the Makefiles exist on disk. Exact behavior is verified by `git check-ignore` in CI.
-- `TestAC1_PnpmWorkspaceResolves` runs `pnpm install --frozen-lockfile --prefer-offline`; ensure pnpm is available on the runner when activated.
+- `TestAC1_PnpmWorkspaceResolves` runs `pnpm install --frozen-lockfile --prefer-offline`; ensure pnpm is available on the runner.

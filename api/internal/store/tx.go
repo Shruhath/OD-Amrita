@@ -20,14 +20,14 @@ import (
 // ErrUnregisteredAction is returned by WithAudit when the event's Action is empty
 // or not in the domain.AllActions registry. It is the runtime half of the
 // "no free-text audit events" guarantee (the compile-time half is that only a
-// domain.Action can be passed) — a story that adds an auditable action but
+// domain.Action can be passed) — a change that adds an auditable action but
 // forgets to register it fails loudly here instead of writing an unnamed row.
 var ErrUnregisteredAction = errors.New("store: unregistered audit action")
 
 // Store is the write boundary. It holds the runtime pool and the audit inserter
 // (swappable for tests via WithAuditInserter). It is framework-free — it takes a
-// pgx pool, not any gin type — so cmd/api and cmd/worker (the Epic 3 River sync
-// path) reuse the identical helper.
+// pgx pool, not any gin type — so cmd/api and cmd/worker (the River sync path)
+// reuse the identical helper.
 type Store struct {
 	pool          *pgxpool.Pool
 	auditInserter AuditInserter

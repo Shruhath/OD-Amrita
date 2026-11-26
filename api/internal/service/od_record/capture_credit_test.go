@@ -61,7 +61,7 @@ type acceptingCardResolver struct{}
 func (acceptingCardResolver) Resolve(context.Context, Actor, CardInput) (Student, error) {
 	return Student{
 		StudentID:   scaffoldStudentID,
-		RollNo:      "CB.SC.U4CSE24001",
+		RollNo:      "CB.SC.U4CSE99001",
 		DisplayName: "Scaffold Student",
 		Branch:      "CSE",
 		Section:     "A",

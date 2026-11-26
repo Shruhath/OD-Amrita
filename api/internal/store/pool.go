@@ -3,8 +3,8 @@ package store
 // pool.go — the runtime pgx connection pool. The DSN passed here must be the
 // od_runtime (DML-only) DSN: the app never connects as od_migrator. Business
 // queries do NOT live here — only the pool constructor and its Ping path
-// (used by the /health handler). The same-transaction write helpers land in
-// tx.go/audit.go in a later story.
+// (used by the /health handler). The same-transaction write helpers live in
+// tx.go/audit.go.
 
 import (
 	"context"

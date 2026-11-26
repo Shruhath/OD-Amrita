@@ -136,7 +136,7 @@ func TestRosterSchemaRejectsNonCanonicalReferenceData(t *testing.T) {
 
 	if _, err := migrator.Exec(ctx, `
 		INSERT INTO students (roll_no, name, branch_id, section, batch)
-		VALUES ('cb.sc.u4cse24999', 'Lowercase Roll', $1, 'A', '2024')
+		VALUES ('cb.sc.u4cse99999', 'Lowercase Roll', $1, 'A', '2024')
 	`, branchID); err == nil {
 		t.Fatal("expected lowercase student roll number to be rejected")
 	}

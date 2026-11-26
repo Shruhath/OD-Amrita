@@ -23,7 +23,7 @@ type Provisioner interface {
 	Provision(ctx context.Context, id svcauth.VerifiedIdentity) (svcuser.User, error)
 }
 
-// Auditor writes the auth.login_succeeded audit event (Story 1.7). The handler
+// Auditor writes the auth.login_succeeded audit event. The handler
 // keeps only this narrow login-success view of *service/auth.EventAuditor so the
 // login round-trip depends on the behavior, not the concrete service.
 type Auditor interface {
@@ -31,7 +31,7 @@ type Auditor interface {
 }
 
 // MeHandler returns the identity verified by the auth middleware, provisioning
-// the application user + role on the way (Story 1.5b). Provisioning runs HERE —
+// the application user + role on the way. Provisioning runs HERE —
 // the /auth/me login round-trip — not in the per-request auth middleware, so an
 // authenticated call never carries a DB write-path. Provisioning itself is
 // idempotent: a returning identity writes no user.provisioned row, and since the
@@ -82,12 +82,12 @@ func MeHandler(provisioner Provisioner, auditor Auditor) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		// Audit the login BEFORE responding 200 (Story 1.7). Fail-closed: a login
+		// Audit the login BEFORE responding 200. Fail-closed: a login
 		// whose audit write fails must not "complete" as a success — push the error
 		// to the centralized middleware (rendered INTERNAL 500), never 200. Fires on
 		// every successful /auth/me (per-call, not per-session; session_id is in the
 		// payload for later dedup). device = the request User-Agent (IP is deferred
-		// to Epic 14, which needs SetTrustedProxies first).
+		// until a SetTrustedProxies configuration exists).
 		device := strings.TrimSpace(c.Request.UserAgent())
 		if err := auditor.LoginSucceeded(c.Request.Context(), user.Email, string(user.Role), id.Subject, id.SessionID, device); err != nil {
 			_ = c.Error(err)

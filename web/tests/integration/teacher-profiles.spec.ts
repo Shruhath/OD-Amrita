@@ -1,6 +1,6 @@
 import { expect, test, type Locator } from '@playwright/test'
 
-// Story 2.3 against the REAL stack — the deterministic portal API in
+// Teacher profiles against the REAL stack — the deterministic portal API in
 // api/test/portal and a real Postgres.
 //
 // Invoked by: web-deploy -> portal-integration job
@@ -11,14 +11,11 @@ import { expect, test, type Locator } from '@playwright/test'
 // the server actually behaves that way and that the role elevation and branch
 // associations survive in Postgres.
 //
-// RED PHASE / fixture dependency: this spec needs a SEEDED student-role fixture
-// user to elevate — the portal harness cannot create one through the UI, since
-// student provisioning happens only via a real first login. Task 6 extends
-// api/test/portal/main.go's seed() with exactly this row (see the story's Dev
-// Notes: "Extend api/test/portal/main.go's seed() to provision a student-role
-// fixture user the browser journeys can elevate"). Until then every case here
-// fails at the elevation step, which is the correct red signal — the fixture
-// email below (studentFixtureEmail) does not exist in the harness database yet.
+// Fixture dependency: this spec needs a SEEDED student-role fixture user to
+// elevate — the portal harness cannot create one through the UI, since student
+// provisioning happens only via a real first login. api/test/portal/main.go's
+// seed() provisions exactly this row (studentFixtureEmail below); without it
+// every case here fails at the elevation step.
 
 const portalAPI = 'http://127.0.0.1:8081'
 

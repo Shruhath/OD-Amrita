@@ -62,7 +62,7 @@ func TestDispute_ApprovalCreditsTheSlotAndReachesThePublicDashboard(t *testing.T
 	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
 	fixture := seedMarkFixture(t, ctx, migrator)
 
-	roll := "CB.SC.U4CSE24821"
+	roll := "CB.SC.U4CSE99821"
 	studentID := seedDisputeStudent(t, ctx, migrator, roll, "91000000-0000-4000-8000-000000000001")
 
 	svc := newDisputeService(t, runtime)
@@ -142,7 +142,7 @@ func TestDispute_ApprovingAnAlreadyMarkedSlotResolvesWithoutDuplicating(t *testi
 	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
 	fixture := seedMarkFixture(t, ctx, migrator)
 
-	roll := "CB.SC.U4CSE24822"
+	roll := "CB.SC.U4CSE99822"
 	studentID := seedDisputeStudent(t, ctx, migrator, roll, "91000000-0000-4000-8000-000000000001")
 
 	svc := newDisputeService(t, runtime)
@@ -190,7 +190,7 @@ func TestDispute_AnApprovalThatCannotWriteTheRecordResolvesNothing(t *testing.T)
 	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
 	fixture := seedMarkFixture(t, ctx, migrator)
 
-	roll := "CB.SC.U4CSE24823"
+	roll := "CB.SC.U4CSE99823"
 	studentID := seedDisputeStudent(t, ctx, migrator, roll, "91000000-0000-4000-8000-000000000001")
 
 	svc := newDisputeService(t, runtime)

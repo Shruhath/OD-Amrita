@@ -65,9 +65,9 @@ const coordinators = [
 ]
 
 const students = [
-  { student_id: 's1', roll_no: 'CB.SC.U4CSE24124', display_name: 'Aparna Menon', branch_code: 'CSE', batch: '2024', section: 'A', card_state: 'pending' },
-  { student_id: 's2', roll_no: 'CB.SC.U4CSE24125', display_name: 'Karthik Nair', branch_code: 'CSE', batch: '2024', section: 'A', card_state: 'pending' },
-  { student_id: 's3', roll_no: 'CB.SC.U4CSE24126', display_name: 'Divya Raghavan', branch_code: 'CSE', batch: '2024', section: 'A', card_state: 'pending' },
+  { student_id: 's1', roll_no: 'CB.SC.U4CSE99124', display_name: 'Aparna Menon', branch_code: 'CSE', batch: '2024', section: 'A', card_state: 'pending' },
+  { student_id: 's2', roll_no: 'CB.SC.U4CSE99125', display_name: 'Karthik Nair', branch_code: 'CSE', batch: '2024', section: 'A', card_state: 'pending' },
+  { student_id: 's3', roll_no: 'CB.SC.U4CSE99126', display_name: 'Divya Raghavan', branch_code: 'CSE', batch: '2024', section: 'A', card_state: 'pending' },
 ]
 
 const page1 = (data: unknown[]) => ({ data, page: 1, page_size: 20, total: data.length })
@@ -83,7 +83,7 @@ async function mockApi(page: Page, role: PortalRole) {
     const path = url.pathname
 
     if (path.endsWith('/auth/me')) {
-      return json(route, { subject: `review-${role}`, email: `${role}@amrita.edu`, name: 'Shruhath Reddy', role })
+      return json(route, { subject: `review-${role}`, email: `${role}@amrita.edu`, name: 'Arjun Menon', role })
     }
     if (path.endsWith('/branches')) return json(route, page1([branch, ece]))
     if (path.endsWith('/capture-credits')) {

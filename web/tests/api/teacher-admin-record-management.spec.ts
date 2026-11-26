@@ -1,7 +1,7 @@
 import { expect, test, type APIResponse } from '@playwright/test'
 
 /**
- * Story 0.12b teacher/admin OD record management — request-level API tests.
+ * Teacher/admin OD record management — request-level API tests.
  *
  * Moved here from tests/e2e/ during code review: that directory is matched by
  * playwright.config.ts's browser project (webServer = `pnpm dev`, no portal

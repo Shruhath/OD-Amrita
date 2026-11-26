@@ -19,7 +19,7 @@ import {
 } from '../support/factories/student-disputes'
 
 /**
- * Mocked browser journeys for Story 0.11's public dispute form.
+ * Mocked browser journeys for the public dispute form.
  *
  * What this file adds over the component tests is a REAL browser at a REAL URL,
  * with real layout: whether the form is usable at 390px, whether the page scrolls
@@ -251,7 +251,7 @@ test.describe('public dispute form', () => {
   // 0.11-E2E-006 — the two 0.10 reads still work with the form on the page
   // (AC 17).
   //
-  // This story adds a POST to a page that was read-only. The regression to catch
+  // The dispute form adds a POST to a page that was read-only. The regression to catch
   // is the dashboard breaking as a side effect: a shared client that starts
   // sending a token, or a query key collision that empties the slot grid.
   test('[P0] the 0.10 dashboard still renders its slots with the dispute form present', async ({ page }) => {

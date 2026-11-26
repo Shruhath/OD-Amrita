@@ -7,7 +7,7 @@
 //	first-contact identity → exactly 1 new users row, exactly 2 new audit_log rows
 //	audit insert forced to fail → 0 rows of EITHER kind, and a 500 (never a 200)
 //
-// The epic's negative test — that od_runtime cannot UPDATE/DELETE/TRUNCATE
+// The negative test — that od_runtime cannot UPDATE/DELETE/TRUNCATE
 // audit_log, nor disable the immutability trigger — is already proven in
 // api/test/db/immutability_test.go and api/test/db/roles_test.go. It is cited
 // here, deliberately NOT rewritten (no duplicate coverage).
@@ -92,7 +92,7 @@ func TestRoundTrip_FirstContact_WritesUserAndTwoAuditRows(t *testing.T) {
 		t.Errorf("[P0] response name = %v, want %q (AC 2 requires the server-supplied name to render)", got.Name, a.name)
 	}
 	// No bootstrap allowlist was passed, so ResolveRole must land on `student`.
-	// (Coordinator assignment is Story 2.4 — see the story's spec-vs-reality note.)
+	// (Coordinator authority is a per-event assignment, never a login-time role.)
 	if got.Role != contracts.AuthenticatedIdentityRoleStudent {
 		t.Errorf("[P0] server-resolved role = %q, want %q", got.Role, contracts.AuthenticatedIdentityRoleStudent)
 	}
@@ -100,7 +100,7 @@ func TestRoundTrip_FirstContact_WritesUserAndTwoAuditRows(t *testing.T) {
 
 // TestRoundTrip_ReturningIdentity_WritesExactlyOneAuditRow — [P0] 1.9-INT-002.
 //
-// THE literal epic exit criterion: "one observable round trip writes exactly one
+// THE literal exit criterion: "one observable round trip writes exactly one
 // auditable row through store/tx.go". A returning identity provisions nothing
 // (the last_login_at bump is not an auditable event → changed=false → no
 // user.provisioned row) and earns exactly ONE new row: auth.login_succeeded.
@@ -133,7 +133,7 @@ func TestRoundTrip_ReturningIdentity_WritesExactlyOneAuditRow(t *testing.T) {
 		t.Errorf("[P0] a returning identity must write NO new users row, got Δusers=%d", dUsers)
 	}
 	if dAudit != 1 {
-		t.Errorf("[P0] a returning identity must write EXACTLY ONE auditable row (the epic exit criterion), got Δaudit=%d", dAudit)
+		t.Errorf("[P0] a returning identity must write EXACTLY ONE auditable row (the round-trip exit criterion), got Δaudit=%d", dAudit)
 	}
 	// And that one row must be the login, not a second provisioning.
 	if n := countAuditAction(t, ctx, pool, a.email, string(domain.ActionUserProvisioned)); n != 1 {
@@ -244,7 +244,7 @@ func TestRoundTrip_InvalidToken_RejectsBeforeAnyWrite(t *testing.T) {
 // drizzle-gateway during the device smoke run (Task 7): the action, the actor
 // account, the SERVER-RESOLVED role, and a payload carrying the session_id and
 // the device (the request's User-Agent). A row with the right count but an empty
-// payload would still fail the story's intent.
+// payload would still fail the intent.
 func TestRoundTrip_LoginAuditRowContent(t *testing.T) {
 	ctx := testCtx(t)
 	pool := connect(t, ctx, dsnOrSkip(t, envRuntimeDSN))
@@ -289,9 +289,9 @@ func TestRoundTrip_LoginAuditRowContent(t *testing.T) {
 // AUTH_BOOTSTRAP_ADMINS allowlist (nothing the device sends can influence it) and
 // that the resolved value is what gets both echoed AND audited.
 //
-// It also pins the story's spec-vs-reality note: `admin` is reachable only via the
-// allowlist. There is no `coordinator` path yet, and this story must not add one
-// (that is Story 2.4).
+// It also pins that `admin` is reachable only via the allowlist, and that login
+// never resolves `coordinator` — coordinator authority comes from a per-event
+// assignment, not the base role.
 func TestRoundTrip_BootstrapAdmin_RoleIsResolvedServerSide(t *testing.T) {
 	ctx := testCtx(t)
 	pool := connect(t, ctx, dsnOrSkip(t, envRuntimeDSN))
@@ -315,7 +315,7 @@ func TestRoundTrip_BootstrapAdmin_RoleIsResolvedServerSide(t *testing.T) {
 	}
 
 	// The audited role must match the echoed one — the ledger and the response
-	// cannot tell different stories about who logged in.
+	// cannot disagree about who logged in.
 	row := latestAuditRow(t, ctx, pool, a.email, string(domain.ActionAuthLoginSucceeded))
 	if row.ActorRole == nil || *row.ActorRole != string(contracts.AuthenticatedIdentityRoleAdmin) {
 		t.Errorf("[P1] the audited role must match the echoed role, got %v want admin", row.ActorRole)

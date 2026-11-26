@@ -15,7 +15,7 @@ import {
 } from '../support/factories/public-attendance'
 
 /**
- * Mocked browser journeys for the Story 0.10 public attendance dashboard.
+ * Mocked browser journeys for the public attendance dashboard.
  *
  * The one thing this file adds over the component tests is a REAL browser at a
  * REAL URL: the component tests run on a memory router, so they cannot prove
@@ -142,7 +142,7 @@ test.describe('public attendance dashboard', () => {
 
     const table = page.getByRole('table', { name: /on-duty students/i })
     await expect(table).toBeVisible()
-    const row = table.getByRole('row', { name: /CB\.SC\.U4CSE24101/ })
+    const row = table.getByRole('row', { name: /CB\.SC\.U4CSE99101/ })
     await expect(row).toContainText('Ananya Rao')
     await expect(row).toContainText('Procession')
 
@@ -196,7 +196,7 @@ test.describe('public attendance dashboard', () => {
     // the assertion above and is a different bug.
     await expect(page.getByRole('listitem').filter({ hasText: /slot\s*\d+:/i })).toHaveCount(3)
 
-    // Epic 0 has no async path; inventing an amber state would tell a student to
+    // There is no async path; inventing an amber state would tell a student to
     // wait for a sync that does not exist (T14).
     await expect(page.getByText(/pending|syncing|not yet synced|queued/i)).toHaveCount(0)
   })

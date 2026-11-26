@@ -22,10 +22,9 @@ Both the scanner (`src/features/scan`) and this populator mode consume the same
 `src/lib/{nfc,encode}` code. This is why the populator is a **feature folder**,
 not a second runtime.
 
-## Status (Story 1.1)
+## Status
 
 Skeleton placeholder only — this folder reserves the mode. The RBAC gate, roster
-read, and NDEF encode flow are implemented in **Epic 6**.
+read, and NDEF encode flow are not built yet.
 
-_See [`../../../../CONVENTIONS.md`](../../../../CONVENTIONS.md) and the architecture
-"Surface 4 (SUPERSEDED)" / Epic 6 intro for the full rationale._
+_See [`../../../../CONVENTIONS.md`](../../../../CONVENTIONS.md) for the full rationale._

@@ -1,19 +1,13 @@
-// Package skeleton holds the RED-PHASE ATDD acceptance harness for Story 1.1
-// "Monorepo skeleton & workspace wiring with CI scaffold".
+// Package skeleton holds the structural acceptance tests for the monorepo
+// layout, workspace wiring and CI scaffold.
 //
-// Go analog of Playwright's test.skip(). The assertions encode the EXPECTED end
-// state of the skeleton; they FAIL against today's experimental tree (root Go
-// module + greeting sample, frontend/ Expo experiment, single .github/workflows/
-// test.yml, and no api/ contracts/ mobile/ web/ tree).
-//
-// ACTIVATION (green phase), task-by-task:
-//  1. Implement the task in Story 1.1 that satisfies a scenario.
-//  3. Run: `cd test/skeleton && go test ./...`
-//  4. Confirm the just-activated test was RED before the change and GREEN after.
-//  5. Commit.
+// The assertions check that the surface directories (api/, contracts/, mobile/,
+// web/) exist and resolve as Go and pnpm workspaces, that the api module builds
+// with its two entrypoints and layered internal layout, that the four CI
+// workflows exist with correct path filters, that TLS-only serving is
+// documented, and that the legacy root Go module and test.yml are gone.
 //
 // Run all: `cd test/skeleton && go test -v ./...`
-// Source of truth: _bmad-output/implementation-artifacts/1-1-monorepo-skeleton-workspace-wiring-with-ci-scaffold.md
 package skeleton
 
 import (
@@ -279,7 +273,7 @@ func TestAC4_WorkflowsWellFormed(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// AC5 — TLS 1.2+, no HTTP fallback (documented config-level assertion in this story)
+// AC5 — TLS 1.2+, no HTTP fallback (documented config-level assertion)
 // ---------------------------------------------------------------------------
 
 // [P1] AC5/NFR15: a documented TLS-only / no-HTTP-fallback assertion exists somewhere authoritative.

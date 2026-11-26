@@ -19,8 +19,8 @@ import (
 func rosterListResult() studentsvc.ListResult {
 	return studentsvc.ListResult{
 		Students: []studentsvc.Student{
-			{StudentID: "a1000000-0000-4000-8000-000000000001", RollNo: "CB.SC.U4CSE24001", DisplayName: "Ananya José", Branch: "CSE", Section: "A", Batch: "2024"},
-			{StudentID: "a1000000-0000-4000-8000-000000000002", RollNo: "CB.SC.U4CSE24002", DisplayName: "Madhav Rao", Branch: "CSE", Section: "A", Batch: "2024"},
+			{StudentID: "a1000000-0000-4000-8000-000000000001", RollNo: "CB.SC.U4CSE99001", DisplayName: "Ananya José", Branch: "CSE", Section: "A", Batch: "2024"},
+			{StudentID: "a1000000-0000-4000-8000-000000000002", RollNo: "CB.SC.U4CSE99002", DisplayName: "Madhav Rao", Branch: "CSE", Section: "A", Batch: "2024"},
 		},
 		Page:     1,
 		PageSize: 100,
@@ -67,7 +67,7 @@ func TestListStudentsHandler_RendersGeneratedCollection(t *testing.T) {
 	if len(body.Data) != 2 {
 		t.Fatalf("data = %d rows, want 2", len(body.Data))
 	}
-	if body.Data[0].RollNo != "CB.SC.U4CSE24001" || body.Data[0].DisplayName != "Ananya José" {
+	if body.Data[0].RollNo != "CB.SC.U4CSE99001" || body.Data[0].DisplayName != "Ananya José" {
 		t.Errorf("first row = %+v, want the service's first student", body.Data[0])
 	}
 

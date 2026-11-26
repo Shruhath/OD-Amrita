@@ -45,7 +45,7 @@ describe('card populator API client', () => {
     expect(query).toContain('batch=2024')
     expect(query).toContain('section=A')
     expect(query).toContain('page_size=100')
-    expect(result.data.map((row) => row.roll_no)).toEqual(['CB.SC.U4CSE24001'])
+    expect(result.data.map((row) => row.roll_no)).toEqual(['CB.SC.U4CSE99001'])
   })
 
   // An unset filter must be ABSENT from the query, not sent empty. `section=`

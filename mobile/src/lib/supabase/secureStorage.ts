@@ -1,5 +1,5 @@
 /**
- * expo-secure-store adapter for the Supabase session (Story 1.6, storage decision).
+ * expo-secure-store adapter for the Supabase session.
  *
  * Architecture requires the refresh token to live in OS secure storage. SecureStore has a
  * ~2 KB per-value limit and a full Supabase session JSON can exceed it, so this adapter

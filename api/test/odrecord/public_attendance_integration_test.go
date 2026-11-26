@@ -1,11 +1,11 @@
 //go:build integration
 
-// Real-Postgres tests for Story 0.10's public OD-records read (AC 4, 6, 14).
+// Real-Postgres tests for the public OD-records read.
 //
 // Deliberately in the EXISTING api/test/odrecord package. ./test/odrecord/... is
 // already wired into both api/Makefile's INTEGRATION_PKGS and
 // .github/workflows/api-ci.yml, so a new package here would silently never run
-// in CI the way three earlier stories' packages did — adding one means editing
+// in CI the way three earlier packages did — adding one means editing
 // the Makefile AND the workflow in the same change.
 //
 // Helpers (testCtx, dsnOrSkip, connect, seedMarkFixture, markFixture, countRows)
@@ -29,8 +29,8 @@
 //	type Student          struct { StudentID, RollNo, DisplayName, Branch, Section, Batch string }
 //
 // These run under `make -C api test-integration` locally (make db-up first).
-// Story 0.9's retrospective identified "no local Postgres, so CI is the first
-// real execution" as the single root cause of six defects across five CI rounds.
+// "No local Postgres, so CI is the first real execution" has been the single
+// root cause of six defects across five CI rounds.
 // Run them locally before pushing.
 package odrecordtest
 
@@ -51,7 +51,7 @@ import (
 // 0.10-INT-001 — records are grouped by od_records.od_date, most recent day
 // first, and ordered by slot ascending inside each day (AC 4).
 //
-// The grouping key MOVED under Story 0.12a: it was events.event_date, which was
+// The grouping key MOVED when events gained a date range: it was events.event_date, which was
 // correct only while one event meant one day, and would now collapse a thirty-day
 // festival onto its first heading. It is still not server_received_at — that
 // would file a teacher's next-morning correction under the wrong day, which on
@@ -134,7 +134,7 @@ func TestPublicAttendance_ArchivedEventRecordsAreStillReturned(t *testing.T) {
 	// archived_by_user_id is NOT optional here: events_archive_state_ck requires
 	// status/archived_at/archived_by_user_id to move together, so an UPDATE that
 	// sets only the first two is rejected by the constraint rather than by
-	// anything to do with this story.
+	// anything to do with the public read.
 	if _, err := migrator.Exec(ctx, `
 		UPDATE events SET status = 'archived', archived_at = now(), archived_by_user_id = $2
 		WHERE id = $1`, archived.eventID, fixture.adminID); err != nil {

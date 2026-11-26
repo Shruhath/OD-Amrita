@@ -53,7 +53,7 @@ func newTestStore(publisher events.Publisher) *Store {
 
 // TestPublish_CarriesTheAuditFieldsVerbatim — [P1].
 //
-// A consumer and an auditor reading the same event must see the same story. The
+// A consumer and an auditor reading the same event must see the same facts. The
 // payload especially: it is handed on as the SAME bytes the ledger stored, not
 // re-marshalled from a parallel struct that could drift from it.
 func TestPublish_CarriesTheAuditFieldsVerbatim(t *testing.T) {

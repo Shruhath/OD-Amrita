@@ -16,9 +16,9 @@ ALTER TABLE od_records
 --
 -- CLAMPED into the owning event's range, for the same reason and by the same rule
 -- the Go clamp uses (ClampToEventRange in service/od_record/schedule.go). The
--- receipt day equals the belonged-to day only for live coordinator marks. Story
--- 0.9's teacher/admin search-mark is exempt from slot windows and had NO date
--- check at all before this story, so a correction typed the morning after a
+-- receipt day equals the belonged-to day only for live coordinator marks. The
+-- teacher/admin search-mark is exempt from slot windows and had NO date
+-- check at all before this migration, so a correction typed the morning after a
 -- one-day event is a real, already-writable row whose receipt date falls outside
 -- the event entirely.
 --

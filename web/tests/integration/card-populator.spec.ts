@@ -7,8 +7,8 @@ const portalAPI = 'http://127.0.0.1:8081'
 // The seeded populator section from api/test/portal/main.go. Ananya sorts first
 // by canonical roll number even though the harness inserts Madhav first.
 const seededSection = { branch: 'CSE', batch: '2024', section: 'A' }
-const firstStudent = { rollNo: 'CB.SC.U4CSE24001', name: 'Ananya Rao' }
-const secondStudent = { rollNo: 'CB.SC.U4CSE24002', name: 'Madhav Rao' }
+const firstStudent = { rollNo: 'CB.SC.U4CSE99001', name: 'Ananya Rao' }
+const secondStudent = { rollNo: 'CB.SC.U4CSE99002', name: 'Madhav Rao' }
 
 async function openPopulator(page: import('@playwright/test').Page) {
   await page.goto('/integration.html?path=%2Fportal%2Fcard-populator')
@@ -34,7 +34,7 @@ test('[P0] lists real roster rows, seals one card, and resolves it back through 
   const rollCells = await roster.locator('tbody tr td:first-child').allTextContents()
   expect(rollCells.slice(0, 2)).toEqual([firstStudent.rollNo, secondStudent.rollNo])
   // Section B is a different section and must not appear.
-  await expect(roster.getByRole('row', { name: /CB\.SC\.U4CSE24003/ })).toHaveCount(0)
+  await expect(roster.getByRole('row', { name: /CB\.SC\.U4CSE99003/ })).toHaveCount(0)
 
   await page.getByRole('button', { name: new RegExp(`Write card for ${firstStudent.name}`, 'i') }).click()
   await expect(page.getByText(/Written, awaiting verify/i)).toBeVisible()
@@ -68,7 +68,7 @@ test('[P0] filters the roster server-side rather than in the browser', async ({ 
   await page.getByRole('button', { name: 'Load roster' }).click()
 
   const roster = page.getByRole('table', { name: 'Students to write' })
-  await expect(roster.getByRole('row', { name: /CB\.SC\.U4CSE24003/ })).toBeVisible()
+  await expect(roster.getByRole('row', { name: /CB\.SC\.U4CSE99003/ })).toBeVisible()
   await expect(roster.getByRole('row', { name: new RegExp(firstStudent.rollNo) })).toHaveCount(0)
 })
 

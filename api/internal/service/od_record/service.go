@@ -180,8 +180,8 @@ type Clock interface {
 // ScopeGuard is the marking scope seam, seen from the mark service.
 //
 // It is a dependency rather than a direct call so this package keeps no opinion
-// about who may mark: the whole policy lives in service/marking, and Story 0.7
-// replaces its body without touching a line of the mark path.
+// about who may mark: the whole policy lives in service/marking, and its body
+// can change without touching a line of the mark path.
 type ScopeGuard interface {
 	AssertCanMark(ctx context.Context, actor Actor, eventID, categoryID string) error
 }
@@ -684,8 +684,8 @@ func validateIdentity(input MarkInput) error {
 // capture_method "camera". Without this the three-mode screen has no legal
 // request shape for a camera mark at all.
 //
-// It opens no new fraud surface: camera and search share one credit pool in
-// Story 0.8, and capture_method is still persisted truthfully on the od_records
+// It opens no new fraud surface: camera and search share one credit pool,
+// and capture_method is still persisted truthfully on the od_records
 // row and on its audit row (FR44), so a camera mark can never be counted or
 // audited as something else.
 func validateIdentityCapturePair(input MarkInput) error {

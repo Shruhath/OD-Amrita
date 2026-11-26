@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-// Story 2.2 against the REAL stack — the deterministic portal API in
+// Event categories against the REAL stack — the deterministic portal API in
 // api/test/portal and a real Postgres.
 //
 // Invoked by: web-deploy -> portal-integration job
@@ -42,7 +42,7 @@ test('persists categories through the real API and Postgres across reloads', asy
   await page.goto('/integration.html')
   await expect(page.getByRole('heading', { name: 'Events', exact: true })).toBeVisible()
 
-  // Reuse Story 2.1's create path so this test owns its own event and does not
+  // Reuse the event-create path so this test owns its own event and does not
   // depend on another spec having run first.
   await page.getByRole('button', { name: 'New event' }).click()
   const createDialog = page.getByRole('dialog', { name: 'New event' })

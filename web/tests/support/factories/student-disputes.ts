@@ -1,5 +1,5 @@
 /**
- * Fixtures for Story 0.11's dispute surface — public submission and portal
+ * Fixtures for the dispute surface — public submission and portal
  * resolution.
  *
  * Follows tests/support/factories/public-attendance.ts: fixed ids so assertions
@@ -61,7 +61,7 @@ export type PublicEvent = {
   name: string
   /** The FIRST day of the event's range. */
   event_date: string
-  /** The LAST day. Added under Story 0.12a (T19): the day picker enumerates
+  /** The LAST day. Added for multi-day events: the day picker enumerates
    *  event_date..end_date inclusive, so without it the control has exactly one
    *  option and a student missed on day 17 of a festival cannot report it. */
   end_date: string

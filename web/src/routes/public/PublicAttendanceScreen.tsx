@@ -17,7 +17,7 @@ import { useIdleAwareInterval } from '../../features/polling/useIdleAwareInterva
 
 /**
  * The public attendance dashboard — the only screen in this app that a visitor
- * with no account ever sees (Story 0.10, FR38-FR40).
+ * with no account ever sees.
  *
  * Two rules shape everything below.
  *
@@ -43,7 +43,7 @@ import { useIdleAwareInterval } from '../../features/polling/useIdleAwareInterva
  * per-slot buttons carried, asked for once instead of being pre-answered twelve
  * times per day.
  *
- * There is deliberately no third "pending/syncing" state: Epic 0 has no async
+ * There is deliberately no third "pending/syncing" state: this build has no async
  * path at all, so an amber chip would tell a student to wait for a sync that
  * does not exist.
  */
@@ -198,7 +198,7 @@ export default function PublicAttendanceScreen() {
             spellCheck={false}
             value={query}
             maxLength={MAX_SEARCH_RUNES * 2}
-            placeholder="CB.SC.U4CSE24001"
+            placeholder="CB.SC.U4CSE99001"
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>

@@ -1,13 +1,8 @@
-// me_test.go — red-phase ATDD for Story 1.5a DoD 4: the GET /api/v1/auth/me
-// handler. It reads the identity the auth middleware stashed in the gin context
-// and returns 200 with the GENERATED contracts.AuthenticatedIdentity
-// { email, name, subject } — the round-trip prover and future home of
-// first-login provisioning (1.5b).
-//
-// RED: handler/auth is a Story 1.1 doc stub — MeHandler does not exist; it reads
-// via middleware/auth.SetIdentity/IdentityFromContext (unbuilt) and returns the
-// generated AuthenticatedIdentity type, which the contract does not define until
-// Task 2 regenerates it -> compile-red until Tasks 2/6.
+// me_test.go — tests for the GET /api/v1/auth/me handler. It reads the identity
+// the auth middleware stashed in the gin context (middleware/auth.SetIdentity /
+// IdentityFromContext), provisions the application user on first login, and
+// returns 200 with the GENERATED contracts.AuthenticatedIdentity
+// { email, name, subject, role } — the login round-trip prover.
 package auth
 
 import (
@@ -30,7 +25,7 @@ import (
 
 // echoProvisioner reflects the verified identity into a provisioned User
 // (default role student), isolating the handler from the provisioning DB write
-// while still exercising provision-then-return (Story 1.5b).
+// while still exercising provision-then-return.
 type echoProvisioner struct{}
 
 func (echoProvisioner) Provision(_ context.Context, id svcauth.VerifiedIdentity) (svcuser.User, error) {
@@ -42,9 +37,9 @@ func (echoProvisioner) Provision(_ context.Context, id svcauth.VerifiedIdentity)
 	}, nil
 }
 
-// noopAuditor is a login-success Auditor that records nothing (Story 1.7 wired the
-// dependency into MeHandler; these 1.5a/1.5b handler tests only care that the
-// login-success audit does not disturb the identity round-trip). The dedicated
+// noopAuditor is a login-success Auditor that records nothing (these handler
+// tests only care that the login-success audit does not disturb the identity
+// round-trip). The dedicated
 // audit assertions live in test/auth/login_audit_test.go.
 type noopAuditor struct{}
 
@@ -109,8 +104,7 @@ func TestMe_MissingIdentity_500(t *testing.T) {
 }
 
 // TestMe_WireShape — the response is exactly { email, name, subject, role } and
-// nothing else (the generated contract shape after Story 1.5b added the required
-// role), mirroring the health handler's wire-shape guard.
+// nothing else (the generated contract shape, with the required role), mirroring the health handler's wire-shape guard.
 func TestMe_WireShape(t *testing.T) {
 	id := svcauth.VerifiedIdentity{Email: "staff@amrita.edu", Name: "Staff Member", Subject: "user-uuid-123"}
 	w := serveMe(t, &id)

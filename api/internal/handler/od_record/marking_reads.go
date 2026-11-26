@@ -230,8 +230,8 @@ func MarkStatusHandler(svc MarkingReadService) gin.HandlerFunc {
 // markingActor loads the authenticated principal. It runs FIRST in every handler
 // above: if a handler judged its parameters before authorizing, the difference
 // between 400 and 403 would tell an unauthorized caller which parameters are
-// well-formed — a free oracle over the parameter space (the defect Story 0.3's
-// review fixed in the card-token handlers).
+// well-formed — a free oracle over the parameter space (the defect a review
+// fixed in the card-token handlers).
 func markingActor(c *gin.Context) (marking.Actor, error) {
 	actor, err := actorFromContext(c)
 	if err != nil {
@@ -244,7 +244,7 @@ func markingActor(c *gin.Context) (marking.Actor, error) {
 }
 
 // searchActor is markingActor's widened sibling for SearchStudentsHandler
-// alone. Story 0.9's teacher/admin search-mark screen calls this exact route
+// alone. The teacher/admin search-mark screen calls this exact route
 // before it can select anyone to mark, so live-marker-only here would 403 the
 // entire teacher/admin surface at its first step.
 func searchActor(c *gin.Context) (marking.Actor, error) {

@@ -5,7 +5,7 @@
 // Deliberately in the EXISTING api/test/odrecord package. ./test/odrecord/... is
 // already wired into both api/Makefile's INTEGRATION_PKGS and
 // .github/workflows/api-ci.yml, so a new package here would silently never run in
-// CI the way Stories 0.2-0.5 each did.
+// CI the way several earlier packages did.
 //
 // WHAT ONLY A REAL DATABASE CAN ANSWER, and therefore what lives here:
 //
@@ -91,7 +91,7 @@ func TestMultiDay_SameStudentAndSlotOnTwoDaysBothSucceed(t *testing.T) {
 
 	// The final day of the range must work too. Range containment is inclusive,
 	// and a coordinator on the closing day of a festival is doing exactly the
-	// thing this story exists for.
+	// thing the date range exists for.
 	if _, err := markServiceAt(runtime, fixture, dayFinal).Mark(ctx, fixtureCoordinator(fixture), searchMarkInput(fixture, studentID)); err != nil {
 		t.Errorf("[P0] the LAST day of the range was refused: %v. Containment is inclusive at both ends", err)
 	}
@@ -249,7 +249,7 @@ func TestMultiDay_CreditPoolIsPerDayWhileTheCapStaysPerEvent(t *testing.T) {
 // 0.12a-INT-005 — the public dashboard groups by the day the OD BELONGS TO, not
 // by the day the row was WRITTEN.
 //
-// The sharpest assertion in the story, and the one that fails if anyone derives
+// The sharpest assertion of the date range, and the one that fails if anyone derives
 // the date at read time from `server_received_at`. Both rows below are WRITTEN on
 // the 4th; one of them BELONGS to the 3rd. `ListPublicStudentODRecords` already
 // carries a comment explaining exactly this hazard: a teacher's next-morning
@@ -355,7 +355,7 @@ func TestMultiDay_AdminAttendanceFiltersToOneDay(t *testing.T) {
 // windows, and legitimately performed the next morning. An UNCLAMPED campus date
 // on the day after a one-day event is outside the range, and T10's database
 // trigger would then refuse a correction the teacher is entitled to make — a
-// feature that worked before this story, broken by it.
+// feature that worked before the date range, broken by it.
 //
 // For a single-day event the clamp reproduces today's observable behaviour
 // exactly: the record files under the event's own date.

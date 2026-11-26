@@ -1,5 +1,5 @@
 /**
- * 401 auth interceptor — silent Supabase access-token refresh + retry-once (Story 1.6).
+ * 401 auth interceptor — silent Supabase access-token refresh + retry-once.
  *
  * Auth model is HYBRID: the Supabase SDK owns sessions, refresh and revocation; the Go
  * backend verifies the Supabase JWT and returns `401 AUTH_TOKEN_INVALID` for an expired
@@ -16,7 +16,7 @@
  *
  * Boundary (AC-3): a transport that *rejects* (DNS/timeout/offline) is a thrown error, NOT
  * an HTTP 401 — it propagates unchanged and never triggers a refresh. Offline session
- * expiry is Story 4.5's job, explicitly out of scope here.
+ * expiry is handled separately and is explicitly out of scope here.
  */
 
 /** Thrown when the Supabase session is dead (refresh failed or yielded no session). */

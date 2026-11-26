@@ -1,4 +1,4 @@
-// Red-phase unit tests for Story 0.10's public rate limiter (AC 7, AC 8).
+// Unit tests for the public rate limiter.
 //
 // COMPILE-RED BY DESIGN. Nothing in this package exists yet beyond doc.go's
 // placeholder, so the first failure is `undefined: New` and friends. That is the

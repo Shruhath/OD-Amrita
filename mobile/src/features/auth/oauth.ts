@@ -1,5 +1,5 @@
 /**
- * Microsoft PKCE OAuth (Story 1.9, Task 1) — pure TS over injected ports.
+ * Microsoft PKCE OAuth — pure TS over injected ports.
  *
  * PRINCIPLE (the 1.6 house rule): the OAuth core is pure TS over INJECTED PORTS — a
  * Supabase-auth-like port and a WebBrowser port. No live Supabase, no network, no `.env`, no

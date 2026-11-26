@@ -38,8 +38,8 @@ func (g *MarkGuard) AssertCanMark(ctx context.Context, actor odrecord.Actor, eve
 	return AsDomainError(err)
 }
 
-// AsDomainError maps a policy refusal onto the existing error registry. Story
-// 0.6 deliberately introduces no new error code: every refusal this seam can
+// AsDomainError maps a policy refusal onto the existing error registry. The
+// seam deliberately introduces no new error code: every refusal it can
 // produce already has one.
 func AsDomainError(err error) error {
 	switch {

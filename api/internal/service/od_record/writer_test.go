@@ -27,9 +27,8 @@ func TestMapPgErrorMapsEventForeignKeyRaceToEventNotFound(t *testing.T) {
 // runtime role and never reaches this function, so until now nothing anywhere
 // asserted the resulting error CODE. That is structurally the same trap as the
 // renamed unique index one branch above: a constraint name matched as a string
-// literal, with the mapping unproven. Story 0.12b reuses this path verbatim the
-// moment a teacher is allowed to pick the day, which is when an unmapped 500
-// would start reaching real users.
+// literal, with the mapping unproven. A teacher-picked day reuses this path
+// verbatim, which is where an unmapped 500 would reach real users.
 func TestMapPgErrorMapsTheEventRangeGuardToAFieldValidation(t *testing.T) {
 	err := mapPgError(&pgconn.PgError{
 		Code:           sqlstateCheckViolation,
@@ -84,7 +83,7 @@ func TestMapPgErrorMapsTheDayKeyedDuplicateIndexToScanDuplicate(t *testing.T) {
 	}
 
 	// The pre-0.12a name must NOT still map — it no longer exists in the schema,
-	// and leaving it matched would hide exactly the rename this story performed.
+	// and leaving it matched would hide exactly the rename the multi-day change performed.
 	stale := &pgconn.PgError{
 		Code:           sqlstateUniqueViolation,
 		ConstraintName: "uq_od_records_present_student_event_slot",

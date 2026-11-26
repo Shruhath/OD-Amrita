@@ -48,7 +48,7 @@ class ChunkBoundary extends Component<{ children: ReactNode }, { failed: boolean
  *
  * Lazy-loaded so the dashboard's own code is a separate chunk (AR15). Splitting
  * the privileged portal out of the public entry point as well needs every route
- * in router.tsx lazy-loaded — a wider refactor that is not part of this story.
+ * in router.tsx lazy-loaded — a wider refactor that is not done here.
  */
 export default function PublicAttendanceRoute() {
   return (

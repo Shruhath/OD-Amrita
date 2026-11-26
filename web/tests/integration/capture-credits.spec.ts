@@ -4,8 +4,8 @@ import { expect, test } from '@playwright/test'
 const portalAPI = 'http://127.0.0.1:8081'
 const markingEventID = '93000000-0000-4000-8000-000000000001'
 const portalCoordinatorID = '90000000-0000-4000-8000-000000000003'
-const firstCreditRoll = 'CB.SC.U4CSE24004'
-const secondCreditRoll = 'CB.SC.U4CSE24005'
+const firstCreditRoll = 'CB.SC.U4CSE99004'
+const secondCreditRoll = 'CB.SC.U4CSE99005'
 
 async function selectedScope(page: import('@playwright/test').Page) {
   const eventSelect = page.getByRole('combobox', { name: /event/i })
@@ -71,7 +71,7 @@ test.describe('real stack fallback credits', () => {
     await expect(page.getByRole('button', { name: /search/i })).toBeEnabled({ timeout: 15_000 })
     if (slotOpen) {
       await searchMark(page, secondCreditRoll)
-      await expect(page.getByRole('status')).toContainText(/CB\.SC\.U4CSE24005|Iyer/i)
+      await expect(page.getByRole('status')).toContainText(/CB\.SC\.U4CSE99005|Iyer/i)
     }
   })
 

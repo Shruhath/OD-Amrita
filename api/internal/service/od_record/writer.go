@@ -152,7 +152,7 @@ func mapPgError(err error) error {
 	case sqlstateCheckViolation:
 		// The database's range guard. Unreachable for a coordinator mark by
 		// construction — ActiveSlot already proved today is inside the range — but
-		// Story 0.12b lets a teacher pick the day, and this is the mapping that
+		// a teacher may pick the day, and this is the mapping that
 		// makes a bad pick a 400 on the field rather than a 500.
 		if pgErr.ConstraintName == "od_records_od_date_event_range_ck" {
 			return validation("od_date", "outside_event_range", "The OD date must fall inside the event's date range.")

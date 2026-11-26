@@ -33,7 +33,7 @@ function record(overrides: Record<string, unknown> = {}) {
     record_id: '66000000-0000-4000-8000-000000000001',
     student: {
       student_id: '95000000-0000-4000-8000-000000000101',
-      roll_no: 'CB.SC.U4CSE24101',
+      roll_no: 'CB.SC.U4CSE99101',
       display_name: 'Ananya Rao',
       branch: 'CSE',
       section: 'A',
@@ -99,7 +99,7 @@ describe('live attendance', () => {
     renderLive()
 
     const table = await screen.findByRole('table', { name: /live attendance/i })
-    const row = within(table).getByRole('row', { name: /CB\.SC\.U4CSE24101/ })
+    const row = within(table).getByRole('row', { name: /CB\.SC\.U4CSE99101/ })
     expect(row).toHaveTextContent('Ananya Rao')
     expect(row).toHaveTextContent('Procession')
     expect(row).toHaveTextContent('4')

@@ -3,7 +3,7 @@ package student
 import "context"
 
 // PublicSearchLimit is the roster-search result cap for the UNAUTHENTICATED
-// public dashboard (Story 0.10).
+// public dashboard.
 //
 // Lower than the authenticated search's defaultSearchLimit (20) and
 // MaxSearchLimit (50), and — unlike those — not adjustable by the caller: the

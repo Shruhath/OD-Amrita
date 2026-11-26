@@ -161,11 +161,11 @@ record and 0 usage rows.
 ## 5. Implementation
 
 > **Migration numbering corrected 2026-08-06.** Steps 1-3 originally claimed
-> `0014`/`0015`/`0016`, but Story 0.11's `0014_disputes.sql` also claims `0014`.
-> 0.11 is `ready-for-dev` and this story is `backlog`, so **0.11 keeps `0014`** and
+> `0014`/`0015`/`0016`, but the disputes work's `0014_disputes.sql` also claims
+> `0014`. The disputes work is ahead of this plan, so **disputes keeps `0014`** and
 > the steps below shift to `0015`/`0016`/`0017`. Re-check against the highest
 > version actually present in `api/db/migrations/` before writing them — goose
-> refuses a duplicate version, and two stories in flight can shift it again.
+> refuses a duplicate version, and two changes in flight can shift it again.
 
 Ordered so each step is independently revertible. Next migration number is `0014`.
 
@@ -195,7 +195,7 @@ is deliberately not the same fact as `server_received_at`:
 - For a **live coordinator mark**, the server derives it as the current campus date.
   It is never accepted from the client — a client-settable date is a way to file a
   mark into yesterday.
-- For a **teacher/admin manual write** (Story 0.12b), it is **chosen by the
+- For a **teacher/admin manual write**, it is **chosen by the
   teacher**, because a correction typed on Tuesday morning may well be fixing
   Monday. This is precisely the case `ListPublicStudentODRecords` already warns
   about, and the reason a derived-from-receipt-time column would be wrong.
@@ -293,16 +293,16 @@ a day outside it, should read as "nothing scheduled" — not as an error.
 
 ---
 
-## 7. Knock-on: Story 0.11 must be decided first
+## 7. Knock-on: the disputes table must be decided first
 
-**Story 0.11 is `ready-for-dev` and creates the `disputes` table**, keyed on event +
+**The disputes work creates the `disputes` table**, keyed on event +
 slot. Once an event spans 30 days, "I was missed in slot 8" is ambiguous, so
 `disputes` needs an OD date column from the start.
 
 It is much cheaper to add that column when the table is created than to migrate it
-afterwards. If 0.11 is built before this story, add `od_date` to `disputes` anyway.
+afterwards. If disputes are built before this plan, add `od_date` to `disputes` anyway.
 
-**Status 2026-08-06 — actioned.** 0.11's locked decisions now carry it: **T21**
+**Status 2026-08-06 — actioned.** The disputes design now carries it: **T21**
 (`od_date date NOT NULL` from creation), **T11 amended** (the partial unique index
 is keyed `(student_id, event_id, od_date, slot)`), **T22** (a database range guard
 asserting the day falls inside the event — the anonymous-submitter analogue of Step
@@ -312,7 +312,7 @@ a value derived from `event_date`). All four are asserted by the dispute suites 
 `api/test/odrecord/dispute_integration_test.go`, `test/contract/dispute_contract_test.go`
 and `web/src/routes/public/PublicDisputeForm.test.tsx`.
 
-When this story lands, two follow-ups fall out of that work:
+When this plan lands, two follow-ups fall out of that work:
 
 - `PublicEvent` gains `end_date`, and it must be added to the public schema
   **allowlist** in `test/contract/dispute_contract_test.go` in the same change —

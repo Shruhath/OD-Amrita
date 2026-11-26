@@ -5,7 +5,7 @@ import { describe, expect, test } from 'vitest'
  *
  * The adapter lives at `web/src/features/nfc/webNfc.ts` and is imported by both
  * the card populator and the marking screen (FR65: the reader is shared, not
- * duplicated). `webNfc.test.ts` beside this file is Story 0.5's regression gate
+ * duplicated). `webNfc.test.ts` beside this file is the card populator's regression gate
  * for the write/read behaviour; this file covers the session added for marking.
  *
  * Marking is a continuous activity: a coordinator taps ~90 cards in a row and
@@ -22,7 +22,7 @@ async function loadAdapterModule() {
 /**
  * A fake NDEFReader that can deliver taps on demand.
  *
- * Modelled on the harness Story 0.5's CardPopulatorPortal test already uses, so
+ * Modelled on the harness the CardPopulatorPortal test already uses, so
  * the two suites describe the same radio in the same terms.
  */
 function installFakeReader(mediaType: string) {
@@ -165,7 +165,7 @@ describe('shared continuous NFC scan session', () => {
     expect(errors).toHaveLength(1)
     expect(errors[0].kind).toBe('card-payload')
     // The token is never echoed: a parse error quotes its source text, and that
-    // text IS the token. Story 0.5's adapter drops causes for this reason.
+    // text IS the token. The adapter drops causes for this reason.
     expect(errors[0].message).not.toContain('token')
 
     // The coordinator has 89 more students. A bad tag must not end the session.

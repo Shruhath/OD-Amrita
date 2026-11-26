@@ -13,7 +13,7 @@ describe('StudentsPortal', () => {
     const importStudents = vi.fn<NonNullable<EventApi['importStudents']>>().mockResolvedValue(result())
     renderPortal(importStudents)
 
-    await user.upload(screen.getByLabelText('Student roster CSV'), new File(['Roll No,Name,Branch,Section,Batch\nCB.SC.U4CSE24001,Name,CSE,A,2024\n'], 'students.csv', { type: 'text/csv' }))
+    await user.upload(screen.getByLabelText('Student roster CSV'), new File(['Roll No,Name,Branch,Section,Batch\nCB.SC.U4CSE99001,Name,CSE,A,2024\n'], 'students.csv', { type: 'text/csv' }))
     await user.click(screen.getByRole('button', { name: 'Import students' }))
 
     expect(importStudents).toHaveBeenCalledWith(expect.objectContaining({ name: 'students.csv' }))

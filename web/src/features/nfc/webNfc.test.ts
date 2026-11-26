@@ -122,7 +122,7 @@ describe('Web NFC adapter for card population', () => {
     const { state, windowRef } = fakeReaderFactory()
     const contaminated = {
       ...cardPayload(),
-      roll_no: 'CB.SC.U4CSE24001',
+      roll_no: 'CB.SC.U4CSE99001',
       display_name: 'Ananya Rao',
       student_id: '95000000-0000-4000-8000-000000000001',
     } as unknown as ReturnType<typeof cardPayload>
@@ -132,7 +132,7 @@ describe('Web NFC adapter for card population', () => {
     const written = new TextDecoder().decode(state.writes[0].records[0].data as Uint8Array)
     expect(Object.keys(JSON.parse(written)).sort()).toEqual(['token', 'version'])
     expect(written).not.toContain('Ananya Rao')
-    expect(written).not.toContain('CB.SC.U4CSE24001')
+    expect(written).not.toContain('CB.SC.U4CSE99001')
   })
 
   test('[P0] refuses to write on an unsupported or insecure surface', async () => {
@@ -354,7 +354,7 @@ describe('card payload parsing', () => {
   test('[P0] returns only version and token, discarding extra keys from the card', () => {
     const payload = cardPayload()
     const parsed = parseCardMessage([
-      cardRecord(JSON.stringify({ ...payload, roll_no: 'CB.SC.U4CSE24001', injected: true })),
+      cardRecord(JSON.stringify({ ...payload, roll_no: 'CB.SC.U4CSE99001', injected: true })),
     ] as never)
 
     expect(Object.keys(parsed).sort()).toEqual(['token', 'version'])

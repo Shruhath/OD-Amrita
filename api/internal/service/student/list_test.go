@@ -14,8 +14,8 @@ import (
 
 func rosterFixture() []Student {
 	return []Student{
-		{StudentID: "a1000000-0000-4000-8000-000000000001", RollNo: "CB.SC.U4CSE24001", DisplayName: "Ananya José", Branch: "CSE", Section: "A", Batch: "2024"},
-		{StudentID: "a1000000-0000-4000-8000-000000000002", RollNo: "CB.SC.U4CSE24002", DisplayName: "Madhav Rao", Branch: "CSE", Section: "A", Batch: "2024"},
+		{StudentID: "a1000000-0000-4000-8000-000000000001", RollNo: "CB.SC.U4CSE99001", DisplayName: "Ananya José", Branch: "CSE", Section: "A", Batch: "2024"},
+		{StudentID: "a1000000-0000-4000-8000-000000000002", RollNo: "CB.SC.U4CSE99002", DisplayName: "Madhav Rao", Branch: "CSE", Section: "A", Batch: "2024"},
 	}
 }
 
@@ -77,7 +77,7 @@ func TestList_RejectsNonAdminBeforeLookup(t *testing.T) {
 
 // A non-admin must be refused before validation too. If validation ran first, a
 // student could probe which filter values the roster accepts by reading the
-// 400-vs-403 difference — the enumeration leak Story 0.3's review closed on the
+// 400-vs-403 difference — the enumeration leak already closed on the
 // card-token handlers.
 func TestList_RejectsNonAdminBeforeValidation(t *testing.T) {
 	reader := &fakeReader{students: rosterFixture()}

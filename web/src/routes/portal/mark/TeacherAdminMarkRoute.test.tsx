@@ -108,9 +108,9 @@ describe('teacher/admin mark route red-phase scaffold', () => {
     await selectByLabel(user, screen.getByRole('combobox', { name: /category/i }), /exception desk/i)
     await selectByValue(user, screen.getByRole('combobox', { name: /slot/i }), '4')
     expect(screen.getByLabelText(/od date/i)).toBeInTheDocument()
-    fireEvent.change(screen.getByRole('searchbox', { name: /student/i }), { target: { value: 'CB.SC.U4CSE24' } })
-    await user.click(await screen.findByRole('option', { name: /select CB\.SC\.U4CSE24001/i }))
-    await user.click(await screen.findByRole('option', { name: /select CB\.SC\.U4CSE24002/i }))
+    fireEvent.change(screen.getByRole('searchbox', { name: /student/i }), { target: { value: 'CB.SC.U4CSE99' } })
+    await user.click(await screen.findByRole('option', { name: /select CB\.SC\.U4CSE99001/i }))
+    await user.click(await screen.findByRole('option', { name: /select CB\.SC\.U4CSE99002/i }))
     fireEvent.change(screen.getByRole('textbox', { name: /reason note/i }), {
       target: { value: 'Student attended the make-up session.' },
     })
@@ -142,8 +142,8 @@ describe('teacher/admin mark route red-phase scaffold', () => {
     await selectByLabel(user, screen.getByRole('combobox', { name: /category/i }), /exception desk/i)
     await selectByValue(user, screen.getByRole('combobox', { name: /slot/i }), '4')
     expect(screen.queryByLabelText(/od date/i)).not.toBeInTheDocument()
-    fireEvent.change(screen.getByRole('searchbox', { name: /student/i }), { target: { value: 'CB.SC.U4CSE24001' } })
-    await user.click(await screen.findByRole('option', { name: /select CB\.SC\.U4CSE24001/i }))
+    fireEvent.change(screen.getByRole('searchbox', { name: /student/i }), { target: { value: 'CB.SC.U4CSE99001' } })
+    await user.click(await screen.findByRole('option', { name: /select CB\.SC\.U4CSE99001/i }))
     fireEvent.change(screen.getByRole('textbox', { name: /reason note/i }), { target: { value: 'Student attended the make-up session.' } })
     await user.click(screen.getByRole('button', { name: /mark selected students/i }))
 
@@ -168,11 +168,11 @@ describe('teacher/admin mark route red-phase scaffold', () => {
     await screen.findByRole('heading', { name: /mark attendance/i })
     await selectByLabel(user, screen.getByRole('combobox', { name: /event/i }), /teacher mark fixture/i)
     await selectByLabel(user, screen.getByRole('combobox', { name: /category/i }), /exception desk/i)
-    fireEvent.change(screen.getByRole('searchbox', { name: /student/i }), { target: { value: 'CB.SC.U4CSE24001' } })
-    const firstStudent = await screen.findByRole('option', { name: /select CB\.SC\.U4CSE24001/i })
+    fireEvent.change(screen.getByRole('searchbox', { name: /student/i }), { target: { value: 'CB.SC.U4CSE99001' } })
+    const firstStudent = await screen.findByRole('option', { name: /select CB\.SC\.U4CSE99001/i })
     await user.click(firstStudent)
     expect(firstStudent).toHaveAttribute('aria-selected', 'true')
-    expect(firstStudent).toHaveAccessibleName(/deselect CB\.SC\.U4CSE24001/i)
+    expect(firstStudent).toHaveAccessibleName(/deselect CB\.SC\.U4CSE99001/i)
     await user.click(firstStudent)
     expect(firstStudent).toHaveAttribute('aria-selected', 'false')
     await user.click(firstStudent)
@@ -180,8 +180,8 @@ describe('teacher/admin mark route red-phase scaffold', () => {
     await user.click(screen.getByRole('button', { name: /mark selected students/i }))
 
     await waitFor(() => expect(batchPosts).toHaveLength(1))
-    expect(await screen.findByRole('alert')).toHaveTextContent(/Already marked: CB\.SC\.U4CSE24001\. Remove them and try again\./i)
-    expect(screen.getByRole('button', { name: /remove CB\.SC\.U4CSE24001 from selected students/i })).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Already marked: CB\.SC\.U4CSE99001\. Remove them and try again\./i)
+    expect(screen.getByRole('button', { name: /remove CB\.SC\.U4CSE99001 from selected students/i })).toBeInTheDocument()
   })
 
   redTest('[P0] teacher/admin route has no NFC, camera, or fallback-credit controls', async () => {

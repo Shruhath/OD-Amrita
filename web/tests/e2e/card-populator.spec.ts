@@ -13,8 +13,8 @@ import { installFakeWebNfc, nfcWrites, removeWebNfc } from './support/web-nfc'
 async function mockPopulatorApi(page: Page, role: 'admin' | 'student' = 'admin') {
   // Roll-ordered, as the server returns them.
   const students = [
-    cardPopulatorStudent(1, { display_name: 'Ananya Rao', roll_no: 'CB.SC.U4CSE24001' }),
-    cardPopulatorStudent(2, { display_name: 'Madhav Rao', roll_no: 'CB.SC.U4CSE24002' }),
+    cardPopulatorStudent(1, { display_name: 'Ananya Rao', roll_no: 'CB.SC.U4CSE99001' }),
+    cardPopulatorStudent(2, { display_name: 'Madhav Rao', roll_no: 'CB.SC.U4CSE99002' }),
   ]
   const cardRequests: Request[] = []
   await installPortalSession(page, role)

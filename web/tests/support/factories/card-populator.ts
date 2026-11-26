@@ -29,7 +29,7 @@ export const cardPopulatorBranch: CardPopulatorBranch = {
 export function cardPopulatorStudent(sequence: number, overrides: Partial<CardPopulatorStudent> = {}): CardPopulatorStudent {
   return {
     student_id: `95000000-0000-4000-8000-${String(sequence).padStart(12, '0')}`,
-    roll_no: `CB.SC.U4CSE24${String(sequence).padStart(3, '0')}`,
+    roll_no: `CB.SC.U4CSE99${String(sequence).padStart(3, '0')}`,
     display_name: faker.person.fullName(),
     branch: 'CSE',
     section: 'A',

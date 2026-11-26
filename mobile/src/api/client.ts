@@ -1,5 +1,5 @@
 /**
- * Typed HTTP client for the Go backend (Story 1.6, Task 3) — the app-wired composition of the
+ * Typed HTTP client for the Go backend — the app-wired composition of the
  * 401 interceptor with the real Supabase session and a real `fetch` transport.
  *
  * Request paths are typed against the OpenAPI SSOT (`@od-amrita/contracts`), so the client tracks
@@ -26,8 +26,8 @@ if (!apiBaseUrl) {
 const transport: Transport<Response> = (path, init) => fetch(`${apiBaseUrl}${path}`, init);
 
 // supabase.auth structurally satisfies SupabaseAuthPort (getSession / refreshSession). The
-// interceptor fires the app-wide re-auth seam when the session is dead — a future login story
-// subscribes to it; there is no login UI yet.
+// interceptor fires the app-wide re-auth seam when the session is dead — the session gate
+// (features/auth/sessionGate.ts) subscribes to it.
 const authedRequest = createAuthedRequest({
   auth: supabase.auth,
   transport,

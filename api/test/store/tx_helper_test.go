@@ -2,19 +2,17 @@
 
 package storetest
 
-// tx_helper_test.go — RED-PHASE ATDD scaffold for Story 1.4, AC 3, 4, 5, 6
+// tx_helper_test.go — acceptance tests for AC 3, 4, 5, 6
 // (store.WithAudit: same-transaction co-commit, both rollback directions, dedup
 // no-op = no audit row, unregistered-action rejection, conservation invariant).
 //
-// RED PHASE (compile-red): every store.* symbol below is defined by Story 1.4
-// (store/tx.go, store/audit.go). Until they land, THIS PACKAGE FAILS TO COMPILE
-// — the red signal. It is isolated to this package so it does not affect the
-// Story 1.3 db integration suite.
+// Every store.* symbol below is defined in store/tx.go and store/audit.go. The
+// tests are isolated to this package so they do not affect the api/test/db
+// integration suite.
 //
 // ────────────────────────────────────────────────────────────────────────────
-// PROPOSED API SURFACE these tests drive (confirmed for Story 1.4 Task 6). If the
-// dev picks a different name for the fault-injection seam, only the store.New /
-// store.WithAuditInserter lines need to change:
+// API SURFACE these tests drive. If the fault-injection seam is renamed, only
+// the store.New / store.WithAuditInserter lines need to change:
 //
 //	type Store
 //	func New(pool *pgxpool.Pool, opts ...Option) *Store
@@ -185,7 +183,7 @@ func TestWithAudit_DedupNoOp_WritesNoAudit(t *testing.T) {
 // TestWithAudit_UnregisteredAction_Rejected — AC 5 enforcement. events.go /
 // AllActions is the SSOT; the helper must reject an action not in the registry
 // (and an empty action), writing no audit row and not committing the business
-// write. This makes "a story forgot to register its action" fail loudly.
+// write. This makes "a change forgot to register its action" fail loudly.
 func TestWithAudit_UnregisteredAction_Rejected(t *testing.T) {
 	ctx := testCtx(t)
 	migratorPool := connect(t, ctx, dsnOrSkip(t, envMigratorDSN))
@@ -221,7 +219,7 @@ func TestWithAudit_UnregisteredAction_Rejected(t *testing.T) {
 // state-changing writes and M dedup no-ops, the number of audit rows equals N
 // (the no-ops contribute zero). This proves the helper conserves the invariant
 // count(audit) == count(state changes) at the only place a write can happen in
-// this epic. (The global reconciliation replay over real domain tables is Epic 7.)
+// this layer. (A global reconciliation replay over real domain tables is separate.)
 func TestWithAudit_ConservationInvariant(t *testing.T) {
 	ctx := testCtx(t)
 	migratorPool := connect(t, ctx, dsnOrSkip(t, envMigratorDSN))

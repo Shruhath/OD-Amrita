@@ -126,7 +126,8 @@ func CampusDate(now time.Time) time.Time { return campus.Date(now) }
 // observable behaviour exactly.
 //
 // It is a default about which day to assume, not a claim about which day is
-// right. Story 0.12b replaces it with a day the teacher picks.
+// right. When the teacher picks a day (MarkInput.ODDate), that day is used
+// instead and this default does not apply.
 func ClampToEventRange(day, eventStart, eventEnd time.Time) time.Time {
 	start := CampusDate(eventStart)
 	end := CampusDate(eventEnd)

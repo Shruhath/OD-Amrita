@@ -12,18 +12,17 @@ import { expect, test } from '@playwright/test'
  * as a sibling of /api/v1 rather than inside it (T1).
  *
  * ---------------------------------------------------------------------------
- * THREE HARNESS CHANGES THIS SPEC REQUIRES. All three are part of Story 0.10 and
- * none of them exist yet — a run before they land fails here rather than in the
- * feature, so read this before debugging a red.
+ * THREE HARNESS CHANGES THIS SPEC REQUIRES. A harness missing any of them fails
+ * here rather than in the feature, so read this before debugging a red.
  *
  *  1. `api/test/portal/main.go` must REGISTER the public group, exactly as
  *     cmd/api does. A harness that lacks the route turns a real composition bug
  *     into a browser 404 that reads as a frontend defect (the 0.9 lesson).
  *
  *  2. `api/test/portal/main.go` seed() must seed DEDICATED fixtures:
- *       - students CB.SC.U4CSE24008 / CB.SC.U4CSE24009. Disjoint from every
- *         pool already owned by another spec — 24001-003 (coordinator-marking),
- *         24004-005 (capture-credits), 24006-007 (teacher-admin-attendance).
+ *       - students CB.SC.U4CSE99008 / CB.SC.U4CSE99009. Disjoint from every
+ *         pool already owned by another spec — 99001-003 (coordinator-marking),
+ *         99004-005 (capture-credits), 99006-007 (teacher-admin-attendance).
  *         0.9 lost CI rounds to exactly this collision.
  *       - a dedicated PUBLIC event with pre-seeded present od_records on more
  *         than one slot AND a gap. This journey READS; it never marks, so the
@@ -56,7 +55,7 @@ import { expect, test } from '@playwright/test'
 const portalAPI = 'http://127.0.0.1:8081'
 
 // Seeded by api/test/portal/main.go — see harness change 2 above.
-const PUBLIC_STUDENT_ROLL = 'CB.SC.U4CSE24008'
+const PUBLIC_STUDENT_ROLL = 'CB.SC.U4CSE99008'
 const PUBLIC_STUDENT_ID = '95000000-0000-4000-8000-000000000009'
 const PUBLIC_ARCHIVED_EVENT_NAME = 'Browser Public Archived Event'
 

@@ -1,4 +1,4 @@
-// Red-phase tests for Story 0.10's UNAUTHENTICATED roster search (AC 3).
+// Tests for the UNAUTHENTICATED roster search.
 //
 // This is the same roster the coordinator surface searches, answered to anyone
 // on the internet with no token. Three properties carry that difference:
@@ -11,11 +11,6 @@
 //     gets turned to 10,000 (T7).
 //  3. It reuses buildSearchQuery. The LIKE escaping and the rune bounds are the
 //     security-critical part, and a second copy is a second thing to get wrong.
-//
-// COMPILE-RED until `PublicSearch` and `PublicSearchLimit` exist in this package
-// (story Task 3 puts them in a new public_search.go). That temporarily takes the
-// other tests in this package with it — expected, and the reason Task 3 is early
-// in the activation order.
 //
 // NOT gated behind an env flag: 0.9 shipped a suite behind ATDD_ACTIVE_09 that
 // nothing ever set.
@@ -31,7 +26,7 @@ import (
 // assertOnlyAllowedFields fails if the value carries any exported field outside
 // the allowlist.
 //
-// An ALLOWLIST, not a blocklist. Story 0.9's equivalent assertion listed the
+// An ALLOWLIST, not a blocklist. An earlier equivalent assertion listed the
 // sensitive names it did not want and could therefore never fail — a struct that
 // never had an Email field passes trivially, and the field somebody adds next
 // year is not on the list either.
@@ -64,7 +59,7 @@ func TestPublicSearch_AlwaysCapsAtTen(t *testing.T) {
 	capture := &searchCapture{}
 	svc := newSearchService(capture)
 
-	if _, err := svc.PublicSearch(context.Background(), "CB.SC.U4CSE24"); err != nil {
+	if _, err := svc.PublicSearch(context.Background(), "CB.SC.U4CSE99"); err != nil {
 		t.Fatalf("[P0] PublicSearch on a valid query failed: %v", err)
 	}
 	if len(capture.queries) != 1 {
@@ -143,7 +138,7 @@ func TestPublicSearch_EscapesLikeMetacharacters(t *testing.T) {
 		{"a_b", []string{`%a\_b%`}},
 		{`a\b`, []string{`%a\\b%`}},
 		{`%_\`, []string{`%\%\_\\%`}},
-		{"CB.SC.U4CSE24", []string{`%cb.sc.u4cse24%`}},
+		{"CB.SC.U4CSE99", []string{`%cb.sc.u4cse99%`}},
 		// Split on whitespace, so each word is escaped on its own — the public
 		// path gets the same "any word, any order" matching as the staff one.
 		{"Reddy Shruhat", []string{`%reddy%`, `%shruhat%`}},
@@ -179,7 +174,7 @@ func TestPublicSearch_EscapesLikeMetacharacters(t *testing.T) {
 
 // 0.10-SEARCH-004 — the authenticated path is UNCHANGED.
 //
-// The tempting shortcut for this story is to relax assertMaySearch or add an
+// The tempting shortcut for the public search is to relax assertMaySearch or add an
 // "anonymous" actor so the existing Search can be reused. That would make the
 // authenticated roster readable by any signed-in student, which is a much larger
 // disclosure than the public endpoint's own bounded, capped, display-only view.
@@ -189,7 +184,7 @@ func TestSearch_StillRefusesAStudentRoleAfterThePublicPathExists(t *testing.T) {
 			capture := &searchCapture{}
 			svc := newSearchService(capture)
 
-			_, err := svc.Search(context.Background(), Actor{UserID: "u-1", Role: role}, SearchInput{Query: "CB.SC.U4CSE24"})
+			_, err := svc.Search(context.Background(), Actor{UserID: "u-1", Role: role}, SearchInput{Query: "CB.SC.U4CSE99"})
 			if err == nil {
 				t.Fatalf("[P0] the AUTHENTICATED Search admitted role %q. The public read is a separate, "+
 					"capped, actor-less path — it must never be delivered by widening this one", role)
@@ -210,7 +205,7 @@ func TestSearch_StillRefusesAStudentRoleAfterThePublicPathExists(t *testing.T) {
 func TestPublicSearch_ReturnsDisplayFieldsOnly(t *testing.T) {
 	capture := &searchCapture{results: []SearchResult{{
 		StudentID:   "95000000-0000-4000-8000-000000000001",
-		RollNo:      "CB.SC.U4CSE24001",
+		RollNo:      "CB.SC.U4CSE99001",
 		DisplayName: "Ananya Rao",
 		Branch:      "CSE",
 		Section:     "A",
@@ -218,7 +213,7 @@ func TestPublicSearch_ReturnsDisplayFieldsOnly(t *testing.T) {
 	}}}
 	svc := newSearchService(capture)
 
-	results, err := svc.PublicSearch(context.Background(), "CB.SC.U4CSE24001")
+	results, err := svc.PublicSearch(context.Background(), "CB.SC.U4CSE99001")
 	if err != nil {
 		t.Fatalf("PublicSearch: %v", err)
 	}

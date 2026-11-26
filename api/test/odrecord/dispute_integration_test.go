@@ -1,11 +1,11 @@
 //go:build integration
 
-// Real-Postgres tests for Story 0.11's dispute path (AC 5, 6, 7, 11, 12, 13).
+// Real-Postgres tests for the dispute path.
 //
 // Deliberately in the EXISTING api/test/odrecord package. ./test/odrecord/... is
 // already wired into both api/Makefile's INTEGRATION_PKGS and
 // .github/workflows/api-ci.yml, so a NEW package here would silently never run in
-// CI the way three earlier stories' packages did — adding one means editing the
+// CI the way three earlier packages did — adding one means editing the
 // Makefile AND the workflow in the same change (2.3 shipped that gap once).
 //
 // Helpers (testCtx, dsnOrSkip, connect, seedMarkFixture, countRows) come from
@@ -107,7 +107,7 @@ func newDisputeService(t *testing.T, runtime *pgxpool.Pool) *dispute.Service {
 // seedDisputeStudent inserts a student whose roll number derives from the email
 // the tests submit, which is the whole of T1's contract.
 //
-// The roll numbers are FIXED (the CB.SC.U4CSE248xx pool, disjoint from the pools
+// The roll numbers are FIXED (the CB.SC.U4CSE998xx pool, disjoint from the pools
 // the coordinator-marking, capture-credits, teacher-admin-attendance and public
 // dashboard fixtures own) so that a failure names the case it came from. Fixed
 // identifiers only stay safe if the row is removed afterwards, hence the cleanup:
@@ -170,7 +170,7 @@ func TestDispute_SubmitCoCommitsItsAuditRowAndRollsBackTogether(t *testing.T) {
 	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
 	fixture := seedMarkFixture(t, ctx, migrator)
 
-	roll := "CB.SC.U4CSE24801"
+	roll := "CB.SC.U4CSE99801"
 	studentID := seedDisputeStudent(t, ctx, migrator, roll, "91000000-0000-4000-8000-000000000001")
 
 	beforeDisputes := countRows(t, ctx, migrator, "disputes")
@@ -214,8 +214,8 @@ func TestDispute_SubmitCoCommitsItsAuditRowAndRollsBackTogether(t *testing.T) {
 	}
 	// T20: this must NOT be od_records. The 0.10 CI gate counts audit rows joined
 	// on target_table = 'od_records' for the public fixture events and asserts
-	// zero; a dispute row landing there would break a gate this story is
-	// forbidden to relax.
+	// zero; a dispute row landing there would break a gate that must
+	// never be relaxed.
 	if targetTable != "disputes" {
 		t.Errorf("[P0] target_table = %q, want \"disputes\" — 0.10's conservation gate asserts ZERO audit rows "+
 			"with target_table = 'od_records' for the public fixture events, and it must stay exactly as "+
@@ -253,7 +253,7 @@ func TestDispute_ConcurrentDuplicateSubmissionsLeaveExactlyOneRow(t *testing.T) 
 	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
 	fixture := seedMarkFixture(t, ctx, migrator)
 
-	roll := "CB.SC.U4CSE24802"
+	roll := "CB.SC.U4CSE99802"
 	studentID := seedDisputeStudent(t, ctx, migrator, roll, "91000000-0000-4000-8000-000000000001")
 	input := disputeSubmitInput(studentID, emailForRoll(roll), fixture.eventID, fixture.categoryID, 5)
 
@@ -356,7 +356,7 @@ func TestDispute_SameSlotOnADifferentDayIsADifferentDispute(t *testing.T) {
 	// inventing a second event — two events would pass even with od_date missing
 	// from the key, which would make this test prove nothing.
 	//
-	// UN-SKIPPED under Story 0.12a (T21). This used to t.Skipf when the UPDATE
+	// UN-SKIPPED once events gained a date range. This used to t.Skipf when the UPDATE
 	// failed, because an event was a single day and `events.end_date` did not
 	// exist. It does now, and this is the test that proves the multi-day duplicate
 	// rule actually works — re-skipping it or deleting it is weakening a gate.
@@ -368,7 +368,7 @@ func TestDispute_SameSlotOnADifferentDayIsADifferentDispute(t *testing.T) {
 			"grievances rather than one duplicate.", err)
 	}
 
-	roll := "CB.SC.U4CSE24807"
+	roll := "CB.SC.U4CSE99807"
 	studentID := seedDisputeStudent(t, ctx, migrator, roll, "91000000-0000-4000-8000-000000000001")
 	svc := newDisputeService(t, runtime)
 
@@ -424,7 +424,7 @@ func TestDispute_DatabaseRefusesAnODDateOutsideTheEventRange(t *testing.T) {
 	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
 	fixture := seedMarkFixture(t, ctx, migrator)
 
-	roll := "CB.SC.U4CSE24808"
+	roll := "CB.SC.U4CSE99808"
 	studentID := seedDisputeStudent(t, ctx, migrator, roll, "91000000-0000-4000-8000-000000000001")
 
 	// The fixture event is a single day (2026-08-03) until 0.12a adds end_date, so
@@ -471,14 +471,14 @@ func TestDispute_CanBeFiledAgainstAnArchivedEvent(t *testing.T) {
 	// status, archived_at and archived_by_user_id move TOGETHER:
 	// events_archive_state_ck is a multi-column CHECK, and an UPDATE that sets
 	// only the first two is rejected by the constraint rather than by anything to
-	// do with this story. 0.10 lost a test run to exactly this shape.
+	// do with disputes. An earlier change lost a test run to exactly this shape.
 	if _, err := migrator.Exec(ctx, `
 		UPDATE events SET status = 'archived', archived_at = now(), archived_by_user_id = $2
 		WHERE id = $1`, archived.eventID, fixture.adminID); err != nil {
 		t.Fatalf("archive event: %v", err)
 	}
 
-	roll := "CB.SC.U4CSE24803"
+	roll := "CB.SC.U4CSE99803"
 	studentID := seedDisputeStudent(t, ctx, migrator, roll, "91000000-0000-4000-8000-000000000001")
 
 	receipt, err := newDisputeService(t, runtime).Submit(ctx,
@@ -541,8 +541,8 @@ func TestDispute_TeacherSeesOnlyTheirOwnBranchAndAdminSeesAll(t *testing.T) {
 		t.Fatalf("associate teacher category: %v", err)
 	}
 
-	mineRoll := "CB.SC.U4CSE24804"
-	theirsRoll := "CB.SC.U4ECE24804"
+	mineRoll := "CB.SC.U4CSE99804"
+	theirsRoll := "CB.SC.U4ECE99804"
 	mineID := seedDisputeStudent(t, ctx, migrator, mineRoll, "91000000-0000-4000-8000-000000000001")
 	theirsID := seedDisputeStudent(t, ctx, migrator, theirsRoll, otherBranch)
 
@@ -622,7 +622,7 @@ func TestDispute_RejectionAnnotatesOnlyAndTheSecondAttemptIsRefused(t *testing.T
 	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
 	fixture := seedMarkFixture(t, ctx, migrator)
 
-	roll := "CB.SC.U4CSE24805"
+	roll := "CB.SC.U4CSE99805"
 	studentID := seedDisputeStudent(t, ctx, migrator, roll, "91000000-0000-4000-8000-000000000001")
 
 	svc := newDisputeService(t, runtime)
@@ -799,7 +799,7 @@ func TestDispute_PublicEventsIncludeArchivedAndAreCappedServerSide(t *testing.T)
 // The registry in api/test/db/runtime_privileges_test.go is a closed set and an
 // unlisted table is a test failure by design — 2.3 shipped that bug once. This is
 // the complementary assertion from the other side: the runtime role can do the
-// three things the story needs and cannot do the one it must never do. A dispute
+// three things disputes need and cannot do the one it must never do. A dispute
 // is a record of a claim; deleting one erases evidence.
 func TestDispute_RuntimeRoleCanInsertUpdateSelectButNotDelete(t *testing.T) {
 	ctx := testCtx(t)
@@ -807,7 +807,7 @@ func TestDispute_RuntimeRoleCanInsertUpdateSelectButNotDelete(t *testing.T) {
 	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
 	fixture := seedMarkFixture(t, ctx, migrator)
 
-	roll := "CB.SC.U4CSE24806"
+	roll := "CB.SC.U4CSE99806"
 	studentID := seedDisputeStudent(t, ctx, migrator, roll, "91000000-0000-4000-8000-000000000001")
 
 	receipt, err := newDisputeService(t, runtime).Submit(ctx,
@@ -905,7 +905,7 @@ func TestDispute_CategoryFromAnotherEventIsRefused(t *testing.T) {
 	runtime := connect(t, ctx, dsnOrSkip(t, "DATABASE_URL_RUNTIME"))
 	fixture := seedMarkFixture(t, ctx, migrator)
 
-	roll := "CB.SC.U4CSE24811"
+	roll := "CB.SC.U4CSE99811"
 	studentID := seedDisputeStudent(t, ctx, migrator, roll, "91000000-0000-4000-8000-000000000001")
 
 	// A second event with its own category. The pair below is internally valid

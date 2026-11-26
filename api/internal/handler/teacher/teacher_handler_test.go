@@ -1,7 +1,7 @@
 package teacher
 
-// teacher_handler_test.go — Story 2.3 coverage for AC 1, 2, 4 and 5 at the
-// transport boundary. UNIT test: no build tag, no database.
+// teacher_handler_test.go — teacher-profile endpoint coverage at the transport
+// boundary. UNIT test: no build tag, no database.
 //
 // Invoked by: api-ci -> build job (`go test ./...`).
 //
@@ -156,8 +156,7 @@ var teacherWireExpectations = []teacherWireExpectation{
 // that keeps the table above exhaustive against the contract's documented POST
 // response family (201/400/401/403/404/409/500 — see
 // test/contract/teacher_contract_test.go's response-family assertion), the
-// same shape Story 2.2's TestCategoryWireExpectationsCoverEveryDocumentedResponse
-// established.
+// same shape the category handler's wire-expectations guard established.
 func TestTeacherWireExpectationsCoverEveryDocumentedResponse(t *testing.T) {
 	seen := map[int]bool{}
 	for _, tc := range teacherWireExpectations {
@@ -275,7 +274,7 @@ func TestListTeachersHandlerReturnsThePaginatedCollection(t *testing.T) {
 }
 
 // TestBothTeacherRoutesAreMountedOnTheGuardedAdminGroup pins the fact the deny
-// matrix in middleware/rbac cannot: that the routes EXIST. A route the story
+// matrix in middleware/rbac cannot: that the routes EXIST. A route a change
 // forgets to mount returns 404, which reads as a frontend bug.
 func TestBothTeacherRoutesAreMountedOnTheGuardedAdminGroup(t *testing.T) {
 	gin.SetMode(gin.TestMode)

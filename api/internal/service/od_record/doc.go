@@ -1,3 +1,3 @@
-// Package odrecord is a Story 1.1 skeleton placeholder — it reserves the directory
-// home for the od_record domain service. No logic is implemented here; that lands in a later story.
+// Package odrecord is the od_record domain service: marking students present,
+// slot and day derivation, capture credits, and record management.
 package odrecord

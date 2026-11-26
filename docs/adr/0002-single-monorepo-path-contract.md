@@ -14,4 +14,4 @@ single atomic CI job. No polyrepo. (AR1)
 
 ## Consequences
 Atomic cross-surface changes; one drift-gate as SSOT enforcer. Placeholder ADR —
-flesh out from architecture.md in a later story.
+to be expanded later.

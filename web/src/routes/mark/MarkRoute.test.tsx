@@ -34,10 +34,10 @@ import {
  *
  *  1. GREEN MEANS THE SERVER SAID 201, and nothing earlier. The long-term
  *     architecture fires green on a durable LOCAL write because the phone is
- *     offline-first — Epic 0 has no local write, so an optimistic green would be
+ *     offline-first — this build has no local write, so an optimistic green would be
  *     a claim the server may then refuse. A mark the server rejected must never
  *     have shown green, not even for a frame.
- *  2. A TIMEOUT IS RED. There is no queue in Epic 0. Amber "queued" is the one
+ *  2. A TIMEOUT IS RED. There is no offline queue. Amber "queued" is the one
  *     state this screen must never have.
  *  3. NOTHING IS CACHED. No card list, token, fingerprint set or roster in
  *     localStorage, sessionStorage, IndexedDB or the query cache (AR20 no-list).
@@ -379,7 +379,7 @@ describe('the coordinator marking screen', () => {
 
     const banner = await screen.findByRole('alert')
     expect(banner).toHaveTextContent(/not recorded/i)
-    // There is no queue in Epic 0. Telling a coordinator their mark is "queued"
+    // There is no offline queue. Telling a coordinator their mark is "queued"
     // when nothing will ever send it is the worst failure this screen can have.
     expect(banner.textContent).not.toMatch(/queued|will retry|saved locally|offline/i)
     expect(banner.className).not.toMatch(/amber|warning/)
@@ -507,7 +507,7 @@ describe('the coordinator marking screen', () => {
     server.use(
       // Two hits with the same roll: ambiguous, so marking either would be a guess.
       http.get('*/api/v1/students/search', () =>
-        HttpResponse.json(dataOnly([markStudent(1, { roll_no: 'CB.SC.U4CSE24001' }), markStudent(2, { roll_no: 'CB.SC.U4CSE24001' })])),
+        HttpResponse.json(dataOnly([markStudent(1, { roll_no: 'CB.SC.U4CSE99001' }), markStudent(2, { roll_no: 'CB.SC.U4CSE99001' })])),
       ),
       http.post('*/api/v1/mark', () => {
         posts += 1
@@ -518,7 +518,7 @@ describe('the coordinator marking screen', () => {
     const camera = fakeCamera()
     await renderMarkRoute({ camera })
     await userEvent.click(await screen.findByRole('button', { name: /scan camera/i }))
-    await camera.decode('CB.SC.U4CSE24001')
+    await camera.decode('CB.SC.U4CSE99001')
 
     const banner = await screen.findByRole('alert')
     expect(banner).toHaveTextContent(/not recognised/i)
@@ -705,7 +705,7 @@ describe('the coordinator marking screen', () => {
 
     await renderMarkRoute()
     await userEvent.click(await screen.findByRole('button', { name: /search/i }))
-    await userEvent.type(screen.getByRole('searchbox'), 'CB.SC.U4CSE24001')
+    await userEvent.type(screen.getByRole('searchbox'), 'CB.SC.U4CSE99001')
 
     await waitFor(() => expect(searches).toBeGreaterThan(0))
     // 16 characters used to mean 14 prefix scans of the roster, per lookup, per

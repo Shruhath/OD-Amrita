@@ -3,12 +3,12 @@
 --
 -- Runs as od_migrator (DATABASE_URL_MIGRATOR). This is the first real BUSINESS
 -- table (audit_log in 0001/0002 is audit infrastructure). A verified Supabase
--- identity is provisioned into exactly one row here on first login (Story 1.5b);
+-- identity is provisioned into exactly one row here on first login;
 -- the role column is the GLOBAL base role only — per-event coordinator
--- assignment and RBAC enforcement are later epics.
+-- assignment and RBAC enforcement live elsewhere.
 --
 -- Scope: exactly ONE table (users). There is deliberately NO refresh_tokens
--- table — under the hybrid auth model (Story 1.5a) Supabase owns access and
+-- table — under the hybrid auth model Supabase owns access and
 -- refresh tokens and their TTLs; the backend never mints or persists them.
 
 -- +goose Up

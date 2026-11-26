@@ -3,10 +3,10 @@
 // Real-Postgres tests for the coordinator marking surface.
 //
 // Deliberately placed in the EXISTING api/test/odrecord package rather than a
-// new one. Stories 0.2, 0.3, 0.4 and 0.5 each shipped a new integration package
+// new one. Earlier changes each shipped a new integration package
 // that CI silently never ran, because `INTEGRATION_PKGS` in api/Makefile and the
 // integration command in .github/workflows/api-ci.yml were not updated with it.
-// Reusing this package removes that failure mode for 0.6 entirely — ./test/
+// Reusing this package removes that failure mode entirely — ./test/
 // odrecord/... is already in both lists.
 //
 // Helpers (testCtx, dsnOrSkip, connect, seedMarkFixture, fixedClock, markFixture)
@@ -182,7 +182,7 @@ func TestMarkStatusReturnsRealSlotBoundsOnTheEventDateAndNoneOffIt(t *testing.T)
 //
 // Task 3 widens the pairing rule so a camera mark carries a student_id. What
 // must not drift is honesty: `capture_method` is persisted as "camera" on the
-// od_records row (FR44), because Story 0.8's shared camera+search credit cap and
+// od_records row (FR44), because the shared camera+search credit cap and
 // every later anomaly report read that column. A camera mark silently recorded
 // as "search" would defeat both.
 func TestCameraMarkWritesTruthfulRecordAndConservesAudit(t *testing.T) {
@@ -234,7 +234,7 @@ func TestCameraMarkWritesTruthfulRecordAndConservesAudit(t *testing.T) {
 	}
 	if persisted != "camera" {
 		t.Errorf("[P0] persisted capture_method = %q, want \"camera\" — the record must be truthful (FR44); "+
-			"Story 0.8's shared camera+search credit cap reads this column", persisted)
+			"the shared camera+search credit cap reads this column", persisted)
 	}
 }
 
@@ -255,7 +255,7 @@ func TestStudentSearchUsesCanonicalRollAndStaysBounded(t *testing.T) {
 	svc.WithSearchReader(studentsvc.NewSQLCSearchReader(runtime))
 	actor := studentsvc.Actor{UserID: fixture.coordinatorID, Role: "coordinator"}
 
-	// Story 0.2 canonicalised roll_no to uppercase; a coordinator types lowercase
+	// Student import canonicalises roll_no to uppercase; a coordinator types lowercase
 	// on a phone keyboard, so a lowercase prefix must still match.
 	lower, err := svc.Search(ctx, actor, studentsvc.SearchInput{Query: strings.ToLower(rollNo[:12])})
 	if err != nil {

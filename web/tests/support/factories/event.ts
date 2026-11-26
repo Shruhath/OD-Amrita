@@ -55,7 +55,7 @@ export function createEventRequest(
 
 /**
  * The default fixture stays a SINGLE-day event (end_date === event_date), so
- * every assertion written before this story keeps testing what it was written to
+ * every assertion written before multi-day events keeps testing what it was written to
  * test. A test that is about the range says so by passing both dates.
  *
  * `end_date` defaults to whatever `event_date` resolves to — including an
@@ -82,7 +82,7 @@ export function createEventFixture(
   }
 }
 
-/** A real multi-day range — the 30-day festival the story is written for. */
+/** A real multi-day range — the 30-day festival multi-day events exist for. */
 export function createMultiDayEventFixture(
   overrides: Partial<EventFixture> = {},
 ): EventFixture {

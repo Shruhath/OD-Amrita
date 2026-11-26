@@ -15,7 +15,7 @@ import (
 //
 // THE DEFECT THIS FILE EXISTS FOR. The search was prefix-only, so it answered
 // only the one shape of question nobody actually asks: the first word of a full
-// name, spelled from its first letter. A coordinator looking for "Shruhat
+// name, spelled from its first letter. A coordinator looking for "Kavith
 // Reddy" who typed the surname — or the two words the other way round, or the
 // tail of a roll number — was told there was no such student, which reads as the
 // roster being incomplete rather than as the search being narrow.
@@ -30,13 +30,13 @@ import (
 func seedSearchRoster(t *testing.T, svc *studentsvc.Service) string {
 	t.Helper()
 	prefix := uniquePrefix()
-	// "Ashruhathan" CONTAINS "shruhat" without starting a word with it — it is
+	// "Akavithan" CONTAINS "kavith" without starting a word with it — it is
 	// what makes the ranking assertion mean something, and it is also why the
 	// surname search cannot pass by matching the wrong row.
 	csv := fmt.Sprintf(
 		"Roll No,Name,Branch,Section,Batch\n"+
-			"%s101,Shruhat Reddy,CSE,A,2024\n"+
-			"%s102,Ashruhathan Kumar,CSE,A,2024\n"+
+			"%s101,Kavith Reddy,CSE,A,2024\n"+
+			"%s102,Akavithan Kumar,CSE,A,2024\n"+
 			"%s103,Reddy Mahesh,CSE,A,2024\n",
 		prefix, prefix, prefix)
 
@@ -104,7 +104,7 @@ func TestSearchFindsAStudentByAnyWordOfTheirName(t *testing.T) {
 
 	for _, tc := range []struct{ query, why string }{
 		{"Reddy", "a surname is the word people type when the first name is the one they are unsure of"},
-		{"Shruhat", "the first name must keep working"},
+		{"Kavith", "the first name must keep working"},
 		{"reddy", "search is case-insensitive"},
 		{"REDDY", "search is case-insensitive"},
 	} {
@@ -116,12 +116,12 @@ func TestSearchFindsAStudentByAnyWordOfTheirName(t *testing.T) {
 
 // SEARCH-DB-002 — both words, in EITHER order.
 //
-// "Reddy Shruhat" is the same question as "Shruhat Reddy". A roster stores one
+// "Reddy Kavith" is the same question as "Kavith Reddy". A roster stores one
 // of those orders and a person types whichever they think of first.
 func TestSearchMatchesEveryWordInAnyOrder(t *testing.T) {
 	svc, prefix := newSearchService(t)
 
-	for _, query := range []string{"Shruhat Reddy", "Reddy Shruhat", "  reddy   shruhat  "} {
+	for _, query := range []string{"Kavith Reddy", "Reddy Kavith", "  reddy   kavith  "} {
 		t.Run(query, func(t *testing.T) {
 			assertFinds(t, rollsFound(t, svc, query, prefix), prefix+"101", "every word matches somewhere in the name, so word order cannot matter")
 		})
@@ -167,13 +167,13 @@ func TestSearchRequiresEveryTermToMatch(t *testing.T) {
 func TestSearchRanksWordStartMatchesFirst(t *testing.T) {
 	svc, prefix := newSearchService(t)
 
-	got := rollsFound(t, svc, "Shruhat", prefix)
+	got := rollsFound(t, svc, "Kavith", prefix)
 	if len(got) != 2 {
-		t.Fatalf("[P0] want both Shruhat Reddy and Ashruhathan Kumar, got %v", got)
+		t.Fatalf("[P0] want both Kavith Reddy and Akavithan Kumar, got %v", got)
 	}
 	if got[0] != prefix+"101" {
-		t.Errorf("[P0] ranked %v first; Shruhat Reddy (%s101) starts a word with the query and must outrank "+
-			"Ashruhathan Kumar, which only contains it", got[0], prefix)
+		t.Errorf("[P0] ranked %v first; Kavith Reddy (%s101) starts a word with the query and must outrank "+
+			"Akavithan Kumar, which only contains it", got[0], prefix)
 	}
 }
 

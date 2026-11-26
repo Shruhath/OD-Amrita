@@ -33,7 +33,7 @@ func TestMarkHandlerCreatesGeneratedResultEnvelope(t *testing.T) {
 		Slot:             1,
 		CaptureMethod:    odsvc.CaptureMethodNFC,
 		ServerReceivedAt: time.Date(2026, 8, 3, 8, 25, 0, 0, time.UTC),
-		Student:          odsvc.Student{StudentID: studentID, RollNo: "CB.SC.U4CSE24001", DisplayName: "Ananya Rao", Branch: "CSE", Section: "A", Batch: "2024"},
+		Student:          odsvc.Student{StudentID: studentID, RollNo: "CB.SC.U4CSE99001", DisplayName: "Ananya Rao", Branch: "CSE", Section: "A", Batch: "2024"},
 	}}
 	body := `{"event_id":"` + eventID + `","category_id":"` + categoryID + `","capture_method":"nfc","card":{"version":"v1","token":"QlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlJSQlI"}}`
 

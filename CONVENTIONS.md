@@ -20,9 +20,9 @@ architecture#Naming-Patterns and architecture#Documentation-&-Enforcement.
 - Remote: `github.com/Shruhath/OD-Amrita`.
 - `api/` Go module path: `github.com/Shruhath/OD-Amrita/api`.
 - Single **monorepo** — no polyrepo, **no separate `od-amrita-nfc-populator` repo**.
-  The populator is an admin-gated **mode** inside `mobile/` (AR16).
-- **One branch per epic** — all of an epic's work lands on that single branch
-  (Epic 1 → `1-monorepo`). No per-feature sub-branches.
+  The card populator is an admin-gated **mode** of the app (today in `web/`), not a separate repository.
+- **One branch per feature area** — all of an area's work lands on that single
+  branch (for example `1-monorepo`). No per-change sub-branches.
 
 ## Stack (fixed)
 
@@ -72,25 +72,26 @@ architecture#Naming-Patterns and architecture#Documentation-&-Enforcement.
   endpoint or worker job writes without an audit row. A dedup no-op
   (`changed == false`) commits with no audit row. The business write MUST run on
   the passed `tx` (`sqlc.New(tx)`), never on the pool. First real caller:
-  `internal/service/user` (first-login provisioning, Story 1.5b).
+  `internal/service/user` (first-login provisioning).
 - **Users are provisioned at login, not per request.** A verified Supabase
   identity is upserted into `users` at the `GET /api/v1/auth/me` round-trip (keyed
   on the stable `supabase_subject`, never email) via `store.WithAudit` — a first
   insert writes a `user.provisioned` audit row; a returning login only bumps
   `last_login_at` (no audit row). The auth middleware stays a pure verify+enforce
-  gate; per-request role *loading* is Epic 2. Default role is the least-privileged
+  gate; per-request role *loading* is done by the RBAC middleware
+  (`internal/middleware/rbac`). Default role is the least-privileged
   `student`; only the `AUTH_BOOTSTRAP_ADMINS` allowlist grants `admin` at
   provisioning. Role-scoped **session durations are Supabase config, not Go code**.
 
 ## Registry discipline (no free-text codes or events)
 
 - **Error codes:** the OpenAPI `Error.code` enum (`contracts/openapi.yaml`) is
-  the SSOT. A story adding a code edits `openapi.yaml` → regenerates → adds the
+  the SSOT. A change adding a code edits `openapi.yaml` → regenerates → adds the
   `codeToStatus` mapping in `api/internal/domain/errors.go` (never re-declares the
   code in Go). The parity/coverage test fails CI on any contract code without a
   mapping, any stale mapping, or a count mismatch. Never a free-text code.
 - **Audit actions:** `api/internal/domain/events.go` + its `AllActions` slice is
-  the SSOT (audit events are **not** in the contract). Every story that
+  the SSOT (audit events are **not** in the contract). Every change that
   introduces a new auditable action adds its `domain.Action` constant there AND
   to `AllActions`. `store.WithAudit` rejects any unregistered action at runtime;
   a unit test fails if a declared constant is missing from `AllActions`. Never a
@@ -103,7 +104,7 @@ architecture#Naming-Patterns and architecture#Documentation-&-Enforcement.
   audience and expiry, then independently enforces the `amrita.edu` domain
   family on every protected request. Do not trust provider/dashboard filtering
   as the only admission gate.
-- **Forced logout = local deny-list, not a backend token store (Story 1.5c).**
+- **Forced logout = local deny-list, not a backend token store.**
   The backend NEVER mints access JWTs, stores Supabase refresh/access tokens, or
   re-implements refresh — Supabase stays the session authority. A forced logout
   records a row in `auth_session_revocations` (keyed by `supabase_subject`, with
@@ -127,8 +128,8 @@ architecture#Naming-Patterns and architecture#Documentation-&-Enforcement.
   (`mobile/src/features/auth/session.ts`) and stops — no infinite retry loop. The
   interceptor's contract is *attach bearer → on 401 refresh-once → else re-auth
   signal*. A transport rejection (offline/DNS/timeout) is **not** a `401` and never
-  triggers refresh; offline session-expiry handling is a separate concern
-  (Story 4.5), not this live-`401` path.
+  triggers refresh; offline session-expiry handling is a separate concern, not
+  this live-`401` path.
 
 ## Contract wiring (no publishing)
 

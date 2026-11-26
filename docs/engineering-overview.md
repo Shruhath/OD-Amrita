@@ -10,7 +10,7 @@ CI pipeline (AR1).
 |--------------|---------|-------------------------------------------------------------|
 | `contracts/` | Contract SSOT | OpenAPI spec → generated Go + TS clients (path/workspace reference, **not** a published package) |
 | `api/`       | Backend | Go + **gin** + **sqlc** + **goose** (no ORM). Two entrypoints: `cmd/api` (HTTP server) + `cmd/worker` (persistent River worker). Always-on container — **no serverless**. |
-| `mobile/`    | Mobile  | Expo dev client + prebuild (React Native). Coordinator scanner **and** the admin-gated NFC **Populator mode** (AR16 — no separate repo/PWA). |
+| `mobile/`    | Mobile  | Expo dev client + prebuild (React Native). Early stage: Microsoft sign-in and an authenticated API round trip. Scanning and the admin-gated NFC card populator currently live in `web/`. |
 | `web/`       | Web     | React + Vite SPA (portal + public route trees, AR15).       |
 
 > **"Drizzle" in this project = drizzle-gateway / Drizzle Studio** (a visual DB
@@ -31,9 +31,9 @@ cd api && go build ./...     # compile the backend
 
 The deployment binds **TLS 1.2+ only**. Plain HTTP is **rejected, not redirected** —
 the server does **not** run an `HTTP→HTTPS` redirect listener (no `:80` listener,
-no `301`/`StatusMovedPermanently`). This is a documented config-level assertion in
-this skeleton story; the enforcing bootstrap lands with the first HTTP handler
-(Story 1.2/1.3). See `api/.env.example` and `api/cmd/api/main.go`.
+no `301`/`StatusMovedPermanently`). The server bootstrap in `api/cmd/api/main.go`
+serves TLS-only when `TLS_ENABLED` is set. See `api/.env.example` and
+`api/cmd/api/main.go`.
 
 ## CI (per-surface, path-filtered)
 
@@ -47,7 +47,7 @@ See [`CONVENTIONS.md`](./CONVENTIONS.md) for the locked naming and layout rules.
 
 ## Walking skeleton — implemented and CI-gated, device closure pending
 
-The Epic 1 exit thread — **device → contract → API → `store/tx.go` → Postgres →
+The walking-skeleton thread — **device → contract → API → `store/tx.go` → Postgres →
 immutable audit row** — is implemented and CI-enforced, but not yet *closed*: a
 walking skeleton isn't proven until it has actually walked on a real device.
 
@@ -58,7 +58,7 @@ walking skeleton isn't proven until it has actually walked on a real device.
   round-trip screen rendering the server-resolved role, all pure TS over injected
   ports and unit-tested headless.
 - `api/test/roundtrip` (`-tags integration`, real Postgres in CI) machine-asserts
-  the epic's literal exit criterion — an audit-row **conservation** property: a
+  the skeleton's literal exit criterion — an audit-row **conservation** property: a
   returning login writes exactly one `audit_log` row and zero `users` rows; a
   first-contact login writes exactly one `users` row and two `audit_log` rows; a
   forced audit-insert failure rolls the `users` write back and fails closed as 500,
@@ -71,5 +71,5 @@ walking skeleton isn't proven until it has actually walked on a real device.
 one-time Supabase console action (adding the mobile deep-link scheme to the
 Redirect URLs allowlist) that only a human can perform, followed by an actual
 sign-in + round trip on a real phone with the resulting audit row read back from
-the database. **Epics 3–6 remain gated on this closing, not on the code existing.**
+the database. **Later work remains gated on this closing, not on the code existing.**
 This section will be updated with the device smoke-run date once that happens.

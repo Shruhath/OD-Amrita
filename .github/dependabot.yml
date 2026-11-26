@@ -1,0 +1,28 @@
+# Monthly, grouped updates: each pull request runs the full CI, so batching keeps
+# the Actions minutes spent on dependency updates small.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      javascript:
+        patterns: ["*"]
+  - package-ecosystem: gomod
+    directories:
+      - /api
+      - /test/contract
+      - /test/skeleton
+    schedule:
+      interval: monthly
+    groups:
+      go:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]

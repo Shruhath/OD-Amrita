@@ -37,11 +37,13 @@ import (
 	handlerstudent "github.com/Shruhath/OD-Amrita/api/internal/handler/student"
 	handlerteacher "github.com/Shruhath/OD-Amrita/api/internal/handler/teacher"
 	mwauth "github.com/Shruhath/OD-Amrita/api/internal/middleware/auth"
+	"github.com/Shruhath/OD-Amrita/api/internal/middleware/bodylimit"
 	corsmw "github.com/Shruhath/OD-Amrita/api/internal/middleware/cors"
 	errormw "github.com/Shruhath/OD-Amrita/api/internal/middleware/error"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/ratelimit"
 	"github.com/Shruhath/OD-Amrita/api/internal/middleware/rbac"
 	requestid "github.com/Shruhath/OD-Amrita/api/internal/middleware/request_id"
+	"github.com/Shruhath/OD-Amrita/api/internal/middleware/securityheaders"
 	svcappsettings "github.com/Shruhath/OD-Amrita/api/internal/service/appsettings"
 	svcauditlog "github.com/Shruhath/OD-Amrita/api/internal/service/audit"
 	svcauth "github.com/Shruhath/OD-Amrita/api/internal/service/auth"
@@ -102,6 +104,8 @@ func run() error {
 	// needs an id is the one that panics or fails, and a middleware registered
 	// after those two would not have run by the time either logs.
 	router.Use(requestid.Middleware())
+	router.Use(securityheaders.Middleware())
+	router.Use(bodylimit.Middleware(2 << 20))
 	router.Use(gin.Recovery())
 	router.Use(errormw.Handler())
 	// The router is passed to itself on purpose: the preflight's allowed-methods

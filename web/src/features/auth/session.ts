@@ -1,5 +1,6 @@
 import type { Session } from '@supabase/supabase-js'
 import { SUPABASE_STORAGE_KEY, supabase } from '../../lib/supabase/client'
+import { SignOutError } from './signOutError'
 
 export type SessionPort = {
   accessToken(): Promise<string | null>
@@ -63,23 +64,6 @@ export const browserSession: SessionPort = {
 }
 
 /**
- * A sign-out that did not complete normally.
- *
- * `localCleared` says whether the session is at least gone from this device. It
- * is true when only the server could not be told — the device is signed out,
- * but the session may stay valid elsewhere until it expires.
- */
-export class SignOutError extends Error {
-  readonly localCleared: boolean
-
-  constructor(cause: unknown, localCleared: boolean) {
-    super(cause instanceof Error ? cause.message : 'Sign-out did not complete.', { cause })
-    this.name = 'SignOutError'
-    this.localCleared = localCleared
-  }
-}
-
-/**
  * Bounds the wait on the auth server. A request on a flaky network can hang for
  * minutes rather than fail, and a sign-out tapped on a shared phone must finish
  * while the person who tapped it is still holding it.
@@ -113,3 +97,5 @@ function forgetSessionOnThisDevice(): boolean {
     return false
   }
 }
+
+export { SignOutError }

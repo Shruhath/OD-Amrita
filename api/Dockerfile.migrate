@@ -30,9 +30,10 @@
 #
 # NO `down` IS WIRED ANYWHERE
 #   Deliberately, matching db-migrate.yml: 0016's Down is a documented one-way
-#   door once a multi-day event has been marked. Roll back by hand, with
-#   docs/deployment-runbook.md open. Nothing stops you passing `down` as the
-#   argument — that is a decision someone makes, not a button.
+#   door once a multi-day event has been marked. Roll back by hand, after
+#   reading the migration's Down and the restore notes in docs/deployment.md.
+#   Nothing stops you passing `down` as the argument — that is a decision
+#   someone makes, not a button.
 
 # Keep in sync with api/Makefile GOOSE_VERSION and the pinned install in
 # .github/workflows/api-ci.yml. A migrator running a different goose than CI

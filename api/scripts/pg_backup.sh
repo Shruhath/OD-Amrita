@@ -8,7 +8,7 @@
 #   requirement is 90-day recoverability. This script is the second layer: a
 #   scheduled pg_dump logical snapshot, retained 90 days in object storage,
 #   portable and provider-independent. PITR + these snapshots together are what
-#   satisfy that requirement. See docs/backup-and-monitoring-runbook.md.
+#   satisfy that requirement. See docs/deployment.md ("Backups and restore").
 #
 # USAGE
 #   pg_backup.sh [--dry-run] [--local-only] [--help]
@@ -124,7 +124,7 @@ RESTORE
   These artifacts are pg_dump custom-format (-Fc), restored with pg_restore. The
   full procedure — including re-applying db/init/00_roles.sql, without which the
   restored DB refuses every application connection — is in
-  docs/backup-and-monitoring-runbook.md.
+  docs/deployment.md ("Backups and restore").
 EOF
 }
 
@@ -312,8 +312,8 @@ fi
 if ! pg_restore -l "$dump_tmp" 2>/dev/null | grep -F 'TABLE DATA public audit_log' >/dev/null; then
     fail "the dump contains no audit_log table data — refusing to upload it or prune anything.
   The immutable audit ledger is the whole reason this backup exists. Its absence means the DSN
-  is pointing at the wrong database — most likely the Supabase auth broker instead of the Neon
-  app DB. See docs/backup-and-monitoring-runbook.md §1."
+  is pointing at the wrong database — most likely the auth provider's database instead of the
+  application database. Back up the database DATABASE_URL_RUNTIME points at."
 fi
 
 mv "$dump_tmp" "$dump_path"

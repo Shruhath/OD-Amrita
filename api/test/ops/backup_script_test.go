@@ -63,7 +63,7 @@ func scriptPath(t *testing.T) string {
 
 	path := filepath.Join(repoRoot(t), backupScriptRel)
 	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("[P0] %s does not exist — the story's 90-day recoverability AC needs a runnable pg_dump wrapper\n  underlying error: %v", backupScriptRel, err)
+		t.Fatalf("[P0] %s does not exist — 90-day recoverability needs a runnable pg_dump wrapper\n  underlying error: %v", backupScriptRel, err)
 	}
 	return path
 }
@@ -249,7 +249,7 @@ func TestBackupScript_ExistsAndIsExecutable(t *testing.T) {
 // connection string — the moment an example DSN is in the file, the next person
 // edits it into a real one and commits it.
 func TestBackupScript_ContainsNoHardcodedCredentials(t *testing.T) {
-	src := readArtifact(t, backupScriptRel, "the backup script is the story's one code artifact")
+	src := readArtifact(t, backupScriptRel, "the backup script is the backup procedure's one code artifact")
 
 	forbidden := []struct {
 		name string
@@ -278,7 +278,7 @@ func TestBackupScript_ContainsNoHardcodedCredentials(t *testing.T) {
 // (a failed dump must not upload or prune; artifacts must not be world-readable),
 // which is what actually guards the property.
 func TestBackupScript_UsesStrictBashModeAndPrivateUmask(t *testing.T) {
-	src := readArtifact(t, backupScriptRel, "the backup script is the story's one code artifact")
+	src := readArtifact(t, backupScriptRel, "the backup script is the backup procedure's one code artifact")
 
 	if !regexp.MustCompile(`(?m)^set -euo pipefail$`).MatchString(src) {
 		t.Errorf("[P1] %s must have `set -euo pipefail` on a line of its own — otherwise a failed dump still uploads and prunes, and a failure inside a pipeline is masked by the last command's success", backupScriptRel)
@@ -674,7 +674,7 @@ func TestBackupScript_LocalOnly_SkipsUploadAndSucceeds(t *testing.T) {
 
 // A17 [P0] Retention defaults to 90 days — Decision D2, the reinterpretation of NFR29.
 //
-// "90-day PITR" is unachievable on Neon or Supabase (both cap at 30d). The story's whole
+// "90-day PITR" is unachievable on Neon or Supabase (both cap at 30d). The whole
 // resolution is PITR-at-host-max PLUS 90-day pg_dump snapshots. If this constant drifts,
 // that resolution is void and the NFR is silently unmet.
 //

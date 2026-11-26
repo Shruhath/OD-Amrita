@@ -70,8 +70,20 @@ SETUP-GUIDE.md
 
 AGENTS.md
 
-# ── Private infra/auth setup notes (not product code; keep out of the repo) ──
+# Private operations notes (kept locally)
+# Deployment-specific runbooks and records. The generic, publishable version is
+# docs/deployment.md.
 docs/auth-microsoft-supabase-setup.md
+docs/deploy-walkthrough.md
+docs/deployment-runbook.md
+docs/backup-and-monitoring-runbook.md
+docs/cost-and-latency-record.md
+docs/Amrita-OD_Neon_Monitoring_Cleaned.md
+docs/event-stream-record.md
+docs/admin-portal-operations.md
+# Local act (nektos/act) defaults. api/scripts/ci_local.sh passes the safety
+# flags itself, so the repository does not depend on this file.
+/.actrc
 
 sprint-status.yaml
 
@@ -80,11 +92,6 @@ sprint-status.yaml
 # build input. Both spellings are ignored so a rename cannot quietly un-ignore it.
 old-od-app/
 old-od-app
-
-# Personal go-live checklist — a one-time working document, not a repository artifact.
-# It was committed by accident on 2026-08-09 and untracked again; docs/deployment-runbook.md
-# is the reference that belongs here.
-docs/deploy-walkthrough.md
 
 # Vercel CLI project linkage. Local-only: it names the project a machine is
 # linked to, and committing it makes every clone deploy to whatever project the

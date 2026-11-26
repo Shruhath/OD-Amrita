@@ -222,7 +222,7 @@ kafka-up: ## Start the local single-node Redpanda broker
 		$(CONTAINER_ENGINE) start $(KAFKA_CONTAINER) >/dev/null; \
 	else \
 		$(CONTAINER_ENGINE) run -d --name $(KAFKA_CONTAINER) \
-			-p $(KAFKA_PORT):19092 -p $(KAFKA_ADMIN_PORT):9644 \
+			-p 127.0.0.1:$(KAFKA_PORT):19092 -p 127.0.0.1:$(KAFKA_ADMIN_PORT):9644 \
 			$(KAFKA_IMAGE) redpanda start \
 			--overprovisioned --smp 1 --memory 1G --reserve-memory 0M \
 			--node-id 0 --check=false \

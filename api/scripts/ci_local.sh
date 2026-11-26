@@ -37,17 +37,18 @@
 #   and the reversibility gate's `goose down-to 0`. The last of those drops every
 #   table.
 #
-#   The repository `.actrc` disarms this with --env-file=/dev/null. It is only
-#   read from the CURRENT WORKING DIRECTORY, and the first version of this script
-#   cd'd into api/ before calling act — so the guard was silently not in effect,
-#   and the run reached `psql "$SUPERUSER_DSN" -f db/init/00_roles.sql` aimed at
-#   Neon. It failed with "Connection refused" purely because this network blocks
-#   outbound 5432. On a hotspot it would have succeeded.
+#   An act defaults file (`.actrc`, read only from the CURRENT WORKING
+#   DIRECTORY, and not shipped by this repository) can disarm this with
+#   --env-file=/dev/null, but a guard that depends on where the script happens to
+#   run, or on an untracked file existing, is not a guard. The first version of
+#   this script relied on one and cd'd into api/ before calling act, so it was
+#   silently not in effect.
 #
 #   Three defences now, and none of them may be removed:
-#     1. act is invoked from the repository root, so .actrc applies.
-#     2. --env-file and --secret-file are passed EXPLICITLY as well, so the guard
-#        does not depend on a file being found.
+#     1. act is invoked from the repository root, so the workflow paths, the
+#        .env act would look for and any local act defaults all resolve there.
+#     2. --env-file and --secret-file are passed EXPLICITLY, so the guard
+#        does not depend on any file being found.
 #     3. The three credentials are stripped from this script's own environment
 #        before act runs, so an operator who exported them (`. ./.env`) cannot
 #        hand them over either.
@@ -93,15 +94,15 @@ if [ ${#jobs[@]} -eq 0 ]; then
 fi
 
 # Run FROM the repository root. `-C` sets act's workflow directory but NOT the
-# directory it looks in for .actrc, and .actrc is what disarms the .env load.
+# directory it reads .env and its defaults file from.
 cd "$repo_root"
 
 failed=()
 for job in "${jobs[@]}"; do
   echo "==> api-ci: $job"
-  # --env-file/--secret-file are ALSO in .actrc. Repeated here on purpose: see the
-  # header. A local run must not be able to reach the production database, and
-  # that must not depend on a dotfile being picked up. Do not remove either copy.
+  # --env-file/--secret-file are passed explicitly on purpose: see the header. A
+  # local run must not be able to reach the production database, and that must
+  # not depend on a dotfile being picked up. Do not remove them.
   # `env -u` strips the credentials from what act inherits, for the same reason.
   if env -u SUPERUSER_DSN -u DATABASE_URL_MIGRATOR -u DATABASE_URL_RUNTIME \
       DOCKER_HOST="unix://$socket" act push \

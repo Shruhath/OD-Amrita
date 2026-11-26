@@ -1,7 +1,8 @@
 // Package ops is the acceptance harness for the operational artifacts that make
-// the database recoverable and the service observable: the logical-backup script
-// (api/scripts/pg_backup.sh) and the operator runbook
-// (docs/backup-and-monitoring-runbook.md).
+// the database recoverable and the service deployable: the logical-backup script
+// (api/scripts/pg_backup.sh), the local CI runner (api/scripts/ci_local.sh), the
+// smoke check, the committed host configs and the credential scan over the
+// self-hosting guide (docs/deployment.md).
 //
 // Why these are tested at all, given neither is Go code:
 //
@@ -18,11 +19,11 @@
 //
 //	go test ./test/ops/...
 //
-// What they can and cannot prove: they prove the runbook exists, is structured,
-// names the right database and leaks no credentials. They CANNOT prove its prose is
-// correct or that the procedure works. The real acceptance test is the restore drill
-// — an operator restoring into a throwaway DB and confirming the app boots. This
-// suite protects that drill's preconditions; it does not replace it.
+// What they can and cannot prove: they prove the scripts behave as documented and
+// the committed artifacts leak no credentials. They CANNOT prove a restore works.
+// The real acceptance test is the restore drill — an operator restoring into a
+// throwaway DB and confirming the app boots. This suite protects that drill's
+// preconditions; it does not replace it.
 package ops
 
 import (
@@ -35,12 +36,11 @@ import (
 // Paths of the artifacts under test, relative to the repository root.
 const (
 	backupScriptRel = "api/scripts/pg_backup.sh"
-	runbookRel      = "docs/backup-and-monitoring-runbook.md"
 )
 
 // repoRoot walks up from the test's working directory (api/test/ops) until it finds
 // the go.work that marks the monorepo root. The artifacts under test straddle the
-// module boundary — the script lives inside api/, the runbook does not — so paths
+// module boundary — the scripts live inside api/, the guide and workflows do not — so paths
 // are anchored at the repo root rather than the module root.
 func repoRoot(t *testing.T) string {
 	t.Helper()
@@ -63,8 +63,8 @@ func repoRoot(t *testing.T) string {
 
 // readArtifact returns the contents of a repo-root-relative path, failing the test
 // with the acceptance-criterion context when the artifact has not been created yet.
-// This is the RED-phase entry point: today both artifacts are absent and every test
-// in this package fails here, by design.
+// This is the RED-phase entry point: a missing artifact fails here rather than
+// letting a test pass vacuously.
 func readArtifact(t *testing.T, rel, why string) string {
 	t.Helper()
 
